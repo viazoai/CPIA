@@ -1,0 +1,2076 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Delivery 2.0 — Soft</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Mona+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" rel="stylesheet">
+<style>
+  :root {
+    --bg: #FBFAF6;
+    --bg-card: #FFFFFF;
+    --ink: #18181B;
+    --ink-mid: #52525B;
+    --ink-light: #A1A1AA;
+
+    --mint: #DDF4E4;       --mint-deep: #16A34A;     --mint-text: #166534;
+    --lavender: #EDE7F6;   --lavender-deep: #7C3AED; --lavender-text: #5B21B6;
+    --peach: #FDE6D0;      --peach-deep: #EA580C;    --peach-text: #9A3412;
+    --sky: #DDEEF7;        --sky-deep: #0284C7;      --sky-text: #075985;
+    --sun: #FBEFC4;        --sun-deep: #CA8A04;      --sun-text: #854D0E;
+    --rose: #FBE2E2;       --rose-deep: #E11D48;     --rose-text: #9F1239;
+
+    --border: #ECEAE2;
+    --border-soft: #F3F1EA;
+    --shadow-xs: 0 1px 2px rgba(24,24,27,0.04);
+    --shadow-sm: 0 2px 8px rgba(24,24,27,0.05);
+    --shadow-md: 0 8px 28px rgba(24,24,27,0.07);
+    --shadow-lg: 0 16px 48px rgba(24,24,27,0.10);
+
+    --r-sm: 12px;
+    --r-md: 18px;
+    --r-lg: 24px;
+    --r-xl: 32px;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'Pretendard', 'Mona Sans', -apple-system, sans-serif;
+    font-size: 15px;
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+    word-break: keep-all;
+    overflow-wrap: break-word;
+  }
+
+  /* Decorative background blobs */
+  body::before {
+    content: '';
+    position: fixed;
+    top: -200px; right: -150px;
+    width: 600px; height: 600px;
+    border-radius: 50%;
+    background: radial-gradient(circle, var(--lavender) 0%, transparent 70%);
+    opacity: 0.55;
+    pointer-events: none;
+    z-index: 0;
+  }
+  body::after {
+    content: '';
+    position: fixed;
+    bottom: -200px; left: -150px;
+    width: 500px; height: 500px;
+    border-radius: 50%;
+    background: radial-gradient(circle, var(--mint) 0%, transparent 70%);
+    opacity: 0.5;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .display { font-family: 'Mona Sans', 'Pretendard', sans-serif; letter-spacing: -0.025em; }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+
+  /* NAV */
+  nav {
+    position: sticky; top: 0; z-index: 100;
+    background: rgba(251,250,246,0.85);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 40px; height: 64px;
+  }
+  .nav-brand {
+    display: flex; align-items: center; gap: 12px;
+    font-family: 'Mona Sans', sans-serif;
+    font-weight: 700; font-size: 18px;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+  }
+  .brand-dot {
+    width: 28px; height: 28px;
+    border-radius: 9px;
+    background: linear-gradient(135deg, var(--lavender-deep), var(--peach-deep));
+    position: relative;
+  }
+  .brand-dot::after {
+    content: '';
+    position: absolute;
+    top: 5px; left: 5px;
+    width: 8px; height: 8px;
+    border-radius: 3px;
+    background: rgba(255,255,255,0.95);
+  }
+  .nav-brand .v {
+    color: var(--lavender-deep);
+    font-weight: 700;
+    font-family: 'Mona Sans', sans-serif;
+  }
+  .nav-links {
+    display: flex; align-items: center; gap: 8px;
+    list-style: none;
+  }
+  .nav-links li { display: flex; }
+  .nav-links a {
+    padding: 8px 14px;
+    border-radius: 99px;
+    color: var(--ink-mid);
+    text-decoration: none;
+    font-size: 13px; font-weight: 500;
+    transition: background 0.2s, color 0.2s;
+  }
+  .nav-links a:hover { background: var(--lavender); color: var(--lavender-text); }
+  .nav-links .num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--ink-light);
+    margin-right: 6px;
+    font-weight: 400;
+  }
+  .nav-pill {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 11px; font-weight: 700;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    padding: 6px 12px;
+    border-radius: 99px;
+    background: var(--peach); color: var(--peach-text);
+  }
+
+  /* CONTAINERS */
+  section { padding: 96px 40px; max-width: 1240px; margin: 0 auto; position: relative; z-index: 1; }
+  .section-tag {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 12px; font-weight: 700;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    padding: 6px 14px;
+    border-radius: 99px;
+    margin-bottom: 18px;
+  }
+  .section-tag .dot { width: 6px; height: 6px; border-radius: 50%; }
+  .tag-mint { background: var(--mint); color: var(--mint-text); }
+  .tag-mint .dot { background: var(--mint-deep); }
+  .tag-lavender { background: var(--lavender); color: var(--lavender-text); }
+  .tag-lavender .dot { background: var(--lavender-deep); }
+  .tag-peach { background: var(--peach); color: var(--peach-text); }
+  .tag-peach .dot { background: var(--peach-deep); }
+  .tag-sky { background: var(--sky); color: var(--sky-text); }
+  .tag-sky .dot { background: var(--sky-deep); }
+  .tag-sun { background: var(--sun); color: var(--sun-text); }
+  .tag-sun .dot { background: var(--sun-deep); }
+
+  h2 {
+    font-family: 'Mona Sans', 'Pretendard', sans-serif;
+    font-size: clamp(34px, 4.8vw, 56px);
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+    margin-bottom: 18px;
+  }
+  h2 em {
+    font-style: normal;
+    background: linear-gradient(120deg, transparent 0%, transparent 50%, var(--peach) 50%, var(--peach) 100%);
+    padding: 0 4px;
+  }
+  .lead {
+    font-size: 18px;
+    color: var(--ink-mid);
+    max-width: 760px;
+    margin-bottom: 56px;
+    line-height: 1.65;
+  }
+
+  /* HERO */
+  #hero {
+    padding: 56px 40px 80px;
+    max-width: 1240px;
+    margin: 0 auto;
+    position: relative;
+    z-index: 1;
+  }
+  .hero-pill {
+    display: inline-flex; align-items: center; gap: 10px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    padding: 8px 16px;
+    border-radius: 99px;
+    box-shadow: var(--shadow-sm);
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--ink-mid);
+    margin-bottom: 32px;
+  }
+  .hero-pill .live {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--mint-deep);
+    box-shadow: 0 0 0 3px var(--mint);
+    animation: live-pulse 2s ease-in-out infinite;
+  }
+  @keyframes live-pulse {
+    0%,100% { box-shadow: 0 0 0 3px var(--mint); }
+    50% { box-shadow: 0 0 0 6px rgba(22,163,74,0.15); }
+  }
+  .hero-pill .sep { color: var(--ink-light); }
+  .hero-pill .mono { font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+
+  .hero-title {
+    font-family: 'Mona Sans', 'Pretendard', sans-serif;
+    font-size: clamp(48px, 8vw, 96px);
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    line-height: 1.02;
+    margin-bottom: 20px;
+    max-width: 1100px;
+  }
+  .hero-title .v {
+    background: linear-gradient(135deg, var(--lavender-deep) 0%, var(--peach-deep) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    font-weight: 800;
+  }
+  .hero-tagline {
+    font-family: 'Mona Sans', 'Pretendard', sans-serif;
+    font-size: clamp(22px, 3vw, 36px);
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    line-height: 1.25;
+    color: var(--ink);
+    margin-bottom: 32px;
+    max-width: 900px;
+  }
+  .hero-tagline em {
+    font-style: normal;
+    position: relative;
+    white-space: nowrap;
+  }
+  .hero-tagline em::after {
+    content: '';
+    position: absolute;
+    left: 0; right: 0; bottom: 0.05em;
+    height: 0.32em;
+    background: var(--sun);
+    z-index: -1;
+    border-radius: 4px;
+  }
+  .hero-sub {
+    font-size: 19px;
+    color: var(--ink-mid);
+    max-width: 780px;
+    margin-bottom: 56px;
+    line-height: 1.65;
+  }
+  .hero-sub b { color: var(--ink); font-weight: 700; }
+
+  /* Hero stats */
+  .hero-stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+  }
+  .hstat {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    padding: 22px 24px;
+    box-shadow: var(--shadow-xs);
+    transition: transform 0.25s ease, box-shadow 0.25s ease;
+  }
+  .hstat:hover { transform: translateY(-3px); box-shadow: var(--shadow-md); }
+  .hstat .label {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 11px; font-weight: 700;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--ink-light);
+    margin-bottom: 10px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .hstat .label .ico {
+    width: 18px; height: 18px;
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 10px; font-weight: 700;
+  }
+  .hstat.s1 .ico { background: var(--mint); color: var(--mint-deep); }
+  .hstat.s2 .ico { background: var(--peach); color: var(--peach-deep); }
+  .hstat.s3 .ico { background: var(--lavender); color: var(--lavender-deep); }
+  .hstat.s4 .ico { background: var(--sky); color: var(--sky-deep); }
+  .hstat .val {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 22px; font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+    line-height: 1.2;
+    margin-bottom: 4px;
+  }
+  .hstat .val .accent { color: var(--peach-deep); }
+  .hstat .desc { font-size: 12.5px; color: var(--ink-mid); }
+
+  /* WHY */
+  .why-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--r-xl);
+    padding: 56px 56px;
+    box-shadow: var(--shadow-sm);
+    display: grid;
+    grid-template-columns: 1.1fr 1fr;
+    gap: 48px;
+  }
+  .why-card .text p {
+    font-size: 16px;
+    color: var(--ink-mid);
+    line-height: 1.7;
+    margin-bottom: 16px;
+  }
+  .why-card .text p strong { color: var(--ink); font-weight: 700; }
+  .why-card .text p .hl {
+    background: var(--mint);
+    color: var(--mint-text);
+    padding: 0 6px;
+    border-radius: 6px;
+    font-weight: 600;
+  }
+  .takeaway {
+    background: linear-gradient(135deg, var(--lavender) 0%, var(--peach) 100%);
+    border-radius: var(--r-lg);
+    padding: 36px 36px;
+    position: relative;
+    overflow: hidden;
+  }
+  .takeaway::before {
+    content: '"';
+    position: absolute;
+    top: -30px; right: 12px;
+    font-family: 'Mona Sans', serif;
+    font-size: 200px;
+    color: rgba(255,255,255,0.5);
+    line-height: 1;
+    font-weight: 700;
+  }
+  .takeaway .label {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 11px; font-weight: 700;
+    letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--lavender-text);
+    margin-bottom: 14px;
+    position: relative;
+  }
+  .takeaway .body {
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--ink);
+    line-height: 1.4;
+    letter-spacing: -0.01em;
+    position: relative;
+  }
+  .takeaway .body strong {
+    background: rgba(255,255,255,0.7);
+    padding: 2px 10px;
+    border-radius: 8px;
+    color: var(--ink);
+    font-weight: 700;
+  }
+  .takeaway .eq {
+    font-family: 'Mona Sans', sans-serif;
+    color: var(--peach-deep);
+    margin: 0 6px;
+    font-weight: 700;
+  }
+
+  /* EVOLUTION */
+  .evo-grid {
+    display: grid;
+    grid-template-columns: 1fr 60px 1fr;
+    gap: 0;
+    align-items: stretch;
+  }
+  .evo-card {
+    border-radius: var(--r-xl);
+    padding: 40px 36px;
+    transition: transform 0.3s;
+  }
+  .evo-card:hover { transform: translateY(-4px); }
+  .evo-card.v1 {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-xs);
+  }
+  .evo-card.v2 {
+    background: linear-gradient(180deg, var(--peach) 0%, #fff 100%);
+    border: 1px solid var(--peach-deep);
+    box-shadow: 0 12px 32px rgba(234,88,12,0.18);
+  }
+  .evo-card .badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 11px; font-weight: 700;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    padding: 5px 12px;
+    border-radius: 99px;
+    margin-bottom: 20px;
+  }
+  .evo-card.v1 .badge { background: var(--bg); color: var(--ink-light); border: 1px solid var(--border); }
+  .evo-card.v2 .badge { background: var(--peach-deep); color: #fff; }
+  .evo-card .h {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+    margin-bottom: 28px;
+    color: var(--ink);
+  }
+  .evo-card.v2 .h em { font-style: normal; color: var(--peach-deep); }
+  /* New row-based layout — full-width sections, no left-skew */
+  .evo-row {
+    padding: 16px 0;
+    border-top: 1px solid var(--border-soft);
+  }
+  .evo-card.v2 .evo-row { border-top-color: rgba(234,88,12,0.18); }
+  .evo-card .evo-row:first-of-type { border-top: none; padding-top: 4px; }
+  .evo-row-label {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-light);
+    margin-bottom: 8px;
+  }
+  .evo-card.v2 .evo-row-label { color: var(--peach-text); }
+  .evo-row-value {
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--ink);
+    line-height: 1.5;
+  }
+  .evo-card.v2 .evo-row-value { font-weight: 600; }
+  .evo-row-value .plus {
+    color: var(--peach-deep);
+    font-weight: 800;
+    margin: 0 4px;
+  }
+
+  /* The 방식 row gets visual emphasis — that's where the change story is */
+  .evo-row.evo-method-row {
+    background: rgba(255, 255, 255, 0.55);
+    border: 1px dashed var(--border);
+    border-radius: 12px;
+    padding: 16px 18px;
+    margin: 6px 0;
+  }
+  .evo-card.v2 .evo-row.evo-method-row {
+    background: #fff;
+    border: 1.5px solid var(--peach-deep);
+    box-shadow: 0 4px 16px rgba(234,88,12,0.08);
+  }
+  .evo-method-list {
+    list-style: none;
+    margin: 0; padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .evo-method-list li {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--ink);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    line-height: 1.4;
+  }
+  .evo-method-list li::before {
+    content: '';
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--ink-light);
+    flex-shrink: 0;
+  }
+  .evo-method-list li.is-carry::before {
+    background: var(--ink-light);
+  }
+  .evo-method-list li.is-new {
+    color: var(--peach-deep);
+    font-weight: 800;
+  }
+  .evo-method-list li.is-new::before {
+    background: var(--peach-deep);
+    width: 9px; height: 9px;
+    box-shadow: 0 0 0 3px rgba(234,88,12,0.18);
+  }
+  .new-badge {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 9.5px;
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    padding: 3px 8px;
+    background: var(--peach-deep);
+    color: #fff;
+    border-radius: 4px;
+    margin-left: auto;
+    text-transform: uppercase;
+  }
+  .evo-arrow {
+    display: flex; align-items: center; justify-content: center;
+  }
+  .evo-arrow .a {
+    width: 48px; height: 48px;
+    background: var(--ink);
+    color: #fff;
+    border-radius: 99px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 18px;
+    font-weight: 600;
+    box-shadow: var(--shadow-md);
+  }
+  .ev-note {
+    margin-top: 36px;
+    background: var(--sky);
+    border-radius: var(--r-md);
+    padding: 18px 24px;
+    font-size: 14.5px;
+    color: var(--sky-text);
+    line-height: 1.65;
+  }
+  .ev-note strong { color: var(--sky-deep); font-weight: 700; }
+
+  /* INSIGHT */
+  .insight-card {
+    background: linear-gradient(135deg, var(--sun) 0%, var(--peach) 100%);
+    border-radius: var(--r-xl);
+    padding: 56px 56px;
+    margin-bottom: 64px;
+    position: relative;
+    overflow: hidden;
+  }
+  .insight-card::before {
+    content: '';
+    position: absolute;
+    top: -80px; right: -40px;
+    width: 240px; height: 240px;
+    background: rgba(255,255,255,0.5);
+    border-radius: 50%;
+    pointer-events: none;
+  }
+  .insight-card .row { display: grid; grid-template-columns: 1.4fr 1fr; gap: 48px; align-items: center; position: relative; z-index: 1; }
+  .insight-card .label {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 11px; font-weight: 700;
+    letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--peach-text);
+    margin-bottom: 18px;
+  }
+  .insight-card .big {
+    font-family: 'Mona Sans', 'Pretendard', sans-serif;
+    font-size: clamp(28px, 3.6vw, 42px);
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: -0.025em;
+    color: var(--ink);
+  }
+  .insight-card .big .hi {
+    background: #fff;
+    color: var(--peach-deep);
+    padding: 0 12px;
+    border-radius: 12px;
+    font-weight: 800;
+  }
+  .insight-card p {
+    font-size: 15px;
+    color: var(--ink);
+    line-height: 1.75;
+    margin-bottom: 12px;
+  }
+  .insight-card p strong { color: var(--peach-text); font-weight: 700; }
+
+  /* SUBHEAD */
+  .subhead-block { margin-top: 64px; }
+  .subhead-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--ink-light);
+    letter-spacing: 0.1em;
+    margin-bottom: 8px;
+  }
+  .subhead-num .acc { color: var(--lavender-deep); font-weight: 500; }
+  .subhead {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    margin-bottom: 8px;
+  }
+  .subhead-note {
+    font-size: 15px;
+    color: var(--ink-mid);
+    margin-bottom: 32px;
+    max-width: 720px;
+    line-height: 1.65;
+  }
+
+  /* CALENDAR — 2-day detailed view (월/화 expanded) */
+  .calendar {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+  .cal-day {
+    border-radius: var(--r-xl);
+    padding: 32px 32px 28px;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    transition: transform 0.25s, box-shadow 0.25s;
+  }
+  .cal-day:hover { transform: translateY(-3px); }
+  .cal-day.d-mon { background: var(--mint); }
+  .cal-day.d-tue { background: var(--lavender); }
+  .cal-day.d-wed { background: var(--peach); }
+  .cal-day.d-thu { background: var(--sky); }
+  .cal-day.d-fri { background: var(--sun); }
+
+  .cal-day .head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
+  .cal-day .day-en {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 11px; font-weight: 700;
+    letter-spacing: 0.14em;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+  }
+  .cal-day .day-cn {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 44px;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: -0.04em;
+  }
+  .cal-day.d-mon .day-en, .cal-day.d-mon .day-cn { color: var(--mint-text); }
+  .cal-day.d-tue .day-en, .cal-day.d-tue .day-cn { color: var(--lavender-text); }
+  .cal-day.d-wed .day-en, .cal-day.d-wed .day-cn { color: var(--peach-text); }
+  .cal-day.d-thu .day-en, .cal-day.d-thu .day-cn { color: var(--sky-text); }
+  .cal-day.d-fri .day-en, .cal-day.d-fri .day-cn { color: var(--sun-text); }
+  .cal-day .pill {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 9.5px; font-weight: 700;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    padding: 4px 9px;
+    border-radius: 99px;
+    background: rgba(255,255,255,0.7);
+  }
+  .cal-day.d-mon .pill { color: var(--mint-deep); }
+  .cal-day.d-tue .pill { color: var(--lavender-deep); }
+  .cal-day.d-wed .pill { color: var(--peach-deep); }
+  .cal-day.d-thu .pill { color: var(--sky-deep); }
+  .cal-day.d-fri .pill { color: var(--sun-deep); }
+  .cal-day .pill.tbd { background: rgba(255,255,255,0.5); opacity: 0.85; }
+
+  .cal-day .theme {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 24px;
+    font-weight: 800;
+    color: var(--ink);
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+    margin: 16px 0 18px;
+    padding-bottom: 16px;
+    border-bottom: 1.5px solid;
+  }
+  .cal-day.d-mon .theme { border-bottom-color: var(--mint-deep); }
+  .cal-day.d-tue .theme { border-bottom-color: var(--lavender-deep); }
+
+  .cal-day .sessions {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  /* Detailed session blocks */
+  .cal-day .session {
+    background: rgba(255,255,255,0.92);
+    border-radius: 14px;
+    padding: 16px 18px 16px;
+    box-shadow: var(--shadow-xs);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+  .cal-day .session:hover {
+    transform: translateX(4px);
+    box-shadow: var(--shadow-sm);
+  }
+  .cal-day .ses-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+  }
+  .cal-day .ses-num {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    color: var(--ink-light);
+    text-transform: uppercase;
+  }
+  .cal-day .ses-time {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--ink-mid);
+    padding: 3px 9px;
+    background: var(--bg);
+    border-radius: 6px;
+    letter-spacing: -0.01em;
+  }
+  .cal-day .ses-title {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--ink);
+    line-height: 1.3;
+    letter-spacing: -0.015em;
+    margin-bottom: 6px;
+  }
+  .cal-day .ses-desc {
+    font-size: 13px;
+    color: var(--ink-mid);
+    line-height: 1.55;
+    margin-bottom: 12px;
+    font-weight: 400;
+  }
+  .cal-day .ses-speakers {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-soft);
+  }
+  .cal-day .ses-speaker {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--ink-mid);
+    font-weight: 500;
+    line-height: 1.35;
+  }
+  .cal-day .ses-spk-tag {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    padding: 3px 7px;
+    border-radius: 4px;
+    color: #fff;
+    flex-shrink: 0;
+  }
+  .cal-day.d-mon .ses-spk-tag.spk-field { background: var(--mint-deep); }
+  .cal-day.d-tue .ses-spk-tag.spk-field { background: var(--lavender-deep); }
+  .cal-day .ses-spk-tag.spk-ms { background: var(--peach-deep); }
+
+  /* SESSIONS structure */
+  .sessions-row {
+    display: grid;
+    grid-template-columns: 1fr 60px 1fr;
+    gap: 18px;
+    align-items: stretch;
+  }
+  .ses-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    padding: 32px 32px;
+    box-shadow: var(--shadow-xs);
+    transition: transform 0.25s, box-shadow 0.25s;
+    position: relative;
+    overflow: hidden;
+  }
+  .ses-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-md); }
+  .ses-card .icon-block {
+    width: 52px; height: 52px;
+    border-radius: 16px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 14px; font-weight: 800;
+    margin-bottom: 22px;
+    letter-spacing: 0.05em;
+  }
+  .ses-card.s1 .icon-block { background: var(--mint); color: var(--mint-deep); }
+  .ses-card.s2 .icon-block { background: var(--lavender); color: var(--lavender-deep); }
+  .ses-card .label {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 11px; font-weight: 700;
+    letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--ink-light);
+    margin-bottom: 6px;
+  }
+  .ses-card h4 {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.25;
+    margin-bottom: 14px;
+    color: var(--ink);
+  }
+  .ses-card .quote {
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 10px;
+    line-height: 1.5;
+  }
+  .ses-card.s1 .quote { color: var(--mint-deep); }
+  .ses-card.s2 .quote { color: var(--lavender-deep); }
+  .ses-card p {
+    font-size: 14.5px;
+    color: var(--ink-mid);
+    line-height: 1.7;
+  }
+  .ses-card .effect {
+    margin-top: 22px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border-soft);
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+  .ses-card.s1 .effect { color: var(--mint-deep); }
+  .ses-card.s2 .effect { color: var(--lavender-deep); }
+  .ses-plus {
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 28px; font-weight: 700;
+    color: var(--ink-light);
+  }
+
+  /* LOOP */
+  .loop {
+    display: grid;
+    gap: 12px;
+  }
+  .loop-row {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    padding: 18px 24px 18px 18px;
+    display: grid;
+    grid-template-columns: 44px 200px 1fr 110px;
+    gap: 24px;
+    align-items: center;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    box-shadow: var(--shadow-xs);
+  }
+  .loop-row:hover { border-color: var(--lavender-deep); box-shadow: var(--shadow-sm); }
+  .loop-row .num {
+    width: 36px; height: 36px;
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    color: #fff;
+  }
+  .loop-row.r1 .num { background: var(--mint-deep); }
+  .loop-row.r2 .num { background: var(--lavender-deep); }
+  .loop-row.r3 .num { background: var(--peach-deep); }
+  .loop-row.r4 .num { background: var(--sky-deep); }
+  .loop-row.r5 .num { background: var(--sun-deep); }
+  .loop-row .name {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--ink);
+    letter-spacing: -0.015em;
+    line-height: 1.3;
+  }
+  .loop-row .desc {
+    font-size: 14px;
+    color: var(--ink-mid);
+    line-height: 1.55;
+  }
+  .loop-row .when {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 500;
+    padding: 6px 12px;
+    border-radius: 99px;
+    background: var(--bg);
+    color: var(--ink-mid);
+    text-align: center;
+    justify-self: end;
+  }
+  .loop-cycle {
+    margin-top: 18px;
+    text-align: right;
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--lavender-deep);
+  }
+
+  /* ── OPERATING TIMELINE — loop steps merged with milestone dates ── */
+  .op-timeline { position: relative; margin-top: 32px; }
+  .op-track {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    position: relative;
+    padding-top: 100px;
+    gap: 12px;
+  }
+  .op-track::before {
+    content: ''; position: absolute;
+    top: 99px;
+    left: 24px; right: 24px;
+    height: 2px;
+    background: var(--border);
+    border-radius: 99px;
+  }
+  .op-track::after {
+    content: ''; position: absolute;
+    top: 99px;
+    left: 24px;
+    height: 2px;
+    width: 8%;
+    background: linear-gradient(90deg, var(--mint-deep), var(--lavender-deep));
+    border-radius: 99px;
+  }
+  .op-stop {
+    position: relative;
+    padding-top: 80px; /* GAP between bar and content below */
+    padding-right: 16px;
+  }
+  .op-stop::before {
+    content: ''; position: absolute;
+    top: -9px; left: 18px;
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: #fff;
+    border: 3px solid var(--border);
+    z-index: 2;
+    transition: all 0.3s ease;
+  }
+  .op-stop.now::before {
+    background: var(--lavender-deep);
+    border-color: var(--lavender-deep);
+    box-shadow: 0 0 0 5px var(--lavender);
+  }
+  .op-stop .op-date {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    color: var(--ink);
+    line-height: 1;
+    position: absolute;
+    top: -88px; left: 0;
+  }
+  .op-stop.now .op-date { color: var(--lavender-deep); }
+  .op-stop .op-phase {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-light);
+    position: absolute;
+    top: -50px; left: 0;
+  }
+  .op-stop.now .op-phase { color: var(--lavender-deep); }
+  .op-stop .op-num {
+    display: inline-block;
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 11.5px;
+    font-weight: 700;
+    color: #fff;
+    background: var(--ink-light);
+    padding: 3px 9px;
+    border-radius: 99px;
+    letter-spacing: 0.06em;
+    margin-bottom: 12px;
+  }
+  .op-stop.r1 .op-num { background: var(--mint-deep); }
+  .op-stop.r2 .op-num { background: var(--lavender-deep); }
+  .op-stop.r3 .op-num { background: var(--peach-deep); }
+  .op-stop.r4 .op-num { background: var(--sky-deep); }
+  .op-stop.r5 .op-num { background: var(--sun-deep); }
+  .op-stop .op-title {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: -0.015em;
+    line-height: 1.3;
+    color: var(--ink);
+    margin-bottom: 10px;
+  }
+  .op-stop .op-desc {
+    font-size: 13px;
+    color: var(--ink-mid);
+    line-height: 1.6;
+  }
+  .op-cycle {
+    margin-top: 32px;
+    text-align: right;
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--lavender-deep);
+  }
+  @media (max-width: 980px) {
+    .op-track { grid-template-columns: 1fr; padding-top: 0; gap: 32px; }
+    .op-track::before, .op-track::after { display: none; }
+    .op-stop { padding-top: 0; padding-right: 0; padding-left: 36px; }
+    .op-stop::before { top: 8px; left: 0; }
+    .op-stop .op-date, .op-stop .op-phase { position: static; margin-bottom: 6px; display: inline-block; margin-right: 12px; }
+    .op-stop .op-date { font-size: 22px; }
+  }
+
+  /* MS */
+  .leverage {
+    background: linear-gradient(135deg, #18181B 0%, #2A2A35 100%);
+    color: #fff;
+    border-radius: var(--r-xl);
+    padding: 56px 56px;
+    margin-bottom: 48px;
+    position: relative;
+    overflow: hidden;
+  }
+  .leverage::before {
+    content: '';
+    position: absolute;
+    top: -120px; right: -120px;
+    width: 320px; height: 320px;
+    background: radial-gradient(circle, rgba(124,58,237,0.4), transparent 70%);
+    pointer-events: none;
+  }
+  .leverage::after {
+    content: '';
+    position: absolute;
+    bottom: -100px; left: -50px;
+    width: 280px; height: 280px;
+    background: radial-gradient(circle, rgba(234,88,12,0.3), transparent 70%);
+    pointer-events: none;
+  }
+  .leverage > * { position: relative; z-index: 1; }
+  .leverage .label {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.18em; text-transform: uppercase;
+    color: #C4B5FD;
+    margin-bottom: 24px;
+    display: inline-flex; align-items: center; gap: 8px;
+  }
+  .leverage .label::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: #C4B5FD; }
+  .leverage h3 {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: clamp(26px, 3.4vw, 38px);
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    line-height: 1.2;
+    margin-bottom: 36px;
+    max-width: 920px;
+  }
+  .leverage h3 em {
+    font-style: normal;
+    color: #FDBA74;
+  }
+  .lev-points { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+  .lev-point {
+    padding: 20px 0 0;
+    border-top: 1px solid rgba(255,255,255,0.15);
+  }
+  .lev-point .pn {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    color: #C4B5FD;
+    margin-bottom: 10px;
+    display: block;
+    letter-spacing: 0.05em;
+  }
+  .lev-point p {
+    font-size: 14.5px;
+    color: rgba(255,255,255,0.85);
+    line-height: 1.65;
+  }
+  .lev-point p b { color: #FDBA74; font-weight: 700; }
+
+  .ms-asks {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 18px;
+  }
+  .ask {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    padding: 32px 28px;
+    box-shadow: var(--shadow-xs);
+    transition: transform 0.25s, box-shadow 0.25s;
+  }
+  .ask:hover { transform: translateY(-4px); box-shadow: var(--shadow-md); }
+  .ask .icon {
+    width: 52px; height: 52px;
+    border-radius: 16px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 22px;
+    font-weight: 700;
+    margin-bottom: 22px;
+  }
+  .ask.a1 .icon { background: var(--mint); color: var(--mint-deep); }
+  .ask.a2 .icon { background: var(--peach); color: var(--peach-deep); }
+  .ask.a3 .icon { background: var(--lavender); color: var(--lavender-deep); }
+  .ask h4 {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+  }
+  .ask p {
+    font-size: 14px;
+    color: var(--ink-mid);
+    line-height: 1.7;
+  }
+
+  /* KPI */
+  .kpi-zone {
+    display: grid;
+    grid-template-columns: 1fr 1.4fr;
+    gap: 20px;
+    margin-bottom: 32px;
+  }
+  .kpi-big {
+    background: linear-gradient(135deg, var(--peach-deep) 0%, #F97316 50%, var(--sun-deep) 100%);
+    color: #fff;
+    border-radius: var(--r-xl);
+    padding: 44px 44px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 20px 48px rgba(234,88,12,0.28);
+  }
+  .kpi-big::before {
+    content: '';
+    position: absolute;
+    top: -80px; right: -80px;
+    width: 240px; height: 240px;
+    background: rgba(255,255,255,0.18);
+    border-radius: 50%;
+    pointer-events: none;
+  }
+  .kpi-big > * { position: relative; z-index: 1; }
+  .kpi-big .label {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.18em; text-transform: uppercase;
+    opacity: 0.9;
+    margin-bottom: 16px;
+  }
+  .kpi-big .num {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: clamp(140px, 22vw, 260px);
+    font-weight: 800;
+    line-height: 0.85;
+    letter-spacing: -0.06em;
+    margin: 16px 0;
+  }
+  .kpi-big .unit {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  .kpi-big .desc {
+    margin-top: 28px;
+    font-size: 14.5px;
+    line-height: 1.65;
+    font-weight: 500;
+    opacity: 0.96;
+    max-width: 320px;
+  }
+  .kpi-detail {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--r-xl);
+    padding: 44px 44px;
+    box-shadow: var(--shadow-sm);
+  }
+  .kpi-detail .label {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--peach-deep);
+    margin-bottom: 14px;
+  }
+  .kpi-detail h3 {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: clamp(22px, 2.8vw, 32px);
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    line-height: 1.25;
+    margin-bottom: 22px;
+  }
+  .kpi-detail p {
+    font-size: 15.5px;
+    color: var(--ink-mid);
+    line-height: 1.75;
+    margin-bottom: 16px;
+  }
+  .kpi-detail p:last-of-type { margin-bottom: 0; }
+  .kpi-detail p strong { color: var(--peach-deep); font-weight: 700; }
+  .kpi-stat-row {
+    margin-top: 28px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+  .kpi-stat {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    padding: 16px 20px;
+  }
+  .kpi-stat .l {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--ink-light);
+    margin-bottom: 6px;
+  }
+  .kpi-stat .v {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--ink);
+    letter-spacing: -0.02em;
+  }
+  .kpi-stat .v .acc { color: var(--peach-deep); }
+
+  /* TIMELINE */
+  .timeline {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--r-xl);
+    padding: 44px 44px 36px;
+    box-shadow: var(--shadow-sm);
+  }
+  .timeline > .label {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--lavender-deep);
+    margin-bottom: 8px;
+  }
+  .timeline > .h {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    margin-bottom: 32px;
+  }
+  .tl-track {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    position: relative;
+    margin-top: 24px;
+    padding-top: 64px;
+  }
+  .tl-track::before {
+    content: '';
+    position: absolute;
+    top: 88px;
+    left: 14px; right: 14px;
+    height: 3px;
+    background: var(--border);
+    border-radius: 99px;
+  }
+  .tl-track::after {
+    content: '';
+    position: absolute;
+    top: 88px;
+    left: 14px;
+    height: 3px;
+    width: 18%;
+    background: linear-gradient(90deg, var(--peach-deep), var(--sun-deep));
+    border-radius: 99px;
+  }
+  .tl-stop {
+    position: relative;
+    padding-right: 24px;
+  }
+  .tl-stop::before {
+    content: '';
+    position: absolute;
+    top: -41px;
+    left: 8px;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: #fff;
+    border: 3px solid var(--border);
+  }
+  .tl-stop.now::before {
+    background: var(--peach-deep);
+    border-color: var(--peach-deep);
+    box-shadow: 0 0 0 5px var(--peach);
+  }
+  .tl-stop .date {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 30px;
+    font-weight: 700;
+    color: var(--ink);
+    letter-spacing: -0.04em;
+    line-height: 1;
+    position: absolute;
+    top: -86px;
+    left: 0;
+  }
+  .tl-stop.now .date { color: var(--peach-deep); }
+  .tl-stop .phase {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--ink-light);
+    margin-bottom: 6px;
+  }
+  .tl-stop.now .phase { color: var(--peach-deep); }
+  .tl-stop .title {
+    font-size: 14.5px;
+    font-weight: 700;
+    line-height: 1.4;
+    color: var(--ink);
+    letter-spacing: -0.015em;
+  }
+
+  /* FOOTER */
+  .colophon {
+    margin-top: 48px;
+    padding: 56px 40px;
+    border-top: 1px solid var(--border);
+    background: var(--bg-card);
+    position: relative;
+    z-index: 1;
+  }
+  .colophon-inner {
+    max-width: 1240px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr;
+    gap: 32px;
+    align-items: start;
+  }
+  .colophon .brand {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 22px;
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--lavender-deep) 0%, var(--peach-deep) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    letter-spacing: -0.025em;
+    margin-bottom: 10px;
+  }
+  .colophon p {
+    font-size: 13px;
+    color: var(--ink-mid);
+    line-height: 1.65;
+    max-width: 520px;
+  }
+  .colophon .meta-label {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--ink-light);
+    margin-bottom: 8px;
+  }
+  .colophon .meta-val {
+    font-size: 14px;
+    color: var(--ink);
+    font-weight: 600;
+  }
+
+  /* Reveal */
+  .reveal {
+    opacity: 0;
+    transform: translateY(24px);
+    transition: opacity 0.8s cubic-bezier(0.2, 0.7, 0.2, 1), transform 0.8s cubic-bezier(0.2, 0.7, 0.2, 1);
+  }
+  .reveal.in { opacity: 1; transform: translateY(0); }
+
+  /* Mobile */
+  @media (max-width: 980px) {
+    nav { padding: 0 20px; }
+    .nav-links { display: none; }
+    section, #hero { padding: 56px 20px; }
+    .hero-stats { grid-template-columns: 1fr 1fr; }
+    .why-card { grid-template-columns: 1fr; padding: 36px 28px; }
+    .evo-grid { grid-template-columns: 1fr; gap: 16px; }
+    .evo-arrow { padding: 8px 0; }
+    .evo-arrow .a { transform: rotate(90deg); }
+    .insight-card { padding: 36px 28px; }
+    .insight-card .row { grid-template-columns: 1fr; gap: 28px; }
+    .calendar { grid-template-columns: 1fr 1fr; }
+    .sessions-row { grid-template-columns: 1fr; }
+    .ses-plus { padding: 8px 0; }
+    .loop-row { grid-template-columns: 36px 1fr; gap: 14px; }
+    .loop-row .desc, .loop-row .when { grid-column: 2; }
+    .leverage { padding: 36px 28px; }
+    .lev-points { grid-template-columns: 1fr; }
+    .ms-asks { grid-template-columns: 1fr; }
+    .kpi-zone { grid-template-columns: 1fr; }
+    .kpi-stat-row { grid-template-columns: 1fr; }
+    .tl-track { grid-template-columns: 1fr; gap: 56px; padding-top: 0; }
+    .tl-track::before, .tl-track::after { display: none; }
+    .tl-stop::before { display: none; }
+    .tl-stop .date { position: static; margin-bottom: 8px; }
+    .colophon-inner { grid-template-columns: 1fr; }
+  }
+
+  /* ── SCROLLSPY (left side nav, wider & taller) ──
+     Centered in left whitespace.
+     formula: left = (vw - 1240)/4 - W/2 = 25vw - 310 - 90 = 25vw - 400 */
+  .scrollspy {
+    position: fixed;
+    top: 92px;
+    left: max(16px, calc(25vw - 400px));
+    width: 180px;
+    z-index: 50;
+    padding: 28px 18px 30px;
+    background: rgba(255, 255, 255, 0.9);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-md);
+    display: none;
+  }
+  @media (min-width: 1660px) { .scrollspy { display: block; } }
+
+  .spy-label {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 11px; font-weight: 700;
+    letter-spacing: 0.2em; text-transform: uppercase;
+    color: var(--ink-light);
+    padding-left: 30px;
+    margin-bottom: 14px;
+  }
+  .spy-progress {
+    height: 3px; background: var(--bg);
+    border-radius: 3px; overflow: hidden;
+    margin: 0 6px 18px; position: relative;
+  }
+  .spy-progress::after {
+    content: ''; position: absolute;
+    top: 0; left: 0; height: 100%;
+    width: var(--spy-progress, 0%);
+    background: linear-gradient(90deg, var(--lavender-deep), var(--peach-deep));
+    border-radius: 3px;
+    transition: width 0.3s ease;
+  }
+  .spy-list {
+    list-style: none; padding: 0; margin: 0;
+    position: relative;
+  }
+  .spy-list::before {
+    content: ''; position: absolute;
+    top: 18px; bottom: 18px; left: 11px;
+    width: 1.5px; background: var(--border);
+    border-radius: 2px;
+  }
+  .spy-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 16px 0 16px 32px;
+    text-decoration: none;
+    color: var(--ink-light);
+    position: relative;
+    transition: color 0.2s;
+    cursor: pointer;
+  }
+  .spy-item::before {
+    content: ''; position: absolute;
+    left: 4px; top: 50%; transform: translateY(-50%);
+    width: 15px; height: 15px; border-radius: 50%;
+    background: #fff; border: 2px solid var(--border);
+    transition: all 0.25s ease;
+    z-index: 1;
+  }
+  .spy-num {
+    font-family: 'Mona Sans', sans-serif;
+    font-size: 12.5px; font-weight: 700;
+    letter-spacing: 0.06em;
+    color: var(--ink-light);
+    min-width: 18px;
+    transition: color 0.2s;
+  }
+  .spy-name {
+    font-size: 14px; font-weight: 500;
+    letter-spacing: -0.015em;
+    transition: font-weight 0.2s;
+    color: var(--ink-mid);
+    white-space: nowrap;
+  }
+  .spy-item:hover { color: var(--lavender-deep); }
+  .spy-item:hover .spy-name { color: var(--ink); }
+  .spy-item:hover::before { border-color: var(--lavender-deep); }
+  .spy-item.active { color: var(--lavender-deep); }
+  .spy-item.active::before {
+    background: var(--lavender-deep);
+    border-color: var(--lavender-deep);
+    box-shadow: 0 0 0 4px var(--lavender);
+  }
+  .spy-item.active .spy-num { color: var(--lavender-deep); }
+  .spy-item.active .spy-name { font-weight: 700; color: var(--ink); }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-brand">
+    <div class="brand-dot"></div>
+    AI Delivery <span class="v">2.0</span>
+  </div>
+  <ul class="nav-links">
+    <li><a href="#why"><span class="num">01</span>Why</a></li>
+    <li><a href="#evolution"><span class="num">02</span>진화</a></li>
+    <li><a href="#summit"><span class="num">03</span>Summit</a></li>
+    <li><a href="#ms"><span class="num">04</span>MS</a></li>
+    <li><a href="#kpi"><span class="num">05</span>KPI</a></li>
+  </ul>
+  <div class="nav-pill">Internal Brief</div>
+</nav>
+
+<!-- ── SCROLLSPY (left side nav) ── -->
+<aside class="scrollspy" aria-label="섹션 네비게이션">
+  <div class="spy-label">Contents</div>
+  <div class="spy-progress"></div>
+  <ul class="spy-list">
+    <li><a class="spy-item active" data-target="hero" href="#hero"><span class="spy-num">00</span><span class="spy-name">시작</span></a></li>
+    <li><a class="spy-item" data-target="why" href="#why"><span class="spy-num">01</span><span class="spy-name">Why 2.0</span></a></li>
+    <li><a class="spy-item" data-target="evolution" href="#evolution"><span class="spy-num">02</span><span class="spy-name">1.0 → 2.0</span></a></li>
+    <li><a class="spy-item" data-target="summit" href="#summit"><span class="spy-num">03</span><span class="spy-name">Summit</span></a></li>
+    <li><a class="spy-item" data-target="ms" href="#ms"><span class="spy-num">04</span><span class="spy-name">MS 협력</span></a></li>
+    <li><a class="spy-item" data-target="kpi" href="#kpi"><span class="spy-num">05</span><span class="spy-name">일정 & KPI</span></a></li>
+  </ul>
+</aside>
+
+<!-- HERO -->
+<section id="hero">
+  <div class="hero-pill">
+    <span class="live"></span>
+    SK ECOPLANT · AI BOARD
+    <span class="sep">·</span>
+    <span class="mono">2025.04.30</span>
+  </div>
+  <h1 class="hero-title">
+    AI Delivery <span class="v">2.0</span>
+  </h1>
+  <div class="hero-tagline">
+    SK에코플랜트의 <em>AI 변화관리</em>로 리브랜딩.
+  </div>
+  <p class="hero-sub">
+    <b>"찾아가는 서비스"</b>에서 시작했지만, 이제는 그 이상이 필요합니다. Copilot 전사 도입과 Confluence 정착으로 도구가 늘어난 만큼 — Best Practice를 <b>각인시키는 변화관리</b> 그 자체가 AI Delivery의 정체성이 됩니다.
+  </p>
+
+  <div class="hero-stats">
+    <div class="hstat s1">
+      <div class="label"><span class="ico">i</span>Issued by</div>
+      <div class="val">AI Board</div>
+      <div class="desc">변화관리 주체</div>
+    </div>
+    <div class="hstat s2">
+      <div class="label"><span class="ico">D</span>Key Date</div>
+      <div class="val"><span class="accent">5.11</span></div>
+      <div class="desc">Copilot 전사 오픈</div>
+    </div>
+    <div class="hstat s3">
+      <div class="label"><span class="ico">S</span>Scope</div>
+      <div class="val">전사 / 3개월</div>
+      <div class="desc">시범 도입 골든타임</div>
+    </div>
+    <div class="hstat s4">
+      <div class="label"><span class="ico">F</span>Filed Under</div>
+      <div class="val">변화관리 · 브랜딩</div>
+      <div class="desc">내부 정렬용 문서</div>
+    </div>
+  </div>
+</section>
+
+<!-- I. WHY -->
+<section id="why">
+  <div class="reveal">
+    <div class="section-tag tag-mint"><span class="dot"></span>01 — Why 2.0</div>
+    <h2>환경이 <em>바뀌었다.</em></h2>
+    <p class="lead">"AI 좋다"를 알리는 단계는 끝났습니다. 이제는 각 구성원이 자기 업무에 AI를 어떻게 녹일지를 각인시키는 단계입니다.</p>
+  </div>
+
+  <div class="why-card reveal">
+    <div class="text">
+      <p>Copilot 전사 도입(5/11)과 Confluence 정착으로, AI 도구의 수와 깊이가 동시에 커졌습니다. <strong>도구가 늘어났다는 건, 변화관리의 난이도도 같이 올라갔다는 뜻</strong>입니다.</p>
+      <p>변화관리의 주체는 도구를 도입한 인프라팀이 아니라, 구성원의 일하는 방식을 바꾸는 <span class="hl">AI Board</span>입니다. 그래서 AI Delivery는 <strong>활동(activity)</strong>에서 <strong>브랜드(brand)</strong>로 격상됩니다.</p>
+      <p>"AI 변화관리"라는 단어를 들었을 때, 사내 누구나 곧바로 <span class="hl">AI Delivery</span>를 떠올리게 한다 — 이것이 2.0의 정체성입니다.</p>
+    </div>
+    <div class="takeaway">
+      <div class="label">2.0 Brand Proposition</div>
+      <div class="body">
+        SK에코플랜트의<br>
+        <strong>AI 변화관리</strong> <span class="eq">=</span> <strong>AI Delivery</strong>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- II. EVOLUTION -->
+<section id="evolution">
+  <div class="reveal">
+    <div class="section-tag tag-peach"><span class="dot"></span>02 — 1.0 → 2.0</div>
+    <h2>활동에서 <em>브랜드</em>로.</h2>
+    <p class="lead">1.0이 사라지는 것이 아니라, 2.0의 한 축으로 포함됩니다. 찾아가는 서비스 위에 Summit과 콘텐츠化가 얹어집니다.</p>
+  </div>
+
+  <div class="evo-grid reveal">
+    <div class="evo-card v1">
+      <div class="badge">VOL. 01 — 간보기</div>
+      <div class="h">AI를 알리는<br>찾아가는 활동.</div>
+
+      <div class="evo-row">
+        <div class="evo-row-label">환경</div>
+        <div class="evo-row-value">A.Biz 확산</div>
+      </div>
+      <div class="evo-row">
+        <div class="evo-row-label">미션</div>
+        <div class="evo-row-value">AI 활용 알리기</div>
+      </div>
+      <div class="evo-row evo-method-row">
+        <div class="evo-row-label">방식</div>
+        <ul class="evo-method-list">
+          <li class="is-carry">찾아가는 서비스</li>
+        </ul>
+      </div>
+      <div class="evo-row">
+        <div class="evo-row-label">정체성</div>
+        <div class="evo-row-value">활동 (Activity)</div>
+      </div>
+    </div>
+    <div class="evo-arrow"><div class="a">→</div></div>
+    <div class="evo-card v2">
+      <div class="badge">VOL. 02 — 변화관리 브랜드</div>
+      <div class="h">변화 방식을<br><em>각인시키는</em> 브랜드.</div>
+
+      <div class="evo-row">
+        <div class="evo-row-label">환경</div>
+        <div class="evo-row-value">A.Biz <span class="plus">+</span> Copilot <span class="plus">+</span> Confluence</div>
+      </div>
+      <div class="evo-row">
+        <div class="evo-row-label">미션</div>
+        <div class="evo-row-value">Best Practice 각인</div>
+      </div>
+      <div class="evo-row evo-method-row">
+        <div class="evo-row-label">방식 <span style="color:var(--peach-deep);font-weight:800;">— 무엇이 추가되는가</span></div>
+        <ul class="evo-method-list">
+          <li class="is-carry">찾아가는 서비스 <span style="font-size:11px;font-weight:600;color:var(--ink-light);letter-spacing:0.1em;margin-left:auto;text-transform:uppercase;">유지</span></li>
+          <li class="is-new">Summit <span class="new-badge">NEW</span></li>
+          <li class="is-new">콘텐츠化 <span class="new-badge">NEW</span></li>
+        </ul>
+      </div>
+      <div class="evo-row">
+        <div class="evo-row-label">정체성</div>
+        <div class="evo-row-value">브랜드 (Brand) — AI 변화관리</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ev-note reveal">
+    <strong>핵심:</strong> 1.0의 "찾아가는 서비스"는 2.0의 한 축으로 그대로 살아있습니다. 그 위에 <strong>Summit</strong>과 <strong>콘텐츠化</strong>가 얹어지면서 — 단발성 활동이 지속 가능한 변화관리 브랜드가 됩니다.
+  </div>
+</section>
+
+<!-- III. SUMMIT -->
+<section id="summit">
+  <div class="reveal">
+    <div class="section-tag tag-sun"><span class="dot"></span>03 — Summit 운영 모델</div>
+    <h2>변화는 <em>"선택한 사례"</em>에서 온다.</h2>
+    <p class="lead">왜 Summit인가, 어떻게 운영하는가, 무엇이 한 사이클을 통해 만들어지는가 — 세 단계로 정리합니다.</p>
+  </div>
+
+  <div class="insight-card reveal">
+    <div class="row">
+      <div>
+        <div class="label">// Key Insight</div>
+        <div class="big">
+          "100개 기능 中, 내 업무에 정말 필요한 건 <span class="hi">20개</span>."
+        </div>
+      </div>
+      <div>
+        <p>외국인 미팅이 없는 사람에게 팀즈 영어 번역 기능은 의미가 없습니다. 모든 기능을 일괄 교육하면 80%는 흘러갑니다.</p>
+        <p><strong>자기 업무에 닿는 사례만 취사선택</strong>해서 듣게 해야 비로소 각인됩니다 — 이것이 Summit이라는 형식을 택한 이유입니다.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="subhead-block reveal">
+    <div class="subhead-num">3.1 <span class="acc">// Operating Cadence</span></div>
+    <h3 class="subhead">요일별 공종 — Summit Schedule</h3>
+    <p class="subhead-note">현재는 월·화 두 날짜를 확정해 운영합니다. 각 날짜에 어떤 세션이 어떤 발표자로 채워지는지 보여드립니다 — 운영 결과에 따라 다른 공종으로 단계적 확장 예정.</p>
+
+    <div class="calendar">
+      <div class="cal-day d-mon">
+        <div class="head">
+          <div>
+            <div class="day-en">MON · 月</div>
+            <div class="day-cn">월요일</div>
+          </div>
+          <div class="pill">CONFIRMED</div>
+        </div>
+        <div class="theme">공무 · 공사</div>
+        <ul class="sessions">
+          <li class="session">
+            <div class="ses-meta">
+              <span class="ses-num">SESSION 01</span>
+              <span class="ses-time">09:30 — 10:30</span>
+            </div>
+            <div class="ses-title">단가 산출서 자동 작성</div>
+            <div class="ses-desc">견적 비교 자동화 / 표 생성 / 이상치 탐지</div>
+            <div class="ses-speakers">
+              <div class="ses-speaker"><span class="ses-spk-tag spk-field">현업</span>공무팀 — 실제 단가 산출 워크플로우 시연</div>
+              <div class="ses-speaker"><span class="ses-spk-tag spk-ms">MS</span>Excel + Copilot 전문가 — 수식·표 고급 활용</div>
+            </div>
+          </li>
+          <li class="session">
+            <div class="ses-meta">
+              <span class="ses-num">SESSION 02</span>
+              <span class="ses-time">10:30 — 11:30</span>
+            </div>
+            <div class="ses-title">공정표 검토 · 리스크 도출</div>
+            <div class="ses-desc">공정표 변경사항 요약 / 일정 리스크 자동 분석</div>
+            <div class="ses-speakers">
+              <div class="ses-speaker"><span class="ses-spk-tag spk-field">현업</span>공사팀 — 실 공정표 분석 사례</div>
+              <div class="ses-speaker"><span class="ses-spk-tag spk-ms">MS</span>Project + Copilot 전문가 — 일정 데이터 활용</div>
+            </div>
+          </li>
+          <li class="session">
+            <div class="ses-meta">
+              <span class="ses-num">SESSION 03</span>
+              <span class="ses-time">11:30 — 12:30</span>
+            </div>
+            <div class="ses-title">발주서 초안 자동화</div>
+            <div class="ses-desc">협력사 메일·계약 조건 기반 발주서 자동 생성</div>
+            <div class="ses-speakers">
+              <div class="ses-speaker"><span class="ses-spk-tag spk-field">현업</span>공무팀 — 발주서 작성 시간 단축 사례</div>
+              <div class="ses-speaker"><span class="ses-spk-tag spk-ms">MS</span>Word + Copilot 전문가 — 템플릿 자동화</div>
+            </div>
+          </li>
+        </ul>
+      </div>
+
+      <div class="cal-day d-tue">
+        <div class="head">
+          <div>
+            <div class="day-en">TUE · 火</div>
+            <div class="day-cn">화요일</div>
+          </div>
+          <div class="pill">CONFIRMED</div>
+        </div>
+        <div class="theme">품질 · 안전</div>
+        <ul class="sessions">
+          <li class="session">
+            <div class="ses-meta">
+              <span class="ses-num">SESSION 01</span>
+              <span class="ses-time">09:30 — 10:30</span>
+            </div>
+            <div class="ses-title">안전 회의록 자동 요약</div>
+            <div class="ses-desc">Teams 회의 음성 → 결정사항 + 액션 아이템 자동 추출</div>
+            <div class="ses-speakers">
+              <div class="ses-speaker"><span class="ses-spk-tag spk-field">현업</span>안전팀 — 주간 회의 후속 작업 자동화</div>
+              <div class="ses-speaker"><span class="ses-spk-tag spk-ms">MS</span>Teams Premium 전문가 — 음성·요약 기능</div>
+            </div>
+          </li>
+          <li class="session">
+            <div class="ses-meta">
+              <span class="ses-num">SESSION 02</span>
+              <span class="ses-time">10:30 — 11:30</span>
+            </div>
+            <div class="ses-title">품질 점검 리포트 초안</div>
+            <div class="ses-desc">점검 사진·체크리스트 → 일일 리포트 자동 생성</div>
+            <div class="ses-speakers">
+              <div class="ses-speaker"><span class="ses-spk-tag spk-field">현업</span>품질팀 — 현장 점검 리포트 작성 사례</div>
+              <div class="ses-speaker"><span class="ses-spk-tag spk-ms">MS</span>Word + Copilot 전문가 — 멀티모달 입력 활용</div>
+            </div>
+          </li>
+          <li class="session">
+            <div class="ses-meta">
+              <span class="ses-num">SESSION 03</span>
+              <span class="ses-time">11:30 — 12:30</span>
+            </div>
+            <div class="ses-title">위험 사례 패턴 분석</div>
+            <div class="ses-desc">과거 사고 데이터 학습 → 유사 위험 사전 알림</div>
+            <div class="ses-speakers">
+              <div class="ses-speaker"><span class="ses-spk-tag spk-field">현업</span>안전기획팀 — 위험 사례 DB 활용</div>
+              <div class="ses-speaker"><span class="ses-spk-tag spk-ms">MS</span>Power BI + Copilot 전문가 — 데이터 분석</div>
+            </div>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="subhead-block reveal">
+    <div class="subhead-num">3.2 <span class="acc">// Session Structure</span></div>
+    <h3 class="subhead">현업 + MS, 두 층의 학습</h3>
+    <p class="subhead-note">한 세션은 두 파트로 구성됩니다. 현업의 공감과 MS의 깊이를 겹쳐서 — 한 자리에서 두 층의 학습이 일어납니다.</p>
+
+    <div class="sessions-row">
+      <div class="ses-card s1">
+        <div class="icon-block">01</div>
+        <div class="label">PART 01 — 현업 간증</div>
+        <h4>"Copilot을 이렇게 씁니다."</h4>
+        <p class="quote">실 사용자, 자기 워크플로우.</p>
+        <p>같은 공종 동료의 입에서 나오는 한 마디가, 100시간 교육보다 강하게 박힙니다. 진짜 쓰는 방식을 화면 위에 그대로 펼쳐 보여주는 자리.</p>
+        <div class="effect">→ 공감 · 각인</div>
+      </div>
+      <div class="ses-plus">+</div>
+      <div class="ses-card s2">
+        <div class="icon-block">02</div>
+        <div class="label">PART 02 — MS 기술 세션</div>
+        <h4>"이렇게도 쓸 수 있습니다."</h4>
+        <p class="quote">MS 전문가, 같은 영역.</p>
+        <p>현업 간증이 짚은 영역에서, Outlook · Excel 등 도구별 MS 전문가가 한 단계 더 깊은 활용법을 시연합니다.</p>
+        <div class="effect">→ 깊이 · 확장</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="subhead-block reveal">
+    <div class="subhead-num">3.3 <span class="acc">// Operating Loop & Timeline</span></div>
+    <h3 class="subhead">발굴 → 발표 → 콘텐츠化</h3>
+    <p class="subhead-note">시즌 단위로 사이클이 반복됩니다. 각 단계의 일정과 산출물을 한눈에 — 5/11 Copilot 오픈을 시작점으로, 8월 시범 종료 후 다음 시즌으로 다시 순환합니다.</p>
+
+    <div class="op-timeline">
+      <div class="op-track">
+        <div class="op-stop r1 now">
+          <div class="op-date">5/11</div>
+          <div class="op-phase">D-DAY</div>
+          <span class="op-num">01</span>
+          <div class="op-title">Copilot 오픈</div>
+          <div class="op-desc">전 구성원에게 라이선스 배포. 변화관리의 시작점.</div>
+        </div>
+        <div class="op-stop r2">
+          <div class="op-date">5/30</div>
+          <div class="op-phase">PHASE 1</div>
+          <span class="op-num">02</span>
+          <div class="op-title">사용자 발굴</div>
+          <div class="op-desc">실제 사용 데이터·인터뷰로 후보 사례 확보.</div>
+        </div>
+        <div class="op-stop r3">
+          <div class="op-date">~6월 초</div>
+          <div class="op-phase">PHASE 2</div>
+          <span class="op-num">03</span>
+          <div class="op-title">Best Practice 선정 + 발표자 양성</div>
+          <div class="op-desc">심사 후 보상 패키지 제공. 발표 코칭 병행.</div>
+        </div>
+        <div class="op-stop r4">
+          <div class="op-date">6—8월</div>
+          <div class="op-phase">PHASE 3</div>
+          <span class="op-num">04</span>
+          <div class="op-title">Summit 개최</div>
+          <div class="op-desc">요일별 공종 순환 운영. 현업+MS 2단 세션.</div>
+        </div>
+        <div class="op-stop r5">
+          <div class="op-date">상시</div>
+          <div class="op-phase">CONTINUOUS</div>
+          <span class="op-num">05</span>
+          <div class="op-title">콘텐츠化 → 재배포</div>
+          <div class="op-desc">AI Days · 사내 채널 · 외부 컨퍼런스로 자산화.</div>
+        </div>
+      </div>
+      <div class="op-cycle">↺ 8월 종료 후 다시 ②로 — 지속 루프</div>
+    </div>
+  </div>
+</section>
+
+<!-- IV. MS -->
+<section id="ms">
+  <div class="reveal">
+    <div class="section-tag tag-lavender"><span class="dot"></span>04 — Microsoft 협력</div>
+    <h2>받아낼 것은 <em>분명하다.</em></h2>
+    <p class="lead">SK 케이스는 MS에게도 자산입니다. 이 비대칭이 협상의 모든 것이고, 우리가 받아낼 항목은 Summit과 직결되는 3가지로 압축됩니다.</p>
+  </div>
+
+  <div class="leverage reveal">
+    <div class="label">LEVERAGE — 협상의 근거</div>
+    <h3>SK에코플랜트의 케이스는, MS에게도 <em>자산이다.</em><br>이 비대칭이 협상의 모든 것이다.</h3>
+    <div class="lev-points">
+      <div class="lev-point">
+        <span class="pn">i.</span>
+        <p>대기업 단위 <b>Copilot 전사 도입 레퍼런스</b>가 시장에 부족하다. MS는 이 사례가 절실하다.</p>
+      </div>
+      <div class="lev-point">
+        <span class="pn">ii.</span>
+        <p><b>6월 말 70% 할인</b> 시점은 양측 모두 골든타임. SK는 비용을, MS는 케이스를 얻는다.</p>
+      </div>
+      <div class="lev-point">
+        <span class="pn">iii.</span>
+        <p>SK가 잘 정착시키면 → MS는 <b>마케팅 자산</b>을, SK는 <b>구성원 활용도</b>를 확보한다.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="subhead-block reveal" style="margin-top: 0;">
+    <div class="subhead-num">4.1 <span class="acc">// What We Ask</span></div>
+    <h3 class="subhead">받아낼 항목 3가지</h3>
+    <p class="subhead-note">상시 협조가 아니라, Summit과 직결되는 구체적 지원 항목.</p>
+
+    <div class="ms-asks">
+      <div class="ask a1">
+        <div class="icon">i</div>
+        <h4>사례 발굴 지원</h4>
+        <p>다른 도입 기업의 베스트 프랙티스 공유, 인사이트 제공으로 발굴 시작점 단축.</p>
+      </div>
+      <div class="ask a2">
+        <div class="icon">ii</div>
+        <h4>발표자 보상</h4>
+        <p>MS 교육 쿠폰, 굿즈 등 Summit 발표자 인센티브 패키지 — 자발적 참여를 유도하는 윤활유.</p>
+      </div>
+      <div class="ask a3">
+        <div class="icon">iii</div>
+        <h4>MS 전문가 세션</h4>
+        <p>Outlook · Excel 등 도구별 전문가가 직접 세션 진행. "공감" 다음의 "깊이"를 책임진다.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- V. KPI -->
+<section id="kpi">
+  <div class="reveal">
+    <div class="section-tag tag-sky"><span class="dot"></span>05 — 일정 & KPI</div>
+    <h2>3개월, <em>단 한 번</em>의 기회.</h2>
+    <p class="lead">시범 도입 3개월이 변화관리의 골든타임. 이 기간을 놓치면 도입 자체의 정당성이 흔들립니다.</p>
+  </div>
+
+  <div class="kpi-zone reveal">
+    <div class="kpi-big">
+      <div>
+        <div class="label">// SINGLE WINDOW</div>
+        <div class="num">3</div>
+        <div class="unit">months</div>
+      </div>
+      <div class="desc">5/11 오픈 시점부터 8월 종료까지의 활성 사용률 곡선이, AI Delivery 2.0의 성패를 그대로 보여줍니다.</div>
+    </div>
+    <div class="kpi-detail">
+      <div class="label">// KPI — 핵심 지표</div>
+      <h3>전사 정착률 = 변화관리의 단일 척도.</h3>
+      <p>전 구성원이 Copilot을 자기 업무에 녹여 쓰고 있는가. 측정은 <strong>Copilot 사용 로그</strong>로 정량 확인합니다.</p>
+      <p>Summit과 콘텐츠化의 사이클 속도가, 곧 KPI의 분모입니다.</p>
+      <div class="kpi-stat-row">
+        <div class="kpi-stat">
+          <div class="l">측정 1</div>
+          <div class="v"><span class="acc">사용자 수</span> / 전사</div>
+        </div>
+        <div class="kpi-stat">
+          <div class="l">측정 2</div>
+          <div class="v"><span class="acc">사용 빈도</span> / 인당</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</section>
+
+<footer class="colophon">
+  <div class="colophon-inner">
+    <div>
+      <div class="brand">AI Delivery 2.0</div>
+      <p>이 문서는 SK에코플랜트 AI Board의 내부 정렬용 워킹 도큐먼트입니다. 외부 협상용 자료(Microsoft 협상용)는 별도 발행됩니다.</p>
+    </div>
+    <div>
+      <div class="meta-label">Issued</div>
+      <div class="meta-val">AI Board · 2025.04.30</div>
+    </div>
+    <div>
+      <div class="meta-label">Filed Under</div>
+      <div class="meta-val">변화관리 · 브랜딩 · 운영 모델</div>
+    </div>
+  </div>
+</footer>
+
+<script>
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        e.target.classList.add('in');
+        io.unobserve(e.target);
+      }
+    });
+  }, { threshold: 0.1 });
+  document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+
+  // ── Scrollspy — highlight current section in left side nav ──
+  (function () {
+    const spyItems = Array.from(document.querySelectorAll('.spy-item'));
+    const spy = document.querySelector('.scrollspy');
+    if (!spyItems.length || !spy) return;
+
+    const targets = spyItems
+      .map(item => ({ item, el: document.getElementById(item.dataset.target) }))
+      .filter(t => t.el);
+
+    function setActive(id) {
+      spyItems.forEach(item => {
+        item.classList.toggle('active', item.dataset.target === id);
+      });
+      const idx = targets.findIndex(t => t.item.dataset.target === id);
+      if (idx >= 0) {
+        const pct = ((idx + 1) / targets.length) * 100;
+        spy.style.setProperty('--spy-progress', pct + '%');
+      }
+    }
+
+    function update() {
+      const probe = window.innerHeight * 0.3;
+      let current = targets[0];
+      for (const t of targets) {
+        const rect = t.el.getBoundingClientRect();
+        if (rect.top - probe <= 0) current = t;
+        else break;
+      }
+      setActive(current.item.dataset.target);
+    }
+
+    update();
+    let ticking = false;
+    window.addEventListener('scroll', () => {
+      if (!ticking) {
+        requestAnimationFrame(() => { update(); ticking = false; });
+        ticking = true;
+      }
+    }, { passive: true });
+    window.addEventListener('resize', update);
+  })();
+</script>
+</body>
+</html>

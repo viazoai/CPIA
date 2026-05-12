@@ -24,7 +24,7 @@
 SK에코플랜트 Hi-tech 사업부는 반도체·배터리 공장 EPC 수주가 급증하는 상황에서
 **현장 Front Office 역량 인력 확보**라는 과제에 직면해 있습니다.
 
-- Hi-tech EPC 현장 특성상 공정 판단·발주처 협의·리스크 대응이 가능한 **Front Office 인력** 수요 급증
+- Hi-tech EPC 현장 특성상 공정 판단·발주처 협의·리스크 대응이 가능한 **Front Office 인력** 수요 급증 (26년: 1,000명 수준 추가 EPC 인원 확보 필요)
 - 그룹 차원에서 ABI(AI Business Innovation) 추진 중 — 워크플로우 재설계와 조직 구조 변화가 핵심 화두
 - 현장 인력을 추가로 뽑는 것만으로는 한계: **기존 인력이 Middle Office 업무에 묶여** Front 역할을 못 하고 있음
 

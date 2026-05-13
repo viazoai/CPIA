@@ -1,5 +1,5 @@
 {
     "markdown-preview-enhanced.d2Theme": 1,
-    "markdown-preview-enhanced.alwaysShowBacklinksInPreview": true,
-    "markdown-preview-enhanced.automaticallyShowPreviewOfMarkdownBeingEdited": true
+    "markdown-preview-enhanced.alwaysShowBacklinksInPreview": false,
+    "markdown-preview-enhanced.automaticallyShowPreviewOfMarkdownBeingEdited": false
 }

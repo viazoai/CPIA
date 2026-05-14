@@ -57,7 +57,8 @@ def _ffill(
 ) -> list[tuple[int, list[Any]]]:
     """헤더 이후 row 를 forward-fill (병합 셀 직전 값 채움).
 
-    fixture loader (test_mapper_golden.py:63) 의 _ffill 이관.
+    사전 조건: fill_cols 의 모든 인덱스는 row 의 열 수 이내여야 한다.
+    조건 위반 시 해당 컬럼은 조용히 skip (데이터 손실 가능) — 호출부 책임.
     반환 row 번호는 1-indexed (header_end + 1 부터).
     """
     last: dict[int, Any] = {c: None for c in fill_cols}

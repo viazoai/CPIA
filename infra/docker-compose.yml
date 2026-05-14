@@ -11,7 +11,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-cpia}
       TZ: Asia/Seoul
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5532}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres/init.sql:/docker-entrypoint-initdb.d/00_init.sql:ro
@@ -33,7 +33,7 @@ services:
       ANONYMIZED_TELEMETRY: "FALSE"
       TZ: Asia/Seoul
     ports:
-      - "${CHROMA_PORT:-8000}:8000"
+      - "127.0.0.1:${CHROMA_PORT:-5533}:8000"
     volumes:
       - chroma_data:/chroma/chroma
     healthcheck:
@@ -41,6 +41,19 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
+    networks:
+      - cpia_net
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cpia-cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARED_TOKEN:?CLOUDFLARED_TOKEN required}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      chroma:
+        condition: service_healthy
     networks:
       - cpia_net
 

@@ -1,0 +1,66 @@
+name: cpia
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cpia-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cpia}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cpia}
+      POSTGRES_DB: ${POSTGRES_DB:-cpia}
+      TZ: Asia/Seoul
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5532}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/00_init.sql:ro
+      - ./postgres/migrations:/docker-entrypoint-initdb.d/migrations:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cpia} -d ${POSTGRES_DB:-cpia}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - cpia_net
+
+  chroma:
+    image: chromadb/chroma:0.5.20
+    container_name: cpia-chroma
+    restart: unless-stopped
+    environment:
+      IS_PERSISTENT: "TRUE"
+      ANONYMIZED_TELEMETRY: "FALSE"
+      TZ: Asia/Seoul
+    ports:
+      - "127.0.0.1:${CHROMA_PORT:-5533}:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    healthcheck:
+      test: ["CMD", "/bin/sh", "-c", "curl -fsS http://localhost:8000/api/v1/heartbeat || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks:
+      - cpia_net
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cpia-cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARED_TOKEN:?CLOUDFLARED_TOKEN required}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      chroma:
+        condition: service_healthy
+    networks:
+      - cpia_net
+
+volumes:
+  postgres_data:
+  chroma_data:
+
+networks:
+  cpia_net:
+    driver: bridge

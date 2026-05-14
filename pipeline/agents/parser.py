@@ -1,22 +1,27 @@
-"""Parser 에이전트 — 작업일보 xlsx → ParsedDailyReport.
+"""Parser 에이전트 — 작업일보 xlsx -> ParsedDailyReport.
 
 Spec: docs/superpowers/specs/2026-05-15-cpia-parser-design.md
 """
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
+import openpyxl
+
 if TYPE_CHECKING:
-    from pipeline.state import BPSummary, JobAllocation, Activity, EquipmentAllocation
+    from pipeline.state import BPSummary, JobAllocation, Activity, EquipmentAllocation, ParsedDailyReport
 else:
     try:
-        from pipeline.state import BPSummary, JobAllocation, Activity, EquipmentAllocation
+        from pipeline.state import BPSummary, JobAllocation, Activity, EquipmentAllocation, ParsedDailyReport
     except ImportError:
         BPSummary = dict
         JobAllocation = dict
         Activity = dict
         EquipmentAllocation = dict
+        ParsedDailyReport = dict
 
 
 class ParseError(Exception):
@@ -37,12 +42,12 @@ _ADMIN_JOBS: frozenset[str] = frozenset({"BP소장", "공사관리자", "안전�
 
 
 def _normalize_unit(s: str) -> str:
-    """단위 대소문자 통일 (M2→m2, Ton→ton)."""
+    """단위 대소문자 통일 (M2->m2, Ton->ton)."""
     return s.lower() if s else ""
 
 
 def _disc_abbrev_to_kr(abbrev: str | None) -> str | None:
-    """공종 약자 → 한글 (알 수 없으면 원본 보존)."""
+    """공종 약자 -> 한글 (알 수 없으면 원본 보존)."""
     if abbrev is None:
         return None
     return _DISC_ABBREV_TO_KR.get(abbrev, abbrev)
@@ -155,7 +160,7 @@ def _parse_sheet2_job_allocations(ws) -> list[JobAllocation]:
 
 
 def _parse_sheet4_activities(ws) -> list[Activity]:
-    """시트 4 (물량) → Activity[]. fixture loader _load_inputs 이관.
+    """시트 4 (물량) -> Activity[]. fixture loader _load_inputs 이관.
 
     Header end = row 4. Forward-fill 컬럼 = [1, 2, 3, 4, 5] (병합 셀 패턴).
     필수 셀: r[5] (company), r[7] (work_content).
@@ -224,3 +229,83 @@ def _parse_sheet3_equipment_allocations(ws) -> list[EquipmentAllocation]:
             }
         )
     return eqs
+
+
+# ---------------------------------------------------------------------------
+# Task 6: 공개 API
+# ---------------------------------------------------------------------------
+
+_DATE_PATTERN = re.compile(r"_(\d{4})(\d{2})(\d{2})\.xlsx$|_(\d{6})\.xlsm?$")
+
+
+def _extract_meta(xlsx_path: Path, wb) -> tuple[str, str]:
+    """파일명 -> report_date, 시트1 또는 파일명 -> project. 둘 다 실패 시 ParseError."""
+    m = _DATE_PATTERN.search(xlsx_path.name)
+    if m:
+        if m.group(1):
+            report_date = f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+        else:
+            ymd = m.group(4)
+            report_date = f"20{ymd[:2]}-{ymd[2:4]}-{ymd[4:6]}"
+    else:
+        raise ParseError(f"파일명에서 날짜 추출 실패: {xlsx_path.name}")
+
+    project = ""
+    sheet1_name = "1.출력인원 현황"
+    if sheet1_name in wb.sheetnames:
+        ws1 = wb[sheet1_name]
+        for row in list(ws1.iter_rows(min_row=1, max_row=3, values_only=True)):
+            for cell in row:
+                if isinstance(cell, str) and ("M15X" in cell or "IBL" in cell or "PJT" in cell):
+                    project = cell.strip()
+                    break
+            if project:
+                break
+
+    if not project:
+        stem = xlsx_path.stem
+        project = stem.replace("통합작업일보_", "").rsplit("_", 1)[0].strip()
+        if not project:
+            raise ParseError(f"project 추출 실패: {xlsx_path.name}")
+
+    return report_date, project
+
+
+def parse_daily_report(xlsx_path: Path | str) -> ParsedDailyReport:
+    """작업일보 xlsx 1개 -> 4시트 통합 ParsedDailyReport.
+
+    Args:
+        xlsx_path: 통합작업일보 xlsx 절대 경로 (Path 또는 str).
+
+    Returns:
+        ParsedDailyReport -- spec 3 참조.
+
+    Raises:
+        ParseError: 시트명 누락, report_date/project 추출 실패.
+    """
+    xlsx_path = Path(xlsx_path)
+    wb = openpyxl.load_workbook(xlsx_path, data_only=True, read_only=True)
+
+    required_sheets = {"1.출력인원 현황", "2.직종별 인원현황", "3.장비현황", "4.물량"}
+    missing = required_sheets - set(wb.sheetnames)
+    if missing:
+        wb.close()
+        raise ParseError(f"시트 누락: {sorted(missing)}")
+
+    report_date, project = _extract_meta(xlsx_path, wb)
+
+    bp_summaries = _parse_sheet1_bp_summaries(wb["1.출력인원 현황"])
+    job_allocations = _parse_sheet2_job_allocations(wb["2.직종별 인원현황"])
+    equipment_allocations = _parse_sheet3_equipment_allocations(wb["3.장비현황"])
+    activities = _parse_sheet4_activities(wb["4.물량"])
+
+    wb.close()
+
+    return {
+        "report_date": report_date,
+        "project": project,
+        "bp_summaries": bp_summaries,
+        "job_allocations": job_allocations,
+        "equipment_allocations": equipment_allocations,
+        "activities": activities,
+    }

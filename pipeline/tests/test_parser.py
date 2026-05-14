@@ -252,3 +252,42 @@ def test_parse_sheet3_count_cum_t_int(sample_tong_path: Path):
     for e in eqs:
         assert isinstance(e["count_cum_t"], int)
         assert e["count_cum_t"] >= 0
+
+
+# ---------------------------------------------------------------------------
+# Task 6: parse_daily_report + _extract_meta 테스트
+# ---------------------------------------------------------------------------
+from pipeline.agents.parser import ParseError, parse_daily_report  # noqa: E402
+
+
+def test_parse_meta(sample_tong_path: Path):
+    parsed = parse_daily_report(sample_tong_path)
+    assert parsed["report_date"] == "2025-09-25"
+    assert parsed["project"], f"project 비어있음: {parsed['project']!r}"
+    assert "M15X" in parsed["project"] or "IBL" in parsed["project"]
+
+
+def test_parse_daily_report_integration(sample_tong_path: Path):
+    """공개 API — 4시트 통합 ParsedDailyReport."""
+    parsed = parse_daily_report(sample_tong_path)
+    assert len(parsed["bp_summaries"]) > 0
+    assert len(parsed["job_allocations"]) > 0
+    assert len(parsed["equipment_allocations"]) > 0
+    assert len(parsed["activities"]) > 79
+
+
+def test_parse_determinism(sample_tong_path: Path):
+    """같은 xlsx 2회 호출 -> 동일 dict (결정성)."""
+    p1 = parse_daily_report(sample_tong_path)
+    p2 = parse_daily_report(sample_tong_path)
+    assert p1 == p2
+
+
+def test_parse_error_missing_sheet(tmp_path):
+    """시트 누락 -> ParseError."""
+    bad_path = tmp_path / "broken.xlsx"
+    wb = openpyxl.Workbook()
+    wb.active.title = "wrong_sheet"
+    wb.save(bad_path)
+    with pytest.raises(ParseError):
+        parse_daily_report(bad_path)

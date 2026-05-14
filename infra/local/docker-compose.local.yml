@@ -1,0 +1,33 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: cpia-pg-local
+    environment:
+      POSTGRES_USER: cpia
+      POSTGRES_PASSWORD: cpia
+      POSTGRES_DB: cpia
+    ports:
+      - "5432:5432"
+    volumes:
+      - cpia-pg-data:/var/lib/postgresql/data
+      - ./postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cpia"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  chroma:
+    image: chromadb/chroma:0.5.20
+    container_name: cpia-chroma-local
+    ports:
+      - "8000:8000"
+    volumes:
+      - cpia-chroma-data:/chroma/chroma
+    environment:
+      IS_PERSISTENT: TRUE
+      ANONYMIZED_TELEMETRY: FALSE
+
+volumes:
+  cpia-pg-data:
+  cpia-chroma-data:

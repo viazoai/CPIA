@@ -9,9 +9,14 @@ Task 7 — map_activity 통합 함수.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
+from openai import AzureOpenAI
+
+from pipeline.chroma_client import ChromaClient
+from pipeline.db import PGClient
 from pipeline.state import Activity, BPSummary, ParsedDailyReport
 
 
@@ -179,3 +184,159 @@ def resolve_wa(
 
     # 4단계 — H-i-L 강제
     return WAResolution(value=None, source="hil_required")
+
+
+@dataclass
+class MapperConfig:
+    """Mapper 6단계 호출에 필요한 환경."""
+
+    azure_endpoint: str
+    azure_api_key: str
+    azure_api_version: str
+    llm_model: str
+    embedding_model: str
+    postgres_url: str
+    chroma_host: str
+    chroma_port: int
+    top_k: int = 15
+    max_candidates: int = 8
+    conf_threshold: float = 0.7
+
+
+async def map_activity(
+    activity: Activity,
+    parsed_report: ParsedDailyReport | None,
+    cfg: MapperConfig,
+) -> Activity:
+    """6단계 흐름 (mapping-layer.md §3).
+
+    ① BP filter (PG) → ② 임베딩 input (단순) → ③ Chroma Top-K → BP filter ∩
+    → ④ LLM input (풍부) → ⑤ LLM 분류 → ⑥ WA 결정 4단계.
+    """
+
+    client = AzureOpenAI(
+        api_key=cfg.azure_api_key,
+        api_version=cfg.azure_api_version,
+        azure_endpoint=cfg.azure_endpoint,
+    )
+
+    # ① BP filter — PG
+    pg = PGClient(cfg.postgres_url)
+    await pg.connect()
+    try:
+        cand_rows = await pg.fetch_bp_candidates(activity["company"])
+    finally:
+        await pg.close()
+    cand_pool: list[tuple[str, str]] = [(r["wa"], r["l6_main"]) for r in cand_rows]
+    if not cand_pool:
+        # BP filter 후 0 → H-i-L (Master 미등록 BP사)
+        return {
+            **activity,
+            "wa": None,
+            "l6_main": None,
+            "mapping_source": "hil_required",
+            "mapping_conf": 0.0,
+            "requires_review": True,
+        }
+
+    # ② 임베딩 input (단순)
+    embed_text = build_embedding_input(activity)
+    emb_resp = client.embeddings.create(model=cfg.embedding_model, input=[embed_text])
+    inp_vec = emb_resp.data[0].embedding
+
+    # ③ Chroma Top-K → BP filter ∩
+    chroma = ChromaClient(host=cfg.chroma_host, port=cfg.chroma_port)
+    coll = chroma.get_or_create_wbs_master()
+    chroma_result = coll.query(
+        query_embeddings=[inp_vec],
+        n_results=cfg.top_k,
+        include=["documents", "metadatas"],
+    )
+    candidates: list[dict[str, Any]] = []
+    for i, _doc_id in enumerate(chroma_result["ids"][0]):
+        meta = chroma_result["metadatas"][0][i]
+        key = (meta["wa"], meta["l6_main"])
+        if key in cand_pool:
+            candidates.append(
+                {
+                    "key": key,
+                    "doc_text": chroma_result["documents"][0][i],
+                }
+            )
+            if len(candidates) >= cfg.max_candidates:
+                break
+
+    # 임베딩 후보가 BP filter 통과 0개 → BP filter 전체 fallback
+    if not candidates:
+        candidates = [
+            {"key": k, "doc_text": f"Work PKG-1 (L6): {k[1]} (WA: {k[0]})"}
+            for k in cand_pool[: cfg.max_candidates]
+        ]
+
+    # ④ LLM input (풍부)
+    llm_text = build_llm_input(activity, parsed_report)
+
+    # ⑤ LLM 분류
+    cand_str = "\n".join(f"[{i}] {c['doc_text']}" for i, c in enumerate(candidates))
+    user_msg = (
+        f"작업일보 1행을 WBS 매핑 후보 중 1개로 분류.\n\n"
+        f"### 작업일보 + BP사 컨텍스트\n{llm_text}\n\n"
+        f"### 후보\n{cand_str}\n\n"
+        f"### 응답 (JSON only)\n"
+        f'{{"choice": <int>, "confidence": <0.0~1.0 float>, "reason": "<짧게>"}}'
+    )
+    chat_resp = client.chat.completions.create(
+        model=cfg.llm_model,
+        messages=[
+            {
+                "role": "system",
+                "content": "건설 작업일보 ↔ WBS 매핑 분류기. 한국어 응답.",
+            },
+            {"role": "user", "content": user_msg},
+        ],
+        response_format={"type": "json_object"},
+    )
+    try:
+        llm_result = json.loads(chat_resp.choices[0].message.content)
+    except (json.JSONDecodeError, TypeError):
+        return {
+            **activity,
+            "wa": None,
+            "l6_main": None,
+            "mapping_source": "hil_required",
+            "mapping_conf": 0.0,
+            "requires_review": True,
+        }
+
+    choice = llm_result.get("choice", -1)
+    if not (0 <= choice < len(candidates)):
+        return {
+            **activity,
+            "wa": None,
+            "l6_main": None,
+            "mapping_source": "hil_required",
+            "mapping_conf": 0.0,
+            "requires_review": True,
+        }
+
+    chosen_key = candidates[choice]["key"]
+    confidence = float(llm_result.get("confidence", 0.0))
+
+    # ⑥ WA 결정 4단계
+    wa_result = resolve_wa(
+        activity,
+        l6_choice=chosen_key[1],
+        cand_pool=cand_pool,
+        parsed_report=parsed_report,
+    )
+
+    requires_review = confidence < cfg.conf_threshold or wa_result.source == "hil_required"
+
+    return {
+        **activity,
+        "wa": wa_result.value,
+        "l6_main": chosen_key[1],
+        "mapping_conf": confidence,
+        "mapping_source": wa_result.source,
+        "requires_review": requires_review,
+    }

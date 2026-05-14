@@ -592,22 +592,24 @@ Run:
 cd pipeline && uv run pytest tests/test_parser.py::test_parse_sheet2_no_admin_jobs -v 2>&1 | tail -10
 ```
 
-- [ ] **Step 4.3: 구현 (Task 0 Step 2 결과 cell 인덱스 사용)**
+- [ ] **Step 4.3: 구현 (Task 0 cell 인덱스 표 확정 — 시뮬 v3 검증)**
 
 ```python
 def _parse_sheet2_job_allocations(ws) -> list[JobAllocation]:
     """시트 2 (직종별 인원현황) → JobAllocation[]. 관리자 직종/합계 row 필터.
 
-    cell 인덱스 (Task 0 Step 2 시뮬 발췌 기준):
-      r[3] = disc_abbrev, r[4] = company, r[5] = job_type, r[23] = workers_cum_t.
-    header_end = 5, fill_cols = [1, 2, 3, 4]. 실 파일 검증 단계에서 조정 가능.
+    cell 인덱스 (Task 0 시뮬 v3 발췌 / 실 파일 row 3 헤더 검증):
+      r[1] = disc_abbrev (Dis 영문 약자), r[2] = company (BP사 — BP코드 row 와
+      회사명 row 혼재, mapper 가 회사명으로만 매치하므로 BP코드 row 는 자연 무시),
+      r[5] = job_type, r[23] = workers_cum_t (col 23 = 금일누계 계 컬럼).
+    header_end = 5, fill_cols = [1, 2] (시뮬과 일치).
     """
-    rows = _ffill(list(ws.iter_rows(values_only=True)), header_end=5, fill_cols=[1, 2, 3, 4])
+    rows = _ffill(list(ws.iter_rows(values_only=True)), header_end=5, fill_cols=[1, 2])
     jobs: list[JobAllocation] = []
     for _i, r in rows:
         if _is_total_row(tuple(r)):
             continue
-        company = str(r[4]).strip() if r[4] else ""
+        company = str(r[2]).strip() if r[2] else ""
         job_type = str(r[5]).strip() if len(r) > 5 and r[5] else ""
         if not (company and job_type):
             continue
@@ -618,7 +620,7 @@ def _parse_sheet2_job_allocations(ws) -> list[JobAllocation]:
             {
                 "bp_code": None,
                 "company": company,
-                "disc_abbrev": _disc_abbrev_to_kr(str(r[3]).strip()) if r[3] else None,
+                "disc_abbrev": _disc_abbrev_to_kr(str(r[1]).strip()) if r[1] else None,
                 "job_type": job_type,
                 "workers_cum_t": cum_t,
             }
@@ -692,27 +694,29 @@ Run:
 cd pipeline && uv run pytest tests/test_parser.py::test_parse_sheet3_count -v 2>&1 | tail -10
 ```
 
-- [ ] **Step 5.3: 구현**
+- [ ] **Step 5.3: 구현 (Task 0 cell 인덱스 표 확정 — 시뮬 v3 검증)**
 
 ```python
 def _parse_sheet3_equipment_allocations(ws) -> list[EquipmentAllocation]:
     """시트 3 (장비현황) → EquipmentAllocation[].
 
-    cell 인덱스 (Task 0 Step 2 시뮬 발췌 기준):
-      r[4] = company, r[5] = equipment_big, r[6] = equipment_mid, r[7] = equipment_spec,
-      r[23] = count_cum_t. header_end = 5, fill_cols = [1, 2, 3, 4, 5].
+    cell 인덱스 (Task 0 시뮬 v3 발췌 / 실 파일 row 3 헤더 검증):
+      r[1] = disc_abbrev, r[2] = company,
+      r[3] = equipment_big (대분류), r[4] = equipment_mid (중분류),
+      r[5] = equipment_spec (규격, None 허용),
+      r[23] = count_cum_t. header_end = 5, fill_cols = [1, 2] (시뮬과 일치).
     """
-    rows = _ffill(list(ws.iter_rows(values_only=True)), header_end=5, fill_cols=[1, 2, 3, 4, 5])
+    rows = _ffill(list(ws.iter_rows(values_only=True)), header_end=5, fill_cols=[1, 2])
     eqs: list[EquipmentAllocation] = []
     for _i, r in rows:
         if _is_total_row(tuple(r)):
             continue
-        company = str(r[4]).strip() if r[4] else ""
-        big = str(r[5]).strip() if len(r) > 5 and r[5] else ""
-        mid = str(r[6]).strip() if len(r) > 6 and r[6] else ""
+        company = str(r[2]).strip() if r[2] else ""
+        big = str(r[3]).strip() if len(r) > 3 and r[3] else ""
+        mid = str(r[4]).strip() if len(r) > 4 and r[4] else ""
         if not (company and big and mid):
             continue
-        spec = str(r[7]).strip() if len(r) > 7 and r[7] else None
+        spec = str(r[5]).strip() if len(r) > 5 and r[5] else None
         cum_t = int(r[23]) if len(r) > 23 and isinstance(r[23], (int, float)) else 0
         eqs.append(
             {
@@ -1336,3 +1340,4 @@ Two execution options:
 | 날짜 | 내용 | 작성자 |
 |---|---|---|
 | 2026-05-15 | 초안 — Task 0 (pre-flight) + Task 1~9 (TDD step) + plan review + execution handoff | A 트랙 |
+| 2026-05-15 | Task 0 완료 결과 반영 — plan §11 보류 4건 모두 해소 (시뮬 코드 cell 인덱스 확정). Task 4 의사코드 정정 (r[4]→r[2], r[3]→r[1]). Task 5 의사코드 정정 (r[4]→r[2], r[5]→r[3], r[6]→r[4], r[7]→r[5]). | A 트랙 |

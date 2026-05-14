@@ -20,6 +20,10 @@
 
 **데모 목표:** AS-IS 수작업 2~3시간 → TO-BE AI 5분 이내, 경영진 앞 라이브 시연.
 
+**구현 마감:** 2026-06-05(목) 동결 — 3주 압축 일정(시작 2026-05-14). 이후 6/6~6/12 보고자료 작성, 6/13(추정) 시연.
+
+**상세 계획:** `docs/superpowers/specs/2026-05-14-cpia-2인-langgraph-협업-design.md`
+
 ---
 
 ## 확정 기술 스택
@@ -31,32 +35,55 @@
 | LLM (진단·조언) | Claude Opus 4.7 | 맥락 판단·추론 필요 구간 |
 | 임베딩 | OpenAI text-embedding-3-small | 한국어 건설 도메인 텍스트 처리 |
 | Vector DB | ChromaDB (서버 모드) | 유사도 검색, homelab Docker로 팀 공유 |
-| 관계형 DB | PostgreSQL | 파이프라인 결과 저장, 대시보드 데이터 소스 |
-| 프론트엔드 | Next.js (React) | AI 코드 생성 품질, API Routes로 별도 API 서버 불필요 |
+| 관계형 DB | PostgreSQL | 파이프라인 결과 저장 + LangGraph checkpoint, 대시보드 데이터 소스 |
+| **파이프라인 API** | **FastAPI (얇은 래퍼)** | **H-i-L Dashboard 통합을 위해 `/run`·`/resume`·`/status` 3개 엔드포인트만 노출** |
+| 프론트엔드 | Next.js (React) | AI 코드 생성 품질, API Routes로 BFF 패턴 |
 | 인프라 | homelab Docker Compose | 팀원 공유 DB 서버, Cloudflare Tunnel로 외부 접속 |
 
-**FastAPI 없음:** Python 파이프라인은 "실행해서 PostgreSQL에 결과를 쓰는 스크립트". Next.js API Routes가 DB를 읽어 React에 데이터를 제공.
+**FastAPI 추가 (CLAUDE.md v1 결정 뒤집음):** H-i-L 1·2를 Dashboard에 통합하기로 하면서 LangGraph `interrupt`/`resume`을 외부에서 트리거할 양방향 통신이 필요해짐. Next.js API Routes는 BFF(Backend-for-Frontend)로 FastAPI를 proxy하며 Postgres 직접 SELECT도 병행한다.
 
 ---
 
 ## 아키텍처
 
 ```
-[작업일보 파일 드롭]
+[Browser — 경영진]
         ↓
-[Python LangGraph 파이프라인]
-  Collector → Parser → Mapper ─[H-i-L 1]─ Atomizer
-                                               ↓
-                                    Reporter ─ Forecaster ─[H-i-L 2]─ Optimizer
+[Next.js Dashboard]
+   Layer 1: 6개 현장 전체 현황 카드
+   Layer 2: 현장 상세 + H-i-L Modal + 생산성 진단 + Optimizer 조언
+        ↓ fetch
+[Next.js API Routes — BFF]
+   • GET  /api/sites              ← Postgres 직접 SELECT
+   • POST /api/pipeline/run       → FastAPI /run     (proxy)
+   • POST /api/hil/resume         → FastAPI /resume  (proxy)
+   • GET  /api/runs/[id]/...      ← Postgres 직접 SELECT
+        ↓ HTTP
+[FastAPI — pipeline/api.py]
+   • POST /run        → graph.invoke()  (백그라운드 실행, run_id 즉시 반환)
+   • POST /resume     → checkpoint에서 graph 재개 (H-i-L 1/2)
+   • GET  /status/{run_id}
+        ↓ in-process
+[LangGraph]
+   Collector → Parser → Mapper ─[interrupt:hil_1]─ Atomizer
+                                                       ↓
+                                        Reporter ‖ Forecaster
+                                                       ↓
+                                              [interrupt:hil_2]
+                                                       ↓
+                                                   Optimizer
         ↓ 결과 저장
-[PostgreSQL]  +  [ChromaDB]
-        ↓ 데이터 조회
-[Next.js API Routes]
-        ↓
-[React 대시보드]
-  Layer 1: 6개 현장 전체 현황 카드
-  Layer 2: 현장 상세 + 생산성 진단 + Optimizer 조언
+[PostgreSQL — homelab]              [ChromaDB — homelab]
+   • pipeline_runs                     • daily_activities
+   • checkpoints                         (synthetic 30일 + 실제 누적)
+   • daily_reports
+   • forecasts
+   • optimizer_advice
+   • mapping_corrections (H-i-L 1)
+   • sites (5개 mock + 1개 실 PoC)
 ```
+
+**H-i-L 통합 흐름:** Mapper 또는 Forecaster에서 LangGraph `interrupt` 발생 → FastAPI `/status`가 `waiting_hil_*` 반환 → Dashboard가 polling으로 감지 후 Modal 띄움 → 사용자 입력 → Next.js API `/hil/resume` → FastAPI `/resume` → checkpoint에서 graph 재개.
 
 ---
 
@@ -67,7 +94,7 @@
 │
 ├── CLAUDE.md                   ← 이 파일
 │
-├── pipeline/                   ← Python 파이프라인 (LangGraph)
+├── pipeline/                   ← [담당: A] Python 파이프라인 (LangGraph)
 │   ├── agents/
 │   │   ├── collector.py
 │   │   ├── parser.py
@@ -76,36 +103,62 @@
 │   │   ├── reporter.py
 │   │   ├── forecaster.py
 │   │   └── optimizer.py
-│   ├── state.py                ← 팀 합의 필요: Agent 간 공유 데이터 구조
-│   ├── graph.py                ← LangGraph 파이프라인 조립
-│   ├── main.py                 ← 파이프라인 실행 진입점
-│   └── requirements.txt
+│   ├── state.py                ← Phase 0 합의: Agent 간 공유 데이터 구조
+│   ├── graph.py                ← LangGraph 조립 + interrupt 2개 정의
+│   ├── api.py                  ← FastAPI: /run, /resume, /status
+│   ├── checkpointer.py         ← PostgresSaver 설정
+│   ├── db.py                   ← Postgres ORM
+│   ├── chroma_client.py        ← Chroma 연결
+│   ├── synthetic/
+│   │   └── generate_history.py ← 30일 가상 이력 생성
+│   ├── tests/
+│   │   ├── test_stubs_e2e.py   ← Week 1 게이트: stub 전체 통과
+│   │   └── test_each_agent.py
+│   ├── main.py                 ← CLI 진입점 (개발자용)
+│   ├── pyproject.toml
+│   └── .env.example
 │
-├── web/                        ← Next.js 프론트엔드
+├── web/                        ← [담당: B] Next.js 프론트엔드
 │   ├── app/
 │   │   ├── page.tsx            ← Layer 1: 전체 현장 현황
-│   │   ├── sites/[id]/
-│   │   │   └── page.tsx        ← Layer 2: 현장 상세
-│   │   └── api/
-│   │       ├── sites/route.ts  ← 현장 목록 API
-│   │       ├── forecast/route.ts
-│   │       └── pipeline/route.ts ← 파이프라인 실행 트리거
+│   │   ├── sites/[id]/page.tsx ← Layer 2: 현장 상세 + H-i-L Modal
+│   │   ├── api/
+│   │   │   ├── sites/route.ts
+│   │   │   ├── pipeline/run/route.ts      ← FastAPI proxy
+│   │   │   ├── hil/resume/route.ts        ← FastAPI proxy
+│   │   │   └── runs/[id]/forecast/route.ts
+│   │   └── components/
+│   │       ├── SiteCard.tsx
+│   │       ├── ProductivityChart.tsx
+│   │       ├── MappingReviewModal.tsx     ← H-i-L 1
+│   │       └── TradeSelectorModal.tsx     ← H-i-L 2
+│   ├── lib/
+│   │   ├── db.ts
+│   │   └── fastapi.ts
+│   ├── .env.local.example
 │   └── package.json
 │
-├── infra/                      ← homelab 인프라 설정
-│   └── docker-compose.yml      ← PostgreSQL + ChromaDB
+├── infra/                      ← [담당: B] homelab 인프라
+│   ├── docker-compose.yml      ← PostgreSQL + ChromaDB
+│   ├── postgres/init.sql       ← 초기 테이블 생성
+│   ├── postgres/migrations/    ← 스키마 변경은 마이그레이션 파일로
+│   └── README.md               ← homelab 배포 절차
 │
-├── data/
-│   ├── synthetic_history/      ← Vector DB cold start용 가상 이력
-│   ├── mock_sites.json         ← Dashboard Layer 1용 5개 더미 현장
-│   └── input/YYYYMMDD/         ← 작업일보 드롭 폴더
+├── data/                       ← git ignore (homelab 공유 데이터만 사용)
+│   ├── synthetic_history/      ← Vector DB cold start용 가상 이력 (생성 후 Chroma 적재)
+│   ├── mock_sites.json         ← Dashboard Layer 1용 6개 더미 현장
+│   ├── input/YYYYMMDD/         ← 작업일보 드롭 폴더
+│   └── output/reports/YYYYMMDD.md  ← Reporter 출력
 │
 ├── docs/
 │   ├── architecture/
 │   │   ├── stack.md
-│   │   └── api.md              ← TODO: Next.js API 엔드포인트 계약
-│   └── schema/
-│       └── db.md               ← TODO: PostgreSQL 테이블 스키마
+│   │   └── api-contract.md     ← Phase 0 합의: FastAPI + Next.js API 계약
+│   ├── schema/
+│   │   ├── postgres.md         ← Phase 0 합의: 7개 테이블 정의
+│   │   └── state.md            ← Phase 0 합의: LangGraph CPIAState 스키마
+│   └── superpowers/specs/
+│       └── 2026-05-14-cpia-2인-langgraph-협업-design.md ← 본 4주 실행계획
 │
 └── planning/                   ← 기획 문서 (참고용)
     └── CPIA_PoC_실행계획_v2.md
@@ -138,14 +191,12 @@
 **레포:** https://github.com/viazoai/CPIA
 
 ```
-main          ← 동작하는 것만 머지
-feat/parser   ← 각자 에이전트별 브랜치
-feat/mapper
-feat/forecaster
-feat/dashboard
+main      ← 동작하는 것만 머지 (GATE 통과 시점에 PR 머지)
+A_Track   ← 팀원 A 작업 브랜치 (pipeline/ 전체)
+B_Track   ← 팀원 B 작업 브랜치 (web/ + infra/ 전체)
 ```
 
-각자 브랜치에서 개발 → PR → 리뷰 후 main 머지. 에이전트 하나 완성될 때마다 PR.
+**브랜치 정책:** 2인 협업이라 노드별·화면별 세부 브랜치는 만들지 않는다. 각자 자기 트랙에 직접 커밋하고, GATE 통과 시점(5/19·5/22·5/29·6/5)에 PR을 만들어 main에 머지. 두 트랙은 서로 다른 폴더(pipeline/ vs web/+infra/)만 만지므로 충돌이 거의 없다. 다른 트랙 코드는 건드리지 않는다(긴급 시 PR로 요청).
 
 ### 데이터 — homelab 공유 서버
 
@@ -197,29 +248,44 @@ npm run dev  # http://localhost:3000
 
 ---
 
-## 협업 분담 (잠정안)
+## 협업 분담 (2인 확정안)
 
 ```
-팀원 A: Collector + Parser + Mapper
-팀원 B: Atomizer + Forecaster + Optimizer
-팀원 C: Next.js 대시보드 + infra Docker Compose
-공통:   state.py 스키마 합의 + DB 스키마 합의 + API 계약
+팀원 A (AI/Python):
+  - pipeline/ 전체 (7개 Agent + graph.py + FastAPI + synthetic + checkpointer)
+  - LLM 프롬프트 튜닝 (Sonnet·Opus)
+  - ChromaDB 적재·검색 로직
+
+팀원 B (프론트/인프라):
+  - web/ 전체 (Next.js Dashboard + API Routes + H-i-L Modal)
+  - infra/ 전체 (docker-compose + Postgres init/migration + Cloudflare Tunnel)
+  - 디자인 시안 적용 (design/CPIA_기획서_v7.1.html 기반)
+  - 데모 시연 화면·전환 폴리싱
+
+공통:
+  - Phase 0 합의 3종 문서 (state.py / postgres.md / api-contract.md)
+  - 데모 시나리오 리허설 (D-Day 1주 전 시작)
 ```
+
+**상세 분담·우선순위·주차별 마일스톤:** `docs/superpowers/specs/2026-05-14-cpia-2인-langgraph-협업-design.md`
 
 ---
 
-## Phase 0 — 코드 전에 팀이 함께 결정해야 할 것
+## Phase 0 — 코드 전에 둘이 함께 결정할 것 (5/14~5/16)
 
 아래 세 가지는 병렬 개발 시작 전에 반드시 합의해야 합니다. 합의 없이 각자 개발하면 합칠 때 충돌합니다.
 
-### 1. `pipeline/state.py` — Agent 간 데이터 인터페이스
-각 Agent가 주고받는 데이터 구조. 팀 전원이 리뷰하고 확정.
+### 1. `pipeline/state.py` — LangGraph State 스키마
+Agent 간 공유 데이터 구조. `CPIAState` TypedDict 형태. work_content·conditions·requires_review 등 핵심 필드를 사전 확정.
 
-### 2. `docs/schema/db.md` — PostgreSQL 테이블 구조
-Reporter·Forecaster·Optimizer가 저장하는 결과와 Next.js가 읽는 데이터의 테이블·컬럼 정의.
+### 2. `docs/schema/postgres.md` — PostgreSQL 테이블 구조
+7개 테이블: `pipeline_runs`, `checkpoints`(LangGraph PostgresSaver), `daily_reports`, `forecasts`, `optimizer_advice`, `mapping_corrections`, `sites`.
 
-### 3. `docs/architecture/api.md` — Next.js API 엔드포인트 계약
-React 화면이 언제 어떤 데이터를 요청하는지. 프론트엔드가 mock으로 먼저 개발할 수 있게 해줌.
+### 3. `docs/architecture/api-contract.md` — 양방향 API 계약
+- FastAPI (Next.js가 호출): `POST /run`, `POST /resume`, `GET /status/{run_id}`
+- Next.js API Routes (Browser가 호출): `/api/sites`, `/api/pipeline/run`, `/api/hil/resume`, `/api/runs/[id]/*`
+
+**완료 게이트:** 이 3개 문서가 git에 머지되고 둘 다 OK 사인할 때까지 노드 코드 작성 금지.
 
 ---
 
@@ -238,4 +304,4 @@ docs/sample/WBS공정표_M15X IBL PH-3_CPRS_2025.09.25.xlsx
 
 ---
 
-*최종 수정: 2026-05-13*
+*최종 수정: 2026-05-14 — 2인 협업 확정안 반영 (FastAPI 추가, H-i-L Dashboard 통합, 3주 압축 / 마감 2026-06-05, 브랜치 A_Track·B_Track 2개)*

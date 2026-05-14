@@ -1,0 +1,37 @@
+# Environment variables (secrets)
+.env
+.env.local
+pipeline/.env
+web/.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+*.log
+npm-debug.log*
+
+# Data (runtime artifacts, not committed) — keep folder structure via .gitkeep
+data/input/*
+!data/input/.gitkeep
+data/output/**
+!data/output/reports/
+!data/output/reports/.gitkeep
+data/synthetic_history/*
+!data/synthetic_history/.gitkeep
+data/vector_db/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store

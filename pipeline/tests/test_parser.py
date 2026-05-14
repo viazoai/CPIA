@@ -217,3 +217,38 @@ def test_parse_sheet2_workers_cum_t_int(sample_tong_path: Path):
     wb.close()
     for j in jobs:
         assert isinstance(j["workers_cum_t"], int)
+
+
+# ---------------------------------------------------------------------------
+# Task 5: _parse_sheet3_equipment_allocations 테스트
+# ---------------------------------------------------------------------------
+from pipeline.agents.parser import _parse_sheet3_equipment_allocations  # noqa: E402
+
+
+def test_parse_sheet3_count(sample_tong_path: Path):
+    wb = openpyxl.load_workbook(sample_tong_path, data_only=True, read_only=True)
+    ws = wb["3.장비현황"]
+    eqs = _parse_sheet3_equipment_allocations(ws)
+    wb.close()
+    assert len(eqs) > 0, "장비 0건"
+
+
+def test_parse_sheet3_big_mid_filled(sample_tong_path: Path):
+    """첫 5건의 equipment_big, equipment_mid 가 None 아님."""
+    wb = openpyxl.load_workbook(sample_tong_path, data_only=True, read_only=True)
+    ws = wb["3.장비현황"]
+    eqs = _parse_sheet3_equipment_allocations(ws)
+    wb.close()
+    for e in eqs[:5]:
+        assert e["equipment_big"], f"equipment_big 비어있음: {e}"
+        assert e["equipment_mid"], f"equipment_mid 비어있음: {e}"
+
+
+def test_parse_sheet3_count_cum_t_int(sample_tong_path: Path):
+    wb = openpyxl.load_workbook(sample_tong_path, data_only=True, read_only=True)
+    ws = wb["3.장비현황"]
+    eqs = _parse_sheet3_equipment_allocations(ws)
+    wb.close()
+    for e in eqs:
+        assert isinstance(e["count_cum_t"], int)
+        assert e["count_cum_t"] >= 0

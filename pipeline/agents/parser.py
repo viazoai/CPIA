@@ -5,7 +5,18 @@ Spec: docs/superpowers/specs/2026-05-15-cpia-parser-design.md
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pipeline.state import BPSummary, JobAllocation, Activity, EquipmentAllocation
+else:
+    try:
+        from pipeline.state import BPSummary, JobAllocation, Activity, EquipmentAllocation
+    except ImportError:
+        BPSummary = dict
+        JobAllocation = dict
+        Activity = dict
+        EquipmentAllocation = dict
 
 
 class ParseError(Exception):
@@ -179,3 +190,37 @@ def _parse_sheet4_activities(ws) -> list[Activity]:
             }
         )
     return activities
+
+
+def _parse_sheet3_equipment_allocations(ws) -> list[EquipmentAllocation]:
+    """시트 3 (장비현황) -> EquipmentAllocation[].
+
+    cell 인덱스 (Task 0 시뮬 v3 발췌 / 실 파일 row 3 헤더 검증):
+      r[1] = disc_abbrev, r[2] = company,
+      r[3] = equipment_big (대분류), r[4] = equipment_mid (중분류),
+      r[5] = equipment_spec (규격, None 허용),
+      r[23] = count_cum_t. header_end = 5, fill_cols = [1, 2] (시뮬과 일치).
+    """
+    rows = _ffill(list(ws.iter_rows(values_only=True)), header_end=5, fill_cols=[1, 2])
+    eqs: list[EquipmentAllocation] = []
+    for _i, r in rows:
+        if _is_total_row(tuple(r)):
+            continue
+        company = str(r[2]).strip() if r[2] else ""
+        big = str(r[3]).strip() if len(r) > 3 and r[3] else ""
+        mid = str(r[4]).strip() if len(r) > 4 and r[4] else ""
+        if not (company and big and mid):
+            continue
+        spec = str(r[5]).strip() if len(r) > 5 and r[5] else None
+        cum_t = int(r[23]) if len(r) > 23 and isinstance(r[23], (int, float)) else 0
+        eqs.append(
+            {
+                "bp_code": None,
+                "company": company,
+                "equipment_big": big,
+                "equipment_mid": mid,
+                "equipment_spec": spec,
+                "count_cum_t": cum_t,
+            }
+        )
+    return eqs

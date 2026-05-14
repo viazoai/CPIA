@@ -28,6 +28,10 @@ dev = [
 asyncio_mode = "auto"
 pythonpath = ["."]
 testpaths = ["tests"]
+markers = [
+    "slow: 느린 테스트 (LLM 호출 포함)",
+    "golden: 골든 회귀 테스트",
+]
 
 [tool.ruff]
 line-length = 110

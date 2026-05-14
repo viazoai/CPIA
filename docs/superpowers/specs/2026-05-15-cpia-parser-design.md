@@ -357,6 +357,107 @@ async def test_golden_accuracy(sample_tong_path: Path, azure_openai_env):
 
 `state.md §3.4` 의 byte-diff 회귀: 같은 xlsx 2회 parse → dict 동등성 비교 (Python `==` 가 list/dict 재귀 비교). 단위 테스트에 포함.
 
+### 9.4 실증 검증 — Parser → Mapper E2E 실 출력 dump
+
+> **목적:** pytest assert 만으로는 "Parser 가 진짜로 시트1~3 dict 채우는가, Mapper 가 그걸 받아 어떤 컨텍스트로 LLM 호출하는가, 어떤 결과가 나오는가" 를 사람이 못 봄. 자동 회귀와 별도로 **실 출력 dump 검증 단계** 를 마지막 게이트로 둠. Iron Law (Real code or no claim — 실 명령어 + 실 출력 + 의도 일치) 의 "실 출력" 요건을 spec 안에 박는다.
+
+#### 9.4.1 실행 스크립트
+
+```bash
+# 신규 스크립트 — scripts/parser_e2e_demo.py
+$ uv run python3 scripts/parser_e2e_demo.py \
+    docs/sample/통합작업일보_M15X\ Ph-3\ IBL\ PJT\ 작업일보_20250925.xlsx \
+    --sample-rows 99,452,892,1207,1230
+```
+
+- 인자 1: 작업일보 xlsx 경로
+- `--sample-rows`: Mapper 호출까지 보여줄 골든 row 5개 (남웅 1 + 세보 2 + 창원 2). 미지정 시 random 5건.
+- 환경 변수 (`AZURE_OPENAI_*`, `POSTGRES_URL`, `CHROMA_HOST` 등) 는 `.env` 자동 로드.
+
+#### 9.4.2 출력 형식 (사람이 읽도록 — pytest 가 아닌 stdout)
+
+```
+=== Parser 출력 ===
+파일:        docs/sample/통합작업일보_..._20250925.xlsx
+report_date: 2025-09-25
+project:     M15X Ph-3 IBL PJT
+
+bp_summaries: N건
+  [0] 남웅건설 (PH_X-001) / 건축(AR) / FAB / A구간
+        work_text_today: '...' (앞 80자)
+        today_incr: ..., today_cum: ...
+  ... (앞 5개만 print)
+
+job_allocations: N건 (관리자 직종 필터 후, 합계 row 필터 후)
+  [0] 남웅건설 / 철근공 / cum_t=...
+  ... (앞 5개)
+
+equipment_allocations: N건
+  [0] 남웅건설 / 굴삭운반기계류 / Back Hoe / 2㎥미만 / cum_t=...
+  ... (앞 5개)
+
+activities: N건 (필수 셀 검증 후)
+  [0] 남웅건설 / 철근배근 / m2 / today_qty=...
+  ... (앞 5개)
+
+=== Mapper 호출 (sample 5건 — 시뮬 v3 패턴 복원) ===
+
+[R99] 남웅건설 / "철근배근" / m2 / today_qty=...
+  → 골든:    철근콘크리트공사
+  → 결과:    철근콘크리트공사 / conf 0.95 / source: llm_top1
+  → BP 컨텍스트 (mapper.build_bp_context 그대로):
+    [시트1] 주요작업 텍스트 (BP사 기재): ...
+    [시트1] 금일 신규 투입 인원 (Incr.): ...명
+    [시트1] 금일 누적 인원 (Cum.): ...명-일
+    [시트2] 기능공 직종 (금일누계 Cum.T):
+      - 철근공: ...명-일
+      - 형틀공: ...명-일
+      ...
+    [시트3] 투입 장비 (금일투입누계 Cum.T):
+      - 굴삭운반기계류/Back Hoe (2㎥미만): ...회-일
+      ...
+
+[R452] 세보엠이씨 / "ACID DUCT 설치" / m / today_qty=...
+  → 골든:    ACID배기설비공사
+  → 결과:    ACID배기설비공사 / conf 0.91 / source: llm_top1
+  ...
+
+(5건 출력)
+
+=== 베이스라인 대비 ===
+Parser 도입 전 (parsed_report=None, baseline 2026-05-15): 78/79 = 98.7%
+Parser 도입 후 (parsed_report=parsed, 5건 sample): X/5
+  (전체 79건 회귀는 test_golden_accuracy 에서 별도 측정)
+```
+
+#### 9.4.3 사람이 검증할 체크포인트
+
+| # | 항목 | 합격 기준 |
+|---|---|---|
+| C1 | `bp_summaries` 비어있지 않음 | len ≥ 1 |
+| C2 | `job_allocations` 의 관리자 직종 0건 | 'BP소장' / '공사관리자' / '안전관리자' / '품질관리자' / '일반관리자' 매치 0건 |
+| C3 | `job_allocations` 의 합계 row 0건 | '투입 Total' 매치 0건 |
+| C4 | `equipment_allocations` 의 big/mid/spec 채워짐 | 첫 5건의 equipment_big 모두 None 아님 |
+| C5 | `activities` 길이 = fixture loader 와 동일 | `_load_inputs` 호출 결과와 len 비교 |
+| C6 | Mapper 의 build_bp_context 가 fallback 안 탐 | "(parsed_report 미제공 — BP 컨텍스트 없이 진행)" 문구 0건 |
+| C7 | 5건 sample 의 매핑 결과 출력 | 골든과 일치 / 불일치 표시 + conf 노출 |
+| C8 | 결정성 — 2회 호출 시 dict 동일 | Python `==` 로 비교 |
+
+#### 9.4.4 보고 형식 (Iron Law 3요소)
+
+구현 완료 보고 시 다음 셋이 모두 포함돼야 함 (CLAUDE.md §3.4):
+
+```
+$ uv run python3 scripts/parser_e2e_demo.py docs/sample/통합작업일보_...xlsx \
+    --sample-rows 99,452,892,1207,1230   ← (a) 실 명령어
+
+<위 9.4.2 형식의 stdout 원본 그대로>     ← (b) 실 출력 (수정·생략 금지)
+
+→ 체크포인트 C1~C8 모두 합격. 베이스라인 동등 유지. ← (c) 의도 일치 결론
+```
+
+(b) 누락 시 미실시로 간주. "다 통과했다" 만 적는 보고는 거부.
+
 ---
 
 ## 10. Open question — GATE 2 / GATE 3 측정 항목
@@ -387,3 +488,4 @@ async def test_golden_accuracy(sample_tong_path: Path, azure_openai_env):
 | 날짜 | 내용 | 작성자 |
 |---|---|---|
 | 2026-05-15 | 초안 — 베이스라인 측정 (78/79=98.7%) + motivation 재정렬 + 책임 경계 + 공개 API + 시트별 셀 위치 + fixture loader 이관 + 테스트 전략 + GATE 2/3 open question | A 트랙 |
+| 2026-05-15 | §9.4 실증 검증 단계 추가 — scripts/parser_e2e_demo.py 로 Parser → Mapper 실 출력 dump (Iron Law 3요소 강제) + 체크포인트 C1~C8 명시 | A 트랙 |

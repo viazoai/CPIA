@@ -3,6 +3,8 @@
 .env.local
 pipeline/.env
 web/.env.local
+infra/.env
+*.bak
 
 # Python
 __pycache__/

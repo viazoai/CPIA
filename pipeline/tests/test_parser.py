@@ -64,3 +64,67 @@ def test_ffill_basic():
         (6, ["A", "B", "C", "D", "E2"]),
         (7, ["A2", "B", "C2", "D", "E3"]),
     ]
+
+
+# ---------------------------------------------------------------------------
+# Task 2: _parse_sheet4_activities 테스트
+# ---------------------------------------------------------------------------
+from pathlib import Path  # noqa: E402
+
+import openpyxl  # noqa: E402
+import pytest  # noqa: E402
+
+from pipeline.agents.parser import _parse_sheet4_activities  # noqa: E402
+
+
+@pytest.fixture(scope="module")
+def sample_tong_path() -> Path:
+    return (
+        Path(__file__).resolve().parents[2]
+        / "docs/sample/통합작업일보_M15X Ph-3 IBL PJT 작업일보_20250925.xlsx"
+    )
+
+
+def test_parse_sheet4_activities_count(sample_tong_path: Path):
+    """fixture loader 와 동일한 row 추출 — 골든 79건 포함."""
+    wb = openpyxl.load_workbook(sample_tong_path, data_only=True, read_only=True)
+    ws = wb["4.물량"]
+    activities = _parse_sheet4_activities(ws)
+    wb.close()
+    assert len(activities) > 79, f"전체 row 수가 79 이하: {len(activities)}"
+    companies = {a["company"] for a in activities}
+    assert "남웅건설" in companies
+    assert "세보엠이씨" in companies
+    assert "창원기전" in companies
+
+
+def test_parse_sheet4_unit_normalized(sample_tong_path: Path):
+    """단위가 소문자로 정규화됐는지."""
+    wb = openpyxl.load_workbook(sample_tong_path, data_only=True, read_only=True)
+    ws = wb["4.물량"]
+    activities = _parse_sheet4_activities(ws)
+    wb.close()
+    for a in activities:
+        if a["unit"]:
+            assert a["unit"] == a["unit"].lower(), f"unit 미정규화: {a['unit']!r}"
+
+
+def test_parse_sheet4_today_qty_zero_default(sample_tong_path: Path):
+    """today_qty 가 숫자 아니면 0.0. 음수는 정정/감산이라 valid (실 데이터 검증)."""
+    wb = openpyxl.load_workbook(sample_tong_path, data_only=True, read_only=True)
+    ws = wb["4.물량"]
+    activities = _parse_sheet4_activities(ws)
+    wb.close()
+    for a in activities:
+        assert isinstance(a["today_qty"], float)
+
+
+def test_parse_sheet4_required_fields(sample_tong_path: Path):
+    """company / work_content 가 빈 row 는 skip."""
+    wb = openpyxl.load_workbook(sample_tong_path, data_only=True, read_only=True)
+    ws = wb["4.물량"]
+    activities = _parse_sheet4_activities(ws)
+    wb.close()
+    for a in activities:
+        assert a["company"], f"company 비어있음: {a}"
+        assert a["work_content"], f"work_content 비어있음: {a}"

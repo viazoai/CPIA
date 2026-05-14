@@ -73,3 +73,41 @@ def _ffill(
                     rec[c] = last[c]
         out.append((i, rec))
     return out
+
+
+def _parse_sheet4_activities(ws) -> list[Activity]:
+    """시트 4 (물량) → Activity[]. fixture loader _load_inputs 이관.
+
+    Header end = row 4. Forward-fill 컬럼 = [1, 2, 3, 4, 5] (병합 셀 패턴).
+    필수 셀: r[5] (company), r[7] (work_content).
+    """
+    rows = _ffill(list(ws.iter_rows(values_only=True)), header_end=4, fill_cols=[1, 2, 3, 4, 5])
+    activities: list[Activity] = []
+    for _i, r in rows:
+        if not (r[5] and r[7]):
+            continue
+        activities.append(
+            {
+                "wbs_activity_id": None,
+                "l5_disc": str(r[3]) if r[3] else "",
+                "l6_main": None,
+                "l7_sub": None,
+                "l7_5_activity": None,
+                "sub_work_area": None,
+                "trade": str(r[3]) if r[3] else "",
+                "company": str(r[5]).strip(),
+                "unit": _normalize_unit(str(r[8] or "").strip()),
+                "today_qty": float(r[11]) if isinstance(r[11], (int, float)) else 0.0,
+                "work_content": str(r[7]).strip(),
+                "conditions": [],
+                "assigned_workers": 0.0,
+                "worker_source": "parsed",
+                "plan_total_qty": float(r[9]) if isinstance(r[9], (int, float)) else None,
+                "plan_mh": None,
+                "requires_review": False,
+                "wa": None,
+                "mapping_conf": None,
+                "mapping_source": None,
+            }
+        )
+    return activities

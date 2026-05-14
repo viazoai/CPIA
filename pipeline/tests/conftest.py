@@ -30,13 +30,8 @@ def sample_tong_path(cpia_root) -> Path:
 @pytest.fixture(scope="session")
 def azure_openai_env() -> dict[str, str]:
     """Azure OpenAI 환경 변수. 누락 시 테스트 skip."""
-    keys = [
-        "AZURE_OPENAI_ENDPOINT",
-        "AZURE_OPENAI_API_KEY",
-        "AZURE_OPENAI_API_VERSION",
-        "LLM_MODEL",
-        "EMBEDDING_MODEL",
-    ]
+    keys = ["AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_API_KEY",
+            "AZURE_OPENAI_API_VERSION", "LLM_MODEL", "EMBEDDING_MODEL"]
     env = {k: os.environ.get(k, "") for k in keys}
     if not all(env.values()):
         pytest.skip(f"Azure OpenAI env 누락: {[k for k, v in env.items() if not v]}")

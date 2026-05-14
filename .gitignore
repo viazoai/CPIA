@@ -3,6 +3,7 @@
 .env.local
 pipeline/.env
 web/.env.local
+infra/.env
 
 # Python
 __pycache__/

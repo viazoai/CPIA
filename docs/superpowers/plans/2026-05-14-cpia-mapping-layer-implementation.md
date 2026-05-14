@@ -37,36 +37,40 @@ pipeline/                            # A 트랙 (단독)
 └── pyproject.toml                    (Task 0)
 
 scripts/
-├── load_master_list.py               (Task 4) — Master xlsx → PG + Chroma 동시 적재
-└── migrate_to_homelab.sh             (Task 10) — 로컬 → homelab 마이그레이션 자동화
+└── load_master_list.py               (Task 4) — Master xlsx → PG + Chroma 동시 적재
 
-infra/local/                          (Task 0.5) — 로컬 우선 인프라
+infra/local/                          (Task 0.5) — 로컬 한정 인프라
 ├── docker-compose.local.yml          PG + Chroma 컨테이너 정의
-└── postgres-init.sql                 activity_master 테이블만 생성 (B 트랙 init.sql 의 부분)
+└── postgres-init.sql                 activity_master 테이블만 생성 (postgres.md §2 그대로)
 
 .env.local                            (Task 0.5) — 로컬 환경 변수 (gitignore)
-.env.homelab                          (Task 10) — homelab 환경 변수 (gitignore)
-.env  →  symlink to one of above
+.env  →  symlink .env.local
+
+# 향후 별도 plan 에서:
+#   scripts/migrate_to_homelab.sh   — 로컬 → homelab pg_dump + Chroma export/import
+#   .env.homelab                     — homelab 환경 변수
 ```
 
 **다른 에이전트 (Collector / Parser / Atomizer / Reporter / Forecaster / Optimizer) stub** 은 이 plan 범위 밖. 별도 plan 으로 GATE 1 까지 작성. Mapper 는 단독 호출 테스트로 검증.
 
-## 인프라 환경 — 로컬 우선 + homelab 마이그레이션
+## 인프라 환경 — 로컬 한정 (homelab 이관은 별도 plan)
 
-**상황:** homelab Docker (PostgreSQL + ChromaDB) 인프라는 B 트랙에서 조성 진행 중. A 트랙은 B 트랙 완료 대기하지 않고 **로컬 Docker 로 우선 진행**.
+**상황:** homelab Docker (PostgreSQL + ChromaDB) 인프라는 B 트랙에서 조성 진행 중. **이번 plan 은 로컬 Docker 만으로 끝까지 진행**. homelab 인프라 조성 완료 시점에 **별도 plan** 으로 마이그레이션.
 
-**진행 단계:**
-1. **Task 0.5 — 로컬 PG + Chroma Docker Compose 기동** (A 트랙 단독 작업)
-2. **Task 1~9 — 로컬 환경 기반 Mapper 구현 + 골든 79건 검증**
-3. **Task 10 — homelab 인프라 준비 완료 시점 마이그레이션** (PG `pg_dump` + Chroma 컬렉션 export/import)
+**이번 plan 범위:**
+- Task 0.5 — 로컬 PG + Chroma Docker Compose 기동
+- Task 1~9 — 로컬 환경 기반 Mapper 구현 + 골든 79건 검증 + PR
 
-**`.env` 분리 전략:**
-- `.env.local` (로컬): `POSTGRES_URL=postgresql://cpia:cpia@localhost:5432/cpia`, `CHROMA_HOST=localhost`, `CHROMA_PORT=8000`
-- `.env.homelab` (B 트랙 머지 후 채움): homelab DSN + Cloudflare Tunnel 경유 endpoint
-- 코드는 `.env` 단일 파일 참조. 운영자가 `ln -sf .env.local .env` 또는 `.env.homelab` 로 전환.
-- 기존 Azure OpenAI / LLM_MODEL 등은 둘 다 동일 (양쪽 .env 에 복붙).
+**다음 plan (인프라 조성 후 별도):**
+- 로컬 → homelab 마이그레이션 (`pg_dump` + Chroma export/import + `.env` symlink 전환)
+- 같은 코드 + 환경변수만 교체로 동작 보장 (이번 plan 의 코드가 호환성 미리 확보)
 
-**로컬 init.sql 정책:** `infra/local/postgres-init.sql` 은 mapping-layer 에 필요한 `activity_master` 테이블만 우선 생성. B 트랙의 정식 `infra/postgres/init.sql` (8 테이블 전체) 가 머지되면 Task 10 에서 그 스키마로 마이그레이션. **컬럼 정의는 `docs/schema/postgres.md §2` 그대로 따라 작성** — 호환성 확보.
+**`.env` 단일 사용:**
+- 이번 plan: `.env.local` → `.env` symlink (로컬 Docker 기준 변수)
+- 향후 plan: `.env.homelab` 생성 + symlink 전환
+- 기존 Azure OpenAI / LLM_MODEL 등 변수는 어디서든 동일.
+
+**로컬 init.sql 정책:** `infra/local/postgres-init.sql` 은 mapping-layer 에 필요한 `activity_master` 테이블만 우선 생성. **컬럼 정의는 `docs/schema/postgres.md §2` 그대로 따라 작성** — B 트랙 정식 init.sql 머지 시 호환성 확보됨. 향후 마이그레이션 plan 이 그 호환성 위에서 진행.
 
 ---
 
@@ -301,7 +305,7 @@ CHROMA_PORT=8000
 ```
 
 ```bash
-# .gitignore 에 추가
+# .gitignore 에 추가 — .env.local (이번 plan), .env.homelab (향후 별도 plan)
 echo "" >> .gitignore
 echo "# Secret env files" >> .gitignore
 echo ".env.local" >> .gitignore
@@ -1826,182 +1830,11 @@ PR 본문 항목:
 
 ---
 
-## Task 10: homelab 마이그레이션 (B 트랙 인프라 준비 후)
-
-**트리거:** B 트랙이 `infra/postgres/init.sql` (8 테이블 전체) + `docker-compose.yml` (homelab Postgres + Chroma) 머지 + Cloudflare Tunnel 까지 작동 완료. PR comment 또는 카톡으로 신호 받음.
-
-**Files:**
-- Create: `scripts/migrate_to_homelab.sh`
-- Modify: `.env.homelab` (B 트랙 머지 후 채움)
-
-**전략:** 로컬에서 검증된 `activity_master` 데이터 + `wbs_master` Chroma 컬렉션을 homelab 으로 이관. 코드 변경 X (env switch 만).
-
-- [ ] **Step 1: B 트랙 머지 확인**
-
-```bash
-git fetch origin main
-git log origin/main -- infra/postgres/init.sql infra/docker-compose.yml
-# Expected: B 트랙 commit 존재 + 7 테이블 (또는 8 테이블) 정의
-```
-
-- [ ] **Step 2: 로컬 activity_master 데이터 dump**
-
-```bash
-pg_dump postgresql://cpia:cpia@localhost:5432/cpia \
-    --table=activity_master \
-    --data-only \
-    --column-inserts \
-    > /tmp/cpia_activity_master_data.sql
-
-wc -l /tmp/cpia_activity_master_data.sql
-# Expected: 적재한 row 수 (남웅+세보+창원 ~250) + 헤더 line
-```
-
-- [ ] **Step 3: Chroma `wbs_master` 컬렉션 export**
-
-```bash
-uv run python <<'EOF'
-from pipeline.chroma_client import ChromaClient
-import os, json
-from dotenv import load_dotenv
-load_dotenv()  # .env.local
-
-c = ChromaClient(host=os.environ['CHROMA_HOST'], port=int(os.environ.get('CHROMA_PORT', '8000')))
-coll = c.get_or_create_wbs_master()
-data = coll.get(include=['embeddings', 'documents', 'metadatas'])
-with open('/tmp/cpia_wbs_master_export.json', 'w') as f:
-    json.dump({
-        'ids': data['ids'],
-        'documents': data['documents'],
-        'metadatas': data['metadatas'],
-        'embeddings': [list(e) for e in data['embeddings']],
-    }, f)
-print(f"exported {len(data['ids'])} docs")
-EOF
-```
-
-- [ ] **Step 4: .env.homelab 작성 + symlink 전환**
-
-```bash
-# .env.homelab — B 트랙 머지 후 PG/Chroma URL 채움
-cat > .env.homelab <<'EOF'
-AZURE_OPENAI_ENDPOINT=...
-AZURE_OPENAI_API_KEY=...
-AZURE_OPENAI_API_VERSION=...
-LLM_MODEL=gpt-5.1-chat-ai-board-test
-EMBEDDING_MODEL=text-embedding-3-small-ai-board-test
-EMBEDDING_DIM=1536
-
-# homelab (B 트랙 머지 후 실제 값 채움)
-POSTGRES_URL=postgresql://<user>:<pw>@<homelab-host>:5432/cpia
-CHROMA_HOST=<homelab-host>
-CHROMA_PORT=8000
-EOF
-
-# symlink 전환
-ln -sf .env.homelab .env
-```
-
-- [ ] **Step 5: homelab PG 에 init.sql 적용 확인 + 데이터 restore**
-
-```bash
-# B 트랙이 이미 init.sql 적용했어야 함. 미적용이면 알림.
-psql "$POSTGRES_URL" -c "\d activity_master" || {
-    echo "ERROR: B 트랙 init.sql 미적용. /infra/postgres/init.sql 실행 요청 필요."
-    exit 1
-}
-
-# 로컬에서 dump 한 데이터 restore
-psql "$POSTGRES_URL" -f /tmp/cpia_activity_master_data.sql
-psql "$POSTGRES_URL" -c "SELECT count(*) FROM activity_master;"
-# Expected: 로컬과 동일한 row 수
-```
-
-- [ ] **Step 6: homelab Chroma 에 컬렉션 import**
-
-```bash
-uv run python <<'EOF'
-from pipeline.chroma_client import ChromaClient
-import os, json
-from dotenv import load_dotenv
-load_dotenv()  # 이제 .env.homelab
-
-with open('/tmp/cpia_wbs_master_export.json') as f:
-    data = json.load(f)
-
-c = ChromaClient(host=os.environ['CHROMA_HOST'], port=int(os.environ.get('CHROMA_PORT', '8000')))
-coll = c.get_or_create_wbs_master()
-coll.upsert(
-    ids=data['ids'],
-    embeddings=data['embeddings'],
-    documents=data['documents'],
-    metadatas=data['metadatas'],
-)
-print(f"imported {len(data['ids'])} docs to homelab Chroma")
-EOF
-```
-
-- [ ] **Step 7: 골든 회귀 재실행 (homelab 환경)**
-
-```bash
-cd pipeline
-uv run pytest tests/test_mapper_golden.py -v -s -m golden
-# Expected: 동일 정확도 (78/79 = 98.7%). 환경만 바뀐 거니 결과 동등.
-```
-
-- [ ] **Step 8: 로컬 Docker 정리 (선택 — 디버깅 자산으로 유지 가능)**
-
-```bash
-# 유지: cd infra/local && docker compose -f docker-compose.local.yml down
-# 데이터 보존을 위해 -v (volume 삭제) 는 사용 X.
-# A 트랙 단독 디버깅 시 .env.local symlink 로 재진입 가능.
-```
-
-- [ ] **Step 9: scripts/migrate_to_homelab.sh 작성 (재실행 가능하게)**
-
-```bash
-cat > scripts/migrate_to_homelab.sh <<'SCRIPT'
-#!/usr/bin/env bash
-# 로컬 → homelab 마이그레이션 자동화. 추가 BP사 적재 후 재실행 가능.
-set -euo pipefail
-
-CPIA_ROOT=$(git rev-parse --show-toplevel)
-cd "$CPIA_ROOT"
-
-# 1. dump
-ln -sf .env.local .env && source .env
-pg_dump "$POSTGRES_URL" --table=activity_master --data-only --column-inserts \
-    > /tmp/cpia_activity_master_data.sql
-
-# 2. Chroma export
-uv run python scripts/_chroma_export.py /tmp/cpia_wbs_master_export.json
-
-# 3. homelab restore
-ln -sf .env.homelab .env && source .env
-psql "$POSTGRES_URL" -c "TRUNCATE activity_master;"
-psql "$POSTGRES_URL" -f /tmp/cpia_activity_master_data.sql
-uv run python scripts/_chroma_import.py /tmp/cpia_wbs_master_export.json
-
-# 4. 회귀 검증
-cd pipeline && uv run pytest tests/test_mapper_golden.py -v -m golden
-SCRIPT
-chmod +x scripts/migrate_to_homelab.sh
-```
-
-- [ ] **Step 10: Commit + 머지**
-
-```bash
-git add scripts/migrate_to_homelab.sh
-git commit -m "migrate: 로컬 → homelab 마이그레이션 자동화 스크립트"
-git push origin A_Track
-```
-
----
-
 ## 미해결 사안 (이번 plan 범위 밖, mapping-layer.md §8.1 그대로 인계)
 
 | 사안 | 후속 plan |
 |---|---|
+| **homelab 마이그레이션** | B 트랙 인프라 (`infra/postgres/init.sql` + `docker-compose.yml` + Cloudflare Tunnel) 조성 완료 시점에 **별도 plan**. 로컬 `pg_dump` + Chroma export → homelab restore + import. `.env.homelab` symlink 전환만 하면 코드 변경 X. |
 | ① FA DUCT 임베딩 매칭 실패 (R459) | doc 어휘 풍부화 — GATE 2 |
 | ③ 시트1 자연어 LLM 추론 (WA 3단계) | `resolve_wa()` 의 3단계 활성화 — GATE 2 |
 | ④ `mapping_corrections` 자동 적용 K=3 | H-i-L 1 누적 + Mapper feedback — GATE 3 |

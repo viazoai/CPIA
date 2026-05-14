@@ -109,6 +109,40 @@ def _parse_sheet1_bp_summaries(ws) -> list[BPSummary]:
     return summaries
 
 
+def _parse_sheet2_job_allocations(ws) -> list[JobAllocation]:
+    """시트 2 (직종별 인원현황) -> JobAllocation[]. 관리자 직종/합계 row 필터.
+
+    cell 인덱스 (Task 0 시뮬 v3 발췌 / 실 파일 row 3 헤더 검증):
+      r[1] = disc_abbrev (Dis 영문 약자),
+      r[2] = company (BP사 - BP 코드 row 와 회사명 row 혼재, mapper 가 회사명으로만
+      매치하므로 BP 코드 row 는 자연 무시),
+      r[5] = job_type, r[23] = workers_cum_t (col 23 = 금일누계 계 컬럼).
+    header_end = 5, fill_cols = [1, 2] (시뮬과 일치).
+    """
+    rows = _ffill(list(ws.iter_rows(values_only=True)), header_end=5, fill_cols=[1, 2])
+    jobs: list[JobAllocation] = []
+    for _i, r in rows:
+        if _is_total_row(tuple(r)):
+            continue
+        company = str(r[2]).strip() if r[2] else ""
+        job_type = str(r[5]).strip() if len(r) > 5 and r[5] else ""
+        if not (company and job_type):
+            continue
+        if _is_admin_job(job_type):
+            continue
+        cum_t = int(r[23]) if len(r) > 23 and isinstance(r[23], (int, float)) else 0
+        jobs.append(
+            {
+                "bp_code": None,
+                "company": company,
+                "disc_abbrev": _disc_abbrev_to_kr(str(r[1]).strip()) if r[1] else None,
+                "job_type": job_type,
+                "workers_cum_t": cum_t,
+            }
+        )
+    return jobs
+
+
 def _parse_sheet4_activities(ws) -> list[Activity]:
     """시트 4 (물량) → Activity[]. fixture loader _load_inputs 이관.
 

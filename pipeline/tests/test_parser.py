@@ -180,3 +180,40 @@ def test_parse_sheet1_disc_abbrev_kr(sample_tong_path: Path):
     for s in summaries:
         if s["disc_abbrev"] is not None:
             assert s["disc_abbrev"] in valid_kr or len(s["disc_abbrev"]) <= 5
+
+
+# ---------------------------------------------------------------------------
+# Task 4: _parse_sheet2_job_allocations 테스트
+# ---------------------------------------------------------------------------
+from pipeline.agents.parser import _parse_sheet2_job_allocations  # noqa: E402
+
+
+def test_parse_sheet2_no_admin_jobs(sample_tong_path: Path):
+    """관리자 직종 0건 (필터 작동)."""
+    wb = openpyxl.load_workbook(sample_tong_path, data_only=True, read_only=True)
+    ws = wb["2.직종별 인원현황"]
+    jobs = _parse_sheet2_job_allocations(ws)
+    wb.close()
+    admin = {"BP소장", "공사관리자", "안전관리자", "품질관리자", "일반관리자"}
+    for j in jobs:
+        assert j["job_type"] not in admin, f"관리자 직종 누락 안 됨: {j}"
+
+
+def test_parse_sheet2_no_total_rows(sample_tong_path: Path):
+    """합계 row 0건."""
+    wb = openpyxl.load_workbook(sample_tong_path, data_only=True, read_only=True)
+    ws = wb["2.직종별 인원현황"]
+    jobs = _parse_sheet2_job_allocations(ws)
+    wb.close()
+    for j in jobs:
+        assert "투입 Total" not in (j.get("job_type") or ""), f"Total row 누락 안 됨: {j}"
+
+
+def test_parse_sheet2_workers_cum_t_int(sample_tong_path: Path):
+    """workers_cum_t 가 int."""
+    wb = openpyxl.load_workbook(sample_tong_path, data_only=True, read_only=True)
+    ws = wb["2.직종별 인원현황"]
+    jobs = _parse_sheet2_job_allocations(ws)
+    wb.close()
+    for j in jobs:
+        assert isinstance(j["workers_cum_t"], int)

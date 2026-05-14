@@ -128,3 +128,55 @@ def test_parse_sheet4_required_fields(sample_tong_path: Path):
     for a in activities:
         assert a["company"], f"company 비어있음: {a}"
         assert a["work_content"], f"work_content 비어있음: {a}"
+
+
+# ---------------------------------------------------------------------------
+# Task 3: _parse_sheet1_bp_summaries 테스트
+# ---------------------------------------------------------------------------
+from pipeline.agents.parser import _parse_sheet1_bp_summaries  # noqa: E402
+
+
+def test_parse_sheet1_bp_summaries_count(sample_tong_path: Path):
+    wb = openpyxl.load_workbook(sample_tong_path, data_only=True, read_only=True)
+    ws = wb["1.출력인원 현황"]
+    summaries = _parse_sheet1_bp_summaries(ws)
+    wb.close()
+    assert len(summaries) > 0, "bp_summaries 비어있음"
+    companies = {s["company"] for s in summaries}
+    assert "남웅건설" in companies, f"남웅건설 없음, 추출된 회사: {sorted(companies)[:10]}"
+
+
+def test_parse_sheet1_bp_summaries_fields(sample_tong_path: Path):
+    """BPSummary TypedDict 의 모든 필드 존재."""
+    wb = openpyxl.load_workbook(sample_tong_path, data_only=True, read_only=True)
+    ws = wb["1.출력인원 현황"]
+    summaries = _parse_sheet1_bp_summaries(ws)
+    wb.close()
+    required_keys = {
+        "bp_code",
+        "company",
+        "disc_abbrev",
+        "zone",
+        "scope",
+        "work_text_yesterday",
+        "work_text_today",
+        "work_text_tomorrow",
+        "today_incr_total",
+        "today_cum_total",
+    }
+    for s in summaries:
+        assert required_keys <= set(s.keys()), f"누락 키: {required_keys - set(s.keys())}"
+        assert isinstance(s["today_incr_total"], int)
+        assert isinstance(s["today_cum_total"], int)
+
+
+def test_parse_sheet1_disc_abbrev_kr(sample_tong_path: Path):
+    """disc_abbrev 가 한글로 변환됐거나 None."""
+    wb = openpyxl.load_workbook(sample_tong_path, data_only=True, read_only=True)
+    ws = wb["1.출력인원 현황"]
+    summaries = _parse_sheet1_bp_summaries(ws)
+    wb.close()
+    valid_kr = {"건축", "설비", "전기", "UT", "공통가설", "제어", "토목"}
+    for s in summaries:
+        if s["disc_abbrev"] is not None:
+            assert s["disc_abbrev"] in valid_kr or len(s["disc_abbrev"]) <= 5

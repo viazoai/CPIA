@@ -75,6 +75,40 @@ def _ffill(
     return out
 
 
+def _parse_sheet1_bp_summaries(ws) -> list[BPSummary]:
+    """시트 1 (출력인원 현황) -> BPSummary[]. 시뮬 v3 패턴 기반.
+
+    Header end = row 4. Forward-fill cols = [1, 2, 3, 4] (병합 셀 패턴).
+    r[2]=zone, r[3]=disc_abbrev, r[4]=company (BP 코드 row 는 mapper 무시),
+    r[6]=work_text_yesterday, r[7]=work_text_today, r[8]=work_text_tomorrow,
+    r[28]=today_incr_total, r[35]=today_cum_total.
+    bp_code / scope: GATE 2 에서 보강 예정 -> None.
+    """
+    rows = _ffill(list(ws.iter_rows(values_only=True)), header_end=4, fill_cols=[1, 2, 3, 4])
+    summaries: list[BPSummary] = []
+    for _i, r in rows:
+        if not r[4]:
+            continue
+        company = str(r[4]).strip()
+        if not company:
+            continue
+        summaries.append(
+            {
+                "bp_code": None,
+                "company": company,
+                "disc_abbrev": _disc_abbrev_to_kr(str(r[3]).strip()) if r[3] else None,
+                "zone": str(r[2]).strip() if r[2] else None,
+                "scope": None,
+                "work_text_yesterday": str(r[6]).strip() if r[6] else None,
+                "work_text_today": str(r[7]).strip() if r[7] else None,
+                "work_text_tomorrow": str(r[8]).strip() if r[8] else None,
+                "today_incr_total": int(r[28]) if isinstance(r[28], (int, float)) else 0,
+                "today_cum_total": int(r[35]) if isinstance(r[35], (int, float)) else 0,
+            }
+        )
+    return summaries
+
+
 def _parse_sheet4_activities(ws) -> list[Activity]:
     """시트 4 (물량) → Activity[]. fixture loader _load_inputs 이관.
 

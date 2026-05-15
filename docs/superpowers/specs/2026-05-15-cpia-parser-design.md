@@ -469,6 +469,9 @@ $ uv run python3 scripts/parser_e2e_demo.py docs/sample/통합작업일보_...xl
 | Q3 | H-i-L 1 발동률이 변하는가? (`mapping_conf < 0.7` 비율) | 위와 동시 | 발동률 print 추가. |
 | Q4 | 다른 작업일보 (다른 현장 / BP사) 에서 정확도 패턴은? | GATE 2 (5/22) | 추가 작업일보 fixture 확보 후 동일 측정. |
 | Q5 | WA 3단계 (시트1 work_text_today LLM 추론) 활성화 시 효과? | GATE 2 (5/22), mapper.py:182 TODO 해소 | 시트1 BP사별 work_text_today 가 채워진 후 측정. |
+| Q6 | `_DATE_PATTERN` 의 `.xlsm` 8자리 미매칭 — `작업일보_20250925.xlsm` 거부됨 | 첫 .xlsm 작업일보 투입 시 | regex 를 `_(\d{4})(\d{2})(\d{2})\.xlsm?$` 통합 패턴으로 변경 |
+| Q7 | `_extract_meta` 의 project 키워드 (`M15X` / `IBL` / `PJT`) 하드코딩 — 다른 현장 적용 시 fallback 강제 | GATE 2 (5/22) 새 현장 파일 투입 시 | 시트1 row 1~3 의 첫 비어있지 않은 셀 또는 파일명 깨끗한 stem 추출 로직으로 교체 |
+| Q8 | `_parse_sheet2/3` 의 `list(ws.iter_rows())` 전체 materialization — 시트2 15K rows 메모리 점유 | 동시 워커 20개 이상 시나리오 (PoC scope 외) | `_ffill` 을 iterator-based 로 리팩터, peak RSS O(1)/시트 |
 
 ---
 
@@ -489,3 +492,4 @@ $ uv run python3 scripts/parser_e2e_demo.py docs/sample/통합작업일보_...xl
 |---|---|---|
 | 2026-05-15 | 초안 — 베이스라인 측정 (78/79=98.7%) + motivation 재정렬 + 책임 경계 + 공개 API + 시트별 셀 위치 + fixture loader 이관 + 테스트 전략 + GATE 2/3 open question | A 트랙 |
 | 2026-05-15 | §9.4 실증 검증 단계 추가 — scripts/parser_e2e_demo.py 로 Parser → Mapper 실 출력 dump (Iron Law 3요소 강제) + 체크포인트 C1~C8 명시 | A 트랙 |
+| 2026-05-15 | Task 7 회귀 실측 갱신 — v3 패턴 복원 후 77/79=97.5% (베이스라인 78/79=98.7%), R459/R469 conf 0.55 → H-i-L 1 발동 → 보완 후 100%. §1.3 흥미로운 패턴 (R459 conf 0.83→0.55) 데이터 근거 확보. §10 Q6~Q8 추가 (.xlsm 8자리 / project 키워드 하드코딩 / 시트 materialization). | A 트랙 |

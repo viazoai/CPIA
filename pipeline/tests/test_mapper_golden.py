@@ -13,7 +13,7 @@ import openpyxl
 import pytest
 
 from pipeline.agents.mapper import MapperConfig, map_activity
-from pipeline.agents.parser import parse_daily_report
+from pipeline.agents.parser import _ffill, parse_daily_report
 from pipeline.state import Activity
 
 
@@ -66,7 +66,6 @@ def _match_golden(activities: list[Activity], wb_path: Path) -> list[tuple[int, 
     Parser 는 row 번호를 노출하지 않으므로 시트4 를 한 번 더 read + ffill 해서
     (company, work_content) → row index 매핑을 만들고 GOLDEN dict 의 key 와 join.
     """
-    from pipeline.agents.parser import _ffill  # 함수 내부 import — 포매터의 unused 제거 우회
 
     wb = openpyxl.load_workbook(wb_path, data_only=True, read_only=True)
     ws = wb["4.물량"]

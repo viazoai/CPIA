@@ -20,8 +20,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 load_dotenv(ROOT / ".env")
 
+
+import openpyxl
+
 from pipeline.agents.mapper import MapperConfig, build_bp_context, map_activity
-from pipeline.agents.parser import parse_daily_report
+from pipeline.agents.parser import _ffill, parse_daily_report
 
 
 GOLDEN_DEFAULTS = "99,452,892,1207,1230"
@@ -32,6 +35,32 @@ GOLDEN = {
     1207: ("세보엠이씨", "기계소화설비"),
     1230: ("창원기전", "전기소화설비"),
 }
+
+
+def _build_row_to_activity(parsed, xlsx_path: Path) -> dict[int, dict]:
+    """sheet4 를 한 번 더 read + ffill 해서 row -> activity 매핑.
+
+    test_mapper_golden._match_golden 패턴 — 같은 company 의 row 가 여러 개일 때
+    work_content 까지 매칭해서 정확한 activity 잡음. 데모용 한 회 호출.
+    """
+    wb = openpyxl.load_workbook(xlsx_path, data_only=True, read_only=True)
+    try:
+        ws = wb["4.물량"]
+        rows = _ffill(list(ws.iter_rows(values_only=True)), header_end=4, fill_cols=[1, 2, 3, 4, 5])
+    finally:
+        wb.close()
+
+    activity_by_key: dict[tuple[str, str], dict] = {
+        (a["company"], a["work_content"]): a for a in parsed["activities"]
+    }
+    row_to_activity: dict[int, dict] = {}
+    for i, r in rows:
+        if r[5] and r[7]:
+            key = (str(r[5]).strip(), str(r[7]).strip())
+            a = activity_by_key.get(key)
+            if a is not None:
+                row_to_activity.setdefault(i, a)
+    return row_to_activity
 
 
 def dump_parser_output(parsed) -> None:
@@ -99,7 +128,12 @@ def check_postconditions(parsed) -> tuple[int, list[str]]:
     return passed, failures
 
 
-async def dump_mapper_samples(parsed, sample_rows: list[int], cfg: MapperConfig) -> int:
+async def dump_mapper_samples(
+    parsed,
+    sample_rows: list[int],
+    row_to_activity: dict[int, dict],
+    cfg: MapperConfig,
+) -> int:
     """Mapper 호출 결과 dump. (build_bp_context fallback 발생 건수) 반환."""
     print("=== Mapper 호출 (sample 5건 -- 시뮬 v3 패턴 복원) ===")
     print()
@@ -112,12 +146,9 @@ async def dump_mapper_samples(parsed, sample_rows: list[int], cfg: MapperConfig)
             print(f"[R{row}] GOLDEN 미정의, skip")
             continue
         golden_company, golden_l6 = GOLDEN[row]
-        match = next(
-            (a for a in parsed["activities"] if a["company"] == golden_company),
-            None,
-        )
+        match = row_to_activity.get(row)
         if not match:
-            print(f"[R{row}] {golden_company} 의 Activity 없음")
+            print(f"[R{row}] {golden_company} 의 Activity 매칭 실패 (sheet4 row 누락)")
             continue
 
         ctx = build_bp_context(match["company"], parsed)
@@ -170,6 +201,7 @@ async def main():
     print()
 
     sample_rows = [int(x) for x in args.sample_rows.split(",")]
+    row_to_activity = _build_row_to_activity(parsed, args.xlsx_path)
 
     cfg = MapperConfig(
         azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
@@ -182,7 +214,7 @@ async def main():
         chroma_port=int(os.environ.get("CHROMA_PORT", "8000")),
     )
 
-    fallback_hits = await dump_mapper_samples(parsed, sample_rows, cfg)
+    fallback_hits = await dump_mapper_samples(parsed, sample_rows, row_to_activity, cfg)
     print(f"=== 체크포인트 C6 -- fallback 메시지 {fallback_hits}건 (목표 0건) ===")
     print()
 

@@ -7,21 +7,17 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import Any
 
 import openpyxl
 
-if TYPE_CHECKING:
-    from pipeline.state import BPSummary, JobAllocation, Activity, EquipmentAllocation, ParsedDailyReport
-else:
-    try:
-        from pipeline.state import BPSummary, JobAllocation, Activity, EquipmentAllocation, ParsedDailyReport
-    except ImportError:
-        BPSummary = dict
-        JobAllocation = dict
-        Activity = dict
-        EquipmentAllocation = dict
-        ParsedDailyReport = dict
+from pipeline.state import (
+    Activity,
+    BPSummary,
+    EquipmentAllocation,
+    JobAllocation,
+    ParsedDailyReport,
+)
 
 
 class ParseError(Exception):
@@ -285,21 +281,20 @@ def parse_daily_report(xlsx_path: Path | str) -> ParsedDailyReport:
     """
     xlsx_path = Path(xlsx_path)
     wb = openpyxl.load_workbook(xlsx_path, data_only=True, read_only=True)
+    try:
+        required_sheets = {"1.출력인원 현황", "2.직종별 인원현황", "3.장비현황", "4.물량"}
+        missing = required_sheets - set(wb.sheetnames)
+        if missing:
+            raise ParseError(f"시트 누락: {sorted(missing)}")
 
-    required_sheets = {"1.출력인원 현황", "2.직종별 인원현황", "3.장비현황", "4.물량"}
-    missing = required_sheets - set(wb.sheetnames)
-    if missing:
+        report_date, project = _extract_meta(xlsx_path, wb)
+
+        bp_summaries = _parse_sheet1_bp_summaries(wb["1.출력인원 현황"])
+        job_allocations = _parse_sheet2_job_allocations(wb["2.직종별 인원현황"])
+        equipment_allocations = _parse_sheet3_equipment_allocations(wb["3.장비현황"])
+        activities = _parse_sheet4_activities(wb["4.물량"])
+    finally:
         wb.close()
-        raise ParseError(f"시트 누락: {sorted(missing)}")
-
-    report_date, project = _extract_meta(xlsx_path, wb)
-
-    bp_summaries = _parse_sheet1_bp_summaries(wb["1.출력인원 현황"])
-    job_allocations = _parse_sheet2_job_allocations(wb["2.직종별 인원현황"])
-    equipment_allocations = _parse_sheet3_equipment_allocations(wb["3.장비현황"])
-    activities = _parse_sheet4_activities(wb["4.물량"])
-
-    wb.close()
 
     return {
         "report_date": report_date,

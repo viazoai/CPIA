@@ -8,12 +8,12 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
 
 import openpyxl
 import pytest
 
 from pipeline.agents.mapper import MapperConfig, map_activity
+from pipeline.agents.parser import parse_daily_report
 from pipeline.state import Activity
 
 
@@ -60,62 +60,30 @@ GOLDEN.update(
 )
 
 
-def _ffill(rows: list[tuple[Any, ...]], header_end: int, fill_cols: list[int]) -> list[tuple[int, list[Any]]]:
-    """헤더 이후 row 를 forward-fill (빈 셀에 직전 값 채움)."""
-    last: dict[int, Any] = {c: None for c in fill_cols}
-    out: list[tuple[int, list[Any]]] = []
-    for i, r in enumerate(rows[header_end:], start=header_end + 1):
-        rec = list(r)
-        for c in fill_cols:
-            if rec[c] is not None and str(rec[c]).strip() != "":
-                last[c] = rec[c]
-            else:
-                rec[c] = last[c]
-        out.append((i, rec))
-    return out
+def _match_golden(activities: list[Activity], wb_path: Path) -> list[tuple[int, Activity]]:
+    """Parser activities → 골든 row 번호 매칭. test_mapper_golden 전용 헬퍼.
 
+    Parser 는 row 번호를 노출하지 않으므로 시트4 를 한 번 더 read + ffill 해서
+    (company, work_content) → row index 매핑을 만들고 GOLDEN dict 의 key 와 join.
+    """
+    from pipeline.agents.parser import _ffill  # 함수 내부 import — 포매터의 unused 제거 우회
 
-def _load_inputs(tong_path: Path) -> list[tuple[int, Activity]]:
-    """통합작업일보 시트 '4.물량' → golden row 들의 Activity 리스트."""
-    wb = openpyxl.load_workbook(tong_path, data_only=True, read_only=True)
-    ws4 = wb["4.물량"]
-    rows = _ffill(list(ws4.iter_rows(values_only=True)), 4, [1, 2, 3, 4, 5])
-    activities: list[tuple[int, Activity]] = []
-    for i, r in rows:
-        if i not in GOLDEN:
-            continue
-        # 필수 컬럼: company(5), work_content(7), unit(8)
-        if not (r[5] and r[7]):
-            continue
-        activities.append(
-            (
-                i,
-                {
-                    "wbs_activity_id": None,
-                    "l5_disc": str(r[3]) if r[3] else "",
-                    "l6_main": None,
-                    "l7_sub": None,
-                    "l7_5_activity": None,
-                    "sub_work_area": None,
-                    "trade": str(r[3]) if r[3] else "",
-                    "company": str(r[5]).strip(),
-                    "unit": str(r[8] or "").strip(),
-                    "today_qty": float(r[11]) if isinstance(r[11], (int, float)) else 0.0,
-                    "work_content": str(r[7]).strip(),
-                    "conditions": [],
-                    "assigned_workers": 0.0,
-                    "worker_source": "parsed",
-                    "plan_total_qty": float(r[9]) if isinstance(r[9], (int, float)) else None,
-                    "plan_mh": None,
-                    "requires_review": False,
-                    "wa": None,
-                    "mapping_conf": None,
-                    "mapping_source": None,
-                },
-            )
-        )
+    wb = openpyxl.load_workbook(wb_path, data_only=True, read_only=True)
+    ws = wb["4.물량"]
+    rows = _ffill(list(ws.iter_rows(values_only=True)), header_end=4, fill_cols=[1, 2, 3, 4, 5])
     wb.close()
-    return activities
+    row_map: dict[tuple[str, str], int] = {}
+    for i, r in rows:
+        if r[5] and r[7]:
+            key = (str(r[5]).strip(), str(r[7]).strip())
+            row_map.setdefault(key, i)
+
+    matched: list[tuple[int, Activity]] = []
+    for a in activities:
+        row = row_map.get((a["company"], a["work_content"]))
+        if row is not None and row in GOLDEN:
+            matched.append((row, a))
+    return matched
 
 
 @pytest.mark.slow
@@ -134,13 +102,14 @@ async def test_golden_accuracy(sample_tong_path: Path, azure_openai_env):
         chroma_port=int(os.environ.get("CHROMA_PORT", "8000")),
     )
 
-    inputs = _load_inputs(sample_tong_path)
+    parsed = parse_daily_report(sample_tong_path)
+    inputs = _match_golden(parsed["activities"], sample_tong_path)
     assert len(inputs) == 79, f"골든 입력 수 불일치: {len(inputs)}"
 
     correct = 0
     wrong: list[tuple[int, str, str, str | None, float | None]] = []
     for row, activity in inputs:
-        result = await map_activity(activity, parsed_report=None, cfg=cfg)
+        result = await map_activity(activity, parsed_report=parsed, cfg=cfg)
         expected = GOLDEN[row][1]
         if result["l6_main"] == expected:
             correct += 1

@@ -20,7 +20,7 @@ export function Sidebar() {
   return (
     <aside className="hidden md:flex w-60 shrink-0 flex-col border-r border-border bg-white/60 backdrop-blur-sm">
       <div className="px-5 py-6">
-        <span className="font-mono text-[10px] uppercase tracking-widest text-ink-light">
+        <span className="font-mono text-xs uppercase tracking-wider text-ink-light">
           Navigation
         </span>
       </div>
@@ -42,7 +42,7 @@ export function Sidebar() {
               <Icon className="h-4 w-4" strokeWidth={active ? 2.5 : 2} />
               {m.label}
               {m.key === "dashboard" && persona === "manager" && (
-                <span className="ml-auto rounded-sm bg-lavender px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-white">
+                <span className="ml-auto rounded-sm bg-lavender px-1.5 py-0.5 text-[11px] uppercase tracking-wider text-white">
                   Mgmt
                 </span>
               )}
@@ -50,7 +50,7 @@ export function Sidebar() {
           );
         })}
       </nav>
-      <div className="mt-auto px-5 py-4 text-[10px] font-mono uppercase tracking-widest text-ink-light/70">
+      <div className="mt-auto px-5 py-4 text-xs font-mono uppercase tracking-wider text-ink-light/70">
         v0.1 · PoC · B_Track
       </div>
     </aside>

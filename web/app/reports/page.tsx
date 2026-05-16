@@ -26,10 +26,10 @@ export default function ReportPage() {
   const detail = details[selectedDate];
 
   const kpi: KpiItem[] = [
-    { label: "현재 생산성", value: `${detail.kpi.productivity_today}`, unit: "%", sub: `이력 ${detail.kpi.productivity_history_diff > 0 ? "+" : ""}${detail.kpi.productivity_history_diff}%`, tone: detail.kpi.productivity_today < 90 ? "rose" : "mint" },
-    { label: "현 추세 공기", value: `D+${detail.kpi.delay_days}`, unit: "일 지연", sub: detail.kpi.expected_completion, tone: "rose" },
-    { label: "회복 가능 생산성", value: `+${detail.kpi.recoverable_productivity}`, unit: "%p", sub: `${detail.kpi.target_productivity}% 도달`, tone: "lavender" },
-    { label: "최적화 후 공기", value: `-${detail.kpi.recovery_days}`, unit: "일 회복", sub: detail.kpi.recovered_completion, tone: "mint" },
+    { label: "현재 생산성", value: `${detail.kpi.productivity_today}`, unit: "%", sub: `이력 ${detail.kpi.productivity_history_diff > 0 ? "+" : ""}${detail.kpi.productivity_history_diff}%`, tone: detail.kpi.productivity_today < 90 ? "risk" : "normal" },
+    { label: "현 추세 공기", value: `D+${detail.kpi.delay_days}`, unit: "일 지연", sub: detail.kpi.expected_completion, tone: "risk" },
+    { label: "회복 가능 생산성", value: `+${detail.kpi.recoverable_productivity}`, unit: "%p", sub: `${detail.kpi.target_productivity}% 도달`, tone: "primary" },
+    { label: "최적화 후 공기", value: `-${detail.kpi.recovery_days}`, unit: "일 회복", sub: detail.kpi.recovered_completion, tone: "normal" },
   ];
 
   return (
@@ -40,11 +40,11 @@ export default function ReportPage() {
             / 04 — Report
           </span>
           <span className="h-px w-8 bg-border" />
-          <span className="font-mono text-[11px] uppercase tracking-widest text-ink-light">
+          <span className="font-mono text-[11px] uppercase tracking-wider text-ink-light">
             일별 진단 · 만회 시나리오 · 원본 데이터
           </span>
         </div>
-        <h1 className="mt-6 font-display text-3xl font-bold tracking-tight text-ink">
+        <h1 className="mt-6 font-display text-3xl font-medium tracking-[-0.02em] text-ink">
           현장 일일 진단 보고서
         </h1>
       </div>

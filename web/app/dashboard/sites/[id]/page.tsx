@@ -30,10 +30,10 @@ export default function SiteDashboardPage() {
   const { site, detail, perSiteAutomation, trend } = data;
 
   const perfKpi: KpiItem[] = [
-    { label: "현재 생산성",  value: `${site.productivity_today}`, unit: "%", sub: "이력 대비",         tone: site.productivity_today < 90 ? "rose" : "mint" },
-    { label: "현 추세 공기", value: site.delay_days > 0 ? `D+${site.delay_days}` : "정상", unit: site.delay_days > 0 ? "일 지연" : "", sub: site.expected_completion, tone: site.delay_days > 0 ? "rose" : "mint" },
-    { label: "회복 가능 생산성", value: site.recovery_days > 0 ? `+${100 - site.productivity_today + site.recovery_days}` : "0", unit: "%p", sub: "Optimizer 목표", tone: "lavender" },
-    { label: "최적화 후 공기", value: site.recovery_days > 0 ? `-${site.recovery_days}` : "0", unit: "일 회복", sub: site.recovered_completion, tone: "mint" },
+    { label: "현재 생산성",  value: `${site.productivity_today}`, unit: "%", sub: "이력 대비",         tone: site.productivity_today < 90 ? "risk" : "normal" },
+    { label: "현 추세 공기", value: site.delay_days > 0 ? `D+${site.delay_days}` : "정상", unit: site.delay_days > 0 ? "일 지연" : "", sub: site.expected_completion, tone: site.delay_days > 0 ? "risk" : "normal" },
+    { label: "회복 가능 생산성", value: site.recovery_days > 0 ? `+${100 - site.productivity_today + site.recovery_days}` : "0", unit: "%p", sub: "Optimizer 목표", tone: "primary" },
+    { label: "최적화 후 공기", value: site.recovery_days > 0 ? `-${site.recovery_days}` : "0", unit: "일 회복", sub: site.recovered_completion, tone: "normal" },
   ];
 
   const siteImpactSummary: SitesSummary = {
@@ -46,11 +46,11 @@ export default function SiteDashboardPage() {
   return (
     <div className="flex flex-col">
       <div className="mx-auto w-full max-w-wrap px-6 py-8 md:px-10">
-        <Link href="/dashboard" className="inline-flex items-center gap-1 text-xs font-mono uppercase tracking-widest text-ink-light hover:text-lavender">
+        <Link href="/dashboard" className="inline-flex items-center gap-1 text-xs font-mono uppercase tracking-wider text-ink-light hover:text-lavender">
           <ChevronLeft className="h-3.5 w-3.5" />
           전사로 돌아가기
         </Link>
-        <h1 className="mt-4 font-display text-3xl font-bold tracking-tight text-ink">{site.name}</h1>
+        <h1 className="mt-4 font-display text-3xl font-medium tracking-[-0.02em] text-ink">{site.name}</h1>
         <p className="mt-1 text-sm text-ink-mid">{site.location} · Hi-tech · 현장 모니터링</p>
       </div>
 
@@ -66,7 +66,7 @@ export default function SiteDashboardPage() {
             {detail ? (
               <>
                 <div className="rounded-card border border-border-soft bg-card p-5 shadow-xs">
-                  <div className="mb-3 font-mono text-[10px] uppercase tracking-widest text-ink-light">
+                  <div className="mb-3 font-mono text-xs uppercase tracking-wider text-ink-light">
                     S-Curve · 4선 시나리오
                   </div>
                   <SCurveChart points={detail.s_curve} showRecovery />

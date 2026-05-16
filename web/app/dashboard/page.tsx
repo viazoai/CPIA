@@ -26,11 +26,11 @@ export default function DashboardPage() {
             / 05 — Dashboard · Fleet
           </span>
           <span className="h-px w-8 bg-border" />
-          <span className="font-mono text-[11px] uppercase tracking-widest text-ink-light">
+          <span className="font-mono text-[11px] uppercase tracking-wider text-ink-light">
             Top Mgmt 전용
           </span>
         </div>
-        <h1 className="mt-6 font-display text-3xl font-bold tracking-tight text-ink">
+        <h1 className="mt-6 font-display text-3xl font-medium tracking-[-0.02em] text-ink">
           전사 현장 모니터링
         </h1>
         <p className="mt-2 text-sm text-ink-mid">

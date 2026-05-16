@@ -70,11 +70,11 @@ export default function HumanReviewPage() {
             / 03 — Human Review
           </span>
           <span className="h-px w-8 bg-border" />
-          <span className="font-mono text-[11px] uppercase tracking-widest text-ink-light">
+          <span className="font-mono text-[11px] uppercase tracking-wider text-ink-light">
             확신도 낮은 매핑 검토
           </span>
         </div>
-        <h1 className="mt-6 font-display text-3xl font-bold tracking-tight text-ink">
+        <h1 className="mt-6 font-display text-3xl font-medium tracking-[-0.02em] text-ink">
           작업 물량 Mapping
         </h1>
         <p className="mt-2 text-sm text-ink-mid">

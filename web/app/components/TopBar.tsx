@@ -14,7 +14,7 @@ export function TopBar() {
         </span>
         <Badge
           variant="outline"
-          className="ml-2 gap-1 border-border bg-white px-2.5 py-1 font-mono text-[10px] uppercase tracking-widest text-ink-mid"
+          className="ml-2 gap-1 border-border bg-white px-2.5 py-1 font-mono text-xs uppercase tracking-wider text-ink-mid"
         >
           <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-mint" />
           live · v0.1

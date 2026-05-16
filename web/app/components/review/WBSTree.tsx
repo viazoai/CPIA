@@ -14,7 +14,7 @@ interface Props {
 export function WBSTree({ root, selectedId, onSelect, onDrop }: Props) {
   return (
     <div className="flex flex-col p-3 text-sm">
-      <div className="font-mono text-[10px] uppercase tracking-widest text-ink-light px-2 pb-2">
+      <div className="font-mono text-xs uppercase tracking-wider text-ink-light px-2 pb-2">
         WBS Tree · 건물 &gt; 공종 &gt; Work Package
       </div>
       <Branch node={root} depth={0} selectedId={selectedId} onSelect={onSelect} onDrop={onDrop} />
@@ -62,7 +62,7 @@ function Branch({
         <StatusDot status={node.status} />
         <span className="text-xs flex-1">{node.name}</span>
         {node.review_count > 0 && (
-          <span className="inline-flex items-center gap-0.5 rounded-sm bg-sun-light px-1.5 py-0.5 text-[9px] font-bold text-sun-text">
+          <span className="inline-flex items-center gap-0.5 rounded-sm bg-sun-light px-1.5 py-0.5 text-[11px] font-bold text-sun-text">
             <AlertTriangle className="h-2.5 w-2.5" />
             {node.review_count}
           </span>

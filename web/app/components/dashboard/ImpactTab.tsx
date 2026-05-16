@@ -13,15 +13,15 @@ interface Props {
 
 export function ImpactTab({ summary, distribution, trend, perFunction, scope }: Props) {
   const kpi: KpiItem[] = scope === "fleet" ? [
-    { label: "전체 근무량",  value: `${summary.total_headcount}명`, sub: `${summary.total_hours.toLocaleString()} h/월`, tone: "sky" },
-    { label: "월 절감 시간", value: `${summary.total_hours_saved.toLocaleString()}`, unit: "h", sub: "Agent 자동화 효과", tone: "lavender" },
-    { label: "FTE 환산",     value: `${summary.total_fte_saved}`, unit: "명", sub: "140h/명 기준", tone: "mint" },
-    { label: "AI 업무 대체율", value: `${summary.ai_replacement_rate}`, unit: "%", sub: "절감 ÷ 전체 근무시간", tone: "peach" },
+    { label: "전체 근무량",  value: `${summary.total_headcount}명`, sub: `${summary.total_hours.toLocaleString()} h/월`, tone: "muted" },
+    { label: "월 절감 시간", value: `${summary.total_hours_saved.toLocaleString()}`, unit: "h", sub: "Agent 자동화 효과", tone: "primary" },
+    { label: "FTE 환산",     value: `${summary.total_fte_saved}`, unit: "명", sub: "140h/명 기준", tone: "normal" },
+    { label: "AI 업무 대체율", value: `${summary.ai_replacement_rate}`, unit: "%", sub: "절감 ÷ 전체 근무시간", tone: "muted" },
   ] : [
-    { label: "현장 근무량",  value: `${summary.total_headcount}명`, sub: `${summary.total_hours.toLocaleString()} h/월`, tone: "sky" },
-    { label: "월 절감 시간", value: `${summary.total_hours_saved.toLocaleString()}`, unit: "h", sub: "이 현장 Agent 효과", tone: "lavender" },
-    { label: "FTE 환산",     value: `${summary.total_fte_saved}`, unit: "명", sub: "140h/명 기준", tone: "mint" },
-    { label: "AI 업무 대체율", value: `${summary.ai_replacement_rate}`, unit: "%", sub: "이 현장 대체율", tone: "peach" },
+    { label: "현장 근무량",  value: `${summary.total_headcount}명`, sub: `${summary.total_hours.toLocaleString()} h/월`, tone: "muted" },
+    { label: "월 절감 시간", value: `${summary.total_hours_saved.toLocaleString()}`, unit: "h", sub: "이 현장 Agent 효과", tone: "primary" },
+    { label: "FTE 환산",     value: `${summary.total_fte_saved}`, unit: "명", sub: "140h/명 기준", tone: "normal" },
+    { label: "AI 업무 대체율", value: `${summary.ai_replacement_rate}`, unit: "%", sub: "이 현장 대체율", tone: "muted" },
   ];
 
   return (

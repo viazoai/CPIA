@@ -25,7 +25,7 @@ export function AgentChatLog({ messages, intervalMs = 1500 }: Props) {
   return (
     <div className="flex flex-col">
       <div className="px-4 py-3 border-b border-border-soft">
-        <div className="font-mono text-[10px] uppercase tracking-widest text-ink-light">
+        <div className="font-mono text-xs uppercase tracking-wider text-ink-light">
           Agent Chat Log · 처리 흐름
         </div>
       </div>
@@ -45,13 +45,13 @@ export function AgentChatLog({ messages, intervalMs = 1500 }: Props) {
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <span className={cn("inline-flex items-center rounded-sm px-1.5 py-0.5 text-[10px] font-mono font-bold uppercase tracking-wider", tone.bg, tone.text)}>
+                  <span className={cn("inline-flex items-center rounded-sm px-1.5 py-0.5 text-xs font-mono font-bold uppercase tracking-wider", tone.bg, tone.text)}>
                     {m.agent}
                   </span>
-                  <span className="font-mono text-[10px] text-ink-light">{m.ts}</span>
+                  <span className="font-mono text-xs text-ink-light">{m.ts}</span>
                 </div>
                 {isHilRequest && (
-                  <span className="rounded-sm bg-sun-light px-1.5 py-0.5 text-[9px] font-semibold text-sun-text">
+                  <span className="rounded-sm bg-sun-light px-1.5 py-0.5 text-[11px] font-semibold text-sun-text">
                     HIL Review 요청
                   </span>
                 )}
@@ -64,7 +64,7 @@ export function AgentChatLog({ messages, intervalMs = 1500 }: Props) {
           );
         })}
         {revealed.length < messages.length && (
-          <div className="text-center text-[10px] text-ink-light/70 py-2 animate-pulse">
+          <div className="text-center text-xs text-ink-light/70 py-2 animate-pulse">
             · · · 처리 중 · · ·
           </div>
         )}

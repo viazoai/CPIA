@@ -40,11 +40,11 @@ export default function AgentTasksPage() {
             / 02 — Agent Tasks
           </span>
           <span className="h-px w-8 bg-border" />
-          <span className="font-mono text-[11px] uppercase tracking-widest text-ink-light">
+          <span className="font-mono text-[11px] uppercase tracking-wider text-ink-light">
             Daily Run · Process Progress · Chat
           </span>
         </div>
-        <h1 className="mt-6 font-display text-3xl font-bold tracking-tight text-ink">
+        <h1 className="mt-6 font-display text-3xl font-medium tracking-[-0.02em] text-ink">
           AI Agent가 처리하는 작업 흐름
         </h1>
         <p className="mt-2 text-sm text-ink-mid">

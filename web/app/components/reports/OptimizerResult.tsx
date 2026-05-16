@@ -7,7 +7,7 @@ export function OptimizerResult({ output }: { output: OptimizerOutput }) {
       <Section icon={<Brain className="h-4 w-4" />} tone="lavender" title="진단">
         <p className="text-sm text-ink-mid leading-relaxed">{output.diagnosis}</p>
       </Section>
-      <Section icon={<History className="h-4 w-4" />} tone="sky" title="유사 과거 사례">
+      <Section icon={<History className="h-4 w-4" />} tone="lavender" title="유사 과거 사례">
         <ul className="space-y-1.5">
           {output.similar_cases.map((c, i) => (
             <li key={i} className="text-xs">
@@ -17,8 +17,8 @@ export function OptimizerResult({ output }: { output: OptimizerOutput }) {
           ))}
         </ul>
       </Section>
-      <Section icon={<Lightbulb className="h-4 w-4" />} tone="peach" title="권고사항">
-        <ul className="space-y-1 list-decimal list-inside marker:text-peach-text marker:font-semibold">
+      <Section icon={<Lightbulb className="h-4 w-4" />} tone="sun" title="권고사항">
+        <ul className="space-y-1 list-decimal list-inside marker:text-sun-text marker:font-semibold">
           {output.recommendations.map((r, i) => (
             <li key={i} className="text-xs text-ink-mid">{r}</li>
           ))}
@@ -38,14 +38,14 @@ export function OptimizerResult({ output }: { output: OptimizerOutput }) {
   );
 }
 
-function Section({ icon, tone, title, children }: { icon: React.ReactNode; tone: "lavender" | "sky" | "peach" | "mint"; title: string; children: React.ReactNode }) {
-  const bg = { lavender: "bg-lavender-light", sky: "bg-sky-light", peach: "bg-peach-light", mint: "bg-mint-light" }[tone];
-  const text = { lavender: "text-lavender-text", sky: "text-sky-text", peach: "text-peach-text", mint: "text-mint-text" }[tone];
+function Section({ icon, tone, title, children }: { icon: React.ReactNode; tone: "lavender" | "sun" | "mint"; title: string; children: React.ReactNode }) {
+  const bg = { lavender: "bg-lavender-light", sun: "bg-sun-light", mint: "bg-mint-light" }[tone];
+  const text = { lavender: "text-lavender-text", sun: "text-sun-text", mint: "text-mint-text" }[tone];
   return (
     <div className="rounded-card border border-border-soft bg-card p-3 shadow-xs">
       <div className="flex items-center gap-2 mb-2">
         <span className={`inline-flex h-6 w-6 items-center justify-center rounded-sm ${bg} ${text}`}>{icon}</span>
-        <span className={`font-mono text-[10px] uppercase tracking-widest font-bold ${text}`}>{title}</span>
+        <span className={`font-mono text-xs uppercase tracking-wider font-bold ${text}`}>{title}</span>
       </div>
       {children}
     </div>

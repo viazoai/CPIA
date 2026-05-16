@@ -23,10 +23,10 @@ export function SiteOverviewCard({ site }: { site: Site }) {
         <div className="flex items-start justify-between">
           <div className="min-w-0">
             <div className="font-display text-base font-bold tracking-tight text-ink truncate">{site.name}</div>
-            <div className="font-mono text-[10px] uppercase tracking-widest text-ink-light mt-0.5">{site.location} · Hi-tech</div>
+            <div className="font-mono text-xs uppercase tracking-wider text-ink-light mt-0.5">{site.location} · Hi-tech</div>
           </div>
           {site.status === "risk" && (
-            <span className="inline-flex items-center gap-0.5 rounded-sm bg-rose-light px-1.5 py-0.5 text-[9px] font-bold text-rose-text">
+            <span className="inline-flex items-center gap-0.5 rounded-sm bg-rose-light px-1.5 py-0.5 text-[11px] font-bold text-rose-text">
               <AlertTriangle className="h-2.5 w-2.5" />
               이상
             </span>
@@ -36,11 +36,11 @@ export function SiteOverviewCard({ site }: { site: Site }) {
         <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
           <div>
             <div className="text-ink-light">생산성</div>
-            <div className="font-display text-lg font-bold text-ink">{site.productivity_today}%</div>
+            <div className="font-display text-lg font-semibold tracking-[-0.01em] text-ink">{site.productivity_today}%</div>
           </div>
           <div>
             <div className="text-ink-light">공기</div>
-            <div className={cn("font-display text-lg font-bold", site.delay_days > 0 ? "text-rose" : "text-mint")}>
+            <div className={cn("font-display text-lg font-semibold tracking-[-0.01em]", site.delay_days > 0 ? "text-rose" : "text-mint")}>
               {site.delay_days > 0 ? `+${site.delay_days}일` : "정상"}
             </div>
           </div>
@@ -55,7 +55,7 @@ export function SiteOverviewCard({ site }: { site: Site }) {
         </div>
 
         <div className="mt-2 flex items-center justify-between border-t border-border-soft pt-2">
-          <span className={cn("inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[9px] font-semibold", statusBg)}>
+          <span className={cn("inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[11px] font-semibold", statusBg)}>
             {site.abnormal_trades > 0 ? `이상 공종 ${site.abnormal_trades}` : "정상"}
           </span>
           <ArrowRight className="h-3.5 w-3.5 text-ink-light group-hover:text-lavender group-hover:translate-x-0.5 transition-all" />

@@ -24,7 +24,7 @@ export default async function HomePage() {
             <h2 className="font-display text-lg font-bold tracking-tight text-ink md:text-xl">
               7-Agent 파이프라인 + HIL Review
             </h2>
-            <span className="font-mono text-[10px] uppercase tracking-widest text-ink-light">
+            <span className="font-mono text-xs uppercase tracking-wider text-ink-light">
               LangGraph · multi-agent pipeline
             </span>
           </div>
@@ -48,10 +48,12 @@ export default async function HomePage() {
       <section className="mx-auto max-w-wrap px-6 mt-14 md:px-10">
         <Link
           href="/tasks"
-          className="group inline-flex items-center gap-2 rounded-md bg-lavender px-5 py-3 text-sm font-semibold text-white shadow-sm transition-all hover:bg-lavender-text hover:shadow-md"
+          className="group inline-flex items-center gap-2 rounded-full bg-lavender px-6 py-3 text-sm font-semibold text-white shadow-sm transition-all hover:bg-lavender-text hover:shadow-md"
         >
           Agent Tasks 살펴보기
-          <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" strokeWidth={2.5} />
+          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-white/15 transition-transform group-hover:translate-x-0.5">
+            <ArrowRight className="h-3.5 w-3.5" strokeWidth={2.5} />
+          </span>
         </Link>
       </section>
     </div>

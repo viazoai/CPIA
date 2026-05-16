@@ -30,33 +30,32 @@ export function NowStrip({ summary }: Props) {
   return (
     <section className="mx-auto max-w-wrap px-6 mt-8 md:px-10">
       <div className="rounded-card border border-border-soft bg-card p-5 shadow-xs">
-        <div className="font-mono text-[10px] uppercase tracking-widest text-ink-light mb-3">
+        <div className="font-mono text-xs uppercase tracking-wider text-ink-light mb-3">
           NOW · 현재 운영 현황
         </div>
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-          <NowItem icon={<Activity className="h-3.5 w-3.5" />}        tone="sky"     label="오늘 처리"        value={`${todayCount}건`} />
-          <NowItem icon={<ClipboardCheck className="h-3.5 w-3.5" />}  tone="peach"   label="Review 대기"     value={`${summary.review_pending}건`} />
-          <NowItem icon={<AlertTriangle className="h-3.5 w-3.5" />}   tone="rose"    label="이상 공종"        value={`${summary.abnormal_count}건`} />
-          <NowItem icon={<RefreshCw className="h-3.5 w-3.5" />}       tone="lavender" label="마지막 갱신"     value={lastUpdated} />
+          <NowItem icon={<Activity className="h-3.5 w-3.5" />}        tone="info"   label="오늘 처리"    value={`${todayCount}건`} />
+          <NowItem icon={<ClipboardCheck className="h-3.5 w-3.5" />}  tone="info"   label="Review 대기"  value={`${summary.review_pending}건`} />
+          <NowItem icon={<AlertTriangle className="h-3.5 w-3.5" />}   tone="risk"   label="이상 공종"    value={`${summary.abnormal_count}건`} />
+          <NowItem icon={<RefreshCw className="h-3.5 w-3.5" />}       tone="muted"  label="마지막 갱신"  value={lastUpdated} />
         </div>
       </div>
     </section>
   );
 }
 
-function NowItem({ icon, tone, label, value }: { icon: React.ReactNode; tone: "sky" | "peach" | "rose" | "lavender"; label: string; value: string }) {
+function NowItem({ icon, tone, label, value }: { icon: React.ReactNode; tone: "info" | "risk" | "muted"; label: string; value: string }) {
   const toneBg = {
-    sky: "bg-sky-light text-sky-text",
-    peach: "bg-peach-light text-peach-text",
-    rose: "bg-rose-light text-rose-text",
-    lavender: "bg-lavender-light text-lavender-text",
+    info:  "bg-lavender-light text-lavender-text",
+    risk:  "bg-rose-light text-rose-text",
+    muted: "bg-surface-soft text-ink-mid",
   }[tone];
   return (
     <div className="flex items-center gap-3">
       <span className={`inline-flex h-8 w-8 items-center justify-center rounded-md ${toneBg}`}>{icon}</span>
       <div className="min-w-0">
-        <div className="font-mono text-[9px] uppercase tracking-widest text-ink-light">{label}</div>
-        <div className="font-display text-lg font-bold tracking-tight text-ink">{value}</div>
+        <div className="font-mono text-[11px] uppercase tracking-wider text-ink-light">{label}</div>
+        <div className="font-display text-lg font-semibold tracking-[-0.01em] text-ink">{value}</div>
       </div>
     </div>
   );

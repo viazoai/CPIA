@@ -19,3 +19,7 @@ ALTER TABLE forecasts ADD COLUMN IF NOT EXISTS main_unit TEXT;
 ALTER TABLE forecasts ADD COLUMN IF NOT EXISTS today_conditions TEXT;
 
 COMMIT;
+
+-- Rollback policy: forward-only (PoC). ALTER COLUMN recommendations TYPE JSONB 부분은
+-- 1회용 — 재실행 시 PG 가 same-type ALTER 를 허용하더라도 cast 노이즈 발생 가능.
+-- DB 가 이미 적용된 환경에서는 본 마이그레이션 전체를 다시 돌리지 말 것.

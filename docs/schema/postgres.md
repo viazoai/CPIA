@@ -269,8 +269,8 @@ CREATE TABLE optimizer_advice (
     created_at             TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_optimizer_run         ON optimizer_advice (run_id);
-CREATE INDEX idx_optimizer_company_l6  ON optimizer_advice (company, l6_main);
+CREATE INDEX idx_optimizer_advice_run         ON optimizer_advice (run_id);
+CREATE INDEX idx_optimizer_advice_company_l6  ON optimizer_advice (company, l6_main);
 ```
 
 ### 신규 컬럼 의미 (2026-05-16 Optimizer + hil_2 spec §3.1 정합)
@@ -364,4 +364,4 @@ activity_master  ◄── Mapper 가 SELECT / Forecaster 가 plan 값 조회
 | 2026-05-14 | 초안 — brainstorming 결과 통합 (활성 8 테이블 = 협업 spec 7 + `activity_master` 1, `forecasts` 에 Plan/RAG 이중 비교 컬럼 분리, PoC 적재 범위 한정) | A 트랙 |
 | 2026-05-16 | downstream-agents spec §8 적용 — forecasts (company, l6_main) grain 정정 + pipeline_runs.atomized_count + optimizer_advice rename | A 트랙 |
 | 2026-05-16 | Forecaster spec 정합 — forecasts 12 컬럼 추가 (plan_start/finish, plan_mh_per_day, schedule_state, window_*, mh_gap, today_productivity, recovery_likelihood), delay_days INT → NUMERIC | A 트랙 |
-| 2026-05-16 | Optimizer + hil_2 spec §3 정합 — optimizer_advice +5 컬럼 (company, forecast_assessment, degradation_cases, recovery_distribution) + recommendations TEXT→JSONB + idx_optimizer_company_l6, forecasts +2 컬럼 (main_unit, today_conditions). 마이그레이션: `2026-05-16_optimizer_hil2.sql` | A 트랙 |
+| 2026-05-16 | Optimizer + hil_2 spec §3 정합 — optimizer_advice +5 컬럼 (company, forecast_assessment, degradation_cases, recovery_distribution) + recommendations TEXT→JSONB + idx_optimizer_advice_company_l6, forecasts +2 컬럼 (main_unit, today_conditions). 마이그레이션: `2026-05-16_optimizer_hil2.sql` | A 트랙 |

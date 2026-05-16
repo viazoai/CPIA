@@ -9,39 +9,51 @@ from typing import Literal, TypedDict
 
 
 class Activity(TypedDict):
-    """작업일보 1행 = 매핑 단위."""
+    """작업일보 1행 = 매핑 단위. spec 2026-05-16 §2 참조.
 
-    # WBS 매핑 (Mapper 이후 채워짐)
-    wbs_activity_id: str | None
-    l5_disc: str
-    l6_main: str | None
-    l7_sub: str | None
-    l7_5_activity: str | None
-    sub_work_area: str | None
+    옵션 X 채택 ((company, l6_main) 단위 분배):
+    - 같은 (company, l6_main) Activity 들이 동일 assigned_workers reference
+    - PoC 단계: wbs_activity_id / l7_sub / l7_5_activity / sub_work_area /
+      plan_total_qty / plan_mh 는 항상 None (Master List 1:N 라 단일값 결정 불가)
+      Forecaster / Reporter 는 (company, l6_main) candidate 를 PG 에서 직접 조회.
+    """
+
+    # WBS 매핑 (Mapper 이후 채워짐, 그 전엔 None)
+    wbs_activity_id: str | None  # PoC: None — 1:N 단일 wbs 결정 불가
+    l5_disc: str  # Parser 가 채움 (한글)
+    l6_main: str | None  # Mapper LLM 결정
+    l7_sub: str | None  # PoC: None — 1:N
+    l7_5_activity: str | None  # PoC: None — 1:N
+    sub_work_area: str | None  # PoC: None — 1:N
 
     # 작업일보 원천 (Parser 가 채움)
     trade: str
     company: str
     unit: str
-    today_qty: float
+    today_qty: float  # 9/25 89.5% None → 0.0 표시
     work_content: str
     conditions: list[str]
 
-    # MH 비율 분배 (Mapper 이후)
-    assigned_workers: float
-    worker_source: Literal["parsed", "mh_prorated", "user_corrected"]
+    # (company, l6_main) 단위 분배 결과 (_prorate_mh sub-step 이후)
+    # 분배 공식: BP사 총 인원 × (그 l6 candidate Σplan_mh / 전체 매핑 l6 candidate Σplan_mh)
+    assigned_workers: float  # (company, l6_main) 단위 단일값
+    worker_source: Literal[
+        "parsed",  #   = 작업일보 명시 그대로 (드문 케이스)
+        "mh_prorated",  #   = _prorate_mh() 적용됨 (기본)
+        "user_corrected",  #   = H-i-L 1 사용자 보정 (Phase 2)
+    ]
 
-    # Master List 조회값
+    # Master List 조회값 (PoC: None — Forecaster 가 PG 에서 Σ 조회)
     plan_total_qty: float | None
     plan_mh: float | None
 
     # 매핑 결과 (Mapper 이후) — mapping-layer.md §3 추가 필드
-    wa: str | None
-    mapping_conf: float | None
-    mapping_source: str | None
+    wa: str | None  # Mapper WA 결정 4단계
+    mapping_conf: float | None  # LLM rerank confidence (0.0~1.0)
+    mapping_source: str | None  # 'auto_bp_single'/'auto_l6_single'/...
 
     # H-i-L 1 플래그
-    requires_review: bool
+    requires_review: bool  # mapping_conf < 0.7 또는 mapping_source='hil_required'
 
 
 class BPSummary(TypedDict):

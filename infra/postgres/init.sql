@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS pipeline_runs (
                                     CHECK (status IN ('running','waiting_hil_1','waiting_hil_2','completed','failed')),
     current_node    TEXT,
     error           TEXT,
+    atomized_count  INTEGER         DEFAULT 0,
     started_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     completed_at    TIMESTAMPTZ
 );
@@ -43,23 +44,35 @@ CREATE INDEX IF NOT EXISTS idx_daily_reports_run  ON daily_reports (run_id);
 CREATE INDEX IF NOT EXISTS idx_daily_reports_date ON daily_reports (report_date DESC);
 
 -- ---------------------------------------------------------------------------
--- 3. forecasts — Forecaster 산출물 (공종별 생산성 진단)
+-- 3. forecasts — Forecaster 산출물 ((company, l6_main) grain 진단)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS forecasts (
-    id                   BIGSERIAL  PRIMARY KEY,
-    run_id               UUID       NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
-    trade                TEXT       NOT NULL,
-    assessment           TEXT       NOT NULL
-                                    CHECK (assessment IN ('normal','caution','risk')),
-    reasoning            TEXT,
-    similar_cases        JSONB,
-    expected_completion  DATE,
-    risk_level           TEXT,
-    created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id                       BIGSERIAL PRIMARY KEY,
+    run_id                   UUID NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
+    company                  TEXT NOT NULL,
+    l6_main                  TEXT NOT NULL,
+
+    today_qty_by_unit        JSONB,
+    today_assigned_workers   NUMERIC,
+
+    plan_total_qty_by_unit   JSONB,
+    plan_mh_sum              NUMERIC,
+
+    rag_n_similar            INT,
+    similar_cases            JSONB,
+
+    assessment               TEXT,
+    reasoning                TEXT,
+    expected_completion      DATE,
+    delay_days               INT,
+    risk_level               TEXT,
+
+    created_at               TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_forecasts_run   ON forecasts (run_id);
-CREATE INDEX IF NOT EXISTS idx_forecasts_trade ON forecasts (trade);
+CREATE INDEX IF NOT EXISTS idx_forecasts_run         ON forecasts (run_id);
+CREATE INDEX IF NOT EXISTS idx_forecasts_company_l6  ON forecasts (company, l6_main);
+CREATE INDEX IF NOT EXISTS idx_forecasts_risk        ON forecasts (risk_level) WHERE risk_level <> '정상';
 
 -- ---------------------------------------------------------------------------
 -- 4. optimizer_advice — Optimizer 산출물 (맥락 기반 조언)
@@ -67,7 +80,7 @@ CREATE INDEX IF NOT EXISTS idx_forecasts_trade ON forecasts (trade);
 CREATE TABLE IF NOT EXISTS optimizer_advice (
     id                BIGSERIAL    PRIMARY KEY,
     run_id            UUID         NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
-    trade             TEXT         NOT NULL,
+    l6_main           TEXT         NOT NULL,
     diagnosis         TEXT,
     recovery_pattern  JSONB,
     recommendations   TEXT,

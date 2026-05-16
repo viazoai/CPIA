@@ -1,0 +1,28 @@
+{
+  "2026-05-15": [
+    { "ts": "09:00:12", "agent": "Collector", "type": "info",
+      "summary": "87건의 작업일보를 수집했습니다.",
+      "detail": "Excel 75건 · 텍스트 12건. 모든 BP사 일보가 정상 수신됐어요." },
+    { "ts": "09:00:45", "agent": "Parser", "type": "info",
+      "summary": "87건 모두 구조화 JSON 변환을 마쳤습니다.",
+      "detail": "추출: 인원 1,247명 / 거푸집 3,200㎡ / 철근 18t / 콘크리트 280㎥." },
+    { "ts": "09:01:18", "agent": "Mapper", "type": "hil_request",
+      "summary": "WBS 매핑을 진행했는데, 12건은 확신도가 낮아 직접 확인이 필요해 보입니다.",
+      "detail": "특히 '방수 시트 정리작업' 같은 표현은 두 공종에 걸쳐 있어요. Human Review 요청 ⏸" },
+    { "ts": "09:18:34", "agent": "Human", "type": "human_action",
+      "summary": "12건 검토를 완료했어요.",
+      "detail": "8건은 AI 추천대로 확정, 4건은 다른 WP로 수정했습니다." },
+    { "ts": "09:18:40", "agent": "Atomizer", "type": "info",
+      "summary": "검토 결과를 반영해 87건 모두 Vector DB에 적재했습니다.",
+      "detail": "오늘의 작업 기록이 현장 지식 DB에 추가됐어요." },
+    { "ts": "09:19:02", "agent": "Reporter", "type": "result",
+      "summary": "Daily Report를 자동 생성하고 발송했습니다.",
+      "detail": "사내·발주처용 두 버전 발송 완료. 엑셀 보고서는 다운로드 가능합니다." },
+    { "ts": "09:19:48", "agent": "Forecaster", "type": "result",
+      "summary": "공종별 생산성을 진단했습니다.",
+      "detail": "거푸집·콘크리트는 정상 범위. 철근은 -28% 이상 — 작업내용에 '장비 대기' 기재." },
+    { "ts": "09:20:15", "agent": "Optimizer", "type": "result",
+      "summary": "철근 공종에 대해 만회 시나리오를 도출했습니다.",
+      "detail": "유사 과거 3건 분석 결과 다음날 정상 복귀 가능성 높음. 권고: 타워크레인 스케줄 확인." }
+  ]
+}

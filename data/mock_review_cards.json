@@ -1,0 +1,18 @@
+[
+  { "id": "r-001", "bp_name": "A건설", "work_content": "FAB 2층 벽체 거푸집 설치 / 우천 대응 작업 병행", "quantity": 320, "unit": "㎡", "ai_mapped_wp_id": "wp-3-2", "ai_mapped_path": "M15X > 골조 > WP-3-2 거푸집", "confidence": 0.87, "status": "unconfirmed",
+    "alternative_wps": [{ "id": "wp-3-3", "path": "M15X > 골조 > WP-3-3 철근", "score": 0.34 }] },
+  { "id": "r-002", "bp_name": "B건설", "work_content": "지하 1층 철근 받침대 설치 / 정리작업", "quantity": 18, "unit": "ton", "ai_mapped_wp_id": "wp-3-2", "ai_mapped_path": "M15X > 골조 > WP-3-2 거푸집", "confidence": 0.62, "status": "unconfirmed",
+    "alternative_wps": [{ "id": "wp-3-3", "path": "M15X > 골조 > WP-3-3 철근", "score": 0.58 }] },
+  { "id": "r-003", "bp_name": "C건설", "work_content": "방수 시트 정리작업 (재시공 준비)", "quantity": 45, "unit": "㎡", "ai_mapped_wp_id": "wp-5-1", "ai_mapped_path": "M15X > 마감 > WP-5-1 방수", "confidence": 0.71, "status": "unconfirmed",
+    "alternative_wps": [{ "id": "wp-5-2", "path": "M15X > 마감 > WP-5-2 타일", "score": 0.41 }] },
+  { "id": "r-004", "bp_name": "D건설", "work_content": "타일 부착 작업 (욕실)", "quantity": 28, "unit": "㎡", "ai_mapped_wp_id": "wp-5-2", "ai_mapped_path": "M15X > 마감 > WP-5-2 타일", "confidence": 0.74, "status": "unconfirmed" },
+  { "id": "r-005", "bp_name": "E건설", "work_content": "터파기 보강 작업 / 토류판 설치", "quantity": 12, "unit": "EA", "ai_mapped_wp_id": "wp-1-1", "ai_mapped_path": "M15X > 토공사 > WP-1-1 터파기", "confidence": 0.68, "status": "unconfirmed" },
+  { "id": "r-006", "bp_name": "F건설", "work_content": "되메우기 다짐 작업", "quantity": 85, "unit": "㎥", "ai_mapped_wp_id": "wp-1-2", "ai_mapped_path": "M15X > 토공사 > WP-1-2 되메우기", "confidence": 0.79, "status": "unconfirmed" },
+  { "id": "r-007", "bp_name": "G건설", "work_content": "철근 결속 및 배근 작업 (벽체)", "quantity": 14, "unit": "ton", "ai_mapped_wp_id": "wp-3-3", "ai_mapped_path": "M15X > 골조 > WP-3-3 철근", "confidence": 0.72, "status": "unconfirmed" },
+  { "id": "r-008", "bp_name": "H건설", "work_content": "거푸집 해체 및 청소", "quantity": 180, "unit": "㎡", "ai_mapped_wp_id": "wp-3-2", "ai_mapped_path": "M15X > 골조 > WP-3-2 거푸집", "confidence": 0.75, "status": "unconfirmed" },
+  { "id": "r-009", "bp_name": "I건설", "work_content": "방수 우레탄 도포 작업", "quantity": 32, "unit": "㎡", "ai_mapped_wp_id": "wp-5-1", "ai_mapped_path": "M15X > 마감 > WP-5-1 방수", "confidence": 0.69, "status": "unconfirmed" },
+  { "id": "r-010", "bp_name": "J건설", "work_content": "내부 페인트 도장 - 천정", "quantity": 56, "unit": "㎡", "ai_mapped_wp_id": "wp-5-3", "ai_mapped_path": "M15X > 마감 > WP-5-3 페인트", "confidence": 0.77, "status": "unconfirmed" },
+  { "id": "r-011", "bp_name": "K건설", "work_content": "외벽 페인트 - 정리·재도장", "quantity": 38, "unit": "㎡", "ai_mapped_wp_id": "wp-5-3", "ai_mapped_path": "M15X > 마감 > WP-5-3 페인트", "confidence": 0.78, "status": "unconfirmed" },
+  { "id": "r-012", "bp_name": "L건설", "work_content": "거푸집 설치 - 코너 보강", "quantity": 22, "unit": "㎡", "ai_mapped_wp_id": "wp-3-2", "ai_mapped_path": "M15X > 골조 > WP-3-2 거푸집", "confidence": 0.81, "status": "unconfirmed" },
+  { "id": "r-100", "bp_name": "M건설", "work_content": "FAB 2층 철근 조립 (이미 검토 완료 예시)", "quantity": 18, "unit": "ton", "ai_mapped_wp_id": "wp-3-3", "ai_mapped_path": "M15X > 골조 > WP-3-3 철근", "confidence": 0.92, "status": "confirmed" }
+]

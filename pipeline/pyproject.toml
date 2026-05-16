@@ -1,0 +1,38 @@
+[project]
+name = "cpia-pipeline"
+version = "0.1.0"
+description = "CPIA — Construction Productivity Intelligence Agent pipeline"
+requires-python = ">=3.11"
+dependencies = [
+    "langgraph>=0.2.0",
+    "langchain>=0.3.0",
+    "langchain-openai>=0.2.0",
+    "openai>=1.50.0",
+    "asyncpg>=0.30.0",
+    "chromadb==0.5.20",
+    "openpyxl>=3.1.0",
+    "python-dotenv>=1.0.0",
+    "numpy>=1.26.0",
+    "pydantic>=2.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=5.0.0",
+    "ruff>=0.6.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = ["."]
+testpaths = ["tests"]
+markers = [
+    "slow: 느린 테스트 (LLM 호출 포함)",
+    "golden: 골든 회귀 테스트",
+]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"

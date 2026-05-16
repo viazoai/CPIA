@@ -34,22 +34,20 @@ export function NowStrip({ summary }: Props) {
           NOW · 현재 운영 현황
         </div>
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-          <NowItem icon={<Activity className="h-3.5 w-3.5" />}        tone="sky"     label="오늘 처리"        value={`${todayCount}건`} />
-          <NowItem icon={<ClipboardCheck className="h-3.5 w-3.5" />}  tone="peach"   label="Review 대기"     value={`${summary.review_pending}건`} />
+          <NowItem icon={<Activity className="h-3.5 w-3.5" />}        tone="neutral" label="오늘 처리"        value={`${todayCount}건`} />
+          <NowItem icon={<ClipboardCheck className="h-3.5 w-3.5" />}  tone="neutral" label="Review 대기"     value={`${summary.review_pending}건`} />
           <NowItem icon={<AlertTriangle className="h-3.5 w-3.5" />}   tone="rose"    label="이상 공종"        value={`${summary.abnormal_count}건`} />
-          <NowItem icon={<RefreshCw className="h-3.5 w-3.5" />}       tone="lavender" label="마지막 갱신"     value={lastUpdated} />
+          <NowItem icon={<RefreshCw className="h-3.5 w-3.5" />}       tone="neutral" label="마지막 갱신"     value={lastUpdated} />
         </div>
       </div>
     </section>
   );
 }
 
-function NowItem({ icon, tone, label, value }: { icon: React.ReactNode; tone: "sky" | "peach" | "rose" | "lavender"; label: string; value: string }) {
+function NowItem({ icon, tone, label, value }: { icon: React.ReactNode; tone: "rose" | "neutral"; label: string; value: string }) {
   const toneBg = {
-    sky: "bg-sky-light text-sky-text",
-    peach: "bg-peach-light text-peach-text",
-    rose: "bg-rose-light text-rose-text",
-    lavender: "bg-lavender-light text-lavender-text",
+    rose:    "bg-rose-light text-rose-text",
+    neutral: "bg-surface-soft text-ink",
   }[tone];
   return (
     <div className="flex items-center gap-3">

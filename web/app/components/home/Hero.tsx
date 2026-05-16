@@ -6,26 +6,20 @@ interface HeroStatProps {
   value: string;
   unit?: string;
   description: string;
-  tone: "lavender" | "mint" | "sky" | "peach";
+  // lavender = 도미넌트 강조 (Hero stat 4개 중 1개만 권장).
+  // neutral = 흑백 카드, stripe 없음.
+  tone: "lavender" | "neutral";
 }
 
 function HeroStat({ icon, label, value, unit, description, tone }: HeroStatProps) {
-  const toneClass = {
-    lavender: "from-lavender to-lavender-light",
-    mint:     "from-mint     to-mint-light",
-    sky:      "from-sky      to-sky-light",
-    peach:    "from-peach    to-peach-light",
-  }[tone];
-  const iconBg = {
-    lavender: "bg-lavender text-white",
-    mint:     "bg-mint     text-white",
-    sky:      "bg-sky      text-white",
-    peach:    "bg-peach    text-white",
-  }[tone];
+  const isAccent = tone === "lavender";
+  const iconBg = isAccent ? "bg-lavender text-white" : "bg-ink text-white";
 
   return (
     <div className="relative overflow-hidden rounded-card border border-border-soft bg-card p-5 shadow-xs">
-      <span aria-hidden className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${toneClass}`} />
+      {isAccent && (
+        <span aria-hidden className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-lavender to-lavender-light" />
+      )}
       <div className={`mb-3 inline-flex h-9 w-9 items-center justify-center rounded-md ${iconBg}`}>
         {icon}
       </div>
@@ -54,7 +48,7 @@ export function Hero() {
 
       <h1 className="mt-6 font-display text-4xl font-bold leading-[1.15] tracking-tight text-ink md:text-5xl">
         현장 공정 데이터 자동화 및{" "}
-        <span className="bg-gradient-to-r from-lavender to-mint bg-clip-text text-transparent">
+        <span className="bg-gradient-to-r from-lavender to-lavender-text bg-clip-text text-transparent">
           공기 리스크 선행 탐지
         </span>{" "}
         Agent
@@ -66,9 +60,9 @@ export function Hero() {
 
       <div className="mt-10 grid grid-cols-2 gap-4 md:grid-cols-4">
         <HeroStat tone="lavender" icon={<Clock4 className="h-4 w-4" />}      label="월간 절감"     value="2,155" unit="h/월"  description="2,506h → 351h (86% 절감)" />
-        <HeroStat tone="mint"     icon={<UsersRound className="h-4 w-4" />}  label="대체 규모"     value="15.4"  unit="명"    description="2,155h ÷ 140h/명 기준" />
-        <HeroStat tone="sky"      icon={<AlarmClock className="h-4 w-4" />}  label="선행 탐지"     value="D-14"               description="공기 리스크 선행 탐지 목표" />
-        <HeroStat tone="peach"    icon={<CalendarClock className="h-4 w-4" />} label="공기 단축"   value="3~7"   unit="일"    description="현장 1개당 공기 단축 추정" />
+        <HeroStat tone="neutral"  icon={<UsersRound className="h-4 w-4" />}  label="대체 규모"     value="15.4"  unit="명"    description="2,155h ÷ 140h/명 기준" />
+        <HeroStat tone="neutral"  icon={<AlarmClock className="h-4 w-4" />}  label="선행 탐지"     value="D-14"               description="공기 리스크 선행 탐지 목표" />
+        <HeroStat tone="neutral"  icon={<CalendarClock className="h-4 w-4" />} label="공기 단축"   value="3~7"   unit="일"    description="현장 1개당 공기 단축 추정" />
       </div>
     </section>
   );

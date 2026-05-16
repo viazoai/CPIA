@@ -24,6 +24,10 @@ from typing import Optional
 _DEGRADATION_INCIDENTS = ("장비대기", "자재미입고", "돌관")
 # spec §5.3 — baseline 산출 시 제외해야 할 incident 5종 전수
 _ALL_INCIDENTS = ("장비대기", "자재미입고", "우천", "돌관", "야간연장")
+# spec §5.1 / §5.3 — degradation 판정 컷오프 (baseline 대비 85% 미만)
+_DEGRADATION_RATIO = 0.85
+# spec §5.3 — recovery 판정 컷오프 (baseline 대비 95% 이상)
+_RECOVERY_RATIO = 0.95
 
 
 def _group_day_productivity(metas_of_day: list[dict], baseline_unit: str) -> float:
@@ -95,7 +99,7 @@ def fetch_degradation_cases(
         if not any(c in raw for c in _DEGRADATION_INCIDENTS):
             continue
         prod = _group_day_productivity([m for m, _ in rows], baseline_unit)
-        if prod >= baseline_value * 0.85:
+        if prod >= baseline_value * _DEGRADATION_RATIO:
             continue
         cases.append(
             {
@@ -147,7 +151,7 @@ def fetch_recovery_trajectory(
                 "date": target_iso,
                 "conditions": rows[0].get("conditions") or "",
                 "productivity": prod,
-                "recovered": prod >= baseline_value * 0.95,
+                "recovered": prod >= baseline_value * _RECOVERY_RATIO,
             }
         )
     recovery_days = next(

@@ -269,3 +269,41 @@ class PGClient:
                 row.get("main_unit"),
                 row.get("today_conditions"),
             )
+
+    async def insert_optimizer_advice(self, row: dict) -> None:
+        """optimizer_advice 테이블 INSERT 1 row — 9 컬럼 (id/created_at auto).
+
+        Spec §9 + §3.1.1 — JSONB falsy 회피 (is not None) — cold_start 의 빈 dict/list 도 INSERT.
+        """
+        import json as _json
+
+        assert self._pool is not None, "connect() 미호출"
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO optimizer_advice (
+                    run_id, company, l6_main, forecast_assessment,
+                    diagnosis, degradation_cases, recovery_pattern,
+                    recovery_distribution, recommendations
+                ) VALUES (
+                    $1, $2, $3, $4,
+                    $5, $6::jsonb, $7::jsonb,
+                    $8::jsonb, $9::jsonb
+                )
+                """,
+                row["run_id"],
+                row["company"],
+                row["l6_main"],
+                row.get("forecast_assessment"),
+                row.get("diagnosis"),
+                _json.dumps(row["degradation_cases"], ensure_ascii=False)
+                if row.get("degradation_cases") is not None
+                else None,
+                _json.dumps(row["recovery_pattern"]) if row.get("recovery_pattern") is not None else None,
+                _json.dumps(row["recovery_distribution"])
+                if row.get("recovery_distribution") is not None
+                else None,
+                _json.dumps(row["recommendations"], ensure_ascii=False)
+                if row.get("recommendations") is not None
+                else None,
+            )

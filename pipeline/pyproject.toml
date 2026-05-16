@@ -36,3 +36,8 @@ markers = [
 [tool.ruff]
 line-length = 110
 target-version = "py311"
+
+[dependency-groups]
+dev = [
+    "pytest-timeout>=2.4.0",
+]

@@ -125,6 +125,7 @@ CREATE TABLE pipeline_runs (
     date             DATE NOT NULL,            -- 작업일보 일자
     status           TEXT NOT NULL,            -- state.py CPIAState.status 와 동일
     current_node     TEXT,                     -- 'collector' / 'parser' / ...
+    atomized_count   INTEGER DEFAULT 0,        -- Atomizer 가 Chroma 적재한 row 수 (downstream-agents §8.1)
     started_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
     completed_at     TIMESTAMPTZ,
     error_message    TEXT,
@@ -171,31 +172,28 @@ CREATE INDEX idx_reports_run ON daily_reports (run_id);
 
 ---
 
-## 6. `forecasts` — 공종별 진단 (이중 비교 결과)
+## 6. `forecasts` — (company, l6_main) grain 진단
 
 ```sql
 CREATE TABLE forecasts (
     id                       BIGSERIAL PRIMARY KEY,
     run_id                   UUID NOT NULL REFERENCES pipeline_runs(run_id),
-    trade                    TEXT NOT NULL,             -- '거푸집공사' (l7_sub 레벨)
-    company                  TEXT NOT NULL,
+    company                  TEXT NOT NULL,             -- '남웅건설'
+    l6_main                  TEXT NOT NULL,             -- '철근콘크리트공사' (Master List l6_main)
 
-    -- 오늘 실측
-    today_qty                NUMERIC,
+    -- 오늘 실측 (단위가 섞이므로 JSONB by_unit)
+    today_qty_by_unit        JSONB,                     -- {"M2": 120.0, "Ton": 3.4}
     today_assigned_workers   NUMERIC,                   -- MH 분배 결과
-    today_unit_productivity  NUMERIC,                   -- = today_qty / today_assigned_workers
 
-    -- Plan 기준 (이중 비교 축 ①)
-    plan_unit_productivity   NUMERIC,                   -- = plan_total_qty / plan_mh_rev2
-    plan_diff_pct            NUMERIC,                   -- = (today - plan) / plan * 100
+    -- Plan 기준 (단위 혼합 → JSONB, MH 는 합산)
+    plan_total_qty_by_unit   JSONB,                     -- {"M2": 500.0, "Ton": 12.0}
+    plan_mh_sum              NUMERIC,                   -- = SUM(plan_mh_rev2)
 
-    -- RAG 이력 기준 (이중 비교 축 ②)
-    rag_avg_unit_prod        NUMERIC,                   -- Chroma daily_activities 5건 평균
+    -- RAG 이력 기준
     rag_n_similar            INT,                       -- 0~5 (cold start 시 0~2)
-    rag_diff_pct             NUMERIC,
     similar_cases            JSONB,                     -- [{date, productivity, conditions, ...}, ...]
 
-    -- Opus 진단
+    -- LLM 진단
     assessment               TEXT,                      -- '정상' / '주의' / '이상'
     reasoning                TEXT,
     expected_completion      DATE,
@@ -206,10 +204,12 @@ CREATE TABLE forecasts (
 );
 
 CREATE INDEX idx_forecasts_run         ON forecasts (run_id);
+CREATE INDEX idx_forecasts_company_l6  ON forecasts (company, l6_main);
 CREATE INDEX idx_forecasts_risk        ON forecasts (risk_level) WHERE risk_level <> '정상';
 ```
 
-- 한 run 안에서 공종별로 N 행 (PoC 는 3 공종 × ~5 업체 ≈ 15 행 안팎).
+- Grain: `(run_id, company, l6_main)` — downstream-agents spec §8.2 결정. l7_sub 가 아닌 l6_main 으로 올린 이유는 작업일보가 l6 수준에서 보고되기 때문.
+- 단위가 섞이면 (M2/Ton/M3) `today_qty_by_unit` / `plan_total_qty_by_unit` JSONB 로 분리 보관.
 - `similar_cases` JSONB 에 RAG 검색된 5건의 메타 + 짧은 work_content 보존 → Optimizer 도 재사용.
 
 ---
@@ -220,7 +220,7 @@ CREATE INDEX idx_forecasts_risk        ON forecasts (risk_level) WHERE risk_leve
 CREATE TABLE optimizer_advice (
     id                  BIGSERIAL PRIMARY KEY,
     run_id              UUID NOT NULL REFERENCES pipeline_runs(run_id),
-    trade               TEXT NOT NULL,
+    l6_main             TEXT NOT NULL,                 -- (downstream-agents §8.3 rename: trade → l6_main)
     company             TEXT NOT NULL,
     diagnosis           TEXT,                          -- '장비 대기로 인한 저하 추정'
     recovery_pattern    JSONB,                         -- [{case_date, recovered_in_days, pattern}, ...]
@@ -309,3 +309,4 @@ activity_master  ◄── Mapper 가 SELECT / Forecaster 가 plan 값 조회
 | 일자 | 변경 | 작성 |
 |---|---|---|
 | 2026-05-14 | 초안 — brainstorming 결과 통합 (활성 8 테이블 = 협업 spec 7 + `activity_master` 1, `forecasts` 에 Plan/RAG 이중 비교 컬럼 분리, PoC 적재 범위 한정) | A 트랙 |
+| 2026-05-16 | downstream-agents spec §8 적용 — forecasts (company, l6_main) grain 정정 + pipeline_runs.atomized_count + optimizer_advice rename | A 트랙 |

@@ -142,6 +142,44 @@ class PGClient:
                 f"pipeline_runs(run_id={run_id}) 미존재 — fixture 설정 확인",
             )
 
+    async def fetch_plan_for_group(self, company: str, l6_main: str) -> dict[str, Any] | None:
+        """activity_master 의 (company, l6_main) candidate Σ. 미등록 시 None.
+
+        Spec §5.2 — 2 SQL 분리로 jsonb_object_agg duplicate key 회피.
+        """
+        assert self._pool is not None, "connect() 미호출"
+        async with self._pool.acquire() as conn:
+            qty_rows = await conn.fetch(
+                """
+                SELECT unit, SUM(plan_total_qty) AS qty
+                FROM activity_master
+                WHERE company = $1 AND l6_main = $2 AND unit IS NOT NULL
+                GROUP BY unit
+                """,
+                company,
+                l6_main,
+            )
+            if not qty_rows:
+                return None
+            summary = await conn.fetchrow(
+                """
+                SELECT
+                    SUM(plan_mh_rev2) AS plan_mh_sum,
+                    MIN(plan_start)   AS plan_start,
+                    MAX(plan_finish)  AS plan_finish
+                FROM activity_master
+                WHERE company = $1 AND l6_main = $2
+                """,
+                company,
+                l6_main,
+            )
+        return {
+            "plan_total_qty_by_unit": {r["unit"]: float(r["qty"] or 0) for r in qty_rows},
+            "plan_mh_sum": float(summary["plan_mh_sum"] or 0),
+            "plan_start": summary["plan_start"],
+            "plan_finish": summary["plan_finish"],
+        }
+
     async def update_run_atomized_count(
         self,
         run_id: uuid.UUID,

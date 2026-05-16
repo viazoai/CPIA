@@ -144,3 +144,49 @@ def test_classify_risk_cold_start_none():
     """assessment=None → None."""
     result = classify_risk_level(None, None, 0.0, "unknown")
     assert result is None
+
+
+# ─── boundary tests (권고 #5) ────────────────────────────────────────────
+def test_classify_assessment_rag_boundary_caution():
+    """delta = -25% 정확 → 주의 (≥-25%)."""
+    result = classify_assessment(
+        rag_n=5, today_prod=0.75, rag_avg_prod=1.0, plan_total_qty_main=100, plan_mh_sum=1000
+    )
+    assert result == "주의"
+
+
+def test_classify_assessment_plan_boundary_normal():
+    """ratio = 0.85 정확 → 정상 (≥0.85).
+
+    plan_prod = 100 / (800/8) = 1.0. today_prod = 0.85 → ratio = 0.85 정확.
+    """
+    result = classify_assessment(
+        rag_n=0, today_prod=0.85, rag_avg_prod=0.0, plan_total_qty_main=100, plan_mh_sum=800
+    )
+    assert result == "정상"
+
+
+def test_classify_assessment_plan_boundary_caution():
+    """ratio = 0.65 정확 → 주의 (≥0.65)."""
+    result = classify_assessment(
+        rag_n=0, today_prod=0.65, rag_avg_prod=0.0, plan_total_qty_main=100, plan_mh_sum=800
+    )
+    assert result == "주의"
+
+
+def test_classify_risk_normal_boundary_5days():
+    """정상 + delay=5 정확 → 정상 (delay≤5)."""
+    result = classify_risk_level("정상", None, 5.0, "on_schedule")
+    assert result == "정상"
+
+
+def test_classify_risk_caution_boundary_recovery_07():
+    """주의 + recovery=0.7 정확 + delay≤5 → 주의 (recovery≥0.7)."""
+    result = classify_risk_level("주의", 0.7, 5.0, "on_schedule")
+    assert result == "주의"
+
+
+def test_classify_risk_severe_boundary_delay_0():
+    """이상 + delay=0 정확 → 주의 (delay≤0)."""
+    result = classify_risk_level("이상", 0.5, 0.0, "on_schedule")
+    assert result == "주의"

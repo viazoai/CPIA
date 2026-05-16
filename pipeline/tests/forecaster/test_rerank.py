@@ -180,3 +180,23 @@ def test_format_chroma_result_none_ids():
 
     result = _format_chroma_result({"ids": None, "documents": None, "distances": None, "metadatas": None})
     assert result == []
+
+
+# ─── boundary tests (권고 #5) ────────────────────────────────────────────
+def test_rerank_mapping_conf_boundary_07_not_demoted():
+    """mapping_conf = 0.7 정확 → demote 없음 (< 0.7 strict)."""
+    cases = [
+        {
+            "distance": 0.2,
+            "metadata": {
+                "today_qty": 1,
+                "assigned_workers": 1,
+                "conditions": "",
+                "worker_source": "mh_prorated",
+                "mapping_conf": 0.7,
+            },
+        },
+    ]
+    result = rerank_cases(cases)
+    # mapping_conf == 0.7 은 < 0.7 false → 가중치 미적용
+    assert result[0]["rerank_score"] == pytest.approx(0.2)

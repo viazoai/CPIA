@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import date
+from datetime import date as _date
 
 from langgraph.graph import END, START, StateGraph
 
@@ -51,7 +51,7 @@ async def atomizer_node(state: CPIAState, cfg: GraphConfig) -> dict:
 
 async def forecaster_node(state: CPIAState, cfg: GraphConfig) -> dict:
     run_id = uuid.UUID(state["run_id"]) if isinstance(state["run_id"], str) else state["run_id"]
-    today = date.fromisoformat(state["date"])
+    today = _date.fromisoformat(state["date"])
     forecasts = await forecast(state["mapped"], run_id, today, cfg.forecaster)
     return {"forecast": forecasts, "current_node": "forecaster"}
 

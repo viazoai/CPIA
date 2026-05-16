@@ -284,7 +284,14 @@ FEW_SHOT_MESSAGES = [
 
 
 def build_llm_user_input(forecast_row: dict, degradation_cases: list[dict]) -> dict:
-    """forecast_row 는 §2.2 의 ForecastRow schema 가정 — main_unit / today_productivity / today_conditions 박힘."""
+    """forecast_row 는 §2.2 의 ForecastRow schema 가정 — main_unit / today_productivity / today_conditions 박힘.
+
+    Input contract for `degradation_cases`:
+      each case must be a dict containing keys from `fetch_degradation_cases` output
+      (date / conditions / productivity / activities / assigned_workers) PLUS a `recovery`
+      key with `fetch_recovery_trajectory` output (`{"trajectory": [...], "recovery_days": int|None}`).
+      Caller (agent.py optimize()) is responsible for merging the two retrieve results.
+    """
     return {
         "today": {
             "company": forecast_row["company"],

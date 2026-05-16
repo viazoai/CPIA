@@ -103,3 +103,30 @@ def test_build_llm_user_input_includes_today_conditions():
     # JSON serialize 가능 검증 (spec §6.2 와 동일 형식)
     s = json.dumps(out, ensure_ascii=False)
     assert "맑음,장비대기" in s
+
+
+def test_build_llm_user_input_empty_degradation_cases():
+    """spec §6.3: degradation_cases=[] 일 때도 builder 가 안전하게 동작 (cold start signal)."""
+    from pipeline.agents.optimizer.prompt import build_llm_user_input
+
+    forecast_row = {
+        "company": "남웅건설",
+        "l6_main": "철근콘크리트공사",
+        "main_unit": "m3",
+        "today_productivity": 20.0,
+        "today_conditions": "맑음",
+        "assessment": "정상",
+    }
+    result = build_llm_user_input(forecast_row, degradation_cases=[])
+
+    # cold_start path: builder 가 KeyError 없이 안전 처리 + degradation_cases 빈 list 반환
+    assert "today" in result
+    assert "degradation_cases" in result
+    assert result["degradation_cases"] == []
+    # today block 은 forecast_row 값으로 정상 채워짐
+    assert result["today"]["company"] == "남웅건설"
+    assert result["today"]["today_conditions"] == "맑음"
+
+    # builder output 이 JSON serializable (spec §6.2 와 동일 형식)
+    s = json.dumps(result, ensure_ascii=False)
+    assert "남웅건설" in s

@@ -8,6 +8,8 @@ from __future__ import annotations
 from datetime import date
 from typing import Any, Optional
 
+from .constants import WORK_HOURS_PER_DAY
+
 
 def aggregate_today_by_unit(activities: list[dict]) -> dict[str, float]:
     """같은 (company, l6_main) 그룹 안의 Activity 들의 today_qty 를 unit 별 Σ."""
@@ -108,10 +110,10 @@ def fetch_chroma_actual(
 
     # Chroma 에 과거 row 가 하나도 없음 → 오늘만 카운트, window_start = None
     if not date_to_workers:
-        return None, today_assigned_workers * 8
+        return None, today_assigned_workers * WORK_HOURS_PER_DAY
 
     # 오늘 강제 추가 후 누적
     date_to_workers[today.isoformat()] = today_assigned_workers
     window_start = date.fromisoformat(min(date_to_workers.keys()))
-    actual_cum_mh = sum(w * 8 for w in date_to_workers.values())
+    actual_cum_mh = sum(w * WORK_HOURS_PER_DAY for w in date_to_workers.values())
     return window_start, actual_cum_mh

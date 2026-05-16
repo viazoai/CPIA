@@ -3,5 +3,6 @@
 from __future__ import annotations
 
 from .agent import ForecasterConfig, forecast
+from .constants import WORK_HOURS_PER_DAY
 
-__all__ = ["ForecasterConfig", "forecast"]
+__all__ = ["ForecasterConfig", "forecast", "WORK_HOURS_PER_DAY"]

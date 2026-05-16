@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from typing import Optional
 
+from .constants import WORK_HOURS_PER_DAY
+
 
 def classify_assessment_rag(today_prod: float, rag_avg_prod: float) -> str:
     """RAG 모드 — productivity delta 임계 ±15% / ±25%."""
@@ -41,7 +43,7 @@ def classify_assessment_plan(
     """
     if plan_mh_sum <= 0 or plan_total_qty_main <= 0:
         return "정상"
-    plan_prod_proxy = plan_total_qty_main / (plan_mh_sum / 8)
+    plan_prod_proxy = plan_total_qty_main / (plan_mh_sum / WORK_HOURS_PER_DAY)
     if plan_prod_proxy == 0:
         return "정상"
     ratio = today_prod / plan_prod_proxy

@@ -142,6 +142,44 @@ class PGClient:
                 f"pipeline_runs(run_id={run_id}) 미존재 — fixture 설정 확인",
             )
 
+    async def fetch_plan_for_group(self, company: str, l6_main: str) -> dict[str, Any] | None:
+        """activity_master 의 (company, l6_main) candidate Σ. 미등록 시 None.
+
+        Spec §5.2 — 2 SQL 분리로 jsonb_object_agg duplicate key 회피.
+        """
+        assert self._pool is not None, "connect() 미호출"
+        async with self._pool.acquire() as conn:
+            qty_rows = await conn.fetch(
+                """
+                SELECT unit, SUM(plan_total_qty) AS qty
+                FROM activity_master
+                WHERE company = $1 AND l6_main = $2 AND unit IS NOT NULL
+                GROUP BY unit
+                """,
+                company,
+                l6_main,
+            )
+            if not qty_rows:
+                return None
+            summary = await conn.fetchrow(
+                """
+                SELECT
+                    SUM(plan_mh_rev2) AS plan_mh_sum,
+                    MIN(plan_start)   AS plan_start,
+                    MAX(plan_finish)  AS plan_finish
+                FROM activity_master
+                WHERE company = $1 AND l6_main = $2
+                """,
+                company,
+                l6_main,
+            )
+        return {
+            "plan_total_qty_by_unit": {r["unit"]: float(r["qty"] or 0) for r in qty_rows},
+            "plan_mh_sum": float(summary["plan_mh_sum"] or 0),
+            "plan_start": summary["plan_start"],
+            "plan_finish": summary["plan_finish"],
+        }
+
     async def update_run_atomized_count(
         self,
         run_id: uuid.UUID,
@@ -162,4 +200,66 @@ class PGClient:
         if result.endswith(" 0"):
             raise RuntimeError(
                 f"pipeline_runs(run_id={run_id}) 미존재 — fixture 설정 확인",
+            )
+
+    async def insert_forecast(self, row: dict) -> None:
+        """forecasts 테이블 INSERT 1 row.
+
+        Spec §5.6 — 25 컬럼 (id/created_at auto). row dict 키 = 컬럼명.
+        """
+        import json as _json
+
+        assert self._pool is not None
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO forecasts (
+                    run_id, company, l6_main,
+                    today_qty_by_unit, today_assigned_workers, today_productivity,
+                    plan_total_qty_by_unit, plan_mh_sum, plan_start, plan_finish, plan_mh_per_day,
+                    schedule_state, window_start, window_days,
+                    expected_in_window_mh, actual_in_window_mh, mh_gap, delay_days,
+                    rag_n_similar, similar_cases,
+                    assessment, reasoning, recovery_likelihood,
+                    expected_completion, risk_level
+                ) VALUES (
+                    $1, $2, $3,
+                    $4::jsonb, $5, $6,
+                    $7::jsonb, $8, $9, $10, $11,
+                    $12, $13, $14,
+                    $15, $16, $17, $18,
+                    $19, $20::jsonb,
+                    $21, $22, $23,
+                    $24, $25
+                )
+                """,
+                row["run_id"],
+                row["company"],
+                row["l6_main"],
+                _json.dumps(row["today_qty_by_unit"]) if row.get("today_qty_by_unit") is not None else None,
+                row.get("today_assigned_workers"),
+                row.get("today_productivity"),
+                _json.dumps(row["plan_total_qty_by_unit"])
+                if row.get("plan_total_qty_by_unit") is not None
+                else None,
+                row.get("plan_mh_sum"),
+                row.get("plan_start"),
+                row.get("plan_finish"),
+                row.get("plan_mh_per_day"),
+                row.get("schedule_state"),
+                row.get("window_start"),
+                row.get("window_days"),
+                row.get("expected_in_window_mh"),
+                row.get("actual_in_window_mh"),
+                row.get("mh_gap"),
+                row.get("delay_days"),
+                row.get("rag_n_similar"),
+                _json.dumps(row["similar_cases"], ensure_ascii=False)
+                if row.get("similar_cases") is not None
+                else None,
+                row.get("assessment"),
+                row.get("reasoning"),
+                row.get("recovery_likelihood"),
+                row.get("expected_completion"),
+                row.get("risk_level"),
             )

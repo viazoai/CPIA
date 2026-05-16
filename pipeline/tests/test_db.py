@@ -150,3 +150,21 @@ async def test_assert_pipeline_run_exists_missing_raises(pg: PGClient):
     fake_id = uuid.uuid4()
     with pytest.raises(RuntimeError, match="pipeline_runs.*미존재"):
         await pg.assert_pipeline_run_exists(fake_id)
+
+
+@pytest.mark.slow
+async def test_fetch_plan_for_group_real(pg: PGClient):
+    """실 activity_master 1059 row 안 (세보엠이씨, 일반공조설비공사) 1건 정합."""
+    result = await pg.fetch_plan_for_group("세보엠이씨", "일반공조설비공사")
+    assert result is not None
+    assert result["plan_mh_sum"] > 0
+    assert result["plan_start"] is not None
+    assert result["plan_finish"] is not None
+    assert isinstance(result["plan_total_qty_by_unit"], dict)
+
+
+@pytest.mark.slow
+async def test_fetch_plan_for_group_unknown_bp(pg: PGClient):
+    """미등록 BP사 → None."""
+    result = await pg.fetch_plan_for_group("__nonexistent_company__", "__no__")
+    assert result is None

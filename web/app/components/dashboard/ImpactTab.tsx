@@ -13,15 +13,15 @@ interface Props {
 
 export function ImpactTab({ summary, distribution, trend, perFunction, scope }: Props) {
   const kpi: KpiItem[] = scope === "fleet" ? [
-    { label: "전체 근무량",  value: `${summary.total_headcount}명`, sub: `${summary.total_hours.toLocaleString()} h/월`, tone: "neutral" },
+    { label: "전체 근무량",  value: `${summary.total_headcount}명`, sub: `${summary.total_hours.toLocaleString()} h/월`, tone: "sky" },
     { label: "월 절감 시간", value: `${summary.total_hours_saved.toLocaleString()}`, unit: "h", sub: "Agent 자동화 효과", tone: "lavender" },
-    { label: "FTE 환산",     value: `${summary.total_fte_saved}`, unit: "명", sub: "140h/명 기준", tone: "neutral" },
-    { label: "AI 업무 대체율", value: `${summary.ai_replacement_rate}`, unit: "%", sub: "절감 ÷ 전체 근무시간", tone: "neutral" },
+    { label: "FTE 환산",     value: `${summary.total_fte_saved}`, unit: "명", sub: "140h/명 기준", tone: "mint" },
+    { label: "AI 업무 대체율", value: `${summary.ai_replacement_rate}`, unit: "%", sub: "절감 ÷ 전체 근무시간", tone: "peach" },
   ] : [
-    { label: "현장 근무량",  value: `${summary.total_headcount}명`, sub: `${summary.total_hours.toLocaleString()} h/월`, tone: "neutral" },
+    { label: "현장 근무량",  value: `${summary.total_headcount}명`, sub: `${summary.total_hours.toLocaleString()} h/월`, tone: "sky" },
     { label: "월 절감 시간", value: `${summary.total_hours_saved.toLocaleString()}`, unit: "h", sub: "이 현장 Agent 효과", tone: "lavender" },
-    { label: "FTE 환산",     value: `${summary.total_fte_saved}`, unit: "명", sub: "140h/명 기준", tone: "neutral" },
-    { label: "AI 업무 대체율", value: `${summary.ai_replacement_rate}`, unit: "%", sub: "이 현장 대체율", tone: "neutral" },
+    { label: "FTE 환산",     value: `${summary.total_fte_saved}`, unit: "명", sub: "140h/명 기준", tone: "mint" },
+    { label: "AI 업무 대체율", value: `${summary.ai_replacement_rate}`, unit: "%", sub: "이 현장 대체율", tone: "peach" },
   ];
 
   return (
@@ -29,9 +29,9 @@ export function ImpactTab({ summary, distribution, trend, perFunction, scope }: 
       <KpiStrip items={kpi} />
 
       {scope === "fleet" && (
-        <div className="rounded-card border-2 border-lavender/30 bg-lavender-light/20 px-5 py-3">
+        <div className="rounded-card border-2 border-mint/30 bg-mint-light/20 px-5 py-3">
           <span className="text-sm">
-            <b className="text-lavender-text">★ 연간 환산 효과:</b>{" "}
+            <b className="text-mint-text">★ 연간 환산 효과:</b>{" "}
             충원 비용 절감 약 <b className="text-ink">{summary.yearly_saving}억</b>
             <span className="text-ink-mid"> ({summary.total_fte_saved}명 × 1.5억 + 직접 시간 환산)</span>
           </span>

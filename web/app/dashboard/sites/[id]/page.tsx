@@ -30,10 +30,10 @@ export default function SiteDashboardPage() {
   const { site, detail, perSiteAutomation, trend } = data;
 
   const perfKpi: KpiItem[] = [
-    { label: "현재 생산성",  value: `${site.productivity_today}`, unit: "%", sub: "이력 대비",         tone: site.productivity_today < 90 ? "rose" : "neutral" },
-    { label: "현 추세 공기", value: site.delay_days > 0 ? `D+${site.delay_days}` : "정상", unit: site.delay_days > 0 ? "일 지연" : "", sub: site.expected_completion, tone: site.delay_days > 0 ? "rose" : "neutral" },
+    { label: "현재 생산성",  value: `${site.productivity_today}`, unit: "%", sub: "이력 대비",         tone: site.productivity_today < 90 ? "rose" : "mint" },
+    { label: "현 추세 공기", value: site.delay_days > 0 ? `D+${site.delay_days}` : "정상", unit: site.delay_days > 0 ? "일 지연" : "", sub: site.expected_completion, tone: site.delay_days > 0 ? "rose" : "mint" },
     { label: "회복 가능 생산성", value: site.recovery_days > 0 ? `+${100 - site.productivity_today + site.recovery_days}` : "0", unit: "%p", sub: "Optimizer 목표", tone: "lavender" },
-    { label: "최적화 후 공기", value: site.recovery_days > 0 ? `-${site.recovery_days}` : "0", unit: "일 회복", sub: site.recovered_completion, tone: "neutral" },
+    { label: "최적화 후 공기", value: site.recovery_days > 0 ? `-${site.recovery_days}` : "0", unit: "일 회복", sub: site.recovered_completion, tone: "mint" },
   ];
 
   const siteImpactSummary: SitesSummary = {

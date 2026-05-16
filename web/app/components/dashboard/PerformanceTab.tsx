@@ -9,7 +9,7 @@ interface Props {
 
 export function PerformanceTab({ sites, fleetKpi }: Props) {
   const kpi: KpiItem[] = [
-    { label: "전사 평균 생산성", value: `${fleetKpi.avg_productivity}`, unit: "%", sub: "이력 대비 평균", tone: "neutral" },
+    { label: "전사 평균 생산성", value: `${fleetKpi.avg_productivity}`, unit: "%", sub: "이력 대비 평균", tone: "mint" },
     { label: "평균 공기 격차", value: `+${fleetKpi.avg_delay}`, unit: "일", sub: "전사 평균 지연", tone: "rose" },
     { label: "이상 공종 총합", value: `${fleetKpi.abnormal_total}`, unit: "건", sub: "전사 합계", tone: "rose" },
     { label: "회복 가능 공기", value: `-${fleetKpi.recoverable_days}`, unit: "일", sub: "Optimizer 평균", tone: "lavender" },

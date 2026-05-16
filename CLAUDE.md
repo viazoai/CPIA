@@ -31,14 +31,14 @@
 | 레이어 | 기술 | 선택 이유 |
 |--------|------|---------|
 | AI 파이프라인 | Python + LangGraph | H-i-L interrupt·조건 분기 지원 |
-| LLM (파싱·매핑·보고서) | Claude Sonnet 4.6 | 구조화 추출에 충분한 성능 |
-| LLM (진단·조언) | Claude Opus 4.7 | 맥락 판단·추론 필요 구간 |
-| 임베딩 | OpenAI text-embedding-3-small | 한국어 건설 도메인 텍스트 처리 |
-| Vector DB | ChromaDB (서버 모드) | 유사도 검색, homelab Docker로 팀 공유 |
+| LLM (파싱·매핑·보고서) | **Azure OpenAI `gpt-5.1-chat-ai-board-test`** | A_Track 매핑 레이어 plan 확정 (SK 사내 AI Board) |
+| LLM (진단·조언) | TBD — 후속 plan | Forecaster·Optimizer LLM 은 다음 plan 에서 결정 |
+| 임베딩 | **Azure OpenAI `text-embedding-3-small-ai-board-test`** (1536d) | 한국어 건설 도메인, Azure 동일 endpoint |
+| Vector DB | ChromaDB (서버 모드) — `wbs_master` 189 + `daily_activities` 두 컬렉션 | RAG 검색(wbs_master) + 유사 이력(daily_activities) 의도 분리 |
 | 관계형 DB | PostgreSQL | 파이프라인 결과 저장 + LangGraph checkpoint, 대시보드 데이터 소스 |
 | **파이프라인 API** | **FastAPI (얇은 래퍼)** | **H-i-L Dashboard 통합을 위해 `/run`·`/resume`·`/status` 3개 엔드포인트만 노출** |
 | 프론트엔드 | Next.js (React) | AI 코드 생성 품질, API Routes로 BFF 패턴 |
-| 인프라 | homelab Docker Compose | 팀원 공유 DB 서버, Cloudflare Tunnel로 외부 접속 |
+| 인프라 | homelab Docker Compose | 팀원 공유 DB 서버, Cloudflare Tunnel로 외부 접속 (PoC 1차에서 A는 로컬 Docker 사용, 완료 후 homelab 마이그레이션) |
 
 **FastAPI 추가 (CLAUDE.md v1 결정 뒤집음):** H-i-L 1·2를 Dashboard에 통합하기로 하면서 LangGraph `interrupt`/`resume`을 외부에서 트리거할 양방향 통신이 필요해짐. Next.js API Routes는 BFF(Backend-for-Frontend)로 FastAPI를 proxy하며 Postgres 직접 SELECT도 병행한다.
 
@@ -171,12 +171,12 @@
 | Agent | 입력 | 출력 | LLM |
 |-------|------|------|-----|
 | Collector | 파일 경로 | 시트별 원문 텍스트 | 없음 |
-| Parser | 원문 텍스트 + WBS 공종 목록 | 구조화 JSON | Sonnet 4.6 |
-| Mapper | Parser JSON + WBS 코드 목록 | WBS 매핑 완료 JSON | Sonnet 4.6 |
-| Atomizer | Mapper JSON | ChromaDB 적재 | 없음 (임베딩만) |
-| Reporter | Mapper JSON | 통합 Daily Report (MD) + PostgreSQL 저장 | Sonnet 4.6 |
-| Forecaster | Mapper JSON + ChromaDB 유사 이력 | 공종별 생산성 진단 + PostgreSQL 저장 | Opus 4.7 |
-| Optimizer | Forecaster 결과 + ChromaDB 과거 패턴 | 맥락 기반 조언 + PostgreSQL 저장 | Opus 4.7 |
+| Parser | 원문 텍스트 + WBS 공종 목록 | 구조화 JSON | Azure OpenAI gpt-5.1 |
+| Mapper | Parser JSON + `wbs_master` Chroma RAG + `activity_master` PG | WBS 매핑 완료 JSON | Azure OpenAI gpt-5.1 (rerank) |
+| Atomizer | Mapper JSON | ChromaDB `daily_activities` 적재 | Azure OpenAI 임베딩만 |
+| Reporter | Mapper JSON | 통합 Daily Report (MD) + PostgreSQL 저장 | Azure OpenAI gpt-5.1 |
+| Forecaster | Mapper JSON + ChromaDB 유사 이력 | 공종별 생산성 진단 + PostgreSQL 저장 | TBD (후속 plan) |
+| Optimizer | Forecaster 결과 + ChromaDB 과거 패턴 | 맥락 기반 조언 + PostgreSQL 저장 | TBD (후속 plan) |
 
 **H-i-L 포인트 2개:**
 - H-i-L 1 (Mapper 이후): 확신도 낮은 매핑 항목 담당자 검토·수정
@@ -216,11 +216,17 @@ GitHub (코드)                homelab (데이터만)
 
 ### 필수 환경 변수 (`.env`)
 ```
-ANTHROPIC_API_KEY=
-OPENAI_API_KEY=
-POSTGRES_URL=postgresql://user:password@homelab-host:5432/cpia
-CHROMA_HOST=homelab-host
-CHROMA_PORT=8000
+# Azure OpenAI (LLM + 임베딩 한 묶음)
+AZURE_OPENAI_ENDPOINT=https://skep-ai-board-for-test-foundry.cognitiveservices.azure.com/
+AZURE_OPENAI_API_KEY=
+AZURE_OPENAI_API_VERSION=2024-12-01-preview
+LLM_MODEL=gpt-5.1-chat-ai-board-test
+EMBEDDING_MODEL=text-embedding-3-small-ai-board-test
+
+# DB (homelab 의 경우 cpia-pg.<도메인> Cloudflare Tunnel 통해 접속, 자세한 절차는 README)
+POSTGRES_URL=postgresql://cpia:<password>@localhost:5532/cpia
+CHROMA_HOST=localhost
+CHROMA_PORT=5533
 ```
 
 ### homelab Docker Compose 실행 (인프라 담당자)
@@ -253,7 +259,7 @@ npm run dev  # http://localhost:3000
 ```
 팀원 A (AI/Python):
   - pipeline/ 전체 (7개 Agent + graph.py + FastAPI + synthetic + checkpointer)
-  - LLM 프롬프트 튜닝 (Sonnet·Opus)
+  - LLM 프롬프트 튜닝 (Azure OpenAI gpt-5.1, 후속 plan 에서 Forecaster·Optimizer 모델 결정)
   - ChromaDB 적재·검색 로직
 
 팀원 B (프론트/인프라):
@@ -304,4 +310,5 @@ docs/sample/WBS공정표_M15X IBL PH-3_CPRS_2025.09.25.xlsx
 
 ---
 
-*최종 수정: 2026-05-14 — 2인 협업 확정안 반영 (FastAPI 추가, H-i-L Dashboard 통합, 3주 압축 / 마감 2026-06-05, 브랜치 A_Track·B_Track 2개)*
+*최종 수정: 2026-05-16 — A_Track 매핑 레이어 plan 반영 (Azure OpenAI gpt-5.1 + text-embedding-3-small 전환, ChromaDB `wbs_master`+`daily_activities` 두 컬렉션, PG `activity_master` 추가, A 는 로컬 Docker 로 PoC 진행 중 — homelab 은 대기·마이그레이션 예정)*
+*이전 수정: 2026-05-14 — 2인 협업 확정안 (FastAPI 추가, H-i-L Dashboard 통합, 3주 압축 / 마감 2026-06-05, 브랜치 A_Track·B_Track 2개)*

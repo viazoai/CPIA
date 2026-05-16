@@ -236,10 +236,12 @@ class PGClient:
                 row["run_id"],
                 row["company"],
                 row["l6_main"],
-                _json.dumps(row["today_qty_by_unit"]) if row.get("today_qty_by_unit") else None,
+                _json.dumps(row["today_qty_by_unit"]) if row.get("today_qty_by_unit") is not None else None,
                 row.get("today_assigned_workers"),
                 row.get("today_productivity"),
-                _json.dumps(row["plan_total_qty_by_unit"]) if row.get("plan_total_qty_by_unit") else None,
+                _json.dumps(row["plan_total_qty_by_unit"])
+                if row.get("plan_total_qty_by_unit") is not None
+                else None,
                 row.get("plan_mh_sum"),
                 row.get("plan_start"),
                 row.get("plan_finish"),
@@ -252,7 +254,9 @@ class PGClient:
                 row.get("mh_gap"),
                 row.get("delay_days"),
                 row.get("rag_n_similar"),
-                _json.dumps(row["similar_cases"], ensure_ascii=False) if row.get("similar_cases") else None,
+                _json.dumps(row["similar_cases"], ensure_ascii=False)
+                if row.get("similar_cases") is not None
+                else None,
                 row.get("assessment"),
                 row.get("reasoning"),
                 row.get("recovery_likelihood"),

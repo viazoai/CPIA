@@ -55,7 +55,7 @@ function NowItem({ icon, tone, label, value }: { icon: React.ReactNode; tone: "i
       <span className={`inline-flex h-8 w-8 items-center justify-center rounded-md ${toneBg}`}>{icon}</span>
       <div className="min-w-0">
         <div className="font-mono text-[11px] uppercase tracking-wider text-ink-light">{label}</div>
-        <div className="font-display text-lg font-bold tracking-tight text-ink">{value}</div>
+        <div className="font-display text-lg font-semibold tracking-[-0.01em] text-ink">{value}</div>
       </div>
     </div>
   );

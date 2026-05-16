@@ -44,7 +44,7 @@ export default function ReportPage() {
             일별 진단 · 만회 시나리오 · 원본 데이터
           </span>
         </div>
-        <h1 className="mt-6 font-display text-3xl font-bold tracking-tight text-ink">
+        <h1 className="mt-6 font-display text-3xl font-medium tracking-[-0.02em] text-ink">
           현장 일일 진단 보고서
         </h1>
       </div>

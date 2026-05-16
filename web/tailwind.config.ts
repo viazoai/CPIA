@@ -108,7 +108,7 @@ const config: Config = {
           "sans-serif",
         ],
         display: [
-          "Space Grotesk",
+          "Inter Tight",
           "var(--font-display)",
           "Pretendard",
           "system-ui",

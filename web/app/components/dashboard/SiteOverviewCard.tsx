@@ -36,11 +36,11 @@ export function SiteOverviewCard({ site }: { site: Site }) {
         <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
           <div>
             <div className="text-ink-light">생산성</div>
-            <div className="font-display text-lg font-bold text-ink">{site.productivity_today}%</div>
+            <div className="font-display text-lg font-semibold tracking-[-0.01em] text-ink">{site.productivity_today}%</div>
           </div>
           <div>
             <div className="text-ink-light">공기</div>
-            <div className={cn("font-display text-lg font-bold", site.delay_days > 0 ? "text-rose" : "text-mint")}>
+            <div className={cn("font-display text-lg font-semibold tracking-[-0.01em]", site.delay_days > 0 ? "text-rose" : "text-mint")}>
               {site.delay_days > 0 ? `+${site.delay_days}일` : "정상"}
             </div>
           </div>

@@ -37,11 +37,33 @@ C_L6 = 16  # L6 Work PKG-1 ('철근콘크리트공사' 등)
 C_L7 = 18  # L7 Work PKG-2
 C_L75 = 20  # L7.5 Activity
 C_COMPANY = 24  # BP사
-C_UNIT = 25  # 단위 (M2/Ton/M3/...)
+C_UNIT = 25  # 단위 (M2/Ton/M3/...) — _normalize_unit 으로 소문자 통일
 C_PLAN_QTY = 30  # 총수량 Rev.2
 C_PLAN_MH = 31  # MH Rev.2
 C_PLAN_START = 37  # Planned Start Rev.2
 C_PLAN_FINISH = 38  # Planned Finish Rev.2
+C_ACTUAL_START = 41  # Actual Start Date
+C_ACTUAL_FINISH = 42  # Actual Finish Date
+
+
+def _normalize_unit(u: Any) -> str | None:
+    """단위 소문자 통일 (EA / ea / M2 / m2 혼재 방지). Parser._normalize_unit 과 같은 정책."""
+    if u is None:
+        return None
+    s = str(u).strip().lower()
+    return s or None
+
+
+def _to_date(v: Any) -> Any:
+    """openpyxl 의 datetime → date 변환. 빈 셀이 time(0,0) 으로 오는 패턴 None 처리."""
+    from datetime import date as _date
+    from datetime import datetime as _datetime
+
+    if isinstance(v, _datetime):
+        return v.date()
+    if isinstance(v, _date):
+        return v
+    return None
 
 
 def parse_master_groups(
@@ -70,11 +92,13 @@ def parse_master_groups(
                 "l7": r[C_L7],
                 "l75": r[C_L75],
                 "company": r[C_COMPANY],
-                "unit": r[C_UNIT],
+                "unit": _normalize_unit(r[C_UNIT]),
                 "plan_total_qty": r[C_PLAN_QTY],
                 "plan_mh_rev2": r[C_PLAN_MH],
-                "plan_start": r[C_PLAN_START],
-                "plan_finish": r[C_PLAN_FINISH],
+                "plan_start": _to_date(r[C_PLAN_START]),
+                "plan_finish": _to_date(r[C_PLAN_FINISH]),
+                "actual_start": _to_date(r[C_ACTUAL_START]),
+                "actual_finish": _to_date(r[C_ACTUAL_FINISH]),
             }
         )
     wb.close()
@@ -116,13 +140,16 @@ async def upsert_pg(
                 INSERT INTO activity_master (
                     wbs_activity_id, wa, l5_disc, l6_main, l7_sub, l7_5_activity,
                     company, unit, plan_total_qty, plan_mh_rev2,
-                    plan_start, plan_finish, source_file
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                    plan_start, plan_finish, actual_start, actual_finish, source_file
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
                 ON CONFLICT (wbs_activity_id) DO UPDATE SET
+                    unit = EXCLUDED.unit,
                     plan_total_qty = EXCLUDED.plan_total_qty,
                     plan_mh_rev2 = EXCLUDED.plan_mh_rev2,
                     plan_start = EXCLUDED.plan_start,
                     plan_finish = EXCLUDED.plan_finish,
+                    actual_start = EXCLUDED.actual_start,
+                    actual_finish = EXCLUDED.actual_finish,
                     loaded_at = now()
                 """,
                 r["wbs_activity_id"],
@@ -137,6 +164,8 @@ async def upsert_pg(
                 r["plan_mh_rev2"],
                 r["plan_start"],
                 r["plan_finish"],
+                r["actual_start"],
+                r["actual_finish"],
                 source_file,
             )
             inserted += 1

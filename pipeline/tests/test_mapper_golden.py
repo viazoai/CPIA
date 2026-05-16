@@ -99,6 +99,7 @@ async def test_golden_accuracy(sample_tong_path: Path, azure_openai_env):
         postgres_url=os.environ["POSTGRES_URL"],
         chroma_host=os.environ["CHROMA_HOST"],
         chroma_port=int(os.environ.get("CHROMA_PORT", "8000")),
+        chroma_ssl=os.environ.get("CHROMA_SSL", "false").lower() == "true",
     )
 
     parsed = parse_daily_report(sample_tong_path)

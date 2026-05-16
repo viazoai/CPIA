@@ -212,6 +212,7 @@ async def main():
         postgres_url=os.environ["POSTGRES_URL"],
         chroma_host=os.environ["CHROMA_HOST"],
         chroma_port=int(os.environ.get("CHROMA_PORT", "8000")),
+        chroma_ssl=os.environ.get("CHROMA_SSL", "false").lower() == "true",
     )
 
     fallback_hits = await dump_mapper_samples(parsed, sample_rows, row_to_activity, cfg)

@@ -198,6 +198,7 @@ class MapperConfig:
     postgres_url: str
     chroma_host: str
     chroma_port: int
+    chroma_ssl: bool = False
     top_k: int = 15
     max_candidates: int = 8
     conf_threshold: float = 0.7
@@ -245,7 +246,7 @@ async def map_activity(
     inp_vec = emb_resp.data[0].embedding
 
     # ③ Chroma Top-K → BP filter ∩
-    chroma = ChromaClient(host=cfg.chroma_host, port=cfg.chroma_port)
+    chroma = ChromaClient(host=cfg.chroma_host, port=cfg.chroma_port, ssl=cfg.chroma_ssl)
     coll = chroma.get_or_create_wbs_master()
     chroma_result = coll.query(
         query_embeddings=[inp_vec],

@@ -103,3 +103,37 @@ CREATE TABLE IF NOT EXISTS sites (
     is_mock           BOOLEAN      NOT NULL DEFAULT TRUE,
     updated_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
+
+
+-- ---------------------------------------------------------------------------
+-- 7. activity_master — WBS Master List (load_master_list.py 가 적재)
+--    docs/schema/postgres.md §3 (Master List 적재 테이블, infra/local 와 동일)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS activity_master (
+    wbs_activity_id   TEXT PRIMARY KEY,
+    wa                TEXT,
+    l5_disc           TEXT NOT NULL,
+    l6_main           TEXT,
+    l6_code           TEXT,
+    l7_sub            TEXT,
+    l7_code           TEXT,
+    l7_5_activity     TEXT,
+    sub_work_area     TEXT,
+    company           TEXT,
+    unit              TEXT,
+    plan_total_qty    NUMERIC,
+    plan_mh_rev2      NUMERIC,
+    plan_mh_rev1      NUMERIC,
+    plan_mh_rev0      NUMERIC,
+    plan_wv           NUMERIC,
+    plan_start        DATE,
+    plan_finish       DATE,
+    actual_start      DATE,
+    actual_finish     DATE,
+    source_file       TEXT,
+    loaded_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_actmaster_lookup ON activity_master (l5_disc, company, unit);
+CREATE INDEX IF NOT EXISTS idx_actmaster_wa_l6 ON activity_master (wa, l6_main);
+CREATE INDEX IF NOT EXISTS idx_actmaster_period ON activity_master (plan_start, plan_finish);

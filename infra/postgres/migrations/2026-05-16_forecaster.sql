@@ -4,7 +4,9 @@
 BEGIN;
 
 -- forecasts 컬럼 추가 (없으면)
+ALTER TABLE forecasts ADD COLUMN IF NOT EXISTS today_qty_by_unit JSONB;
 ALTER TABLE forecasts ADD COLUMN IF NOT EXISTS today_productivity NUMERIC;
+ALTER TABLE forecasts ADD COLUMN IF NOT EXISTS plan_total_qty_by_unit JSONB;
 ALTER TABLE forecasts ADD COLUMN IF NOT EXISTS plan_start DATE;
 ALTER TABLE forecasts ADD COLUMN IF NOT EXISTS plan_finish DATE;
 ALTER TABLE forecasts ADD COLUMN IF NOT EXISTS plan_mh_per_day NUMERIC;

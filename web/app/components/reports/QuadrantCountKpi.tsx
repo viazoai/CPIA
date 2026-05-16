@@ -40,7 +40,7 @@ function Chip({ tone, active, onClick, label, count }: { tone: "rose" | "sun" | 
         active ? `ring-2 ${ring}` : "hover:opacity-80"
       )}
     >
-      <span className="font-mono text-[10px] uppercase tracking-widest">{label}</span>
+      <span className="font-mono text-xs uppercase tracking-wider">{label}</span>
       <span className="font-display text-xl font-bold">{count}</span>
     </button>
   );

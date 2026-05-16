@@ -7,7 +7,7 @@ export function ForecastTab({ detail }: { detail: ReportDetail }) {
     <div className="flex flex-col gap-4">
       <div className="rounded-card border border-border-soft bg-card p-5 shadow-xs">
         <div className="flex items-center justify-between mb-3">
-          <div className="font-mono text-[10px] uppercase tracking-widest text-ink-light">S-Curve · 계획 vs 실적</div>
+          <div className="font-mono text-xs uppercase tracking-wider text-ink-light">S-Curve · 계획 vs 실적</div>
           <div className="flex items-center gap-4 text-[11px] text-ink-mid">
             <span><span className="text-ink-light">공정률:</span> <b>{detail.kpi.productivity_today}%</b></span>
             <span><span className="text-ink-light">SPI:</span> <b>{(detail.kpi.productivity_today / 100).toFixed(2)}</b></span>

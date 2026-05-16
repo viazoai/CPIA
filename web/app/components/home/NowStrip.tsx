@@ -30,7 +30,7 @@ export function NowStrip({ summary }: Props) {
   return (
     <section className="mx-auto max-w-wrap px-6 mt-8 md:px-10">
       <div className="rounded-card border border-border-soft bg-card p-5 shadow-xs">
-        <div className="font-mono text-[10px] uppercase tracking-widest text-ink-light mb-3">
+        <div className="font-mono text-xs uppercase tracking-wider text-ink-light mb-3">
           NOW · 현재 운영 현황
         </div>
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
@@ -55,7 +55,7 @@ function NowItem({ icon, tone, label, value }: { icon: React.ReactNode; tone: "s
     <div className="flex items-center gap-3">
       <span className={`inline-flex h-8 w-8 items-center justify-center rounded-md ${toneBg}`}>{icon}</span>
       <div className="min-w-0">
-        <div className="font-mono text-[9px] uppercase tracking-widest text-ink-light">{label}</div>
+        <div className="font-mono text-[11px] uppercase tracking-wider text-ink-light">{label}</div>
         <div className="font-display text-lg font-bold tracking-tight text-ink">{value}</div>
       </div>
     </div>

@@ -29,7 +29,7 @@ function HeroStat({ icon, label, value, unit, description, tone }: HeroStatProps
       <div className={`mb-3 inline-flex h-9 w-9 items-center justify-center rounded-md ${iconBg}`}>
         {icon}
       </div>
-      <div className="font-mono text-[10px] uppercase tracking-widest text-ink-light">{label}</div>
+      <div className="font-mono text-xs uppercase tracking-wider text-ink-light">{label}</div>
       <div className="mt-1 font-display text-3xl font-bold tracking-tight text-ink">
         {value}
         {unit && <span className="ml-1 text-base font-semibold text-ink-light">{unit}</span>}
@@ -47,7 +47,7 @@ export function Hero() {
           / 01 — Hi-tech Division
         </span>
         <span className="h-px w-8 bg-border" />
-        <span className="font-mono text-[11px] uppercase tracking-widest text-ink-light">
+        <span className="font-mono text-[11px] uppercase tracking-wider text-ink-light">
           System Active · 6 Sites · 2026.05
         </span>
       </div>

@@ -13,7 +13,7 @@ export function ReportDailyList({ daily, selectedDate, onSelect }: Props) {
   return (
     <div className="flex flex-col">
       <div className="px-3 py-3 border-b border-border-soft">
-        <div className="font-mono text-[10px] uppercase tracking-widest text-ink-light">
+        <div className="font-mono text-xs uppercase tracking-wider text-ink-light">
           Daily Reports · 일별 보고서
         </div>
       </div>

@@ -40,7 +40,7 @@ export default function ReportPage() {
             / 04 — Report
           </span>
           <span className="h-px w-8 bg-border" />
-          <span className="font-mono text-[11px] uppercase tracking-widest text-ink-light">
+          <span className="font-mono text-[11px] uppercase tracking-wider text-ink-light">
             일별 진단 · 만회 시나리오 · 원본 데이터
           </span>
         </div>

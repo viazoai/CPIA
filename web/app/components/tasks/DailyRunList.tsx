@@ -15,7 +15,7 @@ export function DailyRunList({ runs, selectedDate, onSelect }: Props) {
   return (
     <div className="flex flex-col">
       <div className="px-3 py-3 border-b border-border-soft">
-        <div className="font-mono text-[10px] uppercase tracking-widest text-ink-light">
+        <div className="font-mono text-xs uppercase tracking-wider text-ink-light">
           Daily Runs · 일별 실행
         </div>
         <div className="mt-1 text-xs text-ink-mid">{runs.length}일치 누적</div>
@@ -42,7 +42,7 @@ export function DailyRunList({ runs, selectedDate, onSelect }: Props) {
               <div className="flex items-center gap-2">
                 <span className="text-xs font-semibold text-ink-mid">{run.total_count}건</span>
                 {run.has_anomaly && (
-                  <span className="inline-flex items-center gap-0.5 rounded-sm bg-rose-light px-1.5 py-0.5 text-[9px] font-semibold text-rose-text">
+                  <span className="inline-flex items-center gap-0.5 rounded-sm bg-rose-light px-1.5 py-0.5 text-[11px] font-semibold text-rose-text">
                     <AlertTriangle className="h-2.5 w-2.5" />
                     이상
                   </span>

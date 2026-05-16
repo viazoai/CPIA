@@ -12,7 +12,7 @@ export function HilReviewStage() {
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <UserCheck className="h-3.5 w-3.5 text-peach-text" strokeWidth={2.5} />
-              <span className="font-mono text-[10px] uppercase tracking-widest text-peach-text font-bold">
+              <span className="font-mono text-xs uppercase tracking-wider text-peach-text font-bold">
                 HIL REVIEW · 사람 개입
               </span>
             </div>

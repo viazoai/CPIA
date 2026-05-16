@@ -16,7 +16,7 @@ interface Props {
 export function TrendLineChart({ points, unit, title, valueLabel = "value" }: Props) {
   return (
     <div className="rounded-card border border-border-soft bg-card p-4 shadow-xs">
-      {title && <div className="font-mono text-[10px] uppercase tracking-widest text-ink-light mb-3">{title}</div>}
+      {title && <div className="font-mono text-xs uppercase tracking-wider text-ink-light mb-3">{title}</div>}
       <div className="h-48">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={points} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>

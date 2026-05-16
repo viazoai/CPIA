@@ -39,7 +39,7 @@ export function RawDataTab({ rows }: { rows: RawDataRow[] }) {
   return (
     <div className="rounded-card border border-border-soft bg-card shadow-xs overflow-hidden">
       <div className="flex items-center justify-between p-3 border-b border-border-soft">
-        <div className="font-mono text-[10px] uppercase tracking-widest text-ink-light">
+        <div className="font-mono text-xs uppercase tracking-wider text-ink-light">
           작업일보 매핑 결과 · {rows.length} rows
         </div>
         <div className="flex items-center gap-2">
@@ -68,7 +68,7 @@ export function RawDataTab({ rows }: { rows: RawDataRow[] }) {
           <thead className="bg-surface-soft">
             <tr>
               {COLUMNS.map((c) => (
-                <th key={c.key} className="px-2 py-2 text-left font-mono uppercase tracking-widest text-ink-light text-[10px]">{c.label}</th>
+                <th key={c.key} className="px-2 py-2 text-left font-mono uppercase tracking-wider text-ink-light text-xs">{c.label}</th>
               ))}
             </tr>
           </thead>

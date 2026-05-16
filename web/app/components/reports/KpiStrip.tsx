@@ -27,7 +27,7 @@ export function KpiStrip({ items }: { items: KpiItem[] }) {
       {items.map((it, i) => (
         <div key={i} className="relative overflow-hidden rounded-card border border-border-soft bg-card p-4 shadow-xs">
           <span aria-hidden className={cn("absolute inset-x-0 top-0 h-1 bg-gradient-to-r", TONE_STRIPE[it.tone])} />
-          <div className="font-mono text-[10px] uppercase tracking-widest text-ink-light">{it.label}</div>
+          <div className="font-mono text-xs uppercase tracking-wider text-ink-light">{it.label}</div>
           <div className="mt-2 font-display text-2xl font-bold tracking-tight text-ink">
             {it.value}
             {it.unit && <span className="ml-1 text-sm font-semibold text-ink-light">{it.unit}</span>}

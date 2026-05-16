@@ -25,7 +25,7 @@ export function OptimizeTab({ detail }: { detail: ReportDetail }) {
     <div className="grid grid-cols-12 gap-4">
       <div className="col-span-12 md:col-span-6">
         <div className="rounded-card border border-border-soft bg-card p-4 shadow-xs">
-          <div className="font-mono text-[10px] uppercase tracking-widest text-ink-light mb-2">
+          <div className="font-mono text-xs uppercase tracking-wider text-ink-light mb-2">
             Impact × Productivity 산점도
           </div>
           <QuadrantScatter
@@ -34,7 +34,7 @@ export function OptimizeTab({ detail }: { detail: ReportDetail }) {
             onSelect={setSelectedWp}
             filter={filter}
           />
-          <div className="mt-3 text-[10px] text-ink-light text-center">
+          <div className="mt-3 text-xs text-ink-light text-center">
             점 크기 = 잔여 물량. 좌상 = 고Impact·저Productivity (위험군).
           </div>
         </div>

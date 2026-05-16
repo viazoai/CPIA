@@ -45,7 +45,7 @@ function Section({ icon, tone, title, children }: { icon: React.ReactNode; tone:
     <div className="rounded-card border border-border-soft bg-card p-3 shadow-xs">
       <div className="flex items-center gap-2 mb-2">
         <span className={`inline-flex h-6 w-6 items-center justify-center rounded-sm ${bg} ${text}`}>{icon}</span>
-        <span className={`font-mono text-[10px] uppercase tracking-widest font-bold ${text}`}>{title}</span>
+        <span className={`font-mono text-xs uppercase tracking-wider font-bold ${text}`}>{title}</span>
       </div>
       {children}
     </div>

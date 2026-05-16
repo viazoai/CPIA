@@ -40,7 +40,7 @@ export default function AgentTasksPage() {
             / 02 — Agent Tasks
           </span>
           <span className="h-px w-8 bg-border" />
-          <span className="font-mono text-[11px] uppercase tracking-widest text-ink-light">
+          <span className="font-mono text-[11px] uppercase tracking-wider text-ink-light">
             Daily Run · Process Progress · Chat
           </span>
         </div>

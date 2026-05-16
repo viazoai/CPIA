@@ -70,7 +70,7 @@ export default function HumanReviewPage() {
             / 03 — Human Review
           </span>
           <span className="h-px w-8 bg-border" />
-          <span className="font-mono text-[11px] uppercase tracking-widest text-ink-light">
+          <span className="font-mono text-[11px] uppercase tracking-wider text-ink-light">
             확신도 낮은 매핑 검토
           </span>
         </div>

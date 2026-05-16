@@ -34,12 +34,12 @@ export function ReviewCard({ item, wbsRoot, onConfirm, onRemap }: Props) {
           {isConfirmed ? (
             <>
               <CheckCircle2 className="h-4 w-4 text-mint" />
-              <span className="font-mono text-[10px] uppercase tracking-widest text-mint-text font-bold">확정</span>
+              <span className="font-mono text-xs uppercase tracking-wider text-mint-text font-bold">확정</span>
             </>
           ) : (
             <>
               <AlertTriangle className="h-4 w-4 text-sun" />
-              <span className="font-mono text-[10px] uppercase tracking-widest text-sun-text font-bold">미확정</span>
+              <span className="font-mono text-xs uppercase tracking-wider text-sun-text font-bold">미확정</span>
             </>
           )}
           <span className="ml-1 font-semibold text-sm text-ink">{item.bp_name}</span>
@@ -57,7 +57,7 @@ export function ReviewCard({ item, wbsRoot, onConfirm, onRemap }: Props) {
         <span className="text-ink-light">매핑:</span>
         <span className="font-semibold text-ink">{item.ai_mapped_path}</span>
         <span className={cn(
-          "ml-auto rounded-sm px-1.5 py-0.5 text-[10px] font-mono font-bold",
+          "ml-auto rounded-sm px-1.5 py-0.5 text-xs font-mono font-bold",
           item.confidence >= 0.8 ? "bg-mint-light text-mint-text" : item.confidence >= 0.7 ? "bg-sky-light text-sky-text" : "bg-sun-light text-sun-text"
         )}>
           {Math.round(item.confidence * 100)}%
@@ -72,7 +72,7 @@ export function ReviewCard({ item, wbsRoot, onConfirm, onRemap }: Props) {
 
       {editMode && (
         <div className="mt-3 rounded-md bg-surface-soft p-2">
-          <div className="text-[10px] font-mono uppercase tracking-widest text-ink-light mb-1.5">
+          <div className="text-xs font-mono uppercase tracking-wider text-ink-light mb-1.5">
             수정: 검색 또는 좌측 트리로 드래그
           </div>
           <WPSearchCombobox

@@ -9,7 +9,7 @@ interface Props {
 export function AgentProgressList({ progress }: Props) {
   return (
     <div className="flex flex-col gap-3 p-4">
-      <div className="font-mono text-[10px] uppercase tracking-widest text-ink-light">
+      <div className="font-mono text-xs uppercase tracking-wider text-ink-light">
         Process Progress · 단계별 진행
       </div>
       <div className="flex flex-col gap-2">
@@ -40,7 +40,7 @@ export function AgentProgressList({ progress }: Props) {
           );
         })}
       </div>
-      <div className="mt-2 flex items-center gap-3 text-[10px] text-ink-light">
+      <div className="mt-2 flex items-center gap-3 text-xs text-ink-light">
         <span>per_report = 작업일보 87건 단위</span>
         <span>·</span>
         <span>per_review = 검토 항목 단위</span>

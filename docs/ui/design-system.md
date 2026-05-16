@@ -410,7 +410,7 @@ async function loadMockSites(): Promise<Site[]> {
 ## 10. 참조 파일 (소스)
 
 ```
-docs/design-system.md          ← 본 문서
+docs/ui/design-system.md       ← 본 문서
 design/CPIA_기획서_v7.1.html   ← 원 시안 (시각 톤 참조 단일 출처)
 data/mock_sites.json           ← 화면 데이터 mock
 

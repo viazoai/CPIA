@@ -148,8 +148,16 @@ npx shadcn@latest add dialog sheet tabs sonner
 
 | 컴포넌트 | 경로 | 책임 |
 |---|---|---|
-| `<SiteCard>` | `app/components/SiteCard.tsx` | 현장 1 개 카드 — name·status·진척·KPI·pain·last_run·상세 버튼 |
 | `<Kpi>` | `app/page.tsx` 내부 | KPI 1 칸 — tone(아이콘+색 stripe)·label·value·sub |
+| `<TopBar>` | `app/components/TopBar.tsx` | 페르소나 토글 + 브랜드 |
+| `<Sidebar>` | `app/components/Sidebar.tsx` | 5 메뉴, 페르소나별 필터 |
+| `<PersonaToggle>` | `app/components/PersonaToggle.tsx` | 구성원/관리자 switch |
+| `<Hero>` `<NowStrip>` `<AgentCard>` `<HilReviewStage>` | `app/components/home/` | Home 4 컴포넌트 |
+| `<DailyRunList>` `<AgentProgressList>` `<AgentChatLog>` | `app/components/tasks/` | Agent Tasks 3 컴포넌트 |
+| `<WBSTree>` `<ReviewCard>` `<WPSearchCombobox>` | `app/components/review/` | Human Review 3 컴포넌트 |
+| `<ReportDailyList>` `<KpiStrip>` `<ForecastTab>` `<OptimizeTab>` `<OptimizerResult>` `<QuadrantCountKpi>` `<RawDataTab>` | `app/components/reports/` | Report 7 컴포넌트 |
+| `<PerformanceTab>` `<ImpactTab>` `<SiteOverviewCard>` `<HorizontalBarList>` | `app/components/dashboard/` | Dashboard 4 컴포넌트 |
+| `<SCurveChart>` `<BarChartH>` `<QuadrantScatter>` `<TrendLineChart>` | `app/components/charts/` | recharts 차트 4종 |
 
 ---
 
@@ -388,22 +396,14 @@ async function loadMockSites(): Promise<Site[]> {
 
 ---
 
-## 9. 다음 세션이 즉시 작업할 수 있는 곳
+## 9. 후속 작업 (Phase 2 — A_Track 연결)
 
-| 영역 | 시작 파일 | 비고 |
+| 영역 | 현재 | 다음 단계 |
 |---|---|---|
-| Layer 2 (사이트 상세) | `web/app/sites/[id]/page.tsx` (현재 빈 파일 또는 미생성) | 본 문서 §6-1 표준 레이아웃 따름. Sheet 활용 권장 |
-| H-i-L 1 Modal (Mapper 검토) | `web/app/components/MappingReviewModal.tsx` (미생성) | shadcn Dialog 추가 후 |
-| H-i-L 2 Modal (Trade 선택) | `web/app/components/TradeSelectorModal.tsx` (미생성) | 동일 |
-| ProductivityChart | `web/app/components/ProductivityChart.tsx` (미생성) | recharts 또는 visx — 본 문서에 추가 결정 박을 것 |
-
-### 새 작업 시작 절차
-1. `git pull origin main` (또는 B_Track)
-2. `cd web && npm install` (deps 동기화)
-3. `npm run dev` → `http://127.0.0.1:5535`
-4. 본 문서 §3·§4·§5 패턴 따라 신규 컴포넌트 작성
-5. 신규 토큰·컴포넌트는 본 문서 같이 갱신 + 같은 PR
-6. 커밋 메시지: `feat(B): <화면명> — <핵심 변경>`
+| Mock fixture → 실 API | `web/lib/fixtures.ts` 가 `data/mock_*.json` 로드 | A_Track GATE 통과 시 `web/app/api/mock/*` 라우트의 `loadFixture` 호출을 실제 Postgres SELECT / FastAPI proxy 로 swap. mock 과 실 API 의 응답 shape 이 같으므로 컴포넌트는 변경 없음. |
+| 현장별 detail 확장 | M15X 만 fixture 채워짐 (PoC 시연 우선) | 다른 5 현장의 detail 도 fixture 또는 실 데이터로 보강 |
+| Dashboard 14일 히트맵 | 보류 (spec §10-2) | 사용자 요청 시 wireframe v2 |
+| Daily Report 풀스크린 페이지 | 보류 (엑셀 산출물로 충분) | 사용자 요청 시 추가 |
 
 ---
 
@@ -434,5 +434,5 @@ web/
 
 ---
 
-*최종 수정: 2026-05-16 · B_Track ef08ff4 기준*
-*다음 갱신: shadcn Dialog/Sheet/Tabs/Sonner add 시점 + Layer 2 골격 도입 시점*
+*최종 수정: 2026-05-16 · 5 화면 구현 완료 + 신규 컴포넌트 30+개 등록*
+*다음 갱신: A_Track 데이터 연결 (Phase 2 진입) 시점*

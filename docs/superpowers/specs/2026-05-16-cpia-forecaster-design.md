@@ -205,6 +205,10 @@ CREATE TABLE forecasts (
     expected_completion DATE,                 -- PoC: = plan_finish 그대로. Phase 2 추세 외삽.
     risk_level TEXT,                          -- "정상|주의|이상" or NULL
 
+    -- optimizer cycle Task 1 (v3.1) — Optimizer / hil_2 소비용 2 필드
+    main_unit TEXT,                           -- positive_units 중 max qty (모든 unit 0 → NULL)
+    today_conditions TEXT,                    -- conditions_set 정렬 후 "," join (빈 set → "")
+
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -1028,6 +1032,9 @@ async def _forecast_one_group(
         # PoC: expected_completion = plan_finish 그대로. Phase 2 추세 외삽.
         "expected_completion": plan["plan_finish"] if plan else None,
         "risk_level": risk_level,
+        # optimizer cycle Task 1 (v3.1) — Optimizer / hil_2 가 소비할 2 필드
+        "main_unit": main_unit,
+        "today_conditions": ",".join(conditions_set) if conditions_set else "",
     }
 
 
@@ -1293,4 +1300,5 @@ CREATE INDEX IF NOT EXISTS idx_forecasts_state ON forecasts (schedule_state);
 |---|---|---|
 | 2026-05-16 | 초안 — Forecaster 데이터 계약 + 구현 spec. 8 + 3 결정 (LLM Azure, RAG 우선, 임계 가정, cold start None, row 구조, Few-shot 3, metadata rerank, synthetic 필수 + delay_days 사용자 개념 + schedule_state 3 enum + 5 모듈 분리). 9/25 + synthetic 5건 시뮬 검증 (delay_days=-8.6, schedule_state=on_schedule, risk_level=정상). | A 트랙 |
 | 2026-05-16 | spec §1 + §10 chromadb where 표기 정오표 — chromadb 0.5.20 `validate_where` 가 단일 dict 다중 operator + ISO string operand 모두 거부 → `{"$and": [{"company": ...}, {"l6_main": ...}]}` 만 Chroma where, date 30 일 윈도우는 코드단 list-comp 컷 (`_format_chroma_result` 직후). 함께: Forecaster 후속 6 fix (main_unit positive_units 필터, reasoning 3 종 분기, `WORK_HOURS_PER_DAY` 상수 추출, `graph.py` date alias, boundary tests 7건). | A 트랙 |
+| 2026-05-16 | optimizer cycle Task 1 동반 — main_unit + today_conditions 2 필드 추가 (today_productivity 이미 박힘). §3.1 forecasts 스키마 + §10 agent.py return dict 동기화. Optimizer / hil_2 가 소비. spec: `docs/superpowers/specs/2026-05-16-cpia-optimizer-hil2-design.md` §2.1 + §2.2 + §11.1. | A 트랙 |
 | 2026-05-16 | 리뷰 정정 — coherence-reviewer + feasibility-reviewer 의 **16 발견 사항 모두 반영**: <br>**B-1**: atomizer schema (`productivity` 없음, `conditions` string) → `_normalize_chroma_metadata()` 정규화 함수 추가 (§7.1).<br>**C-1**: `temperature=0.3` 제거 (gpt-5 family 미지원, Parser/Mapper 패턴 따름) (§8.4, §10).<br>**C-2**: `fetch_plan_for_group` SQL 2 query 분리 (jsonb_object_agg duplicate 회피) (§5.2).<br>**Coh-2**: `fetch_chroma_actual()` 본체 명시, compute_delay nil path 추가 (§5.3, §5.4).<br>**Coh-3**: 마이그레이션 JSONB 컬럼 2개 + delay_days NUMERIC 변환 추가 (§13.2).<br>**Coh-4**: assessment=None LLM skip 명시 (§10).<br>**M-1**: Chroma where filter `{"date": {"$gte": ..., "$lt": ...}}` 단일 dict 로 통합 (§10).<br>**M-2**: Plan fallback metric 단위당 productivity ratio 로 교체 (§6.1).<br>**M-3**: nil path (plan 없음 / Chroma 0 row) 명시 처리 (§5.3 schedule_state="unknown").<br>**M-4**: delay_days INT → NUMERIC `ALTER COLUMN` (§13.2).<br>**Mi-2**: forecasts schema NOT NULL 제거 (cold start row INSERT 가능) (§3.1).<br>**Mi-3**: conditions empty string → list 정규화 (§7.1).<br>**Mi-4**: `insert_forecast(row)` SQL 본문 명시 (28 컬럼) (§5.6).<br>**Coh-5**: recovery_likelihood 0.7 근거 명시 (PM 원안 v2 80% 대비 conservative) (§0.2).<br>**Coh-7**: expected_completion = plan_finish (PoC) 주석 (§3.1, §10).<br>**Coh-8**: rag_top_k 자르는 위치 명시 (agent.py 책임, §7.2 주석). <br>**부수**: synthetic 비용 $0.5 → $0.001 정정 (§9.2). | A 트랙 |

@@ -21,7 +21,7 @@ export function HorizontalBarList({ items, unit, title }: Props) {
             <div className="w-32 shrink-0 text-xs font-medium text-ink truncate">{it.label}</div>
             <div className="flex-1 h-5 rounded-sm bg-surface-soft overflow-hidden">
               <div
-                className="h-full bg-gradient-to-r from-lavender to-mint flex items-center justify-end pr-2"
+                className="h-full bg-lavender flex items-center justify-end pr-2"
                 style={{ width: `${(it.value / max) * 100}%` }}
               >
                 <span className="font-mono text-xs font-semibold text-white">{it.value}{unit}</span>

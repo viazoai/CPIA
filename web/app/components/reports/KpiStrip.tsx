@@ -5,16 +5,15 @@ export interface KpiItem {
   value: string;
   unit?: string;
   sub?: string;
-  tone: "lavender" | "mint" | "sky" | "peach" | "rose" | "sun";
+  tone: "primary" | "risk" | "caution" | "normal" | "muted";
 }
 
-const TONE_STRIPE: Record<KpiItem["tone"], string> = {
-  lavender: "from-lavender to-lavender-light",
-  mint:     "from-mint to-mint-light",
-  sky:      "from-sky to-sky-light",
-  peach:    "from-peach to-peach-light",
-  rose:     "from-rose to-rose-light",
-  sun:      "from-sun to-sun-light",
+const TONE_BORDER: Record<KpiItem["tone"], string> = {
+  primary: "border-t-2 border-t-lavender",
+  risk:    "border-t-2 border-t-rose",
+  caution: "border-t-2 border-t-sun",
+  normal:  "border-t-2 border-t-mint",
+  muted:   "border-t-2 border-t-border-soft",
 };
 
 export function KpiStrip({ items }: { items: KpiItem[] }) {
@@ -25,8 +24,7 @@ export function KpiStrip({ items }: { items: KpiItem[] }) {
       items.length === 5 && "grid-cols-2 md:grid-cols-5",
     )}>
       {items.map((it, i) => (
-        <div key={i} className="relative overflow-hidden rounded-card border border-border-soft bg-card p-4 shadow-xs">
-          <span aria-hidden className={cn("absolute inset-x-0 top-0 h-1 bg-gradient-to-r", TONE_STRIPE[it.tone])} />
+        <div key={i} className={cn("rounded-card border border-border-soft bg-card p-4 shadow-xs", TONE_BORDER[it.tone])}>
           <div className="font-mono text-xs uppercase tracking-wider text-ink-light">{it.label}</div>
           <div className="mt-2 font-display text-2xl font-bold tracking-tight text-ink">
             {it.value}

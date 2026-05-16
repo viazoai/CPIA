@@ -8,6 +8,9 @@ web/.env.local
 infra/.env
 *.bak
 
+# Plugin runtime — brainstorming 세션 등
+.superpowers/
+
 # Python
 __pycache__/
 *.py[cod]

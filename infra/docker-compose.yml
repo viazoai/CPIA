@@ -57,6 +57,22 @@ services:
     networks:
       - cpia_net
 
+  adminer:
+    image: adminer:4.8.1-standalone
+    container_name: cpia-adminer
+    restart: unless-stopped
+    environment:
+      ADMINER_DEFAULT_SERVER: cpia-postgres
+      ADMINER_DESIGN: pepa-linha
+      TZ: Asia/Seoul
+    ports:
+      - "127.0.0.1:${ADMINER_PORT:-5534}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - cpia_net
+
 volumes:
   postgres_data:
   chroma_data:

@@ -48,7 +48,7 @@ CREATE INDEX IF NOT EXISTS idx_daily_reports_date ON daily_reports (report_date 
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS forecasts (
     id                       BIGSERIAL PRIMARY KEY,
-    run_id                   UUID NOT NULL REFERENCES pipeline_runs(run_id),
+    run_id                   UUID NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
     company                  TEXT NOT NULL,
     l6_main                  TEXT NOT NULL,
 

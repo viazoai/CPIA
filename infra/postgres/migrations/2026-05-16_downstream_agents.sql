@@ -37,3 +37,8 @@ CREATE INDEX idx_forecasts_risk        ON forecasts (risk_level) WHERE risk_leve
 
 -- §8.3: optimizer_advice 컬럼 rename
 ALTER TABLE optimizer_advice RENAME COLUMN trade TO l6_main;
+
+-- Fix: forecasts.run_id ON DELETE CASCADE 복구 (BASE 에 있었으나 DROP+CREATE 시 누락)
+ALTER TABLE forecasts DROP CONSTRAINT forecasts_run_id_fkey;
+ALTER TABLE forecasts ADD CONSTRAINT forecasts_run_id_fkey
+    FOREIGN KEY (run_id) REFERENCES pipeline_runs(run_id) ON DELETE CASCADE;

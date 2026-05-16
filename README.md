@@ -24,12 +24,16 @@ docker compose ps          # postgres·chroma·cloudflared·adminer 모두 Up
 
 | 서비스 | 호스트 포트 | 역할 |
 |---|---|---|
-| `cpia-postgres` | `127.0.0.1:5532` | 파이프라인 결과 + LangGraph checkpoint |
-| `cpia-chroma`   | `127.0.0.1:5533` | Vector DB (daily_activities) |
+| `cpia-postgres` | `127.0.0.1:5532` | 파이프라인 결과 + LangGraph checkpoint (+ A_Track 결정의 `activity_master`) |
+| `cpia-chroma`   | `127.0.0.1:5533` | Vector DB — `wbs_master` (RAG) + `daily_activities` (유사 이력) 두 컬렉션 |
 | `cpia-adminer`  | `127.0.0.1:5534` | Postgres web UI |
-| `cpia-cloudflared` | — | A 측 외부 접근용 Tunnel |
+| `cpia-cloudflared` | — | A 측 외부 접근용 Tunnel (Postgres TCP) |
 
 모든 호스트 포트는 `127.0.0.1` 만 바인딩 — LAN/외부 직접 노출 없음.
+
+> **현재 상태:** A 트랙은 로컬 Docker 에서 PoC 진행 중
+> ([매핑 레이어 plan](docs/superpowers/plans/2026-05-14-cpia-mapping-layer-implementation.md)).
+> homelab 은 대기 상태이며, A 의 PoC 완료 시점에 별도 plan 으로 데이터 마이그레이션.
 
 ---
 

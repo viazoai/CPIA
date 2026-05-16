@@ -80,7 +80,9 @@ async def _forecast_one_group(
     # ① 집계
     today_qty_by_unit = aggregate_today_by_unit(activities)
     today_assigned_workers = activities[0]["assigned_workers"]
-    main_unit = max(today_qty_by_unit, key=today_qty_by_unit.get) if today_qty_by_unit else None
+    # qty>0 인 unit 만 후보. 모든 unit 0 → main_unit=None (의미적 "오늘 물량 0").
+    positive_units = {u: q for u, q in today_qty_by_unit.items() if q > 0}
+    main_unit = max(positive_units, key=positive_units.get) if positive_units else None
     today_productivity = (
         today_qty_by_unit[main_unit] / today_assigned_workers
         if main_unit and today_assigned_workers > 0

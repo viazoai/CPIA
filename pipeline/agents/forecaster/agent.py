@@ -93,18 +93,14 @@ async def _forecast_one_group(
     plan = await pg.fetch_plan_for_group(company, l6_main)
 
     # ③ RAG 검색 + 정규화 + rerank
+    # Chroma where 절은 한 dict 안에 하나의 operator 만 허용 + $gte/$lt 는 숫자 전용 →
+    # date (ISO 문자열) range 는 코드단에서 윈도우 컷. (company, l6_main) 만 Chroma 필터.
     embed_resp = azure.embeddings.create(model=cfg.embedding_model, input=[work_content])
     today_embed = embed_resp.data[0].embedding
     where_filter = {
         "$and": [
             {"company": company},
             {"l6_main": l6_main},
-            {
-                "date": {
-                    "$gte": (today - timedelta(days=cfg.rag_window_days)).isoformat(),
-                    "$lt": today.isoformat(),
-                }
-            },
         ]
     }
     rag_result = coll.query(
@@ -113,7 +109,12 @@ async def _forecast_one_group(
         n_results=cfg.rag_n_candidates,
     )
     similar_cases_raw = _format_chroma_result(rag_result)
-    similar_cases = rerank_cases(similar_cases_raw)[: cfg.rag_top_k]
+    window_start_iso = (today - timedelta(days=cfg.rag_window_days)).isoformat()
+    today_iso = today.isoformat()
+    similar_cases_in_window = [
+        c for c in similar_cases_raw if window_start_iso <= c["metadata"]["date"] < today_iso
+    ]
+    similar_cases = rerank_cases(similar_cases_in_window)[: cfg.rag_top_k]
 
     # ④ assessment
     rag_n = len(similar_cases)

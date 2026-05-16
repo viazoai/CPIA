@@ -183,6 +183,7 @@ def upsert_chroma(
     chroma = ChromaClient(
         host=os.environ["CHROMA_HOST"],
         port=int(os.environ.get("CHROMA_PORT", "8000")),
+        ssl=os.environ.get("CHROMA_SSL", "false").lower() == "true",
     )
     coll = chroma.get_or_create_wbs_master()
 

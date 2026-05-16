@@ -17,8 +17,8 @@ class ChromaClient:
     WBS_MASTER = "wbs_master"
     DAILY_ACTIVITIES = "daily_activities"
 
-    def __init__(self, host: str, port: int = 8000) -> None:
-        self.client = chromadb.HttpClient(host=host, port=port)
+    def __init__(self, host: str, port: int = 8000, ssl: bool = False) -> None:
+        self.client = chromadb.HttpClient(host=host, port=port, ssl=ssl)
 
     def get_or_create_wbs_master(self) -> Collection:
         """1 doc = 1 (WA, L6) 그룹. doc text = mapping-layer.md §5.2 형식."""

@@ -148,3 +148,35 @@ def test_rerank_normalized_conditions_in_result():
     result = rerank_cases(cases)
     assert result[0]["metadata"]["productivity"] == pytest.approx(0.2)
     assert result[0]["metadata"]["conditions"] == ["맑음", "우천"]
+
+
+def test_format_chroma_result_empty():
+    """rag_result 가 비어있을 때 [] 반환."""
+    from pipeline.agents.forecaster.agent import _format_chroma_result
+
+    result = _format_chroma_result({"ids": [[]], "documents": [[]], "distances": [[]], "metadatas": [[]]})
+    assert result == []
+
+
+def test_format_chroma_result_normal():
+    """ids/documents/distances/metadatas 의 zip 결과."""
+    from pipeline.agents.forecaster.agent import _format_chroma_result
+
+    rag = {
+        "ids": [["a", "b"]],
+        "documents": [["doc-a", "doc-b"]],
+        "distances": [[0.1, 0.2]],
+        "metadatas": [[{"k": "v1"}, {"k": "v2"}]],
+    }
+    result = _format_chroma_result(rag)
+    assert len(result) == 2
+    assert result[0] == {"document": "doc-a", "distance": 0.1, "metadata": {"k": "v1"}}
+    assert result[1] == {"document": "doc-b", "distance": 0.2, "metadata": {"k": "v2"}}
+
+
+def test_format_chroma_result_none_ids():
+    """ids 가 None 일 때 [] 반환."""
+    from pipeline.agents.forecaster.agent import _format_chroma_result
+
+    result = _format_chroma_result({"ids": None, "documents": None, "distances": None, "metadatas": None})
+    assert result == []

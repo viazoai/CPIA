@@ -1,0 +1,260 @@
+"""Forecaster agent — LangGraph node + main async forecast() entry.
+
+Spec: docs/superpowers/specs/2026-05-16-cpia-forecaster-design.md §10
+"""
+
+from __future__ import annotations
+
+import json
+import uuid
+from dataclasses import dataclass
+from datetime import date, timedelta
+from typing import Any
+
+from openai import AzureOpenAI
+
+from pipeline.chroma_client import ChromaClient
+from pipeline.db import PGClient
+from pipeline.state import Activity
+
+from .aggregate import (
+    aggregate_today_by_unit,
+    compute_delay,
+    fetch_chroma_actual,
+)
+from .classify import classify_assessment, classify_risk_level
+from .prompt import (
+    SYSTEM_PROMPT,
+    FEW_SHOT_MESSAGES,
+    build_llm_user_input,
+)
+from .rerank import rerank_cases
+
+
+@dataclass
+class ForecasterConfig:
+    azure_endpoint: str
+    azure_api_key: str
+    azure_api_version: str
+    llm_model: str
+    embedding_model: str
+    postgres_url: str
+    chroma_host: str
+    chroma_port: int
+    chroma_ssl: bool = False
+    azure_timeout: float = 60.0
+    azure_max_retries: int = 3
+    rag_n_candidates: int = 10
+    rag_top_k: int = 5
+    rag_window_days: int = 30
+    # temperature 박지 않음 — spec C-1 정정 (gpt-5 family 미지원)
+
+
+def _format_chroma_result(rag_result: dict) -> list[dict]:
+    """Chroma query 결과 → rerank 입력 format."""
+    if not rag_result.get("ids") or not rag_result["ids"][0]:
+        return []
+    return [
+        {"document": doc, "distance": dist, "metadata": meta}
+        for doc, dist, meta in zip(
+            rag_result["documents"][0],
+            rag_result["distances"][0],
+            rag_result["metadatas"][0],
+        )
+    ]
+
+
+async def _forecast_one_group(
+    company: str,
+    l6_main: str,
+    activities: list[Activity],
+    run_id: uuid.UUID,
+    today: date,
+    pg: PGClient,
+    coll,
+    azure: AzureOpenAI,
+    cfg: ForecasterConfig,
+) -> dict[str, Any]:
+    """1 (company, l6_main) group 처리. Spec §1 ① ~ ⑧."""
+
+    # ① 집계
+    today_qty_by_unit = aggregate_today_by_unit(activities)
+    today_assigned_workers = activities[0]["assigned_workers"]
+    main_unit = max(today_qty_by_unit, key=today_qty_by_unit.get) if today_qty_by_unit else None
+    today_productivity = (
+        today_qty_by_unit[main_unit] / today_assigned_workers
+        if main_unit and today_assigned_workers > 0
+        else 0.0
+    )
+    work_content = " / ".join(set(a["work_content"] for a in activities))[:200]
+    conditions_set = sorted(set(c for a in activities for c in a["conditions"]))
+
+    # ② Plan
+    plan = await pg.fetch_plan_for_group(company, l6_main)
+
+    # ③ RAG 검색 + 정규화 + rerank
+    embed_resp = azure.embeddings.create(model=cfg.embedding_model, input=[work_content])
+    today_embed = embed_resp.data[0].embedding
+    where_filter = {
+        "$and": [
+            {"company": company},
+            {"l6_main": l6_main},
+            {
+                "date": {
+                    "$gte": (today - timedelta(days=cfg.rag_window_days)).isoformat(),
+                    "$lt": today.isoformat(),
+                }
+            },
+        ]
+    }
+    rag_result = coll.query(
+        query_embeddings=[today_embed],
+        where=where_filter,
+        n_results=cfg.rag_n_candidates,
+    )
+    similar_cases_raw = _format_chroma_result(rag_result)
+    similar_cases = rerank_cases(similar_cases_raw)[: cfg.rag_top_k]
+
+    # ④ assessment
+    rag_n = len(similar_cases)
+    rag_avg_prod = sum(c["metadata"]["productivity"] for c in similar_cases) / rag_n if rag_n > 0 else 0.0
+    plan_main_qty = plan["plan_total_qty_by_unit"].get(main_unit) if plan and main_unit else None
+    assessment = classify_assessment(
+        rag_n=rag_n,
+        today_prod=today_productivity,
+        rag_avg_prod=rag_avg_prod,
+        plan_total_qty_main=plan_main_qty,
+        plan_mh_sum=plan["plan_mh_sum"] if plan else None,
+    )
+
+    # ⑤ compute_delay
+    actual_window_start, actual_cum_mh = fetch_chroma_actual(
+        coll,
+        company,
+        l6_main,
+        today,
+        today_assigned_workers,
+    )
+    delay_info = compute_delay(plan, today, actual_window_start, actual_cum_mh)
+
+    # ⑥ LLM
+    if assessment is None:
+        reasoning = "데이터 부족 (RAG 0건, Plan 미등록) — 판단 보류"
+        recovery_likelihood = None
+    else:
+        today_data = {
+            "company": company,
+            "l6_main": l6_main,
+            "today_qty_by_unit": today_qty_by_unit,
+            "today_assigned_workers": today_assigned_workers,
+            "today_productivity": today_productivity,
+            "conditions": conditions_set,
+            "work_content": work_content,
+        }
+        llm_input = build_llm_user_input(today_data, similar_cases, plan, assessment)
+        response = azure.chat.completions.create(
+            model=cfg.llm_model,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                *FEW_SHOT_MESSAGES,
+                {"role": "user", "content": json.dumps(llm_input, ensure_ascii=False)},
+            ],
+            response_format={"type": "json_object"},
+        )
+        llm_out = json.loads(response.choices[0].message.content)
+        reasoning = llm_out.get("reasoning", "")
+        recovery_likelihood = llm_out.get("recovery_likelihood")
+
+    # ⑦ risk_level
+    risk_level = classify_risk_level(
+        assessment,
+        recovery_likelihood,
+        delay_info["delay_days"],
+        delay_info["schedule_state"],
+    )
+
+    # ⑧ row
+    return {
+        "run_id": run_id,
+        "company": company,
+        "l6_main": l6_main,
+        "today_qty_by_unit": today_qty_by_unit,
+        "today_assigned_workers": today_assigned_workers,
+        "today_productivity": today_productivity,
+        "plan_total_qty_by_unit": plan["plan_total_qty_by_unit"] if plan else None,
+        "plan_mh_sum": plan["plan_mh_sum"] if plan else None,
+        "plan_start": plan["plan_start"] if plan else None,
+        "plan_finish": plan["plan_finish"] if plan else None,
+        "plan_mh_per_day": delay_info["plan_mh_per_day"],
+        "schedule_state": delay_info["schedule_state"],
+        "window_start": delay_info["window_start"],
+        "window_days": delay_info["window_days"],
+        "expected_in_window_mh": delay_info["expected_in_window_mh"],
+        "actual_in_window_mh": delay_info["actual_in_window_mh"],
+        "mh_gap": delay_info["mh_gap"],
+        "delay_days": delay_info["delay_days"],
+        "rag_n_similar": rag_n,
+        "similar_cases": [
+            {
+                "date": c["metadata"]["date"],
+                "productivity": round(c["metadata"]["productivity"], 4),
+                "conditions": c["metadata"]["conditions"],
+            }
+            for c in similar_cases
+        ],
+        "assessment": assessment,
+        "reasoning": reasoning,
+        "recovery_likelihood": recovery_likelihood,
+        "expected_completion": plan["plan_finish"] if plan else None,
+        "risk_level": risk_level,
+    }
+
+
+async def forecast(
+    mapped: list[Activity],
+    run_id: uuid.UUID,
+    today: date,
+    cfg: ForecasterConfig,
+) -> list[dict[str, Any]]:
+    """Forecaster entry. (company, l6_main) group 별 1 row 생성 + PG INSERT."""
+    pg = PGClient(cfg.postgres_url)
+    await pg.connect()
+    chroma = ChromaClient(host=cfg.chroma_host, port=cfg.chroma_port, ssl=cfg.chroma_ssl)
+    coll = chroma.get_or_create_daily_activities()
+    azure = AzureOpenAI(
+        api_key=cfg.azure_api_key,
+        api_version=cfg.azure_api_version,
+        azure_endpoint=cfg.azure_endpoint,
+        timeout=cfg.azure_timeout,
+        max_retries=cfg.azure_max_retries,
+    )
+
+    try:
+        await pg.assert_pipeline_run_exists(run_id)
+
+        groups: dict[tuple[str, str], list[Activity]] = {}
+        for a in mapped:
+            if a["l6_main"] is None:
+                continue
+            key = (a["company"], a["l6_main"])
+            groups.setdefault(key, []).append(a)
+
+        forecast_rows: list[dict[str, Any]] = []
+        for (company, l6_main), activities in groups.items():
+            row = await _forecast_one_group(
+                company,
+                l6_main,
+                activities,
+                run_id,
+                today,
+                pg,
+                coll,
+                azure,
+                cfg,
+            )
+            await pg.insert_forecast(row)
+            forecast_rows.append(row)
+
+        return forecast_rows
+    finally:
+        await pg.close()

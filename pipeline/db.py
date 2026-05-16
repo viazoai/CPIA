@@ -201,3 +201,61 @@ class PGClient:
             raise RuntimeError(
                 f"pipeline_runs(run_id={run_id}) 미존재 — fixture 설정 확인",
             )
+
+    async def insert_forecast(self, row: dict) -> None:
+        """forecasts 테이블 INSERT 1 row.
+
+        Spec §5.6 — 25 컬럼 (id/created_at auto). row dict 키 = 컬럼명.
+        """
+        import json as _json
+
+        assert self._pool is not None
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO forecasts (
+                    run_id, company, l6_main,
+                    today_qty_by_unit, today_assigned_workers, today_productivity,
+                    plan_total_qty_by_unit, plan_mh_sum, plan_start, plan_finish, plan_mh_per_day,
+                    schedule_state, window_start, window_days,
+                    expected_in_window_mh, actual_in_window_mh, mh_gap, delay_days,
+                    rag_n_similar, similar_cases,
+                    assessment, reasoning, recovery_likelihood,
+                    expected_completion, risk_level
+                ) VALUES (
+                    $1, $2, $3,
+                    $4::jsonb, $5, $6,
+                    $7::jsonb, $8, $9, $10, $11,
+                    $12, $13, $14,
+                    $15, $16, $17, $18,
+                    $19, $20::jsonb,
+                    $21, $22, $23,
+                    $24, $25
+                )
+                """,
+                row["run_id"],
+                row["company"],
+                row["l6_main"],
+                _json.dumps(row["today_qty_by_unit"]) if row.get("today_qty_by_unit") else None,
+                row.get("today_assigned_workers"),
+                row.get("today_productivity"),
+                _json.dumps(row["plan_total_qty_by_unit"]) if row.get("plan_total_qty_by_unit") else None,
+                row.get("plan_mh_sum"),
+                row.get("plan_start"),
+                row.get("plan_finish"),
+                row.get("plan_mh_per_day"),
+                row.get("schedule_state"),
+                row.get("window_start"),
+                row.get("window_days"),
+                row.get("expected_in_window_mh"),
+                row.get("actual_in_window_mh"),
+                row.get("mh_gap"),
+                row.get("delay_days"),
+                row.get("rag_n_similar"),
+                _json.dumps(row["similar_cases"], ensure_ascii=False) if row.get("similar_cases") else None,
+                row.get("assessment"),
+                row.get("reasoning"),
+                row.get("recovery_likelihood"),
+                row.get("expected_completion"),
+                row.get("risk_level"),
+            )

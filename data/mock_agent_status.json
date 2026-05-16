@@ -1,0 +1,9 @@
+[
+  { "step": 1, "name": "Collector", "korean_name": "수집", "description": "작업일보 파일 자동 수집", "model": "규칙 기반", "group": "collect", "active_count": 3, "state": "processing" },
+  { "step": 2, "name": "Parser", "korean_name": "파싱", "description": "비정형 텍스트 → 구조화 JSON 변환", "model": "Sonnet 4.6", "group": "collect", "active_count": 2, "state": "waiting" },
+  { "step": 3, "name": "Mapper", "korean_name": "매핑", "description": "WBS Work Package 의미 기반 매핑", "model": "Sonnet 4.6", "group": "collect", "active_count": 1, "state": "waiting" },
+  { "step": 4, "name": "Atomizer", "korean_name": "DB 적재", "description": "Vector DB 임베딩 적재", "model": "임베딩 모델", "group": "collect", "active_count": 0, "state": "idle" },
+  { "step": 5, "name": "Reporter", "korean_name": "보고", "description": "Daily 보고서 자동 생성·발송", "model": "Sonnet 4.6", "group": "analyze", "active_count": 0, "state": "idle" },
+  { "step": 6, "name": "Forecaster", "korean_name": "진단", "description": "과거 이력 대비 생산성 진단·이상 원인 추론", "model": "Opus 4.7", "group": "analyze", "active_count": 0, "state": "idle" },
+  { "step": 7, "name": "Optimizer", "korean_name": "최적화", "description": "Vector RAG 기반 만회 시나리오·권고", "model": "Opus 4.7", "group": "analyze", "active_count": 0, "state": "idle" }
+]

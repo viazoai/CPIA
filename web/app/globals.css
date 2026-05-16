@@ -5,18 +5,23 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ──────────────────────────────────────────────────────────────────────
+ * CPIA 디자인 토큰 — v7.1 시안 기반.
+ * 두 그룹:
+ *   (1) v7.1 의미 색 — mint/lavender/peach/sky/sun/rose · ink/surface
+ *   (2) shadcn 표준 색 — primary/secondary/destructive/muted/border/ring/card
+ *       (v7.1 토큰에 매핑하여 shadcn 컴포넌트가 같은 톤으로 렌더)
+ * ────────────────────────────────────────────────────────────────────── */
 :root {
-  /* 면 (surface) */
+  /* (1) v7.1 의미 색 */
   --bg: #ffffff;
   --bg-card: #ffffff;
   --bg-soft: #f8f9fb;
 
-  /* 텍스트 — 위계 3단 */
   --ink: #0d1117;
   --ink-mid: #444e5e;
   --ink-light: #7a8494;
 
-  /* 의미 색 — v7.1 그대로 (light · deep · text 3 톤) */
   --mint: #e3f9f0;       --mint-deep: #0ea76a;     --mint-text: #075c3c;
   --lavender: #e8eeff;   --lavender-deep: #1a56db; --lavender-text: #1243a8;
   --peach: #fef0eb;      --peach-deep: #e55c2b;    --peach-text: #a13a14;
@@ -24,15 +29,35 @@
   --sun: #fef3c7;        --sun-deep: #d97706;      --sun-text: #92400e;
   --rose: #fee2e2;       --rose-deep: #ef4444;     --rose-text: #b91c1c;
 
-  /* 윤곽 */
-  --border: #e2e6ed;
+  --border-c: #e2e6ed;
   --border-soft: #eef0f4;
 
-  /* 그림자 4단 */
   --shadow-xs: 0 1px 2px rgba(13, 17, 23, 0.04);
   --shadow-sm: 0 2px 8px rgba(13, 17, 23, 0.06);
   --shadow-md: 0 6px 28px rgba(13, 17, 23, 0.11);
   --shadow-lg: 0 16px 48px rgba(13, 17, 23, 0.16);
+
+  /* (2) shadcn 표준 — HSL 형식 (shadcn 컴포넌트 변수 컨벤션 따름) */
+  --background: 0 0% 100%;            /* #ffffff */
+  --foreground: 220 39% 6%;           /* #0d1117 */
+  --card: 0 0% 100%;
+  --card-foreground: 220 39% 6%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 220 39% 6%;
+  --primary: 220 76% 48%;             /* lavender-deep #1a56db */
+  --primary-foreground: 0 0% 100%;
+  --secondary: 220 25% 97%;           /* bg-soft */
+  --secondary-foreground: 220 39% 6%;
+  --muted: 220 25% 97%;
+  --muted-foreground: 218 13% 53%;    /* ink-mid */
+  --accent: 152 88% 35%;              /* mint-deep #0ea76a */
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 84% 60%;           /* rose-deep #ef4444 */
+  --destructive-foreground: 0 0% 100%;
+  --border: 220 18% 91%;              /* #e2e6ed */
+  --input: 220 18% 91%;
+  --ring: 220 76% 48%;                /* primary */
+  --radius: 0.75rem;                  /* 12px — v7.1 r-sm */
 }
 
 html { scroll-behavior: smooth; }
@@ -75,4 +100,11 @@ body::after {
   opacity: 0.35;
   pointer-events: none;
   z-index: 0;
+}
+
+/* shadcn animate-css 호환 — default border color 토큰 */
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+  }
 }

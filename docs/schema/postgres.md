@@ -185,6 +185,8 @@ CREATE TABLE forecasts (
     today_qty_by_unit JSONB,                  -- {"M2": 120.0, "Ton": 3.4}
     today_assigned_workers NUMERIC,           -- MH 분배 결과
     today_productivity NUMERIC,               -- by main_unit (max qty)
+    main_unit TEXT,                           -- 생산성 산정 단위 (max qty 단위)
+    today_conditions TEXT,                    -- 오늘 conditions comma-joined str (Optimizer 재사용)
 
     -- Plan 기준 (PG activity_master Σ)
     plan_total_qty_by_unit JSONB,             -- {"M2": 500.0, "Ton": 12.0}
@@ -235,6 +237,8 @@ CREATE INDEX idx_forecasts_state       ON forecasts (schedule_state);
 | 컬럼 | 타입 | 의미 |
 |---|---|---|
 | `today_productivity` | NUMERIC | (company, l6_main) 오늘 생산성 = max qty (main_unit 기준) / today_assigned_workers |
+| `main_unit` | TEXT | 생산성 산정 단위 (max qty 가 뽑힌 단위). Optimizer hil_2 spec §3.2 신규 |
+| `today_conditions` | TEXT | 오늘 conditions comma-joined str (예: '맑음,장비대기'). Optimizer 가 재사용. spec §3.2 신규 |
 | `plan_start` | DATE | MIN(activity_master.plan_start) — 해당 (company, l6_main) 의 plan window 시작 |
 | `plan_finish` | DATE | MAX(activity_master.plan_finish) — 해당 (company, l6_main) 의 plan window 끝 |
 | `plan_mh_per_day` | NUMERIC | plan_mh_sum / (plan_finish - plan_start + 1) — 일평균 plan MH |
@@ -252,18 +256,33 @@ CREATE INDEX idx_forecasts_state       ON forecasts (schedule_state);
 
 ```sql
 CREATE TABLE optimizer_advice (
-    id                  BIGSERIAL PRIMARY KEY,
-    run_id              UUID NOT NULL REFERENCES pipeline_runs(run_id),
-    l6_main             TEXT NOT NULL,                 -- (downstream-agents §8.3 rename: trade → l6_main)
-    company             TEXT NOT NULL,
-    diagnosis           TEXT,                          -- '장비 대기로 인한 저하 추정'
-    recovery_pattern    JSONB,                         -- [{case_date, recovered_in_days, pattern}, ...]
-    recommendations     JSONB,                         -- [{rank, text}, ...]
-    created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+    id                     BIGSERIAL PRIMARY KEY,
+    run_id                 UUID NOT NULL REFERENCES pipeline_runs(run_id),
+    l6_main                TEXT NOT NULL,                 -- (downstream-agents §8.3 rename: trade → l6_main)
+    company                TEXT,                          -- Forecaster (company, l6_main) grain 정합
+    diagnosis              TEXT,                          -- '장비 대기로 인한 저하 추정'
+    forecast_assessment    TEXT,                          -- '주의' | '이상' (Forecaster row 참조)
+    recovery_pattern       JSONB,                         -- [{date, recovery_days}, ...] degradation_cases 1:1
+    degradation_cases      JSONB,                         -- retrieve.fetch_degradation_cases 결과 (감사 추적)
+    recovery_distribution  JSONB,                         -- {"d+1": 3, "d+2": 1, "not_recovered": 1}
+    recommendations        JSONB,                         -- [{rank, text}, ...] ranked list
+    created_at             TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_optimizer_run ON optimizer_advice (run_id);
+CREATE INDEX idx_optimizer_run         ON optimizer_advice (run_id);
+CREATE INDEX idx_optimizer_company_l6  ON optimizer_advice (company, l6_main);
 ```
+
+### 신규 컬럼 의미 (2026-05-16 Optimizer + hil_2 spec §3.1 정합)
+
+| 컬럼 | 타입 | 의미 |
+|---|---|---|
+| `company` | TEXT | (company, l6_main) grain — Forecaster row 와 정합. NOT NULL 제거 (cold start). |
+| `forecast_assessment` | TEXT | Forecaster assessment 그대로 전달 ('주의' \| '이상') — 조언 트리거 컨텍스트 |
+| `degradation_cases` | JSONB | retrieve.fetch_degradation_cases 결과 5건. 조언 산출 근거 감사 추적 |
+| `recovery_pattern` | JSONB | degradation_cases 각각의 회복 일수 — `[{date, recovery_days}, ...]` 형식 |
+| `recovery_distribution` | JSONB | 코드단 산출 — `{"d+1": 3, "d+2": 1, "d+3": 0, "not_recovered": 1}` |
+| `recommendations` | JSONB | TEXT → JSONB 변경. ranked list `[{rank, text}, ...]` |
 
 ---
 
@@ -345,3 +364,4 @@ activity_master  ◄── Mapper 가 SELECT / Forecaster 가 plan 값 조회
 | 2026-05-14 | 초안 — brainstorming 결과 통합 (활성 8 테이블 = 협업 spec 7 + `activity_master` 1, `forecasts` 에 Plan/RAG 이중 비교 컬럼 분리, PoC 적재 범위 한정) | A 트랙 |
 | 2026-05-16 | downstream-agents spec §8 적용 — forecasts (company, l6_main) grain 정정 + pipeline_runs.atomized_count + optimizer_advice rename | A 트랙 |
 | 2026-05-16 | Forecaster spec 정합 — forecasts 12 컬럼 추가 (plan_start/finish, plan_mh_per_day, schedule_state, window_*, mh_gap, today_productivity, recovery_likelihood), delay_days INT → NUMERIC | A 트랙 |
+| 2026-05-16 | Optimizer + hil_2 spec §3 정합 — optimizer_advice +5 컬럼 (company, forecast_assessment, degradation_cases, recovery_distribution) + recommendations TEXT→JSONB + idx_optimizer_company_l6, forecasts +2 컬럼 (main_unit, today_conditions). 마이그레이션: `2026-05-16_optimizer_hil2.sql` | A 트랙 |

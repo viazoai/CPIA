@@ -46,6 +46,7 @@ CREATE INDEX IF NOT EXISTS idx_daily_reports_date ON daily_reports (report_date 
 -- ---------------------------------------------------------------------------
 -- 3. forecasts — Forecaster 산출물 ((company, l6_main) grain 진단)
 --    spec §3.1 정합 (2026-05-16 마이그레이션 적용)
+--    + Optimizer hil_2 spec §3.2 (main_unit + today_conditions 2 컬럼 추가, 2026-05-16_optimizer_hil2)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS forecasts (
     id BIGSERIAL PRIMARY KEY,
@@ -57,6 +58,8 @@ CREATE TABLE IF NOT EXISTS forecasts (
     today_qty_by_unit JSONB,                  -- {"m": 80.0, "ea": 12.0}
     today_assigned_workers NUMERIC,
     today_productivity NUMERIC,               -- by main_unit (max qty)
+    main_unit TEXT,                           -- 생산성 산정 단위 (Forecaster 가 max qty 단위로 선택)
+    today_conditions TEXT,                    -- 오늘 conditions comma-joined str (Optimizer 가 재사용)
 
     -- Plan 기준 (PG activity_master Σ)
     plan_total_qty_by_unit JSONB,
@@ -97,18 +100,26 @@ CREATE INDEX IF NOT EXISTS idx_forecasts_state       ON forecasts (schedule_stat
 
 -- ---------------------------------------------------------------------------
 -- 4. optimizer_advice — Optimizer 산출물 (맥락 기반 조언)
+--    spec §3.1 정합 (2026-05-16_optimizer_hil2 마이그레이션 적용)
+--    +5 컬럼 (company, forecast_assessment, degradation_cases, recovery_distribution)
+--    recommendations TEXT → JSONB ranked list
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS optimizer_advice (
-    id                BIGSERIAL    PRIMARY KEY,
-    run_id            UUID         NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
-    l6_main           TEXT         NOT NULL,
-    diagnosis         TEXT,
-    recovery_pattern  JSONB,
-    recommendations   TEXT,
-    created_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    id                     BIGSERIAL    PRIMARY KEY,
+    run_id                 UUID         NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
+    l6_main                TEXT         NOT NULL,
+    company                TEXT,                          -- (company, l6_main) grain (Forecaster 와 정합)
+    diagnosis              TEXT,                          -- '장비 대기로 인한 저하 추정'
+    forecast_assessment    TEXT,                          -- '주의' | '이상' (Forecaster row 참조)
+    recovery_pattern       JSONB,                         -- [{date, recovery_days}, ...]  degradation_cases 와 1:1
+    degradation_cases      JSONB,                         -- retrieve.fetch_degradation_cases 결과 (감사 추적)
+    recovery_distribution  JSONB,                         -- {"d+1": 3, "d+2": 1, "not_recovered": 1}
+    recommendations        JSONB,                         -- [{rank, text}, ...] ranked list
+    created_at             TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_optimizer_advice_run ON optimizer_advice (run_id);
+CREATE INDEX IF NOT EXISTS idx_optimizer_advice_run        ON optimizer_advice (run_id);
+CREATE INDEX IF NOT EXISTS idx_optimizer_advice_company_l6 ON optimizer_advice (company, l6_main);
 
 -- ---------------------------------------------------------------------------
 -- 5. mapping_corrections — H-i-L 1 누적 (Mapper 프롬프트 feedback 데이터)

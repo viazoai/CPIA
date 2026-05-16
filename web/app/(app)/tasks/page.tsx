@@ -1,8 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
-import { DailyRunList } from "../components/tasks/DailyRunList";
-import { AgentProgressList } from "../components/tasks/AgentProgressList";
-import { AgentChatLog } from "../components/tasks/AgentChatLog";
+import { DailyRunList } from "@/app/components/tasks/DailyRunList";
+import { AgentProgressList } from "@/app/components/tasks/AgentProgressList";
+import { AgentChatLog } from "@/app/components/tasks/AgentChatLog";
 import type { DailyRun, AgentProgress, ChatMessage } from "@/lib/types";
 
 interface PageData {
@@ -53,9 +53,9 @@ export default function AgentTasksPage() {
       </div>
 
       <section className="mx-auto w-full max-w-wrap px-6 pb-20 md:px-10">
-        <div className="grid grid-cols-12 gap-4 rounded-card border border-border-soft bg-card shadow-xs">
+        <div className="grid grid-cols-12 gap-4 items-stretch">
           {/* 좌측: Daily List */}
-          <div className="col-span-12 md:col-span-3 border-r border-border-soft">
+          <div className="col-span-12 md:col-span-3 rounded-card border border-border-soft bg-card shadow-xs overflow-hidden flex flex-col lg:h-[calc(100vh-260px)]">
             <DailyRunList
               runs={data.runs}
               selectedDate={selectedDate}
@@ -63,11 +63,11 @@ export default function AgentTasksPage() {
             />
           </div>
           {/* 중앙: Process Progress */}
-          <div className="col-span-12 md:col-span-4 border-r border-border-soft">
+          <div className="col-span-12 md:col-span-4 rounded-card border border-border-soft bg-card shadow-xs overflow-hidden flex flex-col lg:h-[calc(100vh-260px)]">
             <AgentProgressList progress={progress} />
           </div>
           {/* 우측: Chat Log */}
-          <div className="col-span-12 md:col-span-5">
+          <div className="col-span-12 md:col-span-5 rounded-card border border-border-soft bg-card shadow-xs overflow-hidden flex flex-col lg:h-[calc(100vh-260px)]">
             <AgentChatLog messages={chat} />
           </div>
         </div>

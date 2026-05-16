@@ -1,8 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { PerformanceTab } from "../components/dashboard/PerformanceTab";
-import { ImpactTab } from "../components/dashboard/ImpactTab";
+import { PerformanceTab } from "@/app/components/dashboard/PerformanceTab";
+import { ImpactTab } from "@/app/components/dashboard/ImpactTab";
 import type { Site } from "@/lib/types";
 import type { DashboardFixture } from "@/lib/fixtures";
 

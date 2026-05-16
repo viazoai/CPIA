@@ -13,11 +13,13 @@ interface Props {
 
 export function WBSTree({ root, selectedId, onSelect, onDrop }: Props) {
   return (
-    <div className="flex flex-col p-3 text-sm">
-      <div className="font-mono text-xs uppercase tracking-wider text-ink-light px-2 pb-2">
+    <div className="flex flex-col h-full text-sm">
+      <div className="font-mono text-xs uppercase tracking-wider text-ink-light px-5 py-3 border-b border-border-soft shrink-0">
         WBS Tree · 건물 &gt; 공종 &gt; Work Package
       </div>
-      <Branch node={root} depth={0} selectedId={selectedId} onSelect={onSelect} onDrop={onDrop} />
+      <div className="flex-1 overflow-y-auto p-3">
+        <Branch node={root} depth={0} selectedId={selectedId} onSelect={onSelect} onDrop={onDrop} />
+      </div>
     </div>
   );
 }

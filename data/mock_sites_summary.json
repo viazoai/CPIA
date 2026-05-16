@@ -8,5 +8,7 @@
   "total_headcount": 445,
   "total_hours": 62300,
   "ai_replacement_rate": 3.46,
-  "yearly_saving": 203
+  "yearly_saving": 203,
+  "total_processed": 1247,
+  "total_hours_saved_cum": 12840
 }

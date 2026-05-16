@@ -1,11 +1,11 @@
 "use client";
 import { useEffect, useState } from "react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { ReportDailyList } from "../components/reports/ReportDailyList";
-import { KpiStrip, type KpiItem } from "../components/reports/KpiStrip";
-import { ForecastTab } from "../components/reports/ForecastTab";
-import { OptimizeTab } from "../components/reports/OptimizeTab";
-import { RawDataTab } from "../components/reports/RawDataTab";
+import { ReportDailyList } from "@/app/components/reports/ReportDailyList";
+import { KpiStrip, type KpiItem } from "@/app/components/reports/KpiStrip";
+import { ForecastTab } from "@/app/components/reports/ForecastTab";
+import { OptimizeTab } from "@/app/components/reports/OptimizeTab";
+import { RawDataTab } from "@/app/components/reports/RawDataTab";
 import type { ReportDetail } from "@/lib/fixtures";
 import type { ReportDaily } from "@/lib/types";
 
@@ -52,7 +52,7 @@ export default function ReportPage() {
       <section className="mx-auto w-full max-w-wrap px-6 pb-20 md:px-10">
         <div className="grid grid-cols-12 gap-4">
           <div className="col-span-12 md:col-span-3">
-            <div className="rounded-card border border-border-soft bg-card shadow-xs overflow-hidden">
+            <div className="rounded-card border border-border-soft bg-card shadow-xs overflow-hidden flex flex-col lg:h-[calc(100vh-220px)] lg:sticky lg:top-6">
               <ReportDailyList daily={daily} selectedDate={selectedDate} onSelect={setSelectedDate} />
             </div>
           </div>

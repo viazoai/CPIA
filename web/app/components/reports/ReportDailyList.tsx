@@ -11,12 +11,13 @@ interface Props {
 
 export function ReportDailyList({ daily, selectedDate, onSelect }: Props) {
   return (
-    <div className="flex flex-col">
-      <div className="px-3 py-3 border-b border-border-soft">
+    <div className="flex flex-col h-full">
+      <div className="px-3 py-3 border-b border-border-soft shrink-0">
         <div className="font-mono text-xs uppercase tracking-wider text-ink-light">
           Daily Reports · 일별 보고서
         </div>
       </div>
+      <div className="flex flex-col flex-1 overflow-y-auto">
       {daily.map((d) => {
         const active = d.date === selectedDate;
         const Icon = d.status === "risk" ? AlertTriangle : d.status === "caution" ? AlertCircle : CheckCircle2;
@@ -42,6 +43,7 @@ export function ReportDailyList({ daily, selectedDate, onSelect }: Props) {
           </button>
         );
       })}
+      </div>
     </div>
   );
 }

@@ -1,4 +1,5 @@
 "use client";
+import { useEffect, useRef } from "react";
 import { useSequence } from "@/lib/use-simulation";
 import { cn } from "@/lib/utils";
 import type { ChatMessage } from "@/lib/types";
@@ -21,15 +22,21 @@ const AGENT_TONE: Record<string, { bg: string; text: string; ring: string }> = {
 
 export function AgentChatLog({ messages, intervalMs = 1500 }: Props) {
   const revealed = useSequence(messages, intervalMs);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [revealed.length]);
 
   return (
-    <div className="flex flex-col">
-      <div className="px-4 py-3 border-b border-border-soft">
+    <div className="flex flex-col h-full">
+      <div className="px-4 py-3 border-b border-border-soft shrink-0">
         <div className="font-mono text-xs uppercase tracking-wider text-ink-light">
           Agent Chat Log · 처리 흐름
         </div>
       </div>
-      <div className="flex flex-col gap-2.5 p-4 max-h-[640px] overflow-y-auto">
+      <div ref={scrollRef} className="flex flex-col gap-2.5 p-4 flex-1 overflow-y-auto">
         {revealed.map((m, i) => {
           const tone = AGENT_TONE[m.agent] || AGENT_TONE.Collector;
           const isHilRequest = m.type === "hil_request";

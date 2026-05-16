@@ -4,10 +4,10 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { KpiStrip, type KpiItem } from "../../../components/reports/KpiStrip";
-import { SCurveChart } from "../../../components/charts/SCurveChart";
-import { BarChartH } from "../../../components/charts/BarChartH";
-import { ImpactTab } from "../../../components/dashboard/ImpactTab";
+import { KpiStrip, type KpiItem } from "@/app/components/reports/KpiStrip";
+import { SCurveChart } from "@/app/components/charts/SCurveChart";
+import { BarChartH } from "@/app/components/charts/BarChartH";
+import { ImpactTab } from "@/app/components/dashboard/ImpactTab";
 import type { Site, MiddleOfficeAutomation, ImpactTrendPoint, SitesSummary } from "@/lib/types";
 import type { ReportDetail } from "@/lib/fixtures";
 
@@ -41,6 +41,7 @@ export default function SiteDashboardPage() {
     total_hours_saved: site.hours_saved, total_fte_saved: site.fte_saved,
     total_headcount: site.headcount, total_hours: site.total_hours,
     ai_replacement_rate: site.ai_replacement_rate, yearly_saving: 0,
+    total_processed: 0, total_hours_saved_cum: 0,
   };
 
   return (

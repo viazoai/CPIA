@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 import { PersonaToggle } from "./PersonaToggle";
 
 const MENUS = [
-  { key: "home",      label: "Home",          href: "/",           icon: Home },
+  { key: "home",      label: "Home",          href: "/home",       icon: Home },
   { key: "tasks",     label: "Agent Tasks",   href: "/tasks",      icon: Bot },
   { key: "review",    label: "Human Review",  href: "/review",     icon: ClipboardCheck },
   { key: "reports",   label: "Report",        href: "/reports",    icon: FileBarChart },
@@ -72,7 +72,7 @@ export function Sidebar() {
         )}
       >
         {MENUS.filter((m) => isMenuVisible(persona, m.key)).map((m) => {
-          const active = pathname === m.href || (m.href !== "/" && pathname?.startsWith(m.href));
+          const active = pathname === m.href || pathname?.startsWith(m.href + "/");
           const Icon = m.icon;
           return (
             <Link

@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
 import { Noto_Sans_KR, Inter_Tight, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
-import { TopBar } from "./components/TopBar";
-import { Sidebar } from "./components/Sidebar";
 
 const notoSansKR = Noto_Sans_KR({
   subsets: ["latin"],
@@ -39,11 +37,7 @@ export default function RootLayout({
       className={`${notoSansKR.variable} ${interTight.variable} ${jetbrainsMono.variable}`}
     >
       <body className="min-h-screen bg-surface font-sans text-ink antialiased">
-        <TopBar />
-        <div className="flex">
-          <Sidebar />
-          <main className="flex-1 min-w-0">{children}</main>
-        </div>
+        {children}
       </body>
     </html>
   );

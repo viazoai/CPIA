@@ -13,14 +13,14 @@ export function DailyRunList({ runs, selectedDate, onSelect }: Props) {
   const max = Math.max(...runs.map((r) => r.total_count));
 
   return (
-    <div className="flex flex-col">
-      <div className="px-3 py-3 border-b border-border-soft">
+    <div className="flex flex-col h-full">
+      <div className="px-3 py-3 border-b border-border-soft shrink-0">
         <div className="font-mono text-xs uppercase tracking-wider text-ink-light">
           Daily Runs · 일별 실행
         </div>
         <div className="mt-1 text-xs text-ink-mid">{runs.length}일치 누적</div>
       </div>
-      <div className="flex flex-col">
+      <div className="flex flex-col flex-1 overflow-y-auto">
         {runs.map((run) => {
           const active = run.date === selectedDate;
           return (

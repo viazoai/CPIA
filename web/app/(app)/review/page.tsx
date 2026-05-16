@@ -2,8 +2,8 @@
 import { useEffect, useState, useMemo } from "react";
 import { Switch } from "@/components/ui/switch";
 import { CheckCheck } from "lucide-react";
-import { WBSTree } from "../components/review/WBSTree";
-import { ReviewCard } from "../components/review/ReviewCard";
+import { WBSTree } from "@/app/components/review/WBSTree";
+import { ReviewCard } from "@/app/components/review/ReviewCard";
 import type { WBSNode, ReviewItem } from "@/lib/types";
 
 export default function HumanReviewPage() {
@@ -83,8 +83,8 @@ export default function HumanReviewPage() {
       </div>
 
       <section className="mx-auto w-full max-w-wrap px-6 pb-20 md:px-10">
-        <div className="grid grid-cols-12 gap-4 rounded-card border border-border-soft bg-card shadow-xs">
-          <div className="col-span-12 md:col-span-4 border-r border-border-soft">
+        <div className="grid grid-cols-12 gap-4 items-stretch">
+          <div className="col-span-12 md:col-span-4 rounded-card border border-border-soft bg-card shadow-xs overflow-hidden flex flex-col lg:h-[calc(100vh-260px)]">
             <WBSTree root={wbs} selectedId={selectedNodeId} onSelect={setSelectedNodeId} onDrop={(cardId, wpId) => {
               const collectPath = (n: WBSNode | null, id: string, path: string[] = []): string[] | null => {
                 if (!n) return null;
@@ -98,8 +98,8 @@ export default function HumanReviewPage() {
             }} />
           </div>
 
-          <div className="col-span-12 md:col-span-8 p-4">
-            <div className="flex items-center justify-between mb-4">
+          <div className="col-span-12 md:col-span-8 rounded-card border border-border-soft bg-card shadow-xs flex flex-col lg:h-[calc(100vh-260px)]">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border-soft shrink-0">
               <div className="flex items-center gap-2">
                 <Switch checked={onlyUnconfirmed} onCheckedChange={setOnlyUnconfirmed} />
                 <span className="text-xs font-medium text-ink">신규 확정 필요만 보기</span>
@@ -109,7 +109,7 @@ export default function HumanReviewPage() {
               </div>
             </div>
 
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-3 p-4 flex-1 overflow-y-auto">
               {visibleCards.map((c) => (
                 <ReviewCard key={c.id} item={c} wbsRoot={wbs} onConfirm={handleConfirm} onRemap={handleRemap} />
               ))}
@@ -120,7 +120,7 @@ export default function HumanReviewPage() {
               )}
             </div>
 
-            <div className="mt-6 pt-4 border-t border-border-soft flex justify-end">
+            <div className="px-4 py-3 border-t border-border-soft flex justify-end shrink-0">
               <button
                 type="button"
                 onClick={handleConfirmAll}

@@ -142,7 +142,17 @@ async def _forecast_one_group(
 
     # ⑥ LLM
     if assessment is None:
-        reasoning = "데이터 부족 (RAG 0건, Plan 미등록) — 판단 보류"
+        if main_unit is None:
+            reasoning = "데이터 부족 — 오늘 물량 모든 unit 0 (인원만 투입). 판단 보류."
+        elif plan is None:
+            reasoning = "데이터 부족 — Plan 미등록 + RAG <3건. 판단 보류."
+        elif plan_main_qty is None:
+            reasoning = (
+                f"데이터 부족 — main_unit '{main_unit}' 가 Plan unit set 에 없음 "
+                "(작업일보 unit ↔ Plan unit 분류 불일치). RAG <3건. 판단 보류."
+            )
+        else:
+            reasoning = "데이터 부족 — RAG <3건. 판단 보류."
         recovery_likelihood = None
     else:
         today_data = {

@@ -10,6 +10,7 @@ Task 7 — map_activity 통합 함수.
 from __future__ import annotations
 
 import json
+from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -341,3 +342,52 @@ async def map_activity(
         "mapping_source": wa_result.source,
         "requires_review": requires_review,
     }
+
+
+async def _prorate_mh(
+    mapped: list[Activity],
+    parsed_report: ParsedDailyReport,
+    pg: PGClient,
+) -> list[Activity]:
+    """(company, l6_main) 단위 BP사 총 인원 분배 — 옵션 X 알고리즘.
+
+    Spec docs/superpowers/specs/2026-05-16-cpia-downstream-agents-design.md §3.
+    """
+    bp_total: dict[str, int] = defaultdict(int)
+    for s in parsed_report["bp_summaries"]:
+        bp_total[s["company"]] += s["today_incr_total"]
+
+    bp_l6: dict[str, set[str]] = defaultdict(set)
+    for a in mapped:
+        if a["l6_main"] is not None:
+            bp_l6[a["company"]].add(a["l6_main"])
+
+    workers_lookup: dict[tuple[str, str], float] = {}
+    for company, l6_set in bp_l6.items():
+        total_n = bp_total.get(company, 0)
+        if total_n == 0 or not l6_set:
+            for l6 in l6_set:
+                workers_lookup[(company, l6)] = 0.0
+            continue
+
+        l6_mh: dict[str, int] = await pg.fetch_l6_plan_mh_map(company, list(l6_set))
+
+        sum_mh = sum(l6_mh.values())
+        if sum_mh == 0:
+            for l6 in l6_set:
+                workers_lookup[(company, l6)] = total_n / len(l6_set)
+        else:
+            for l6, mh in l6_mh.items():
+                workers_lookup[(company, l6)] = total_n * mh / sum_mh
+
+    out: list[Activity] = []
+    for a in mapped:
+        if a["l6_main"] is not None:
+            key = (a["company"], a["l6_main"])
+            a = {
+                **a,
+                "assigned_workers": workers_lookup.get(key, 0.0),
+                "worker_source": "mh_prorated",
+            }
+        out.append(a)
+    return out

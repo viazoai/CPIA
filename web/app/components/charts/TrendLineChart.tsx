@@ -31,7 +31,7 @@ export function TrendLineChart({ points, unit, title, valueLabel = "value" }: Pr
             <YAxis tick={{ fontSize: 10, fill: "#7a8494" }} tickFormatter={(v) => `${v}${unit}`} />
             <Tooltip
               contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid #e2e6ed" }}
-              formatter={(v: number) => [`${v}${unit}`, valueLabel]}
+              formatter={(v) => [`${v}${unit}`, valueLabel]}
             />
             <Area type="monotone" dataKey="value" stroke="#1a56db" strokeWidth={2.5} fill="url(#trendGradient)" />
           </AreaChart>

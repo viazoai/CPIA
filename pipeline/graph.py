@@ -197,6 +197,39 @@ async def optimizer_node(state: CPIAState, cfg: GraphConfig) -> dict:
     return {"optimizer_advice": advice, "current_node": "optimizer"}
 
 
+def build_demo_graph(cfg: GraphConfig):
+    """데모 graph — START → forecaster → hil_2 → (optimizer | END) → END.
+
+    Spec §10.3. Parser/Mapper/Atomizer skip — state["mapped"] 에 가짜 Activity list
+    사전 주입 가정 (LLM 비용 회피). build_graph 와 별도 (기존 graph 영향 X).
+
+    `synthetic_daily_report.py` CLI + `test_synthetic_daily_report.py` E2E 가 호출.
+    """
+    graph = StateGraph(CPIAState)
+
+    async def _forecaster(state: CPIAState) -> dict:
+        return await forecaster_node(state, cfg)
+
+    async def _hil_2(state: CPIAState) -> dict:
+        return await hil_2_node(state, cfg)
+
+    async def _optimizer(state: CPIAState) -> dict:
+        return await optimizer_node(state, cfg)
+
+    graph.add_node("forecaster", _forecaster)
+    graph.add_node("hil_2", _hil_2)
+    graph.add_node("optimizer", _optimizer)
+    graph.add_edge(START, "forecaster")
+    graph.add_edge("forecaster", "hil_2")
+    graph.add_conditional_edges(
+        "hil_2",
+        lambda s: "optimizer" if s.get("hil_2_selection") else END,
+        {"optimizer": "optimizer", END: END},
+    )
+    graph.add_edge("optimizer", END)
+    return graph.compile(checkpointer=build_checkpointer())
+
+
 def build_graph(cfg: GraphConfig):
     """StateGraph — mapper → atomizer → forecaster → hil_2 → (optimizer | END) → END.
 

@@ -74,10 +74,10 @@ export default function HumanReviewPage() {
             확신도 낮은 매핑 검토
           </span>
         </div>
-        <h1 className="mt-6 font-display text-3xl font-medium tracking-[-0.02em] text-ink">
+        <h1 className="mt-6 font-display text-h3 text-ink">
           작업 물량 Mapping
         </h1>
-        <p className="mt-2 text-sm text-ink-mid">
+        <p className="mt-2 text-body-sm text-ink-mid">
           좌측 WBS 트리에서 공종을 선택하거나, 검색 입력·드래그앤드롭으로 매핑을 수정·확정합니다.
         </p>
       </div>

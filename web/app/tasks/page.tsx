@@ -44,10 +44,10 @@ export default function AgentTasksPage() {
             Daily Run · Process Progress · Chat
           </span>
         </div>
-        <h1 className="mt-6 font-display text-3xl font-medium tracking-[-0.02em] text-ink">
+        <h1 className="mt-6 font-display text-h3 text-ink">
           AI Agent가 처리하는 작업 흐름
         </h1>
-        <p className="mt-2 text-sm text-ink-mid">
+        <p className="mt-2 text-body-sm text-ink-mid">
           매일 ~100건의 작업일보를 7개 Agent + Human Review가 협업해 처리합니다. Daily run을 선택하면 단계별 진행과 Agent 대화를 볼 수 있습니다.
         </p>
       </div>

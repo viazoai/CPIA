@@ -50,8 +50,8 @@ export default function SiteDashboardPage() {
           <ChevronLeft className="h-3.5 w-3.5" />
           전사로 돌아가기
         </Link>
-        <h1 className="mt-4 font-display text-3xl font-medium tracking-[-0.02em] text-ink">{site.name}</h1>
-        <p className="mt-1 text-sm text-ink-mid">{site.location} · Hi-tech · 현장 모니터링</p>
+        <h1 className="mt-4 font-display text-h3 text-ink">{site.name}</h1>
+        <p className="mt-1 text-body-sm text-ink-mid">{site.location} · Hi-tech · 현장 모니터링</p>
       </div>
 
       <section className="mx-auto w-full max-w-wrap px-6 pb-20 md:px-10">

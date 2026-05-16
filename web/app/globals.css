@@ -67,8 +67,9 @@ body {
   color: var(--ink);
   font-family: "Pretendard", "Noto Sans KR", var(--font-noto, sans-serif),
     -apple-system, "system-ui", sans-serif;
-  font-size: 15px;
-  line-height: 1.65;
+  font-size: 16px;            /* Paragraph 02 baseline (font.png) */
+  line-height: 1.5;
+  letter-spacing: 0;
   -webkit-font-smoothing: antialiased;
   word-break: keep-all;
   overflow-wrap: break-word;
@@ -106,5 +107,49 @@ body::after {
 @layer base {
   * {
     border-color: hsl(var(--border));
+  }
+
+  /* 타입 스케일 — docs/ui/sample/font.png 단일 출처.
+   * 일반 <h1>~<h6> 태그는 별도 클래스 없이 자동으로 스케일을 따른다.
+   * Tailwind 의 text-h1..text-btn 토큰과 동일한 사이즈/LH/LS/weight. */
+  h1 {
+    font-family: "Inter Tight", var(--font-display), Pretendard, system-ui, sans-serif;
+    font-size: 3.875rem;       /* 62 */
+    line-height: 4.375rem;     /* 70 */
+    letter-spacing: -0.02em;
+    font-weight: 500;
+  }
+  h2 {
+    font-family: "Inter Tight", var(--font-display), Pretendard, system-ui, sans-serif;
+    font-size: 3.25rem;        /* 52 */
+    line-height: 3.75rem;      /* 60 */
+    letter-spacing: -0.015em;
+    font-weight: 500;
+  }
+  h3 {
+    font-family: "Inter Tight", var(--font-display), Pretendard, system-ui, sans-serif;
+    font-size: 2.625rem;       /* 42 */
+    line-height: 3.125rem;     /* 50 */
+    letter-spacing: -0.015em;
+    font-weight: 500;
+  }
+  h4 {
+    font-family: "Inter Tight", var(--font-display), Pretendard, system-ui, sans-serif;
+    font-size: 1.75rem;        /* 28 */
+    line-height: 2.125rem;     /* 34 */
+    letter-spacing: -0.005em;
+    font-weight: 500;
+  }
+  h5 {
+    font-size: 1.25rem;        /* 20 */
+    line-height: 1.875rem;     /* 30 */
+    letter-spacing: 0;
+    font-weight: 600;
+  }
+  h6 {
+    font-size: 1.125rem;       /* 18 */
+    line-height: 1.6875rem;    /* 27 */
+    letter-spacing: 0;
+    font-weight: 500;
   }
 }

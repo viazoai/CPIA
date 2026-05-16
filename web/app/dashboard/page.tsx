@@ -30,10 +30,10 @@ export default function DashboardPage() {
             Top Mgmt 전용
           </span>
         </div>
-        <h1 className="mt-6 font-display text-3xl font-medium tracking-[-0.02em] text-ink">
+        <h1 className="mt-6 font-display text-h3 text-ink">
           전사 현장 모니터링
         </h1>
-        <p className="mt-2 text-sm text-ink-mid">
+        <p className="mt-2 text-body-sm text-ink-mid">
           현장별 카드를 클릭하면 해당 현장의 상세 대시보드로 이동합니다.
         </p>
       </div>

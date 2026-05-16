@@ -21,7 +21,7 @@ export default async function HomePage() {
       <section className="mx-auto max-w-wrap px-6 mt-12 md:px-10">
         <div className="mb-6 flex items-baseline justify-between">
           <div className="flex items-baseline gap-3">
-            <h2 className="font-display text-lg font-bold tracking-tight text-ink md:text-xl">
+            <h2 className="font-display text-h5 text-ink">
               7-Agent 파이프라인 + HIL Review
             </h2>
             <span className="font-mono text-xs uppercase tracking-wider text-ink-light">

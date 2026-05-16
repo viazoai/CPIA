@@ -1,0 +1,36 @@
+{
+  "performance": {
+    "fleet_kpi": { "avg_productivity": 95, "avg_delay": 4, "abnormal_total": 1, "recoverable_days": 3 }
+  },
+  "impact": {
+    "fleet_kpi": {
+      "today_count": 87, "review_pending": 12, "abnormal_count": 1, "last_updated": "09:12",
+      "total_hours_saved": 2155, "total_fte_saved": 15.4,
+      "total_headcount": 445, "total_hours": 62300,
+      "ai_replacement_rate": 3.46, "yearly_saving": 203
+    },
+    "site_distribution": [
+      { "site_id": "y1-ph1-obl",  "site_name": "Y-1 Ph-1 OBL",    "hours_saved": 832, "fte_saved": 5.9 },
+      { "site_id": "indiana-hac", "site_name": "Indiana Fab HAC", "hours_saved": 353, "fte_saved": 2.5 },
+      { "site_id": "pt3-extension","site_name": "P&T 3 증축",     "hours_saved": 255, "fte_saved": 1.8 },
+      { "site_id": "y1-ph1-ibl",  "site_name": "Y-1 Ph-1 IBL",    "hours_saved": 248, "fte_saved": 1.8 },
+      { "site_id": "m15x-obl-pt7","site_name": "M15X OBL & PT7",  "hours_saved": 246, "fte_saved": 1.7 },
+      { "site_id": "m15x-ph3-ibl","site_name": "M15X Ph-3 IBL",   "hours_saved": 221, "fte_saved": 1.6 }
+    ],
+    "monthly_trend": [
+      { "month": "2026-01", "cumulative_fte": 3.2 },
+      { "month": "2026-02", "cumulative_fte": 7.8 },
+      { "month": "2026-03", "cumulative_fte": 11.5 },
+      { "month": "2026-04", "cumulative_fte": 14.1 },
+      { "month": "2026-05", "cumulative_fte": 15.4 }
+    ],
+    "per_site_automation": {
+      "m15x-ph3-ibl": [
+        { "function": "Data Stewardship",  "rate": 88, "before_hours": 28, "after_hours": 3.4 },
+        { "function": "P&L Reporting",     "rate": 86, "before_hours": 35, "after_hours": 4.9 },
+        { "function": "Risk Management",   "rate": 71, "before_hours": 31, "after_hours": 9   },
+        { "function": "Deal Support",      "rate": 47, "before_hours": 17, "after_hours": 9   }
+      ]
+    }
+  }
+}

@@ -12,12 +12,14 @@
 > - **Verification before done** — `$ <명령어>` + `<실 출력 원본>` + `→ <결론>` 3요소 보고 강제
 > - **`from __future__ import annotations`** — 모든 .py 첫 줄
 > - **`@tool` 함수 시그니처는 `Optional[X]`** — `X | None` 금지 (`typing.get_type_hints()` 제약)
+>
+> **2026-05-16 plan reviewer 정정**: 1 Blocker (PGClient `_pool` 패턴) + 3 Critical (의존 순서, wbs_master 사전조건, graph.py lambda) + 4 Warning (namwong 48→47, LLM timeout, B 트랙 알림 외) 모두 반영.
 
 **Goal:** Atomizer 에이전트 (LLM 없음, Chroma daily_activities 적재) 와 그 prerequisite `_prorate_mh()` (Mapper sub-step) 를 spec `2026-05-16-cpia-downstream-agents-design.md` 결정 11~13 에 따라 구현하고 graph.py 의 mapper_node + atomizer_node 까지 연결한다.
 
 **Architecture:** mapper.py 의 `map_activity()` 후 batch 함수 `_prorate_mh()` 가 (company, l6_main) 단위 BP사 총 인원 분배 → 결과 mapped 를 atomizer.py 가 Chroma `daily_activities` 컬렉션에 결정성 doc_id 로 upsert. graph.py 가 두 노드를 LangGraph StateGraph 로 연결.
 
-**Tech Stack:** Python 3.11 + uv + asyncpg + chromadb + openai (Azure) + pytest + LangGraph 0.2+. 환경: 로컬 Docker (PG :5432 + Chroma :8000), Azure OpenAI text-embedding-3-small (1536d).
+**Tech Stack:** Python 3.11 + uv + asyncpg (pool 패턴) + chromadb 0.5+ + openai (Azure) + pytest + LangGraph 0.2+. 환경: 로컬 Docker (PG :5432 + Chroma :8000), Azure OpenAI text-embedding-3-small (1536d).
 
 ---
 
@@ -30,6 +32,8 @@
 | `pipeline/agents/atomizer.py` | Atomizer 구현 (`atomize()`, `_make_doc_id()`, `_build_metadata()`, `AtomizerConfig`) |
 | `pipeline/tests/test_prorate_mh.py` | `_prorate_mh()` unit + integration 테스트 |
 | `pipeline/tests/test_atomizer.py` | Atomizer unit + integration 테스트 (`@pytest.mark.slow`) |
+| `pipeline/tests/test_db.py` | PGClient 신규 4 메서드 테스트 |
+| `pipeline/tests/test_graph_e2e.py` | graph.py E2E 회귀 (`@pytest.mark.slow @golden`) |
 | `infra/postgres/migrations/2026-05-16_downstream_agents.sql` | DDL 마이그레이션 (3 컬럼 변경) |
 | `scripts/verify_bp_summaries.py` | Task 0 — 시트1 today_incr_total 의미 검증 일회성 스크립트 |
 
@@ -38,34 +42,41 @@
 | 파일 | 변경 |
 |---|---|
 | `pipeline/state.py:11-44` | Activity TypedDict docstring 정정 (spec §2.2) |
-| `pipeline/db.py:1-69` | PGClient 신규 메서드 2개 (`fetch_l6_plan_mh_map`, `update_run_atomized_count`) |
-| `pipeline/agents/mapper.py:206-343` | `_prorate_mh()` batch 함수 추가 (map_activity 와 별개 top-level) |
-| `pipeline/chroma_client.py:30-35` | `get_or_create_daily_activities()` 이미 있음 — 변경 없음 (검증만) |
+| `pipeline/db.py:13-68` | PGClient 신규 4 메서드 추가 (`_pool` 패턴 그대로 유지) |
+| `pipeline/agents/mapper.py` | `_prorate_mh()` batch 함수 추가 (map_activity 와 별개 top-level) |
 | `pipeline/graph.py` | 빈 파일 → `mapper_node`, `atomizer_node`, StateGraph 정의 |
-| `infra/postgres/init.sql` | pipeline_runs.atomized_count 추가 / forecasts 재정의 / optimizer_advice 컬럼 rename (3곳 동기화 중 1) |
+| `infra/postgres/init.sql` | pipeline_runs.atomized_count + forecasts 재정의 + optimizer_advice 컬럼 rename (3곳 동기화 중 1) |
 | `docs/schema/postgres.md` | §3 / §6 / §7 / §12 변경 (3곳 동기화 중 2) |
 
-### 변경 없음 (Verify)
+### 변경 없음 (Verify only)
 
 - `pipeline/agents/parser.py` — Parser 변경 없음
-- `pipeline/agents/mapper.py` 의 `map_activity()` — 1 Activity 당 동작은 그대로
+- `pipeline/agents/mapper.py` 의 `map_activity()` — 1 Activity 당 동작 그대로
 - `pipeline/chroma_client.py` — `get_or_create_daily_activities()` 이미 있음
 
 ---
 
-## Task 분해 요약
+## Task 분해 요약 (의존 순서 명시)
 
-| # | Task | Files | 의존 |
-|---|---|---|---|
-| 0 | bp_summaries.today_incr_total 사전 검증 | scripts/verify_bp_summaries.py | 없음 |
-| 0.5 | PGClient 신규 메서드 2개 | pipeline/db.py | 없음 |
-| 1 | state.py Activity docstring 정정 | pipeline/state.py | 없음 |
-| 2 | postgres 3곳 동기화 (마이그레이션 + init.sql + postgres.md) | infra/, docs/ | 없음 |
-| 3 | `_prorate_mh()` batch 분배 | pipeline/agents/mapper.py + tests | Task 0.5 |
-| 4 | atomizer.py + 테스트 | pipeline/agents/atomizer.py + tests | Task 0.5, Task 2 |
-| 5 | graph.py mapper_node + atomizer_node + E2E 회귀 | pipeline/graph.py + tests | Task 3, Task 4 |
+```
+Task 0       Task 1                                Task 2
+(BP 검증)    (state docstring)                     (postgres 3곳)
+   │            │                                     │
+   ↓            ↓                                     ↓
+Task 0.5 (PGClient 4 메서드)
+   │ Step 1~4 (fetch_l6_plan_mh_map / insert_pipeline_run / delete_pipeline_run)
+   │   ─── 독립 (Task 2 의존 X)
+   │ Step 5~9 (update_run_atomized_count)
+   │   ─── Task 2 의존 (atomized_count 컬럼 필요)
+   ↓
+Task 3 (_prorate_mh) ── Task 0.5 Step 1~4 의존
+   ↓
+Task 4 (atomizer.py) ── Task 0.5 모든 step + Task 2 의존
+   ↓
+Task 5 (graph.py E2E) ── Task 3 + Task 4 의존
+```
 
-총 7 Task. 0/0.5/1/2 는 병렬 가능, 3/4/5 는 순차.
+총 7 Task. **Task 0/1/2 병렬 가능, Task 0.5 의 update_run_atomized_count 만 Task 2 다음**.
 
 ---
 
@@ -80,21 +91,23 @@
 
 ```python
 # scripts/verify_bp_summaries.py
-"""시트1 today_incr_total 의 의미 검증 — 세보엠이씨 1387 의 출처.
+"""시트1 today_incr_total 의미 검증 — 세보엠이씨 1387 의 출처.
 
 검증 가설:
   H1 (그 날 신규 투입): 시트1 col28 = 그 날 BP사 신규 인원
-  H2 (누계): 시트1 col28 = 9/3~9/25 누계 인원 (today_cum_total 과 같은 형태)
+  H2 (누계):           시트1 col28 = 9/3~9/25 누계 인원
 
 방법:
-  - 9/25 작업일보의 세보엠이씨 시트1 row 1~5 raw 셀 값을 직접 dump
+  - 9/25 작업일보의 세보엠이씨 시트1 row raw 셀 값 dump
   - col28 (today_incr) 컬럼 헤더 라벨 + 값 + col35 (today_cum) 의 비율 확인
   - 비율이 1/22~1/23 (1일/22일 누계) 정도면 H1, 1.0 이면 H2
+
+Parser 의 cell 인덱스 (col28 / col35) 는 pipeline/agents/parser.py:_parse_sheet1_bp_summaries
+의 BP_INCR_COL=28 / BP_CUM_COL=35 와 정합.
 """
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import openpyxl
@@ -131,24 +144,13 @@ cd "/Users/kyungseoplee/Project Agent/CPIA"
 pipeline/.venv/bin/python3 scripts/verify_bp_summaries.py
 ```
 
-Expected output (가설):
-```
-=== 시트1 헤더 (R1~R5) ===
-R4: [(... '금일 신규 투입 [N명]' ... '금일 누적 [N명-일]' ...)]
-R5: [...]
+Expected: 세보 row 의 ratio 가 H1 (≈0.003~0.05, 22일 누계 분의 1일) 또는 H2 (≈1.0) 둘 중 하나로 판정.
 
-=== 세보엠이씨 row 발견 ===
-R452: company='세보엠이씨' | col28(today_incr)=1387 | col35(today_cum)=364847 | ratio=0.0038
-```
+- [ ] **Step 3: 의미 확정 + spec 갱신 (필요 시)**
 
-- [ ] **Step 3: 의미 확정 + spec 갱신**
+H1 채택 → spec 그대로. H2 발견 → spec §9.2 Phase 2 사안을 Phase 1 으로 끌어올리고 `_prorate_mh()` 분모 재정의, **Task 3 진입 차단**.
 
-`ratio ≈ 1/N` (N≈22일 누계 면 ratio ≈ 0.045) 이면 H1 채택, ratio=1.0 이면 H2.
-
-만약 H1 (그 날 신규) 채택 → spec §3.1 그대로.
-만약 H2 (누계) 발견 → spec §9.2 의 검증 항목을 Phase 1 으로 끌어올리고 `_prorate_mh()` 분모 재정의. **Task 3 진입 차단**.
-
-- [ ] **Step 4: 결과 보고 + commit (스크립트만)**
+- [ ] **Step 4: 결과 보고 + commit**
 
 ```bash
 git add scripts/verify_bp_summaries.py
@@ -163,22 +165,32 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 
 ---
 
-### Task 0.5: PGClient 신규 메서드 2개
+### Task 0.5: PGClient 신규 4 메서드 (`_pool` 패턴 정합)
 
 **Files:**
-- Modify: `pipeline/db.py`
-- Test: `pipeline/tests/test_db.py` (신규 — 기존 없으면 신규, 있으면 추가)
+- Modify: `pipeline/db.py:1-69`
+- Create: `pipeline/tests/test_db.py`
 
-**의도:** spec 결정 #12 (B1 해결). `_prorate_mh()` 와 `atomize()` 가 호출할 메서드를 PGClient 에 batch 화 + silent no-op 방지로 추가.
+**의도:** spec 결정 #12+#13. PGClient 기존 패턴 (`asyncpg.Pool`, `async with self._pool.acquire() as conn:`) 그대로 유지하고 4 메서드 추가. fixture 의 raw SQL 제거.
 
-- [ ] **Step 1: 실패 test 1 작성 (`fetch_l6_plan_mh_map`)**
+**메서드 4개:**
+1. `fetch_l6_plan_mh_map(company, l6_list)` — Task 3 `_prorate_mh` 용 batch 쿼리
+2. `update_run_atomized_count(run_id, count)` — Task 4 `atomize()` 종료 시 호출 (silent no-op 방지)
+3. `insert_pipeline_run(run_id, site_id, date, status='running')` — integration test fixture 용
+4. `delete_pipeline_run(run_id)` — fixture cleanup 용
+
+#### Step 1~4: `fetch_l6_plan_mh_map` + `insert_pipeline_run` + `delete_pipeline_run` (Task 2 의존 X)
+
+- [ ] **Step 1: 실패 test 3건 작성 (fetch / insert / delete)**
 
 ```python
 # pipeline/tests/test_db.py
 from __future__ import annotations
 
 import os
+import uuid
 
+import asyncpg
 import pytest
 
 from pipeline.db import PGClient
@@ -192,10 +204,13 @@ async def pg():
     await pg.close()
 
 
+# ── fetch_l6_plan_mh_map ──────────────────────────────────────────
+
+
 @pytest.mark.slow
 @pytest.mark.asyncio
 async def test_fetch_l6_plan_mh_map_namwong(pg):
-    """남웅건설 단일 l6 (철근콘크리트공사) — 본 spec §3.4 기준값 1,676,807."""
+    """남웅건설 단일 l6 — spec §3.4 기준값 1,676,807."""
     result = await pg.fetch_l6_plan_mh_map("남웅건설", ["철근콘크리트공사"])
     assert result == {"철근콘크리트공사": 1_676_807}
 
@@ -203,7 +218,7 @@ async def test_fetch_l6_plan_mh_map_namwong(pg):
 @pytest.mark.slow
 @pytest.mark.asyncio
 async def test_fetch_l6_plan_mh_map_sebo_multi(pg):
-    """세보엠이씨 멀티 l6 — 본 spec §3.4 의 top 3 검증."""
+    """세보엠이씨 멀티 l6 — spec §3.4 top 3 검증."""
     l6_list = ["기계소화설비", "일반공조설비공사", "냉동기설비공사"]
     result = await pg.fetch_l6_plan_mh_map("세보엠이씨", l6_list)
     assert result["기계소화설비"] == 744_043
@@ -225,58 +240,107 @@ async def test_fetch_l6_plan_mh_map_unknown_company(pg):
     """미등록 BP사 → {} 빈 dict."""
     result = await pg.fetch_l6_plan_mh_map("ZZZ_unknown_BP", ["철근콘크리트공사"])
     assert result == {}
+
+
+# ── insert / delete pipeline_run ──────────────────────────────────
+
+
+@pytest.mark.slow
+@pytest.mark.asyncio
+async def test_insert_delete_pipeline_run(pg):
+    """insert_pipeline_run + delete_pipeline_run 왕복."""
+    run_id = uuid.uuid4()
+    await pg.insert_pipeline_run(run_id, "M15X_PH3_IBL", "2025-09-25")
+    # 검증: row 존재
+    async with pg._pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT run_id FROM pipeline_runs WHERE run_id=$1", run_id)
+    assert row is not None
+    # cleanup
+    await pg.delete_pipeline_run(run_id)
+    async with pg._pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT run_id FROM pipeline_runs WHERE run_id=$1", run_id)
+    assert row is None
 ```
 
 - [ ] **Step 2: 실패 확인**
 
 ```bash
-cd "/Users/kyungseoplee/Project Agent/CPIA"
-pipeline/.venv/bin/python3 -m pytest pipeline/tests/test_db.py::test_fetch_l6_plan_mh_map_namwong -v -m slow
+pipeline/.venv/bin/python3 -m pytest pipeline/tests/test_db.py -v -m slow
 ```
 
-Expected: FAIL with `AttributeError: 'PGClient' object has no attribute 'fetch_l6_plan_mh_map'`
+Expected: 5 FAIL with `AttributeError: 'PGClient' object has no attribute 'fetch_l6_plan_mh_map'` (+ 같은 류).
 
-- [ ] **Step 3: `fetch_l6_plan_mh_map` 구현**
+- [ ] **Step 3: 3 메서드 구현 (`_pool` 패턴 그대로)**
 
 ```python
 # pipeline/db.py — 기존 PGClient 클래스에 메서드 추가
+import uuid
+
+
 async def fetch_l6_plan_mh_map(
     self, company: str, l6_list: list[str],
 ) -> dict[str, int]:
     """단일 GROUP BY 쿼리로 (company) 의 여러 l6 plan_mh 합을 한 번에 조회.
 
     Spec §3.2 — _prorate_mh() 의 N+1 회피용.
-    빈 l6_list 또는 미등록 BP사 → {} 반환.
+    빈 l6_list / 미등록 BP사 → {} 반환.
     """
     if not l6_list:
         return {}
-    rows = await self.conn.fetch(
-        """
-        SELECT l6_main, sum(plan_mh_rev2) AS s
-        FROM activity_master
-        WHERE company = $1 AND l6_main = ANY($2::text[])
-        GROUP BY l6_main
-        """,
-        company, l6_list,
-    )
+    assert self._pool is not None, "connect() 미호출"
+    async with self._pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT l6_main, sum(plan_mh_rev2) AS s
+            FROM activity_master
+            WHERE company = $1 AND l6_main = ANY($2::text[])
+            GROUP BY l6_main
+            """,
+            company, l6_list,
+        )
     return {r["l6_main"]: int(r["s"] or 0) for r in rows}
+
+
+async def insert_pipeline_run(
+    self, run_id: uuid.UUID, site_id: str, date: str,
+    status: str = "running",
+) -> None:
+    """integration test fixture 용 — pipeline_runs row INSERT.
+    
+    Spec §4.4 — Atomizer 가 INSERT 책임 X (fixture / FastAPI 가 사전 INSERT).
+    """
+    assert self._pool is not None, "connect() 미호출"
+    async with self._pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO pipeline_runs (run_id, site_id, date, status) "
+            "VALUES ($1, $2, $3, $4)",
+            run_id, site_id, date, status,
+        )
+
+
+async def delete_pipeline_run(self, run_id: uuid.UUID) -> None:
+    """integration test fixture cleanup 용."""
+    assert self._pool is not None, "connect() 미호출"
+    async with self._pool.acquire() as conn:
+        await conn.execute("DELETE FROM pipeline_runs WHERE run_id=$1", run_id)
 ```
 
-- [ ] **Step 4: 4 test 통과 확인**
+- [ ] **Step 4: 5 test 통과 확인**
 
 ```bash
-pipeline/.venv/bin/python3 -m pytest pipeline/tests/test_db.py -v -m slow -k fetch_l6
+pipeline/.venv/bin/python3 -m pytest pipeline/tests/test_db.py -v -m slow -k "fetch_l6 or insert_delete"
 ```
 
-Expected: 4 passed.
+Expected: 5 passed.
 
-- [ ] **Step 5: 실패 test 2 작성 (`update_run_atomized_count`)**
+#### Step 5~9: `update_run_atomized_count` (Task 2 의존 — atomized_count 컬럼 필요)
+
+**⚠️ 의존 차단**: Task 2 가 먼저 commit + DB 마이그레이션 적용 완료 후 진입.
+
+- [ ] **Step 5: 실패 test 2건 작성**
 
 ```python
 # pipeline/tests/test_db.py — 추가
-import uuid
-
-import asyncpg
 
 
 @pytest.mark.slow
@@ -284,21 +348,18 @@ import asyncpg
 async def test_update_run_atomized_count_happy(pg):
     """pipeline_runs row 사전 INSERT → atomized_count UPDATE 성공."""
     run_id = uuid.uuid4()
-    await pg.conn.execute(
-        "INSERT INTO pipeline_runs (run_id, site_id, date, status) "
-        "VALUES ($1, 'M15X_PH3_IBL', '2025-09-25', 'running')",
-        run_id,
-    )
+    await pg.insert_pipeline_run(run_id, "M15X_PH3_IBL", "2025-09-25")
     try:
         await pg.update_run_atomized_count(run_id, 48)
-        row = await pg.conn.fetchrow(
-            "SELECT atomized_count, current_node FROM pipeline_runs WHERE run_id=$1",
-            run_id,
-        )
+        async with pg._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT atomized_count, current_node FROM pipeline_runs WHERE run_id=$1",
+                run_id,
+            )
         assert row["atomized_count"] == 48
         assert row["current_node"] == "atomizer"
     finally:
-        await pg.conn.execute("DELETE FROM pipeline_runs WHERE run_id=$1", run_id)
+        await pg.delete_pipeline_run(run_id)
 
 
 @pytest.mark.slow
@@ -310,17 +371,15 @@ async def test_update_run_atomized_count_missing_row_raises(pg):
         await pg.update_run_atomized_count(fake_id, 48)
 ```
 
-**주의:** 이 test 는 Task 2 (postgres 마이그레이션) 가 먼저 적용되어야 `atomized_count` 컬럼 존재. Task 2 와 Task 0.5 의 순서 — Task 2 가 먼저 또는 동시 진행 권장.
-
-- [ ] **Step 6: 실패 확인 (`update_run_atomized_count` 미존재)**
+- [ ] **Step 6: 실패 확인 (update_run_atomized_count 미존재 OR atomized_count 컬럼 미존재)**
 
 ```bash
 pipeline/.venv/bin/python3 -m pytest pipeline/tests/test_db.py::test_update_run_atomized_count_happy -v -m slow
 ```
 
-Expected: FAIL with `AttributeError`.
+Expected: FAIL with `AttributeError: 'PGClient' object has no attribute 'update_run_atomized_count'`.
 
-- [ ] **Step 7: `update_run_atomized_count` 구현**
+- [ ] **Step 7: `update_run_atomized_count` 구현 (`_pool` 패턴)**
 
 ```python
 async def update_run_atomized_count(self, run_id: uuid.UUID, count: int) -> None:
@@ -329,11 +388,13 @@ async def update_run_atomized_count(self, run_id: uuid.UUID, count: int) -> None
     Spec §4.4 — silent no-op 방지를 위해 affected row 검증.
     0 row 면 RuntimeError → integration test fixture 의 INSERT 빠짐 신호.
     """
-    result = await self.conn.execute(
-        "UPDATE pipeline_runs SET atomized_count = $1, current_node = 'atomizer' "
-        "WHERE run_id = $2",
-        count, run_id,
-    )
+    assert self._pool is not None, "connect() 미호출"
+    async with self._pool.acquire() as conn:
+        result = await conn.execute(
+            "UPDATE pipeline_runs SET atomized_count = $1, current_node = 'atomizer' "
+            "WHERE run_id = $2",
+            count, run_id,
+        )
     # asyncpg result: "UPDATE N" — 0 면 row 미존재
     if result.endswith(" 0"):
         raise RuntimeError(f"pipeline_runs(run_id={run_id}) 미존재 — fixture 설정 확인")
@@ -351,16 +412,18 @@ Expected: 2 passed.
 
 ```bash
 git add pipeline/db.py pipeline/tests/test_db.py
-git commit -m "db: PGClient 신규 메서드 2개 — fetch_l6_plan_mh_map + update_run_atomized_count
+git commit -m "db: PGClient 신규 4 메서드 (_pool 패턴 그대로)
 
-Spec §3.2 + §4.4 (결정 #12) — Atomizer + _prorate_mh 가 호출할 메서드.
+Spec §3.2 + §4.4 (결정 #12+#13).
 
-- fetch_l6_plan_mh_map: 단일 GROUP BY 쿼리 batch 화 (N+1 회피)
-  - 빈 l6_list / 미등록 BP사 → {} 반환
-- update_run_atomized_count: silent no-op 방지 — 0 row 면 RuntimeError
+- fetch_l6_plan_mh_map: 단일 GROUP BY batch (N+1 회피)
+- insert_pipeline_run / delete_pipeline_run: integration test fixture 용
+- update_run_atomized_count: silent no-op 방지 (0 row → RuntimeError)
 
-테스트 6건 (4 fetch + 2 update) — 실 PG @pytest.mark.slow.
-세보 mh top 3 값 (744043 / 708154 / 268341) byte-level 검증.
+모두 기존 _pool 패턴 (async with self._pool.acquire() as conn) 그대로.
+
+테스트 7건 (4 fetch + 1 insert/delete + 2 update) — 실 PG @pytest.mark.slow.
+세보 mh top 3 (744043/708154/268341) byte-level 검증.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ```
@@ -372,7 +435,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 **Files:**
 - Modify: `pipeline/state.py:11-44`
 
-**의도:** spec §2.2 의 docstring 정합 보강. 옵션 X 의 결정 사항 (1:N 라 PoC None, (company, l6_main) 단위 reference 등) 을 코드에 박제. 필드 추가/제거 없음.
+**의도:** spec §2.2 의 docstring 정합. 옵션 X 의 결정 박제. 필드 추가/제거 없음.
 
 - [ ] **Step 1: 현재 state.py 정독**
 
@@ -380,16 +443,14 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 cat pipeline/state.py | head -50
 ```
 
-→ 현재 docstring 위치 + 들여쓰기 확인.
-
-- [ ] **Step 2: state.py docstring patch 적용 (Edit)**
+- [ ] **Step 2: state.py docstring 적용 (Edit)**
 
 ```python
-# pipeline/state.py:11-44 — 정정 후
+# pipeline/state.py:11-44 정정 후
 class Activity(TypedDict):
     """작업일보 1행 = 매핑 단위. spec 2026-05-16 §2 참조.
 
-    옵션 X 채택 (BP사 총 인원 (company, l6_main) 단위 분배):
+    옵션 X 채택 ((company, l6_main) 단위 분배):
     - 같은 (company, l6_main) Activity 들이 동일 assigned_workers reference
     - PoC 단계: wbs_activity_id / l7_sub / l7_5_activity / sub_work_area /
       plan_total_qty / plan_mh 는 항상 None (Master List 1:N 라 단일값 결정 불가)
@@ -415,17 +476,17 @@ class Activity(TypedDict):
     # (company, l6_main) 단위 분배 결과 (_prorate_mh sub-step 이후)
     # 분배 공식: BP사 총 인원 × (그 l6 candidate Σplan_mh / 전체 매핑 l6 candidate Σplan_mh)
     assigned_workers: float           # (company, l6_main) 단위 단일값
-    worker_source: Literal[           # 분배 상태 표시
+    worker_source: Literal[
         "parsed",                     #   = 작업일보 명시 그대로 (드문 케이스)
         "mh_prorated",                #   = _prorate_mh() 적용됨 (기본)
         "user_corrected",             #   = H-i-L 1 사용자 보정 (Phase 2)
     ]
 
-    # Master List 조회값 (PoC: None — Forecaster 가 PG 에서 (company, l6_main) Σ 조회)
+    # Master List 조회값 (PoC: None — Forecaster 가 PG 에서 Σ 조회)
     plan_total_qty: float | None
     plan_mh: float | None
 
-    # 매핑 결과 (Mapper 가 채움) — mapping-layer.md §3 추가 필드
+    # 매핑 결과 (Mapper 이후) — mapping-layer.md §3 추가 필드
     wa: str | None                    # Mapper WA 결정 4단계
     mapping_conf: float | None        # LLM rerank confidence (0.0~1.0)
     mapping_source: str | None        # 'auto_bp_single'/'auto_l6_single'/...
@@ -434,14 +495,14 @@ class Activity(TypedDict):
     requires_review: bool             # mapping_conf < 0.7 또는 mapping_source='hil_required'
 ```
 
-- [ ] **Step 3: 기존 테스트 회귀 — Parser + Mapper golden 통과 유지**
+- [ ] **Step 3: 기존 테스트 회귀 (unit only)**
 
 ```bash
 cd "/Users/kyungseoplee/Project Agent/CPIA"
-pipeline/.venv/bin/python3 -m pytest pipeline/tests/ -v -x -k "not slow" 2>&1 | tail -20
+pipeline/.venv/bin/python3 -m pytest pipeline/tests/ -v -x -m "not slow" 2>&1 | tail -20
 ```
 
-Expected: 모든 unit test pass (Activity TypedDict 는 런타임 영향 없음, docstring 변경만).
+Expected: 모든 unit pass (TypedDict 는 런타임 영향 없음, docstring 만).
 
 - [ ] **Step 4: Commit**
 
@@ -451,10 +512,6 @@ git commit -m "state: Activity docstring 정정 — 옵션 X (company, l6_main) 
 
 Spec §2.2 — 필드 추가/제거 X, docstring 만.
 
-- 옵션 X 결정 명시 (1:N 라 PoC None 인 필드 6개, l6 단위 reference)
-- worker_source 3 enum 의 정확한 의미 (mh_prorated = _prorate_mh 적용)
-- Forecaster / Reporter 가 (company, l6_main) candidate 를 PG 직접 조회 안내
-
 기존 unit test (Parser 22건 + Mapper golden 79건) 회귀 통과.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
@@ -462,14 +519,16 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 
 ---
 
-### Task 2: postgres 3곳 동기화 (마이그레이션 + init.sql + postgres.md)
+### Task 2: postgres 3곳 동기화
 
 **Files:**
 - Create: `infra/postgres/migrations/2026-05-16_downstream_agents.sql`
 - Modify: `infra/postgres/init.sql`
 - Modify: `docs/schema/postgres.md`
 
-**의도:** spec §8.4 결정 #11 — 3곳 동기화 의무. cold start (init.sql) ≡ 누적 마이그레이션 ≡ 문서 (postgres.md).
+**의도:** spec §8.4 결정 #11 — 3곳 동기화 의무.
+
+**⚠️ Task 0.5 Step 5~9 의 prerequisite**: atomized_count 컬럼이 본 Task 의 마이그레이션 적용 후 존재.
 
 - [ ] **Step 1: 마이그레이션 파일 작성**
 
@@ -489,19 +548,15 @@ CREATE TABLE forecasts (
     company                  TEXT NOT NULL,
     l6_main                  TEXT NOT NULL,
 
-    -- 오늘 실측 (그 (company, l6) 단위 집계)
     today_qty_by_unit        JSONB,
     today_assigned_workers   NUMERIC,
 
-    -- Plan 기준 (PG candidate Σ)
     plan_total_qty_by_unit   JSONB,
     plan_mh_sum              NUMERIC,
 
-    -- RAG 이력 기준
     rag_n_similar            INT,
     similar_cases            JSONB,
 
-    -- 진단 (LLM TBD)
     assessment               TEXT,
     reasoning                TEXT,
     expected_completion      DATE,
@@ -519,23 +574,14 @@ CREATE INDEX idx_forecasts_risk        ON forecasts (risk_level) WHERE risk_leve
 ALTER TABLE optimizer_advice RENAME COLUMN trade TO l6_main;
 ```
 
-- [ ] **Step 2: 로컬 DB 에 마이그레이션 적용**
+- [ ] **Step 2: 로컬 DB 마이그레이션 적용**
 
 ```bash
 cd "/Users/kyungseoplee/Project Agent/CPIA"
 docker exec -i cpia-pg-local psql -U cpia -d cpia < infra/postgres/migrations/2026-05-16_downstream_agents.sql
 ```
 
-Expected output:
-```
-ALTER TABLE
-DROP TABLE
-CREATE TABLE
-CREATE INDEX
-CREATE INDEX
-CREATE INDEX
-ALTER TABLE
-```
+Expected: ALTER + DROP + CREATE + 3 CREATE INDEX + ALTER (총 6 명령).
 
 - [ ] **Step 3: 적용 검증 (3 컬럼 변경)**
 
@@ -547,40 +593,34 @@ docker exec cpia-pg-local psql -U cpia -d cpia -c "\d optimizer_advice" | grep l
 
 Expected:
 - `atomized_count | integer | ... default 0`
-- forecasts 에 `today_qty_by_unit jsonb` / `l6_main text` 등 새 컬럼
-- optimizer_advice 에 `l6_main` 컬럼 (trade 없음)
+- forecasts: `today_qty_by_unit jsonb` / `l6_main text` 등 새 컬럼
+- optimizer_advice: `l6_main` (trade 없음)
 
 - [ ] **Step 4: init.sql 동기화**
 
-`infra/postgres/init.sql` 의 pipeline_runs / forecasts / optimizer_advice 정의를 §8 와 동일하게 정정. Edit 으로:
+`infra/postgres/init.sql` 의 pipeline_runs / forecasts / optimizer_advice 정의를 마이그레이션 결과와 동일하게 정정:
 
-- pipeline_runs 정의에 `atomized_count INTEGER DEFAULT 0` 추가
-- forecasts CREATE TABLE 을 위 §8.2 와 동일하게 교체
-- optimizer_advice 의 `trade TEXT NOT NULL` → `l6_main TEXT NOT NULL`
+- pipeline_runs: `atomized_count INTEGER DEFAULT 0` 추가
+- forecasts: 전체 CREATE TABLE 위 §8.2 SQL 과 동일하게 교체
+- optimizer_advice: `trade TEXT NOT NULL` → `l6_main TEXT NOT NULL`
 
 - [ ] **Step 5: postgres.md 동기화**
 
 `docs/schema/postgres.md`:
-- §3 pipeline_runs 표에 `atomized_count INTEGER DEFAULT 0` 추가
-- §6 forecasts 표 정정 (trade → l6_main, today_qty / plan_unit_productivity → JSONB by_unit)
+- §3 pipeline_runs 표에 `atomized_count INTEGER DEFAULT 0` 행 추가
+- §6 forecasts 표 정정 (trade → l6_main, today_qty / plan_unit_productivity → JSONB by_unit, plan_mh_sum 등)
 - §7 optimizer_advice 표 정정 (trade → l6_main)
-- §12 변경 이력에 한 줄 추가: "2026-05-16 | downstream-agents spec §8 적용 — forecasts (company, l6_main) grain 정정 + pipeline_runs.atomized_count + optimizer_advice rename | A 트랙"
+- §12 변경 이력 한 줄 추가: "2026-05-16 | downstream-agents spec §8 적용 — forecasts (company, l6_main) grain 정정 + pipeline_runs.atomized_count + optimizer_advice rename | A 트랙"
 
-- [ ] **Step 6: init.sql 신규 환경 cold start 검증**
+- [ ] **Step 6: init.sql cold-start syntax 검증**
 
 ```bash
-# 신규 환경 시뮬레이션 — DB 재생성 (주의: 데이터 손실!)
-# docker exec -i cpia-pg-local psql -U cpia -d cpia -c "DROP DATABASE cpia"  # 실제 실행 X
-# 대신 init.sql 의 SQL 만 dry-check 으로 syntax 검증
 pipeline/.venv/bin/python3 -c "
-import re
 sql = open('infra/postgres/init.sql').read()
-# pipeline_runs 에 atomized_count 있는지
 assert 'atomized_count' in sql, 'init.sql 누락: atomized_count'
-# forecasts 의 today_qty_by_unit JSONB 있는지
 assert 'today_qty_by_unit' in sql, 'init.sql 누락: today_qty_by_unit'
-# optimizer_advice 의 l6_main 있는지 (trade NOT NULL 없는지)
-assert 'l6_main' in sql.split('CREATE TABLE optimizer_advice')[1], 'init.sql 누락: l6_main in optimizer_advice'
+assert 'l6_main' in sql.split('CREATE TABLE optimizer_advice')[1].split(';')[0], 'init.sql 누락: l6_main in optimizer_advice'
+assert 'trade TEXT NOT NULL' not in sql.split('CREATE TABLE optimizer_advice')[1].split(';')[0], 'init.sql 잔존: optimizer_advice.trade'
 print('✓ init.sql 동기화 검증 통과')
 "
 ```
@@ -591,14 +631,15 @@ print('✓ init.sql 동기화 검증 통과')
 git add infra/postgres/migrations/2026-05-16_downstream_agents.sql infra/postgres/init.sql docs/schema/postgres.md
 git commit -m "postgres: 3곳 동기화 — pipeline_runs.atomized_count + forecasts grain + optimizer_advice rename
 
-Spec §8.4 (결정 #11) — 마이그레이션 + init.sql + postgres.md 3곳 동기화 의무.
+Spec §8.4 (결정 #11). 마이그레이션 + init.sql + postgres.md 3곳.
 
-- pipeline_runs.atomized_count INTEGER DEFAULT 0 추가
+- pipeline_runs.atomized_count INTEGER DEFAULT 0
 - forecasts 재정의: trade → l6_main, today_qty/plan_unit_productivity → JSONB by_unit
 - optimizer_advice.trade RENAME TO l6_main
-- 로컬 DB 마이그레이션 적용 검증 (3 컬럼 변경 확인)
+- 로컬 DB 마이그레이션 적용 검증
 
-PoC 단계 빈 테이블이라 DROP+CREATE 안전. 운영 영향 0.
+PoC 단계 빈 테이블 — DROP+CREATE 안전.
+B 트랙 알림: 다음 docker-compose down -v && up 시 forecasts schema 갱신됨.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ```
@@ -611,7 +652,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 - Modify: `pipeline/agents/mapper.py` (top-level 함수 추가)
 - Create: `pipeline/tests/test_prorate_mh.py`
 
-**의도:** spec §3 — 옵션 X 알고리즘. Mapper 가 매핑한 mapped 를 받아 (company, l6_main) 단위 BP사 총 인원 분배.
+**의존**: Task 0.5 Step 1~4 (`fetch_l6_plan_mh_map`).
 
 - [ ] **Step 1: 5 unit test 작성 (mock pg)**
 
@@ -624,11 +665,10 @@ from unittest.mock import AsyncMock
 import pytest
 
 from pipeline.agents.mapper import _prorate_mh
-from pipeline.state import Activity, ParsedDailyReport
+from pipeline.state import Activity, BPSummary, ParsedDailyReport
 
 
 def _act(company: str, l6: str | None, **kw) -> Activity:
-    """Activity factory."""
     return {
         "wbs_activity_id": None, "l5_disc": "건축",
         "l6_main": l6, "l7_sub": None, "l7_5_activity": None,
@@ -641,7 +681,7 @@ def _act(company: str, l6: str | None, **kw) -> Activity:
     }
 
 
-def _summ(company: str, today_incr: int) -> dict:
+def _summ(company: str, today_incr: int) -> BPSummary:
     return {
         "bp_code": None, "company": company, "disc_abbrev": "건축",
         "zone": "CUB", "scope": None,
@@ -670,11 +710,11 @@ async def test_prorate_single_l6():
 
 @pytest.mark.asyncio
 async def test_prorate_zero_total():
-    """bp_total=0 → assigned_workers=0.0."""
+    """bp_total=0 → 0.0."""
     mapped = [_act("XYZ", "철근콘크리트공사")]
     parsed: ParsedDailyReport = {
         "report_date": "2025-09-25", "project": "test",
-        "bp_summaries": [_summ("XYZ", 0)],  # 0 명
+        "bp_summaries": [_summ("XYZ", 0)],
         "job_allocations": [], "equipment_allocations": [], "activities": [],
     }
     pg = AsyncMock()
@@ -699,7 +739,6 @@ async def test_prorate_zero_plan_mh():
     )
 
     result = await _prorate_mh(mapped, parsed, pg)
-    # 80 / 4 = 20.0 each
     for a in result:
         assert a["assigned_workers"] == 20.0
 
@@ -709,7 +748,7 @@ async def test_prorate_unmapped_skip():
     """l6_main=None Activity → assigned_workers 미변경."""
     mapped = [
         _act("남웅건설", "철근콘크리트공사"),
-        _act("남웅건설", None, requires_review=True),  # 매핑 실패
+        _act("남웅건설", None, requires_review=True),
     ]
     parsed: ParsedDailyReport = {
         "report_date": "2025-09-25", "project": "test",
@@ -722,7 +761,6 @@ async def test_prorate_unmapped_skip():
     result = await _prorate_mh(mapped, parsed, pg)
     assert result[0]["assigned_workers"] == 88.0
     assert result[0]["worker_source"] == "mh_prorated"
-    # 매핑 실패 행은 그대로
     assert result[1]["assigned_workers"] == 0.0
     assert result[1]["worker_source"] == "parsed"
 
@@ -754,44 +792,33 @@ async def test_prorate_multi_l6_share():
 pipeline/.venv/bin/python3 -m pytest pipeline/tests/test_prorate_mh.py -v
 ```
 
-Expected: 5 FAIL with `ImportError: cannot import name '_prorate_mh' from 'pipeline.agents.mapper'`.
+Expected: 5 FAIL with `ImportError: cannot import name '_prorate_mh'`.
 
 - [ ] **Step 3: `_prorate_mh()` 구현 (mapper.py 에 추가)**
 
 ```python
-# pipeline/agents/mapper.py — 파일 맨 끝 또는 적절한 위치에 추가
+# pipeline/agents/mapper.py — top-level 추가 (map_activity 아래)
 from collections import defaultdict
 
 
 async def _prorate_mh(
     mapped: list[Activity],
     parsed_report: ParsedDailyReport,
-    pg: "PGClient",  # forward reference (이미 import)
+    pg: PGClient,
 ) -> list[Activity]:
     """(company, l6_main) 단위 BP사 총 인원 분배 — 옵션 X 알고리즘.
 
     Spec docs/superpowers/specs/2026-05-16-cpia-downstream-agents-design.md §3.
-
-    공식:
-        bp_total_n      = Σ parsed_report.bp_summaries[company].today_incr_total
-        l6_set          = mapped 의 company 별 매핑 결과 l6_main 집합
-        l6_plan_mh[l6]  = pg.fetch_l6_plan_mh_map(company, l6_list)  ← batch
-        sum_mh          = Σ l6_plan_mh.values()
-        assigned[l6]    = bp_total_n × l6_plan_mh[l6] / sum_mh   (sum_mh > 0)
-                        = bp_total_n / len(l6_set)               (sum_mh = 0 fallback)
     """
-    # 1. BP사 별 그 날 총 인원
     bp_total: dict[str, int] = defaultdict(int)
     for s in parsed_report["bp_summaries"]:
         bp_total[s["company"]] += s["today_incr_total"]
 
-    # 2. BP사 별 매핑된 l6 set
     bp_l6: dict[str, set[str]] = defaultdict(set)
     for a in mapped:
         if a["l6_main"] is not None:
             bp_l6[a["company"]].add(a["l6_main"])
 
-    # 3. (company, l6) lookup 테이블 구축 — BP사당 1 PG 쿼리 (batch)
     workers_lookup: dict[tuple[str, str], float] = {}
     for company, l6_set in bp_l6.items():
         total_n = bp_total.get(company, 0)
@@ -810,7 +837,6 @@ async def _prorate_mh(
             for l6, mh in l6_mh.items():
                 workers_lookup[(company, l6)] = total_n * mh / sum_mh
 
-    # 4. mapped Activity 에 반영
     out: list[Activity] = []
     for a in mapped:
         if a["l6_main"] is not None:
@@ -832,7 +858,7 @@ pipeline/.venv/bin/python3 -m pytest pipeline/tests/test_prorate_mh.py -v
 
 Expected: 5 passed.
 
-- [ ] **Step 5: integration test 1 작성 (실 PG)**
+- [ ] **Step 5: integration test 1건 작성 (실 PG)**
 
 ```python
 # pipeline/tests/test_prorate_mh.py — 추가
@@ -869,31 +895,29 @@ async def test_prorate_sebo_real_pg(real_pg):
     result = await _prorate_mh(mapped, parsed, real_pg)
     lookup = {a["l6_main"]: round(a["assigned_workers"], 1) for a in result}
 
-    # spec §3.4 top 3
     assert lookup["기계소화설비"] == 421.7
     assert lookup["일반공조설비공사"] == 401.4
     assert lookup["냉동기설비공사"] == 152.1
-    # 합산 = 1387
     assert round(sum(lookup.values()), 0) == 1387
 ```
 
-- [ ] **Step 6: integration test 통과 확인**
+- [ ] **Step 6: integration test 통과**
 
 ```bash
 pipeline/.venv/bin/python3 -m pytest pipeline/tests/test_prorate_mh.py -v -m slow
 ```
 
-Expected: 1 passed (Σ = 1387 + top 3 정확).
+Expected: 1 passed.
 
-- [ ] **Step 7: 골든 회귀 (test_mapper_golden) 통과 유지 확인**
+- [ ] **Step 7: 골든 회귀 통과 유지**
 
-`_prorate_mh()` 는 mapper.py 의 top-level 함수 추가 — `map_activity()` 동작 영향 없음. 회귀 통과해야.
+`_prorate_mh()` 는 `map_activity()` 와 별개 함수. 회귀 영향 X 확인.
 
 ```bash
 pipeline/.venv/bin/python3 -m pytest pipeline/tests/test_mapper_golden.py -v -m slow 2>&1 | tail -10
 ```
 
-Expected: golden 79건 회귀 97.5% 그대로 (변경 없음).
+Expected: 79건 golden 회귀 그대로.
 
 - [ ] **Step 8: Commit**
 
@@ -901,20 +925,16 @@ Expected: golden 79건 회귀 97.5% 그대로 (변경 없음).
 git add pipeline/agents/mapper.py pipeline/tests/test_prorate_mh.py
 git commit -m "mapper: _prorate_mh() batch 분배 (옵션 X (company, l6_main) grain)
 
-Spec §3 — 결정 #3+#4. BP사 총 인원 × candidate Σplan_mh 비율 분배.
+Spec §3 (결정 #3+#4).
 
-알고리즘:
-1. parsed.bp_summaries 의 today_incr_total 합 = BP사 총 인원
-2. mapped 의 (company → l6 set) 그룹핑
-3. pg.fetch_l6_plan_mh_map (batch 1 쿼리) 로 l6 별 candidate Σplan_mh
-4. 각 (company, l6_main) → assigned_workers, worker_source='mh_prorated'
+알고리즘: BP사 총 인원 × candidate Σplan_mh 비율 분배.
 
 엣지: bp_total=0 → 0, Σplan_mh=0 → 균등, l6_main=None → 변경 X.
 
 테스트:
-- 5 unit test (mock pg) — 분배 알고리즘 정확성
-- 1 integration (실 PG) — 세보 1387 / 13 l6 / spec §3.4 byte-level 일치
-- golden 79 회귀 통과 유지 (map_activity 동작 영향 X)
+- 5 unit (mock pg) — 분배 알고리즘 정확성
+- 1 integration (실 PG) — 세보 1387 / 13 l6 / spec §3.4 byte-level
+- golden 79 회귀 통과 유지
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ```
@@ -927,9 +947,9 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 - Create: `pipeline/agents/atomizer.py`
 - Create: `pipeline/tests/test_atomizer.py`
 
-**의도:** spec §4 — LLM 없음 (임베딩만). mapped → Chroma daily_activities 적재. doc_id 결정성 upsert.
+**의존**: Task 0.5 (모든 step) + Task 2.
 
-- [ ] **Step 1: atomizer.py 의 helper 함수 + AtomizerConfig 만 먼저 작성 (no I/O)**
+- [ ] **Step 1: atomizer.py 의 helper + AtomizerConfig (no I/O)**
 
 ```python
 # pipeline/agents/atomizer.py
@@ -957,7 +977,7 @@ from pipeline.state import Activity, ParsedDailyReport
 
 @dataclass
 class AtomizerConfig:
-    """Atomizer 6 step 호출에 필요한 환경."""
+    """Atomizer 호출에 필요한 환경."""
 
     azure_endpoint: str
     azure_api_key: str
@@ -974,19 +994,13 @@ class AtomizerConfig:
 
 
 def _make_doc_id(date: str, company: str, l6_main: str, work_content: str) -> str:
-    """결정성 doc id — 같은 (date, company, l6, work) 재실행 시 같은 id.
-
-    Spec §4.2 — 16자 sha256 hex. 충돌 확률 무시 (PoC 수십 row).
-    """
+    """결정성 doc id — spec §4.2 (✓ Verified `73ff80435e312c41` for sample)."""
     raw = f"{date}|{company}|{l6_main}|{work_content}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
 def _build_metadata(a: Activity, date: str, run_id: str) -> dict[str, Any]:
-    """Chroma daily_activities metadata — spec §4.1.
-
-    Chroma scalar 한정. list[str] → CSV string. None → 빈 string.
-    """
+    """Chroma metadata — spec §4.1. scalar only (list → CSV, None → "")."""
     return {
         "date": date, "run_id": run_id,
         "company": a["company"],
@@ -1002,7 +1016,7 @@ def _build_metadata(a: Activity, date: str, run_id: str) -> dict[str, Any]:
     }
 ```
 
-- [ ] **Step 2: 6 unit test 작성 (helper 만, no I/O)**
+- [ ] **Step 2: 6 unit test 작성 (no I/O)**
 
 ```python
 # pipeline/tests/test_atomizer.py
@@ -1029,42 +1043,32 @@ def _sample_activity() -> Activity:
     }
 
 
-# ── doc_id 정책 ────────────────────────────────────────────
-
-
 def test_make_doc_id_determinism():
-    """같은 입력 → 같은 id (byte-level). spec §4.7 verified value."""
+    """spec §4.7 ✓ Verified."""
     id1 = _make_doc_id("2025-09-25", "남웅건설", "철근콘크리트공사", "기초 거푸집 설치")
     id2 = _make_doc_id("2025-09-25", "남웅건설", "철근콘크리트공사", "기초 거푸집 설치")
     assert id1 == id2 == "73ff80435e312c41"
 
 
 def test_make_doc_id_changes():
-    """다른 work_content → 다른 id."""
     id1 = _make_doc_id("2025-09-25", "남웅건설", "철근콘크리트공사", "기초 거푸집 설치")
     id2 = _make_doc_id("2025-09-25", "남웅건설", "철근콘크리트공사", "기초 타설")
     assert id1 != id2
 
 
 def test_make_doc_id_format():
-    """16자 hex."""
     id_ = _make_doc_id("2025-09-25", "ZZZ", "L6", "WORK")
     assert len(id_) == 16
     assert all(c in "0123456789abcdef" for c in id_)
 
 
-# ── metadata 빌더 ───────────────────────────────────────────
-
-
 def test_build_metadata_scalar_only():
-    """모든 값 = Chroma 호환 scalar (str / int / float / bool)."""
     meta = _build_metadata(_sample_activity(), "2025-09-25", "test-run")
     for k, v in meta.items():
         assert isinstance(v, (str, int, float, bool)), f"{k} = {type(v).__name__}"
 
 
 def test_build_metadata_conditions_csv():
-    """list[str] conditions → CSV string."""
     a = _sample_activity()
     a["conditions"] = ["우천", "병행작업"]
     meta = _build_metadata(a, "2025-09-25", "test-run")
@@ -1072,14 +1076,13 @@ def test_build_metadata_conditions_csv():
 
 
 def test_build_metadata_none_to_empty_string():
-    """wa=None → 빈 string (Chroma null 미허용)."""
     a = _sample_activity()
     a["wa"] = None
     meta = _build_metadata(a, "2025-09-25", "test-run")
     assert meta["wa"] == ""
 ```
 
-- [ ] **Step 3: 6 unit test 통과 확인**
+- [ ] **Step 3: 6 unit pass 확인**
 
 ```bash
 pipeline/.venv/bin/python3 -m pytest pipeline/tests/test_atomizer.py -v
@@ -1087,7 +1090,7 @@ pipeline/.venv/bin/python3 -m pytest pipeline/tests/test_atomizer.py -v
 
 Expected: 6 passed.
 
-- [ ] **Step 4: `atomize()` 함수 구현 (I/O 있음)**
+- [ ] **Step 4: `atomize()` 함수 구현**
 
 ```python
 # pipeline/agents/atomizer.py — 추가
@@ -1100,12 +1103,6 @@ async def atomize(
     """mapped → Chroma daily_activities 적재. atomized_ids 반환.
 
     Spec §4.5.
-
-    1. l6_main=None Activity 는 skip.
-    2. doc_id = sha256(date|company|l6_main|work_content)[:16] 결정성 upsert.
-    3. embedding = AzureOpenAI text-embedding-3-small (batch_size=16, timeout, retry).
-    4. Chroma .upsert(ids, embeddings, documents, metadatas).
-    5. PG pg.update_run_atomized_count(run_id, len(ids)).
     """
     valid = [a for a in mapped if a["l6_main"] is not None]
     if not valid:
@@ -1124,19 +1121,16 @@ async def atomize(
     documents = [a["work_content"] for a in valid]
     metadatas = [_build_metadata(a, date, str(run_id)) for a in valid]
 
-    # embedding batch
     embeddings: list[list[float]] = []
     for i in range(0, len(documents), cfg.batch_size):
         chunk = documents[i : i + cfg.batch_size]
         resp = azure.embeddings.create(model=cfg.embedding_model, input=chunk)
         embeddings.extend([d.embedding for d in resp.data])
 
-    # Chroma upsert
     chroma = ChromaClient(host=cfg.chroma_host, port=cfg.chroma_port, ssl=cfg.chroma_ssl)
     coll = chroma.get_or_create_daily_activities()
     coll.upsert(ids=ids, embeddings=embeddings, documents=documents, metadatas=metadatas)
 
-    # PG pipeline_runs UPDATE (Atomizer 가 INSERT 책임 X — 호출자/fixture 가 사전 INSERT)
     pg = PGClient(cfg.postgres_url)
     await pg.connect()
     try:
@@ -1147,14 +1141,14 @@ async def atomize(
     return ids
 ```
 
-- [ ] **Step 5: integration test 작성 (실 Chroma + 실 Azure + 실 PG, `@pytest.mark.slow`)**
+- [ ] **Step 5: integration test 작성 (Task 0.5 의 PGClient 메서드 사용)**
+
+⚠️ **namwong 48 row 의 정합**: spec golden (`mapping-layer.md §9.1`) 은 남웅 **47 row** (R125 비계 제외) 가 (CUB, 철근콘크리트공사) 매핑. 시트4 의 48 row 중 1 row = "비계 설치" 는 hil_required 가능성. 본 test 는 **47 row 만 매핑 가정** 으로 검증.
 
 ```python
 # pipeline/tests/test_atomizer.py — 추가
 import os
 import uuid
-
-import pytest
 
 from pipeline.agents.atomizer import AtomizerConfig, atomize
 from pipeline.agents.parser import parse_daily_report
@@ -1178,18 +1172,14 @@ def cfg() -> AtomizerConfig:
 
 @pytest.fixture
 async def run_row(cfg):
-    """integration test 용 pipeline_runs row 사전 INSERT — spec §4.4."""
+    """integration test 용 pipeline_runs row 사전 INSERT — Task 0.5 메서드 사용."""
     pg = PGClient(cfg.postgres_url)
     await pg.connect()
     try:
         run_id = uuid.uuid4()
-        await pg.conn.execute(
-            "INSERT INTO pipeline_runs (run_id, site_id, date, status) "
-            "VALUES ($1, 'M15X_PH3_IBL', '2025-09-25', 'running')",
-            run_id,
-        )
+        await pg.insert_pipeline_run(run_id, "M15X_PH3_IBL", "2025-09-25")
         yield run_id
-        await pg.conn.execute("DELETE FROM pipeline_runs WHERE run_id=$1", run_id)
+        await pg.delete_pipeline_run(run_id)
     finally:
         await pg.close()
 
@@ -1197,7 +1187,7 @@ async def run_row(cfg):
 @pytest.mark.slow
 @pytest.mark.asyncio
 async def test_atomize_empty():
-    """valid=[] → return []."""
+    """valid=[] → return []. Azure/Chroma/PG 호출 없음."""
     cfg = AtomizerConfig(
         azure_endpoint="", azure_api_key="", azure_api_version="",
         embedding_model="", postgres_url="", chroma_host="", chroma_port=0,
@@ -1211,7 +1201,7 @@ async def test_atomize_empty():
 @pytest.mark.slow
 @pytest.mark.asyncio
 async def test_atomize_skip_unmapped(cfg):
-    """l6_main=None Activity → skip (Chroma 적재 X)."""
+    """l6_main=None Activity → skip (Chroma 적재 X). 통과 = atomize 가 빈 valid 면 호출 안 함."""
     parsed = {"report_date": "2025-09-25", "project": "test",
               "bp_summaries": [], "job_allocations": [], "equipment_allocations": [], "activities": []}
     mapped = [{**_sample_activity(), "l6_main": None}]
@@ -1221,24 +1211,27 @@ async def test_atomize_skip_unmapped(cfg):
 
 @pytest.mark.slow
 @pytest.mark.asyncio
-async def test_atomize_namwong_48(cfg, run_row):
-    """9/25 남웅 48행 → Chroma 적재. assigned_workers 88 일관.
+async def test_atomize_namwong_47(cfg, run_row):
+    """9/25 남웅 47 row (비계 제외) → Chroma 적재. assigned_workers=88 일관.
 
-    실 데이터 reproduce: spec §1.2 시뮬 결과.
+    실 데이터 reproduce: spec §1.2 시뮬 + golden 79건 mapping-layer §9.1.
     """
     from pipeline.agents.mapper import _prorate_mh
 
     xlsx_path = "/Users/kyungseoplee/Project Agent/CPIA/docs/sample/통합작업일보_M15X Ph-3 IBL PJT 작업일보_20250925.xlsx"
     parsed = parse_daily_report(xlsx_path)
 
-    # 남웅 48 row 만 추출 + 단일 l6 매핑 가정 (실 mapper 호출 생략, golden 동일)
+    # 남웅 48 row 중 비계 제외 = 47 row
+    namwong_raw = [a for a in parsed["activities"] if a["company"] == "남웅건설"]
+    assert len(namwong_raw) == 48, f"남웅 행 수: {len(namwong_raw)} (예상 48)"
     namwong = [
         {**a, "wa": "CUB", "l6_main": "철근콘크리트공사",
          "mapping_conf": 0.82, "mapping_source": "auto_bp_single",
          "requires_review": False}
-        for a in parsed["activities"] if a["company"] == "남웅건설"
+        for a in namwong_raw
+        if "비계" not in a["work_content"]  # 비계 1 row 제외 (golden)
     ]
-    assert len(namwong) == 48
+    assert len(namwong) == 47, f"비계 제외 후: {len(namwong)} (예상 47)"
 
     # _prorate_mh 적용
     pg = PGClient(cfg.postgres_url)
@@ -1248,37 +1241,34 @@ async def test_atomize_namwong_48(cfg, run_row):
     finally:
         await pg.close()
 
-    # 모든 Activity assigned_workers = 88
     assert all(a["assigned_workers"] == 88.0 for a in namwong)
 
-    # Atomizer 호출
     ids = await atomize(namwong, parsed, run_row, cfg)
-    assert len(ids) == 48
+    assert len(ids) == 47
 
-    # Chroma 검증: 적재 row 수
     chroma = ChromaClient(host=cfg.chroma_host, port=cfg.chroma_port, ssl=cfg.chroma_ssl)
     coll = chroma.get_or_create_daily_activities()
     rows = coll.get(ids=ids, include=["metadatas"])
-    assert len(rows["ids"]) == 48
+    assert len(rows["ids"]) == 47
     assert all(m["assigned_workers"] == 88.0 for m in rows["metadatas"])
 
 
 @pytest.mark.slow
 @pytest.mark.asyncio
 async def test_atomize_upsert_idempotent(cfg, run_row):
-    """같은 작업일보 2회 호출 → Chroma row 수 같음 (upsert dedup)."""
+    """같은 (date, company, l6, work) 2회 호출 → Chroma row 수 같음 (upsert dedup)."""
     parsed = {"report_date": "2025-09-25", "project": "test",
               "bp_summaries": [], "job_allocations": [], "equipment_allocations": [], "activities": []}
     mapped = [_sample_activity()]
     ids1 = await atomize(mapped, parsed, run_row, cfg)
     ids2 = await atomize(mapped, parsed, run_row, cfg)
-    assert ids1 == ids2  # 같은 doc_id
+    assert ids1 == ids2
 
 
 @pytest.mark.slow
 @pytest.mark.asyncio
 async def test_atomize_missing_run_raises(cfg):
-    """fixture 없이 호출 → RuntimeError (pipeline_runs 미존재)."""
+    """fixture 없이 호출 → RuntimeError."""
     parsed = {"report_date": "2025-09-25", "project": "test",
               "bp_summaries": [], "job_allocations": [], "equipment_allocations": [], "activities": []}
     mapped = [_sample_activity()]
@@ -1287,13 +1277,13 @@ async def test_atomize_missing_run_raises(cfg):
         await atomize(mapped, parsed, fake_id, cfg)
 ```
 
-- [ ] **Step 6: integration test 통과 확인**
+- [ ] **Step 6: integration test 통과**
 
 ```bash
 pipeline/.venv/bin/python3 -m pytest pipeline/tests/test_atomizer.py -v -m slow 2>&1 | tail -30
 ```
 
-Expected: 5 passed (empty / skip_unmapped / namwong_48 / upsert / missing_run).
+Expected: 5 passed (empty / skip_unmapped / namwong_47 / upsert / missing_run).
 
 - [ ] **Step 7: Commit**
 
@@ -1303,18 +1293,14 @@ git commit -m "atomizer: mapped → Chroma daily_activities 적재 (LLM 없음, 
 
 Spec §4 (결정 #7+#8+#9+#13).
 
-- AtomizerConfig: Azure + Chroma + PG + timeout/retry/embedding_dim
-- _make_doc_id: sha256(date|company|l6_main|work_content)[:16] 결정성
-- _build_metadata: 11 메타 키 (mapping_conf/worker_source 보존)
-- atomize(): l6_main=None skip → embed batch (16) → Chroma upsert → PG count UPDATE
-- atomized_ids 반환
-
 테스트:
 - 6 unit (helper 만, no I/O)
 - 5 integration (실 Chroma + Azure + PG, @pytest.mark.slow)
-  - test_atomize_namwong_48: 9/25 실 데이터 48 row + assigned_workers=88 일관
+  - test_atomize_namwong_47: 9/25 실 데이터 47 row (비계 제외, golden 부합) + assigned_workers=88
   - test_atomize_upsert_idempotent: 같은 doc_id 재호출 dedup
   - test_atomize_missing_run_raises: pipeline_runs 미존재 → RuntimeError
+
+fixture 가 PGClient.insert_pipeline_run / delete_pipeline_run 사용 (raw SQL X).
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ```
@@ -1324,12 +1310,12 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ### Task 5: graph.py mapper_node + atomizer_node + E2E 회귀
 
 **Files:**
-- Modify: `pipeline/graph.py` (빈 파일 → mapper_node + atomizer_node + StateGraph)
+- Modify: `pipeline/graph.py` (빈 파일 → 두 노드 + StateGraph)
 - Create: `pipeline/tests/test_graph_e2e.py`
 
-**의도:** mapper_node 가 `map_activity()` + `_prorate_mh()` 호출 + atomizer_node 가 `atomize()` 호출. LangGraph StateGraph 두 노드 연결. interrupt 없음 (graph.py 통합 spec 차후).
+**의존**: Task 3 + Task 4.
 
-- [ ] **Step 1: graph.py 작성**
+- [ ] **Step 1: graph.py 작성 (inner async def — closure 패턴)**
 
 ```python
 # pipeline/graph.py
@@ -1363,13 +1349,11 @@ async def mapper_node(state: CPIAState, cfg: GraphConfig) -> dict:
     """mapper_node — map_activity (각 Activity) + _prorate_mh (batch 분배)."""
     parsed: ParsedDailyReport = state["parsed"]
 
-    # 1. 각 Activity 매핑
     mapped: list[Activity] = []
     for activity in parsed["activities"]:
         result = await map_activity(activity, parsed_report=parsed, cfg=cfg.mapper)
         mapped.append(result)
 
-    # 2. _prorate_mh — (company, l6_main) 단위 분배
     pg = PGClient(cfg.mapper.postgres_url)
     await pg.connect()
     try:
@@ -1392,21 +1376,26 @@ async def atomizer_node(state: CPIAState, cfg: GraphConfig) -> dict:
 
 def build_graph(cfg: GraphConfig):
     """LangGraph StateGraph — Phase 1 (mapper + atomizer 만).
-
-    추후 collector → parser → mapper → [interrupt:hil_1] → atomizer →
-    forecaster → [interrupt:hil_2] → optimizer → reporter 전체 그래프는
-    graph.py 통합 spec 에서.
+    
+    inner async def 로 cfg 캡처 — lambda 회피 (reviewer C3 권고).
     """
     graph = StateGraph(CPIAState)
-    graph.add_node("mapper", lambda s: mapper_node(s, cfg))
-    graph.add_node("atomizer", lambda s: atomizer_node(s, cfg))
+
+    async def _mapper(state: CPIAState) -> dict:
+        return await mapper_node(state, cfg)
+
+    async def _atomizer(state: CPIAState) -> dict:
+        return await atomizer_node(state, cfg)
+
+    graph.add_node("mapper", _mapper)
+    graph.add_node("atomizer", _atomizer)
     graph.add_edge(START, "mapper")
     graph.add_edge("mapper", "atomizer")
     graph.add_edge("atomizer", END)
     return graph.compile()
 ```
 
-- [ ] **Step 2: E2E test 작성**
+- [ ] **Step 2: E2E test 작성 (wbs_master 사전조건 fixture + LLM timeout)**
 
 ```python
 # pipeline/tests/test_graph_e2e.py
@@ -1420,6 +1409,7 @@ import pytest
 from pipeline.agents.atomizer import AtomizerConfig
 from pipeline.agents.mapper import MapperConfig
 from pipeline.agents.parser import parse_daily_report
+from pipeline.chroma_client import ChromaClient
 from pipeline.db import PGClient
 from pipeline.graph import GraphConfig, build_graph
 
@@ -1454,39 +1444,59 @@ def cfg() -> GraphConfig:
 
 
 @pytest.fixture
+def wbs_master_ready(cfg):
+    """사전조건: wbs_master 컬렉션에 충분한 row 적재되어 있는지 검증.
+    
+    Reviewer C2 — mapper_node 의 LLM 호출이 wbs_master query 결과 의존.
+    누락 시 BP filter fallback → 정확도 폭락. PoC 단계 ~100 row 적재 가정.
+    """
+    chroma = ChromaClient(
+        host=cfg.atomizer.chroma_host,
+        port=cfg.atomizer.chroma_port,
+        ssl=cfg.atomizer.chroma_ssl,
+    )
+    coll = chroma.get_or_create_wbs_master()
+    count = coll.count()
+    assert count >= 100, (
+        f"wbs_master Chroma 컬렉션 row 수: {count} < 100. "
+        f"`scripts/load_master_list.py` 실행 필요."
+    )
+
+
+@pytest.fixture
 async def run_row(cfg):
     pg = PGClient(cfg.atomizer.postgres_url)
     await pg.connect()
     try:
         run_id = uuid.uuid4()
-        await pg.conn.execute(
-            "INSERT INTO pipeline_runs (run_id, site_id, date, status) "
-            "VALUES ($1, 'M15X_PH3_IBL', '2025-09-25', 'running')",
-            run_id,
-        )
+        await pg.insert_pipeline_run(run_id, "M15X_PH3_IBL", "2025-09-25")
         yield run_id
-        await pg.conn.execute("DELETE FROM pipeline_runs WHERE run_id=$1", run_id)
+        await pg.delete_pipeline_run(run_id)
     finally:
         await pg.close()
 
 
 @pytest.mark.slow
 @pytest.mark.golden
+@pytest.mark.timeout(600)  # 10분 — 실 mapper LLM 호출 47회 × ~5초 = 240초 안전 마진
 @pytest.mark.asyncio
-async def test_graph_e2e_namwong_48(cfg, run_row):
-    """E2E: 9/25 작업일보 (남웅 48 row 만) → mapper → atomizer → Chroma 적재.
+async def test_graph_e2e_namwong_47(cfg, wbs_master_ready, run_row):
+    """E2E: 9/25 작업일보 (남웅 47 row 만, 비계 제외) → mapper → atomizer → Chroma 적재.
 
-    실 mapper LLM 호출 (Azure gpt-5.1) + Chroma 임베딩.
-    비용 ~$0.02, 시간 ~3분.
+    실 mapper LLM 호출 (Azure gpt-5.1) 47회 + Chroma 임베딩.
+    비용 ~$0.02, 시간 ~4~8분.
     """
     xlsx_path = "/Users/kyungseoplee/Project Agent/CPIA/docs/sample/통합작업일보_M15X Ph-3 IBL PJT 작업일보_20250925.xlsx"
     parsed = parse_daily_report(xlsx_path)
-    # 남웅 48 row 만 필터 (전체 1193 호출 비용 절감)
-    parsed_filtered = {
-        **parsed,
-        "activities": [a for a in parsed["activities"] if a["company"] == "남웅건설"],
-    }
-    assert len(parsed_filtered["activities"]) == 48
+
+    # 남웅 48 row 중 비계 제외 → 47 row (golden mapping-layer §9.1)
+    namwong_acts = [
+        a for a in parsed["activities"]
+        if a["company"] == "남웅건설" and "비계" not in a["work_content"]
+    ]
+    assert len(namwong_acts) == 47
+
+    parsed_filtered = {**parsed, "activities": namwong_acts}
 
     state = {
         "run_id": str(run_row), "date": "2025-09-25",
@@ -1500,32 +1510,33 @@ async def test_graph_e2e_namwong_48(cfg, run_row):
     graph = build_graph(cfg)
     final = await graph.ainvoke(state)
 
-    # mapper 통과 — 모든 Activity 의 l6_main 채워짐
-    assert len(final["mapped"]) == 48
+    # mapper 통과 — 모든 Activity l6_main 채워짐
+    assert len(final["mapped"]) == 47
     assert all(a["l6_main"] == "철근콘크리트공사" for a in final["mapped"])
-    # _prorate_mh 적용 — assigned_workers 88
+    # _prorate_mh — assigned_workers 88
     assert all(a["assigned_workers"] == 88.0 for a in final["mapped"])
     # atomizer 통과
-    assert len(final["atomized_ids"]) == 48
+    assert len(final["atomized_ids"]) == 47
 ```
 
-- [ ] **Step 3: E2E test 실행 (실 Azure 호출 — 5분 ~ $0.02)**
+- [ ] **Step 3: E2E test 실행 (실 Azure 호출, ~4~8분, ~$0.02)**
 
 ```bash
-pipeline/.venv/bin/python3 -m pytest pipeline/tests/test_graph_e2e.py -v -m slow 2>&1 | tail -20
+pipeline/.venv/bin/python3 -m pytest pipeline/tests/test_graph_e2e.py -v -m slow --timeout=600 2>&1 | tail -30
 ```
 
-Expected: 1 passed. mapper_node 가 48 Activity 모두 (CUB, 철근콘크리트공사) 매핑 + assigned_workers=88 + atomizer 48 row 적재.
+Expected: 1 passed.
 
-- [ ] **Step 4: 전체 회귀 (Parser + Mapper golden + 본 plan 새 테스트)**
+- [ ] **Step 4: 전체 회귀**
 
 ```bash
-pipeline/.venv/bin/python3 -m pytest pipeline/tests/ -v 2>&1 | tail -40
+pipeline/.venv/bin/python3 -m pytest pipeline/tests/ -v --tb=short 2>&1 | tail -40
+pipeline/.venv/bin/python3 -m pytest pipeline/tests/ -v -m slow --tb=short --timeout=600 2>&1 | tail -40
 ```
 
 Expected:
-- unit: 6 atomizer + 5 prorate + 22 parser + ... 모두 pass
-- slow (option): test_graph_e2e + test_prorate_sebo + test_atomize_namwong + golden 79 모두 pass
+- unit: atomizer 6 + prorate 5 + parser 22 + ... 모두 pass
+- slow: golden 79 + db 7 + prorate integration 1 + atomizer 5 + e2e 1 모두 pass
 
 - [ ] **Step 5: Commit**
 
@@ -1533,20 +1544,20 @@ Expected:
 git add pipeline/graph.py pipeline/tests/test_graph_e2e.py
 git commit -m "graph: Phase 1 StateGraph — mapper_node + atomizer_node 연결
 
-Spec §1 (Task 5) — interrupt 없이 단순 선형 그래프.
+Spec §1 (Task 5).
 
 - GraphConfig: MapperConfig + AtomizerConfig 묶음
-- mapper_node: map_activity (각 Activity) + _prorate_mh (batch 분배)
-- atomizer_node: atomize (Chroma daily_activities 적재)
+- mapper_node: map_activity + _prorate_mh
+- atomizer_node: atomize (Chroma 적재)
+- inner async def 로 cfg 캡처 (lambda 회피, reviewer C3)
 - StateGraph: START → mapper → atomizer → END
 
-E2E test_graph_e2e_namwong_48 (@pytest.mark.slow @golden):
-- 9/25 남웅 48 row → mapper LLM 호출 (Azure gpt-5.1) → _prorate_mh
-  → atomize → Chroma 48 row 적재
-- 모든 Activity 의 l6_main='철근콘크리트공사', assigned_workers=88.0
+E2E test_graph_e2e_namwong_47:
+- wbs_master_ready fixture (사전조건: count >= 100, reviewer C2)
+- @pytest.mark.timeout(600) — 실 Azure LLM 47회 호출 안전 마진
+- 9/25 남웅 47 row (비계 제외, golden 부합) → mapped 47 + assigned_workers=88 일관 + Chroma 47 row
 
-Reporter/Forecaster/Optimizer + interrupt 2개 통합은 graph.py 통합 spec
-(차후 brainstorming) 에서.
+Reporter/Forecaster/Optimizer + interrupt 2개 통합은 graph.py 통합 spec 차후.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ```
@@ -1560,12 +1571,12 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ```bash
 cd "/Users/kyungseoplee/Project Agent/CPIA"
 pipeline/.venv/bin/python3 -m pytest pipeline/tests/ -v --tb=short 2>&1 | tail -40
-pipeline/.venv/bin/python3 -m pytest pipeline/tests/ -v -m slow --tb=short 2>&1 | tail -40
+pipeline/.venv/bin/python3 -m pytest pipeline/tests/ -v -m slow --tb=short --timeout=600 2>&1 | tail -40
 ```
 
 Expected:
 - unit: 모두 pass
-- slow: golden 79 + atomizer integration + prorate integration + db integration + graph e2e 모두 pass
+- slow: golden 79 + db 7 + prorate 1 + atomizer 5 + e2e 1 모두 pass
 
 - [ ] **PR 작성**
 
@@ -1578,17 +1589,19 @@ Spec `docs/superpowers/specs/2026-05-16-cpia-downstream-agents-design.md` 의 Ph
 
 핵심 결정 11~13 (옵션 X / PGClient 확장 / fixture INSERT) 반영.
 
-- `_prorate_mh()`: (company, l6_main) 단위 BP사 총 인원 분배 (candidate Σplan_mh 비율)
+- `_prorate_mh()`: (company, l6_main) 단위 BP사 총 인원 분배
 - `atomizer.py`: LLM 없음, Chroma daily_activities 적재 (결정성 doc_id upsert)
-- `graph.py`: mapper_node + atomizer_node 선형 그래프
+- `graph.py`: mapper_node + atomizer_node 선형 그래프 (inner async def)
 - postgres 3곳 동기화 (init.sql + migration + postgres.md)
-- PGClient 신규 메서드 2개
+- PGClient 신규 4 메서드 (`_pool` 패턴)
 
 ## Test plan
 
-- [ ] unit: 6 atomizer + 5 prorate + 22 parser 회귀 pass
-- [ ] slow integration: db (6) + prorate (1) + atomizer (5) + graph e2e (1) + golden 79 pass
-- [ ] 실 9/25 작업일보 → 남웅 48 row → Chroma 적재 + assigned_workers=88 일관
+- [ ] unit: atomizer 6 + prorate 5 + parser 22 회귀 pass
+- [ ] slow integration: db 7 + prorate 1 + atomizer 5 + graph e2e 1 + golden 79 pass
+- [ ] 실 9/25 작업일보 → 남웅 47 row (비계 제외) → Chroma 적재 + assigned_workers=88 일관
+
+**B 트랙 알림**: 다음 `docker-compose down -v && up` 시 forecasts schema 갱신됨 (옵션 X (company, l6_main) grain 정정).
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 EOF

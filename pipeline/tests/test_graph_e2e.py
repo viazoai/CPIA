@@ -12,6 +12,7 @@ import pytest
 import pytest_asyncio
 
 from pipeline.agents.atomizer import AtomizerConfig
+from pipeline.agents.forecaster import ForecasterConfig
 from pipeline.agents.mapper import MapperConfig
 from pipeline.agents.parser import parse_daily_report
 from pipeline.chroma_client import ChromaClient
@@ -53,6 +54,17 @@ def cfg() -> GraphConfig:
             azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
             azure_api_key=os.environ["AZURE_OPENAI_API_KEY"],
             azure_api_version=os.environ["AZURE_OPENAI_API_VERSION"],
+            embedding_model=os.environ["EMBEDDING_MODEL"],
+            postgres_url=common_pg,
+            chroma_host=common_chroma_host,
+            chroma_port=common_chroma_port,
+            chroma_ssl=common_chroma_ssl,
+        ),
+        forecaster=ForecasterConfig(
+            azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
+            azure_api_key=os.environ["AZURE_OPENAI_API_KEY"],
+            azure_api_version=os.environ["AZURE_OPENAI_API_VERSION"],
+            llm_model=os.environ["LLM_MODEL"],
             embedding_model=os.environ["EMBEDDING_MODEL"],
             postgres_url=common_pg,
             chroma_host=common_chroma_host,
@@ -147,3 +159,13 @@ async def test_graph_e2e_namwong_47(cfg, wbs_master_ready, run_row):
     )
     # Task 4 dedup 결과 = 11 unique doc_id (남웅 47 row → 11 unique work_content)
     assert len(final["atomized_ids"]) == 11, f"atomized_ids 수: {len(final['atomized_ids'])} (예상 11)"
+
+    # Task 9 (forecaster_node) 후 forecast row 1건 생성 (남웅 = 1 (company, l6_main))
+    assert len(final["forecast"]) == 1, f"forecast 수: {len(final['forecast'])}"
+    forecast_row = final["forecast"][0]
+    assert forecast_row["company"] == "남웅건설"
+    assert forecast_row["l6_main"] == "철근콘크리트공사"
+    assert forecast_row["today_assigned_workers"] == pytest.approx(88.0)
+    assert forecast_row["assessment"] in {"정상", "주의", "이상", None}
+    assert forecast_row["risk_level"] in {"정상", "주의", "이상", None}
+    assert forecast_row["schedule_state"] in {"early", "on_schedule", "post_due", "unknown"}

@@ -1,101 +1,76 @@
-import Image from "next/image";
+import { promises as fs } from "fs";
+import path from "path";
+import SiteCard, { type Site } from "./components/SiteCard";
 
-export default function Home() {
+async function loadMockSites(): Promise<Site[]> {
+  const p = path.join(process.cwd(), "..", "data", "mock_sites.json");
+  const text = await fs.readFile(p, "utf-8");
+  return JSON.parse(text) as Site[];
+}
+
+export default async function Page() {
+  const sites = await loadMockSites();
+
+  const summary = {
+    total: sites.length,
+    risk: sites.filter((s) => s.status === "risk").length,
+    caution: sites.filter((s) => s.status === "caution").length,
+    normal: sites.filter((s) => s.status === "normal").length,
+    hoursNow: sites.reduce((a, s) => a + s.monthly_hours_now, 0),
+    hoursTarget: sites.reduce((a, s) => a + s.monthly_hours_target, 0),
+    fteSave: sites.reduce((a, s) => a + s.fte_save, 0),
+  };
+
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="https://nextjs.org/icons/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
-
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="https://nextjs.org/icons/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+    <main className="min-h-screen bg-slate-50">
+      <header className="border-b border-slate-200 bg-white">
+        <div className="mx-auto max-w-7xl px-6 py-6">
+          <p className="text-xs font-medium uppercase tracking-wider text-indigo-600">CPIA · Layer 1</p>
+          <h1 className="mt-1 text-2xl font-semibold text-slate-900">Hi-tech 사업부 현장 현황</h1>
+          <p className="mt-1 text-sm text-slate-500">
+            6 개 현장 · 작업일보 → AI 파이프라인 → 생산성 진단 · 경영진 액션
+          </p>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
+      </header>
+
+      <section className="border-b border-slate-200 bg-white">
+        <div className="mx-auto grid max-w-7xl grid-cols-2 gap-4 px-6 py-5 md:grid-cols-4">
+          <Kpi label="전체 현장" value={`${summary.total}`} sub="실 PoC 1 + mock 5" />
+          <Kpi
+            label="상태 분포"
+            value={`${summary.risk} / ${summary.caution} / ${summary.normal}`}
+            sub="위험 / 주의 / 정상"
           />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
+          <Kpi
+            label="월간 Middle Office"
+            value={`${summary.hoursNow.toLocaleString()}h`}
+            sub={`→ ${summary.hoursTarget.toLocaleString()}h (목표)`}
           />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
+          <Kpi
+            label="재배치 FTE"
+            value={`${summary.fteSave.toFixed(1)} 명`}
+            sub="신규 충원 없이 Front 전환"
           />
-          Go to nextjs.org →
-        </a>
-      </footer>
+        </div>
+      </section>
+
+      <section className="mx-auto max-w-7xl px-6 py-8">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {sites.map((s) => (
+            <SiteCard key={s.site_id} site={s} />
+          ))}
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function Kpi({ label, value, sub }: { label: string; value: string; sub: string }) {
+  return (
+    <div>
+      <p className="text-xs text-slate-500">{label}</p>
+      <p className="mt-1 text-xl font-semibold text-slate-900">{value}</p>
+      <p className="mt-0.5 text-[11px] text-slate-400">{sub}</p>
     </div>
   );
 }

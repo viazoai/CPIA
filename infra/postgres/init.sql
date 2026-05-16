@@ -45,34 +45,55 @@ CREATE INDEX IF NOT EXISTS idx_daily_reports_date ON daily_reports (report_date 
 
 -- ---------------------------------------------------------------------------
 -- 3. forecasts — Forecaster 산출물 ((company, l6_main) grain 진단)
+--    spec §3.1 정합 (2026-05-16 마이그레이션 적용)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS forecasts (
-    id                       BIGSERIAL PRIMARY KEY,
-    run_id                   UUID NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
-    company                  TEXT NOT NULL,
-    l6_main                  TEXT NOT NULL,
+    id BIGSERIAL PRIMARY KEY,
+    run_id UUID NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
+    company TEXT NOT NULL,
+    l6_main TEXT NOT NULL,
 
-    today_qty_by_unit        JSONB,
-    today_assigned_workers   NUMERIC,
+    -- 오늘 실측 (그 (company, l6_main) 단위 집계)
+    today_qty_by_unit JSONB,                  -- {"m": 80.0, "ea": 12.0}
+    today_assigned_workers NUMERIC,
+    today_productivity NUMERIC,               -- by main_unit (max qty)
 
-    plan_total_qty_by_unit   JSONB,
-    plan_mh_sum              NUMERIC,
+    -- Plan 기준 (PG activity_master Σ)
+    plan_total_qty_by_unit JSONB,
+    plan_mh_sum NUMERIC,
+    plan_start DATE,                          -- MIN(activity_master.plan_start)
+    plan_finish DATE,                         -- MAX(activity_master.plan_finish)
+    plan_mh_per_day NUMERIC,                  -- plan_mh_sum / (plan_finish - plan_start + 1)
 
-    rag_n_similar            INT,
-    similar_cases            JSONB,
+    -- 누적 mh window 비교
+    schedule_state TEXT,                      -- "early|on_schedule|post_due|unknown"
+    window_start DATE,
+    window_days INT,
+    expected_in_window_mh NUMERIC,
+    actual_in_window_mh NUMERIC,
+    mh_gap NUMERIC,                           -- 양수 = 부족
+    delay_days NUMERIC,                       -- mh_gap / plan_mh_per_day
 
-    assessment               TEXT,
-    reasoning                TEXT,
-    expected_completion      DATE,
-    delay_days               INT,
-    risk_level               TEXT,
+    -- RAG
+    rag_n_similar INT,
+    similar_cases JSONB,                      -- top-5 brief (productivity, conditions list)
 
-    created_at               TIMESTAMPTZ NOT NULL DEFAULT now()
+    -- 진단 (assessment 코드 ④, reasoning + recovery_likelihood LLM ⑥)
+    assessment TEXT,                          -- "정상|주의|이상" or NULL (cold start)
+    reasoning TEXT,
+    recovery_likelihood NUMERIC,              -- 0.0~1.0 or NULL
+
+    -- 종합 (코드 ⑦ hybrid)
+    expected_completion DATE,                 -- PoC: = plan_finish 그대로. Phase 2 추세 외삽.
+    risk_level TEXT,                          -- "정상|주의|이상" or NULL
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS idx_forecasts_run         ON forecasts (run_id);
 CREATE INDEX IF NOT EXISTS idx_forecasts_company_l6  ON forecasts (company, l6_main);
 CREATE INDEX IF NOT EXISTS idx_forecasts_risk        ON forecasts (risk_level) WHERE risk_level <> '정상';
+CREATE INDEX IF NOT EXISTS idx_forecasts_state       ON forecasts (schedule_state);
 
 -- ---------------------------------------------------------------------------
 -- 4. optimizer_advice — Optimizer 산출물 (맥락 기반 조언)

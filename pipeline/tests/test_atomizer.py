@@ -6,6 +6,7 @@ import os
 import uuid
 
 import pytest
+import pytest_asyncio
 
 from pipeline.agents.atomizer import (
     AtomizerConfig,
@@ -111,17 +112,19 @@ def cfg() -> AtomizerConfig:
     )
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def run_row(cfg):
     from pipeline.db import PGClient
 
     pg = PGClient(cfg.postgres_url)
     await pg.connect()
+    run_id = uuid.uuid4()
     try:
-        run_id = uuid.uuid4()
         await pg.insert_pipeline_run(run_id, "M15X_PH3_IBL", "2025-09-25")
-        yield run_id
-        await pg.delete_pipeline_run(run_id)
+        try:
+            yield run_id
+        finally:
+            await pg.delete_pipeline_run(run_id)
     finally:
         await pg.close()
 
@@ -227,7 +230,9 @@ async def test_atomize_namwong_47(cfg, run_row):
 
 @pytest.mark.slow
 async def test_atomize_upsert_idempotent(cfg, run_row):
-    """같은 doc_id 2회 → row 수 같음 (upsert dedup)."""
+    """같은 doc_id 2회 호출 → Chroma row 수 1 유지 (upsert dedup 동작 검증)."""
+    from pipeline.chroma_client import ChromaClient
+
     parsed = {
         "report_date": "2025-09-25",
         "project": "test",
@@ -239,7 +244,14 @@ async def test_atomize_upsert_idempotent(cfg, run_row):
     mapped = [_sample_activity()]
     ids1 = await atomize(mapped, parsed, run_row, cfg)
     ids2 = await atomize(mapped, parsed, run_row, cfg)
-    assert ids1 == ids2
+    assert ids1 == ids2  # _make_doc_id 결정성 (sha256 pure hash)
+
+    # 실제 Chroma 적재 row 수 = 1 — 두 번째 atomize() 가 새 row 를 추가하지 않고
+    # 기존 row 를 덮어쓰는 (upsert dedup) 동작을 직접 검증.
+    chroma = ChromaClient(host=cfg.chroma_host, port=cfg.chroma_port, ssl=cfg.chroma_ssl)
+    coll = chroma.get_or_create_daily_activities()
+    rows = coll.get(ids=ids1, include=[])
+    assert len(rows["ids"]) == 1, f"Chroma upsert dedup 깨짐: {len(rows['ids'])} rows"
 
 
 @pytest.mark.slow

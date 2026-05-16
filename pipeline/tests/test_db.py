@@ -128,3 +128,25 @@ async def test_update_run_atomized_count_missing_row_raises(pg: PGClient):
     fake_id = uuid.uuid4()
     with pytest.raises(RuntimeError, match="pipeline_runs.*미존재"):
         await pg.update_run_atomized_count(fake_id, 48)
+
+
+# ── assert_pipeline_run_exists ────────────────────────────────────
+
+
+@pytest.mark.slow
+async def test_assert_pipeline_run_exists_happy(pg: PGClient):
+    """pipeline_runs row 사전 INSERT -> 예외 없이 반환."""
+    run_id = uuid.uuid4()
+    await pg.insert_pipeline_run(run_id, "M15X_PH3_IBL", "2025-09-25")
+    try:
+        await pg.assert_pipeline_run_exists(run_id)
+    finally:
+        await pg.delete_pipeline_run(run_id)
+
+
+@pytest.mark.slow
+async def test_assert_pipeline_run_exists_missing_raises(pg: PGClient):
+    """pipeline_runs row 미존재 -> RuntimeError (Atomizer fail-fast 보장)."""
+    fake_id = uuid.uuid4()
+    with pytest.raises(RuntimeError, match="pipeline_runs.*미존재"):
+        await pg.assert_pipeline_run_exists(fake_id)

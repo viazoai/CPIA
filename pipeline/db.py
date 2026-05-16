@@ -124,6 +124,24 @@ class PGClient:
         async with self._pool.acquire() as conn:
             await conn.execute("DELETE FROM pipeline_runs WHERE run_id=$1", run_id)
 
+    async def assert_pipeline_run_exists(self, run_id: uuid.UUID) -> None:
+        """Atomizer fail-fast 검증 — pipeline_runs row 미존재 시 즉시 RuntimeError.
+
+        Spec 4.5 — Azure embedding + Chroma upsert 전에 row 존재 확인하여
+        cost / orphan 방지. update_run_atomized_count 의 0-row RuntimeError 와
+        동일 메시지 사용.
+        """
+        assert self._pool is not None, "connect() 미호출"
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT 1 FROM pipeline_runs WHERE run_id=$1 LIMIT 1",
+                run_id,
+            )
+        if row is None:
+            raise RuntimeError(
+                f"pipeline_runs(run_id={run_id}) 미존재 — fixture 설정 확인",
+            )
+
     async def update_run_atomized_count(
         self,
         run_id: uuid.UUID,

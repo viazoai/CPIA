@@ -176,41 +176,75 @@ CREATE INDEX idx_reports_run ON daily_reports (run_id);
 
 ```sql
 CREATE TABLE forecasts (
-    id                       BIGSERIAL PRIMARY KEY,
-    run_id                   UUID NOT NULL REFERENCES pipeline_runs(run_id),
-    company                  TEXT NOT NULL,             -- '남웅건설'
-    l6_main                  TEXT NOT NULL,             -- '철근콘크리트공사' (Master List l6_main)
+    id BIGSERIAL PRIMARY KEY,
+    run_id UUID NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
+    company TEXT NOT NULL,                    -- '남웅건설'
+    l6_main TEXT NOT NULL,                    -- '철근콘크리트공사'
 
-    -- 오늘 실측 (단위가 섞이므로 JSONB by_unit)
-    today_qty_by_unit        JSONB,                     -- {"M2": 120.0, "Ton": 3.4}
-    today_assigned_workers   NUMERIC,                   -- MH 분배 결과
+    -- 오늘 실측 (그 (company, l6_main) 단위 집계)
+    today_qty_by_unit JSONB,                  -- {"M2": 120.0, "Ton": 3.4}
+    today_assigned_workers NUMERIC,           -- MH 분배 결과
+    today_productivity NUMERIC,               -- by main_unit (max qty)
 
-    -- Plan 기준 (단위 혼합 → JSONB, MH 는 합산)
-    plan_total_qty_by_unit   JSONB,                     -- {"M2": 500.0, "Ton": 12.0}
-    plan_mh_sum              NUMERIC,                   -- = SUM(plan_mh_rev2)
+    -- Plan 기준 (PG activity_master Σ)
+    plan_total_qty_by_unit JSONB,             -- {"M2": 500.0, "Ton": 12.0}
+    plan_mh_sum NUMERIC,                      -- = SUM(plan_mh_rev2)
+    plan_start DATE,                          -- MIN(activity_master.plan_start)
+    plan_finish DATE,                         -- MAX(activity_master.plan_finish)
+    plan_mh_per_day NUMERIC,                  -- plan_mh_sum / (plan_finish - plan_start + 1)
+
+    -- 누적 mh window 비교 (delay_days 산식 = mh_gap / plan_mh_per_day)
+    schedule_state TEXT,                      -- 'early' | 'on_schedule' | 'post_due' | 'unknown'
+    window_start DATE,
+    window_days INT,
+    expected_in_window_mh NUMERIC,
+    actual_in_window_mh NUMERIC,
+    mh_gap NUMERIC,                           -- 양수 = 부족
+    delay_days NUMERIC,                       -- mh_gap / plan_mh_per_day
 
     -- RAG 이력 기준
-    rag_n_similar            INT,                       -- 0~5 (cold start 시 0~2)
-    similar_cases            JSONB,                     -- [{date, productivity, conditions, ...}, ...]
+    rag_n_similar INT,                        -- 0~5 (cold start 시 0~2)
+    similar_cases JSONB,                      -- [{date, productivity, conditions, ...}, ...]
 
-    -- LLM 진단
-    assessment               TEXT,                      -- '정상' / '주의' / '이상'
-    reasoning                TEXT,
-    expected_completion      DATE,
-    delay_days               INT,
-    risk_level               TEXT,                      -- '정상' / '주의' / '이상'
+    -- 진단 (assessment 코드 결정성 ④, reasoning + recovery_likelihood LLM ⑥)
+    assessment TEXT,                          -- '정상' | '주의' | '이상' or NULL (cold start)
+    reasoning TEXT,
+    recovery_likelihood NUMERIC,              -- 0.0~1.0 or NULL
 
-    created_at               TIMESTAMPTZ NOT NULL DEFAULT now()
+    -- 종합 (코드 ⑦ hybrid)
+    expected_completion DATE,                 -- PoC: = plan_finish 그대로. Phase 2 추세 외삽.
+    risk_level TEXT,                          -- '정상' | '주의' | '이상' or NULL
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX idx_forecasts_run         ON forecasts (run_id);
 CREATE INDEX idx_forecasts_company_l6  ON forecasts (company, l6_main);
 CREATE INDEX idx_forecasts_risk        ON forecasts (risk_level) WHERE risk_level <> '정상';
+CREATE INDEX idx_forecasts_state       ON forecasts (schedule_state);
 ```
 
 - Grain: `(run_id, company, l6_main)` — downstream-agents spec §8.2 결정. l7_sub 가 아닌 l6_main 으로 올린 이유는 작업일보가 l6 수준에서 보고되기 때문.
 - 단위가 섞이면 (M2/Ton/M3) `today_qty_by_unit` / `plan_total_qty_by_unit` JSONB 로 분리 보관.
 - `similar_cases` JSONB 에 RAG 검색된 5건의 메타 + 짧은 work_content 보존 → Optimizer 도 재사용.
+- **`delay_days` = NUMERIC** (mh window 비교 산식 결과가 분수 가능, INT 캐스팅 X).
+- NOT NULL 은 `run_id`, `company`, `l6_main` 3개만. 나머지는 cold start 대비 NULL 허용.
+
+### 신규 컬럼 의미 (2026-05-16 Forecaster spec 정합)
+
+| 컬럼 | 타입 | 의미 |
+|---|---|---|
+| `today_productivity` | NUMERIC | (company, l6_main) 오늘 생산성 = max qty (main_unit 기준) / today_assigned_workers |
+| `plan_start` | DATE | MIN(activity_master.plan_start) — 해당 (company, l6_main) 의 plan window 시작 |
+| `plan_finish` | DATE | MAX(activity_master.plan_finish) — 해당 (company, l6_main) 의 plan window 끝 |
+| `plan_mh_per_day` | NUMERIC | plan_mh_sum / (plan_finish - plan_start + 1) — 일평균 plan MH |
+| `schedule_state` | TEXT | 'early' (window 전) / 'on_schedule' (window 내) / 'post_due' (window 후) / 'unknown' (plan_start NULL) |
+| `window_start` | DATE | 비교 window 의 시작 (schedule_state 별로 산식 다름, spec §3 참조) |
+| `window_days` | INT | 비교 window 의 일 수 |
+| `expected_in_window_mh` | NUMERIC | window_days × plan_mh_per_day |
+| `actual_in_window_mh` | NUMERIC | window_start ~ today 사이 실 누적 MH |
+| `mh_gap` | NUMERIC | expected_in_window_mh - actual_in_window_mh (양수 = 부족, 음수 = ahead) |
+| `recovery_likelihood` | NUMERIC | 0.0~1.0 — LLM 이 reasoning 과 함께 산출. cold start 시 NULL |
 
 ---
 
@@ -310,3 +344,4 @@ activity_master  ◄── Mapper 가 SELECT / Forecaster 가 plan 값 조회
 |---|---|---|
 | 2026-05-14 | 초안 — brainstorming 결과 통합 (활성 8 테이블 = 협업 spec 7 + `activity_master` 1, `forecasts` 에 Plan/RAG 이중 비교 컬럼 분리, PoC 적재 범위 한정) | A 트랙 |
 | 2026-05-16 | downstream-agents spec §8 적용 — forecasts (company, l6_main) grain 정정 + pipeline_runs.atomized_count + optimizer_advice rename | A 트랙 |
+| 2026-05-16 | Forecaster spec 정합 — forecasts 12 컬럼 추가 (plan_start/finish, plan_mh_per_day, schedule_state, window_*, mh_gap, today_productivity, recovery_likelihood), delay_days INT → NUMERIC | A 트랙 |

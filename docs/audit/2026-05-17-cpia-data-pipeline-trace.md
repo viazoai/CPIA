@@ -746,5 +746,413 @@ print(res)
 - `deep-dive/architecture_overview.md` — 시스템 다이어그램 + 서브시스템 요약
 - `deep-dive/design-intent/INDEX.md` — T1 마스터 인덱스
 - `docs/audit/2026-05-17-cpia-drift-backlog.md` — drift 흡수 + 신규 #N1~#N7
-- `docs/audit/raw/v2-scenario-1-156657ed.md` — 본 cycle 시뮬 1 실 호출 raw
+- `docs/audit/raw/v2-scenario-1-156657ed.md` — 시뮬 1 (남웅 0.45 + 세보/창원 정상) 실 호출 raw
+- `docs/audit/raw/v2-scenario-2-e739277e.md` — 시뮬 2 (남웅 우천 0.8) raw
+- `docs/audit/raw/v2-scenario-3-5a2010a7.md` — 시뮬 3 (남웅 돌관 0.45 ×1.3) raw
+- `docs/audit/raw/v2-scenario-4-b6924645.md` — 시뮬 4 (신규 토목 cold_start) raw
 - `docs/schema/postgres.md` — postgres schema spec (단 init.sql 와 #N2/#N3 mismatch)
+
+---
+
+# 부록 A — 4 시뮬 비교 + 추가 디테일 sample (보강)
+
+본 부록은 사용자 명시 보강 요청 (2026-05-17) 에 따라 시뮬 4 건 모두 실 호출 + 디테일 sample 다수 추가.
+
+## A.1 4 시뮬 결과 비교 표 (PG forecasts + optimizer_advice + daily_reports)
+
+### Forecasts (4 시뮬 × 6 그룹 row)
+
+| sim | run_id | company | l6_main | assessment | risk_level | today_prod | workers | rag_n_similar | conditions | reasoning (요지) |
+|---|---|---|---|---|---|---:|---:|---:|---|---|
+| 1 | 156657ed | 남웅건설 | 철근콘크리트공사 | **이상** | **이상** | 13.93 m3/인 | 88 | 5 | 맑음,장비대기 | 유사 5건 평균 22.8 m3/인 대비 -39% |
+| 1 | 156657ed | 세보엠이씨 | 일반공조설비공사 | 정상 | 정상 | 0.84 m2/인 | 315.6 | 5 | 맑음 | 유사 5건 평균 0.67 m2/인 대비 +25% |
+| 1 | 156657ed | 창원기전 | 전등설비공사 | 정상 | **주의** | 0.29 ea/인 | 60.1 | 0 | 맑음 | 유사 사례 0 (cold_start), Plan fallback 정상 |
+| 2 | e739277e | 남웅건설 | 철근콘크리트공사 | 정상 | **주의** | 24.75 m3/인 | 88 | 1 | 맑음,**우천** | 유사 1건 24.58 m3/인 대비 +1%, 우천 → risk=주의 |
+| 3 | 5a2010a7 | 남웅건설 | 철근콘크리트공사 | 정상 | **주의** | 10.71 m3/인 | 114.4 | 1 | 돌관,맑음 | 유사 1건 24.58 m3/인 대비 -56% **하지만 RAG <3 → Plan fallback → "정상"** |
+| 4 | b6924645 | 신규건설 | 토목공사 | (null) | (null) | 0.00 | 0 | 0 | 맑음 | **cold_start** — 데이터 부족, 판단 보류 |
+
+**핵심 관찰:**
+1. **시뮬 1 남웅**: Forecaster fix 효과 100% 발현. today_prod=13.93 (=31.07×0.45) → delta -39% → "이상" 분류 정상.
+2. **시뮬 3 남웅**: today_prod=10.71 (=baseline × 0.45 / 1.3). RAG delta -56% **인데도 assessment="정상"** — drift #N1 부산물. `classify_assessment` (classify.py:65) 가 `rag_n_similar < 3` 시 Plan fallback 진입 → Plan ratio 0.85+ 라 "정상" 분류. **synthetic_v2 적재 분포 정렬 cycle 후 RAG ≥3 보장 시 "이상" 분류 발현 예상.**
+3. **시뮬 4 cold_start**: 모든 산식 0 propagation + assessment=null + Optimizer 미진입. 신 BP사/공종 등록 시 activity_master + synthetic_v2 적재 cycle 필수.
+
+### Optimizer_advice (4 시뮬 × 4 row)
+
+| sim | company | l6_main | forecast_assessment | diagnosis (요지) | recovery_distribution |
+|---|---|---|---|---|---|
+| 1 | 남웅건설 | 철근콘크리트공사 | **이상** | "장비 대기 반복, 회복 지연 패턴" | {d+1:2, d+5:1, d+6:1, not_recovered:1} |
+| 1 | 창원기전 | 전등설비공사 | 정상 | **cold_start** (sentinel) | {} |
+| 2 | 남웅건설 | 철근콘크리트공사 | 정상 | "정상 범위, 우천 영향 약함" | {d+1:2, d+5:1, d+6:1, not_recovered:1} |
+| 3 | 남웅건설 | 철근콘크리트공사 | 정상 | "정상 범위, 돌관 특이 저하 없음" | {d+1:2, d+5:1, d+6:1, not_recovered:1} |
+| 4 | — | — | — | **Optimizer 미진입** (risky 0 → hil_2_selection=[] → reporter 직행) | — |
+
+**핵심 관찰:**
+- **recovery_distribution 모두 동일** = {d+1:2, d+5:1, d+6:1, not_recovered:1}. 4 시뮬 의 같은 그룹 (남웅 철콘) Chroma 검색 결과가 같은 5 cases 반환 → 결정론 Counter 산출 동일. **결정성 검증 정합.**
+- **시뮬 3 의 diagnosis quality**: LLM 이 "돌관 작업 조건에서도 특이 저하 근거 X" 라고 (실 데이터는 -56%) 판단 — Forecaster 의 assessment="정상" 시그널을 LLM 이 그대로 받음. drift #N1 효과가 Optimizer LLM 단까지 전파.
+- **시뮬 4 의 Optimizer 미진입**: conditional_edge (hil_2 → reporter) 가 신 cycle 의 핵심 변경 — 이전 cycle 은 END 직행 → 신은 reporter 진입. 미흡 path 도 보고서 산출.
+
+### Daily_reports (4 시뮬 × 4 row)
+
+| sim | report_date | md_len | risk_counts | advice_count | total_workers | total_qty_by_trade |
+|---|---|---:|---|---:|---:|---|
+| 1 | 2025-09-27 | 1481 | {이상:1, 정상:1, 주의:1} | 2 | 1507.0 | 3 trade (철콘 1225.5 m3, 공조 263.7 m2, 전등 17.6 ea) |
+| 2 | 2025-09-27 | 788 | {이상:0, 정상:0, 주의:1} | 1 | 264.0 | 철콘 2178.3 m3 |
+| 3 | 2025-09-27 | 755 | {이상:0, 정상:0, 주의:1} | 1 | 343.2 | 철콘 1225.2 m3 |
+| 4 | 2025-09-27 | 586 | {이상:0, 정상:0, 주의:0} | 0 | 0.0 | 토목공사 0.0 |
+
+**핵심 관찰:**
+- md_len 순서: 시뮬 1 (3 그룹) > 시뮬 2 (1 그룹 + 단단한 진단) > 시뮬 3 (1 그룹 + 진단) > 시뮬 4 (cold_start, 1 그룹 모두 0).
+- summary 4 키 = Dashboard 카드 소스. risk_counts 가 위험도 분포, advice_count 가 권고 진입 그룹 수.
+- **시뮬 4 의 daily_report 도 생성** — mapped 가 2 row 있어서 (assigned_workers=0 이라도) LLM 호출 진행 → fallback 보고서 산출.
+
+## A.2 시뮬 1 Reporter 전체 report_md (보강 — 전체 1481 chars 인용)
+
+```markdown
+# 2025-09-27 작업일보 종합 보고서
+
+## 1부 작업 통합
+
+### 철근콘크리트공사 / 남웅건설
+- 인원 합계: 88
+- 물량 합계: 1225.5 m3
+- 작업 요지
+  - 장비 FDN. - CT(Cooling Tower) - 철근 콘크리트 타설
+  - Deck Plate 철근 콘크리트 타설 - 2절주 [5층 바닥]
+  - 1층 바닥 Slab 공사 : 철근 조립
+  - 장비 FDN. - WFH(OAC WSS Filter Housing) - 철근 콘크리트 타설
+  - PC Deck Plate 철근 콘크리트 타설 [4층 바닥]
+
+### 일반공조설비공사 / 세보엠이씨
+- 인원 합계: 315.6
+- 물량 합계: 263.7 m2
+- 작업 요지
+  - 드레인 배관 Insulation 설치
+  - 공조덕트 설치
+
+### 전등설비공사 / 창원기전
+- 인원 합계: 60.1
+- 물량 합계: 17.6 ea
+- 작업 요지
+  - 전등 설비 Raceway
+
+## 2부 생산성 진단
+
+### 철근콘크리트공사 / 남웅건설
+- today_productivity: 13.93 m3/인
+- risk_level: 이상
+- 진단: 맑음 조건이나 장비대기 존재. 유사 사례 평균 22.8 m3/인 대비 약 39% 낮아 다공정 병행 및 장비대기에 의한 저하 가능성이 높음.
+
+### 일반공조설비공사 / 세보엠이씨
+- today_productivity: 0.84 m2/인
+- risk_level: 정상
+- 진단: 맑음 조건에서 드레인 배관 및 덕트 Insulation 작업. 유사 사례 평균 0.67 m2/인 대비 약 +25%로 정상 범위.
+
+### 전등설비공사 / 창원기전
+- today_productivity: 0.29 ea/인
+- risk_level: 주의
+- 진단: 맑음 조건에서 일반적 Raceway 작업. 유사 사례는 없어 비교 기준은 없으나 계획 대비 큰 이탈 없으나 일정 지연 위험이 존재해 주의 필요.
+
+## 3부 PM 선택 공종 권고
+
+### 철근콘크리트공사 / 남웅건설
+- 진단: 맑음 조건임에도 장비 대기가 반복되며 생산성이 기준 대비 낮게 유지되는 양상. 과거 사례에서도 장비 대기 장기화 시 회복 지연 빈번.
+- 권고
+  1. 타워크레인 또는 펌프카 등 주요 장비의 실제 대기 발생 원인 즉시 확인 권장
+  2. 장비 대기 지속 시 자연 회복 가능성(D+1)은 낮은 편이므로 조기 개입 필요
+  3. 잔여 물량 기준 D+3 이내 정상화 시 공기 영향은 제한적이므로 단기 회복 추세 모니터링
+  4. 장비 대기 D+3 초과 시 장비 대수 증대 또는 타설 구역 조정 등 대안 검토 권장
+
+(footnote) recovery_distribution: d+1 = 2, d+5 = 1, d+6 = 1, not_recovered = 1
+
+### 전등설비공사 / 창원기전
+- 진단: cold_start
+- 권고: 제공된 권고 없음
+```
+
+**핵심 관찰:**
+- SYSTEM_PROMPT 의 3 부 구조 그대로 LLM 산출. 들여쓰기 1~2 단계 룰 정합. 한자 0건 ✓.
+- 1부 = mapped 합산 (BP사별 인원 + 물량 + 작업 요지). 2부 = forecast row 별 1 단락 (today_prod + risk_level + reasoning paraphrase). 3부 = optimizer_advice row 별 (diagnosis + recommendations rank + recovery_distribution footnote).
+- 시뮬 1 의 창원 cold_start path → 3부 "권고: 제공된 권고 없음" — Optimizer 의 cold_start diagnosis sentinel 을 LLM 이 인지 + 적정 표현.
+
+## A.3 Optimizer 의 recommendations JSONB 구조 sample (시뮬 1 남웅)
+
+```json
+[
+  {
+    "rank": 1,
+    "text": "타워크레인 또는 펌프카 등 주요 장비 가용성의 금일 실제 대기 원인 확인 권장"
+  },
+  {
+    "rank": 2,
+    "text": "과거 사례상 장비 대기 지속 시 D+1 자연 회복 가능성은 낮은 편 — 조기 개입 검토 필요"
+  },
+  {
+    "rank": 3,
+    "text": "잔여 물량 기준 D+3 이내 정상화 시 공기 영향 제한적 — 단기 회복 가능성 모니터링"
+  },
+  {
+    "rank": 4,
+    "text": "장비 대기 현상 D+3 초과 시 장비 대수 증대 또는 타설 구역 조정 등 대안 검토 권장"
+  }
+]
+```
+
+**가공 핵심**:
+- LLM (gpt-5.1) 산출. rank 1~4 = 위험도 순.
+- text = 명령형 회피 (audit-report §3 명시) — "권장" / "검토 필요" 등 완곡 표현.
+- 본 JSONB 가 Reporter 의 3 부 권고 list 로 그대로 transformation.
+
+## A.4 Optimizer 의 degradation_cases JSONB (1 case sample)
+
+```json
+{
+  "date": "2025-09-23",
+  "recovery": {
+    "trajectory": [
+      {"date": "2025-09-24", "recovered": true, "conditions": "맑음", "productivity": 32.24},
+      {"date": "2025-09-25", "recovered": false, "conditions": "", "productivity": 0.0}
+    ],
+    "recovery_days": 1
+  },
+  "activities": ["상부 PC Deck Plate 철근 조립 [6층 바닥]"],
+  "conditions": "흐림,돌관",
+  "productivity": 25.22,
+  "assigned_workers": 92.9
+}
+```
+
+**가공 흐름:**
+- `optimizer/retrieve.py:fetch_degradation_cases:69` — Chroma daily_activities 검색 → 같은 (company, l6_main) + incident conditions ∈ {"우천", "돌관", "장비대기"} + productivity < baseline 인 row top-N.
+- `optimizer/retrieve.py:fetch_recovery_trajectory:117` — 각 case 의 다음 7일 productivity 흐름 추적 → `recovery_days` = 첫 recovered=true 까지 일수.
+- 본 case = 2025-09-23 흐림+돌관 day → 25.22 m3/인 (baseline 24.58 대비 +3% but 의도된 incident) → 다음날 32.24 (회복) → recovery_days=1.
+
+**LLM input** 으로 본 JSONB list 전달 → diagnosis + recommendations 산출. `_compute_recovery_distribution` 가 recovery_days 값들 Counter (`{d+1: ..., d+5: ..., not_recovered: ...}`) 산출 → LLM 무관 결정론.
+
+## A.5 Forecaster 8 단계 sample (시뮬 1 남웅 그룹 trace)
+
+```
+[입력] mapped row (남웅건설|철근콘크리트공사 단일 그룹, 5 row 합산)
+       total today_qty=1225.5 m3, total assigned_workers=88, conditions=[맑음, 장비대기]
+
+① aggregate_today_by_unit (aggregate.py:14)
+   → {"m3": 1225.5}, main_unit="m3" (max qty)
+
+② fetch_plan_for_group (PG activity_master)
+   → plan_total_qty_by_unit={"m3": 6000.0 (예시)},
+     plan_mh_sum=8000, plan_start=2024-10-04, plan_finish=2025-12-15
+
+③ Chroma daily_activities RAG (group 별)
+   → similar_cases [5 건 (같은 company+l6_main, 다른 date)] → rerank_cases
+
+④ classify_assessment_rag (classify.py:27)
+   → today_prod = today_qty / workers = 1225.5 / 88 = 13.93 m3/인
+   → rag_avg_prod = (5 cases 평균) = 22.8 m3/인
+   → delta = (13.93 - 22.8) / 22.8 = -0.39 (-39%)
+   → delta < -0.25 → assessment="이상"
+
+⑤ compute_delay (aggregate.py:23)
+   → window mh = plan_mh × elapsed days vs actual mh
+   → mh_gap = ... → delay_days = 73.8 일 (positive = 지연)
+   → schedule_state = "on_schedule" (예시) — single day perspective
+
+⑥ Azure LLM (gpt-5.1) — assessment != None 이라 진행
+   → reasoning = "맑음·장비대기 있음. 유사 5건 평균 22.8 m3/인 대비 -39%. work_content 다공정 병행과 '장비대기'로 인한 생산성 저하 가능성."
+   → recovery_likelihood = (LLM 산출, 신뢰도)
+
+⑦ classify_risk_level (classify.py:83)
+   → assessment="이상" + delay=73.8 + state="on_schedule"
+   → risk_level="이상" (assessment 가 가장 강한 신호)
+
+⑧ insert_forecast (db.py:205) — 27 컬럼 JSONB 다수
+   → PG forecasts INSERT 1 row
+```
+
+## A.6 Mapper LLM call 흐름 sample (가상 — 실 xlsx 의 1 row)
+
+본 trace 시작 시 Mapper LLM call (47 row × $0.002 ≈ $0.10) 비용 회피 — 실 호출 sample 대신 spec + code 인용:
+
+```python
+# 입력 (build_llm_input output, mapper.py:150)
+{
+  "work_content": "1F 벽체 콘크리트 타설",
+  "company": "남웅건설",
+  "trade": "철근콘크리트공사",
+  "bp_context": "남웅건설 BP사: ... (시트1/2/3 풍부 컨텍스트)",
+  "candidates": [
+    {"wa": "CUB", "l6_main": "철근콘크리트공사", "score": 0.92, "doc": "Work Area: CUB ..."},
+    {"wa": "CUB", "l6_main": "양생공사", "score": 0.78, ...},
+    ... (max 8)
+  ]
+}
+
+# LLM 출력 (Azure gpt-5.1)
+{
+  "choice": 0,           # candidates[0] 선택
+  "confidence": 0.92,
+  "reason": "work_content 의 '콘크리트 타설' 이 CUB|철근콘크리트공사 의 L7.5 sample 과 정합. 타 후보 보다 신뢰도 높음."
+}
+
+# resolve_wa (mapper.py:166) 4 단계 → WAResolution(value="CUB", source="auto_bp_single")
+# Activity 갱신: wa="CUB", mapping_conf=0.92, requires_review=False (>= 0.7)
+```
+
+`mapping_source` 의 4 가지:
+- `auto_bp_single`: BP filter 후 단일 (wa, l6) 만 남음 → 자동 결정 (LLM rerank 불필요).
+- `auto_l6_single`: l6_main 후보가 단일 → 자동 결정.
+- `auto_l6_multi_llm`: l6_main 다수 후보 → LLM rerank → choice 결정.
+- `hil_required`: LLM confidence < 0.7 또는 모호 → HIL 1 큐 진입.
+
+## A.7 HIL 1 corrections JSON sample (test_graph_e2e_hil1.py 의 실 e2e)
+
+```python
+# 1st ainvoke → __interrupt__ payload
+{
+  "review_needed": [
+    {
+      "idx": 0,
+      "work_content": "work_0",
+      "company": "company_0",
+      "trade": "철근콘크리트공사",
+      "wa": "OLD_WA",
+      "l6_main": "철근콘크리트공사",
+      "mapping_conf": 0.55,
+      "mapping_source": "hil_required"
+    }
+  ]
+}
+
+# 2nd ainvoke (사용자 정정)
+Command(resume={"0": {"wa": "USER_CORRECTED", "l6_main": "철근콘크리트공사"}})
+                # ^ str key 필수 (int key 면 LangGraph TypeError — drift #N5)
+
+# hil_1_node 처리 후 state.mapped[0]
+{
+  "wa": "USER_CORRECTED",          # ← 사용자 정정
+  "l6_main": "철근콘크리트공사",
+  "mapping_source": "user_corrected",
+  "requires_review": False
+}
+
+# PG mapping_corrections INSERT
+{
+  "run_id": <uuid>,
+  "report_date": "2025-09-25",
+  "original": {
+    "work_content": "work_0",
+    "company": "company_0",
+    "trade": "철근콘크리트공사",
+    "wa": "OLD_WA",
+    "l6_main": "철근콘크리트공사",
+    "mapping_conf": 0.55,
+    "mapping_source": "hil_required"
+  },
+  "corrected": {
+    "wa": "USER_CORRECTED",
+    "l6_main": "철근콘크리트공사",
+    "mapping_source": "user_corrected",
+    "correction_type": "replace"
+  }
+}
+```
+
+## A.8 Atomizer dedup detail (남웅 47 row → 11 unique 의 예시)
+
+`_make_doc_id` = `SHA256("2025-09-25|남웅건설|철근콘크리트공사|<work_content>")[:16]`.
+
+```
+input mapped (47 row):
+  row[0]:  date="2025-09-25", company="남웅건설", l6="철근콘크리트공사", work="기초 거푸집 설치" → doc_id=73ff80435e312c41
+  row[1]:  date="2025-09-25", company="남웅건설", l6="철근콘크리트공사", work="기초 거푸집 설치" → doc_id=73ff80435e312c41 (중복)
+  row[2]:  date="2025-09-25", company="남웅건설", l6="철근콘크리트공사", work="버림틀 설치"      → doc_id=009c588667375459
+  row[3]:  date="2025-09-25", company="남웅건설", l6="철근콘크리트공사", work="버림틀 설치"      → doc_id=009c588667375459 (중복)
+  ...
+  → within-call dedup: 47 → 11 unique doc_id
+
+처리:
+  - Python 단 dedup (마지막 등장 metadata 채택, atomizer.py:85-89)
+  - Azure embedding × 11 (47 아닌 dedup 후)
+  - Chroma upsert × 11 (idempotent, 같은 id 재호출 시 metadata 갱신)
+
+검증:
+  - PG pipeline_runs.atomized_count = 11 (test_graph_e2e_namwong_47)
+  - 재실행 시 같은 doc_id → upsert (새 row 추가 X)
+```
+
+**의도된 동작:**
+- 같은 BP사가 같은 l6_main 에 같은 work_content 여러 번 기록 (예: 47 row 중 동일 콘크리트 타설 작업) → 1 doc_id 1 row 압축.
+- `assigned_workers` 등 metadata 는 마지막 등장 값 (집계 X). Forecaster 가 그룹 단위 합산은 별도 PG SELECT 또는 Chroma group_by.
+
+## A.9 Drift #N1 효과 검증 (시뮬 3 의 RAG fallback path)
+
+시뮬 3 은 drift #N1 의 실 발현 사례 — **본 cycle 의 fixture fix 가 작동 하지만 RAG 분포 부족이 효과를 마스킹**.
+
+```
+시뮬 3 산식:
+  - n=3, ratio=0.45, workers_ratio=1.3
+  - baseline_q (남웅 철콘 m3) = 활성 master 의 plan_total_qty / 90 ≈ ?
+  - baseline_workers = 88 (남웅 BP 인원 비례)
+  - today_qty (row 당) = baseline_q × 0.45 / 3 (n 분배)
+  - today_qty (group total) = baseline_q × 0.45
+  - assigned_workers = 88 × 1.3 = 114.4
+  - today_prod = (baseline_q × 0.45) / 114.4 = baseline_prod × 0.45 / 1.3
+
+실 측정 (PG forecasts):
+  - today_prod = 10.71 m3/인
+  - rag_n_similar = 1 (synthetic_v2 같은 그룹 단 1 건)
+  - rag_avg = 24.58 m3/인 (단일 사례 1)
+  - delta = (10.71 - 24.58) / 24.58 = -56%
+
+classify_assessment 라우팅 (classify.py:65):
+  - rag_n_similar < 3 → RAG 신뢰 부족 → Plan fallback
+  - classify_assessment_plan (today_prod vs plan_prod from activity_master)
+  - plan_prod 산출 = plan_mh_sum / (plan_finish - plan_start)
+  - 시뮬 fixture 의 plan vs today ratio 가 0.85+ → assessment="정상"
+
+→ 의도된 -56% 저하가 "정상" 분류로 흡수.
+```
+
+**drift #N1 별 cycle 의 처리 방향:**
+- synthetic_v2 적재 분포 정렬 — 27 그룹 × 90일 = 2430 row 가 같은 평균 productivity 보장.
+- 단일 그룹 (남웅 철콘) 의 같은 incident type (예: 돌관) cases ≥3 보장 → RAG 모드 진입 → 의도된 저하 발현.
+- 본 cycle 의 시뮬 3 가 fix 후 같은 시나리오 재실행 시 assessment="이상" 발현 예상.
+
+## A.10 결정성 검증 (시뮬 1 vs rerun)
+
+```
+$ diff <(grep -E "assessment=|risk=|recovery_distribution" /tmp/v2-scenario-1.log) \
+       <(grep -E "assessment=|risk=|recovery_distribution" /tmp/v2-scenario-1-rerun.log)
+
+→ (출력 없음 — diff 0)
+```
+
+**결정론 컬럼** (assessment, risk_level, today_productivity, recovery_distribution) = 100% 일치.
+
+**LLM 비결정성 허용 컬럼**:
+- diagnosis: 1차 = "맑음 조건임에도 장비 대기가 반복되며..." / rerun = "맑음 조건임에도 장비 대기가 반복되며 생산성이 평시 대비 낮게 관찰됨..." — 첫 문장만 약간 변형.
+- recommendations[i].text: 같은 의미 다른 표현.
+- report_md: 본문 구성 같음, 단어 선택 약간 차이.
+
+→ **결정성 검증 정합** (spec §10 성공 기준 #6). LLM 비결정성이 결정론 신호를 흐리지 않음.
+
+---
+
+## 부록 B — Azure 비용 inventory (실 측정)
+
+| 시뮬 | scenarios | 그룹 수 | Forecaster LLM | Optimizer LLM | Reporter LLM | 임베딩 | 추정 cost |
+|---|---|---:|---:|---:|---:|---:|---:|
+| 1 | 3 | 3 | 3 | 1 (1 cold_start skip) | 1 | 6 | ~$0.05 |
+| 1 rerun | 3 | 3 | 3 | 1 | 1 | 6 | ~$0.05 |
+| 2 | 1 | 1 | 1 | 1 | 1 | 3 | ~$0.03 |
+| 3 | 1 | 1 | 1 | 1 | 1 | 3 | ~$0.03 |
+| 4 | 1 | 1 | 0 (assessment=None) | 0 (미진입) | 1 | 2 | ~$0.01 |
+| **합계** | — | — | **8** | **4** | **5** | **20** | **~$0.17** |
+
+본 cycle 의 audit 총 Azure 비용 ≈ **$0.17** (시뮬 4 건 + rerun + reporter 모두).
+
+---
+
+**관련 문서:**
+- `docs/audit/raw/v2-scenario-{1,2,3,4}-*.md` — 4 시뮬 raw (개별 detail)
+- `deep-dive/architecture_overview.md` — 시스템 다이어그램 + 8 서브시스템 요약
+- `deep-dive/design-intent/INDEX.md` — T1 마스터 인덱스 (114 함수)
+- `docs/audit/2026-05-17-cpia-drift-backlog.md` — 흡수 4 + 신규 #N1~#N7

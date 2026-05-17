@@ -34,19 +34,16 @@ export default function ReportPage() {
 
   return (
     <div className="flex flex-col">
-      <div className="mx-auto w-full max-w-screen-2xl px-6 py-8 md:px-10">
-        <div className="flex items-center gap-3">
-          <span className="font-mono text-[11px] font-medium uppercase tracking-[0.2em] text-brand-text">
-            / 04 — Report
-          </span>
-          <span className="h-px w-8 bg-border" />
-          <span className="font-mono text-[11px] uppercase tracking-wider text-ink-light">
-            일별 진단 · 만회 시나리오 · 원본 데이터
-          </span>
-        </div>
-        <h1 className="mt-6 font-display text-h3 text-ink">
+      <div className="mx-auto w-full max-w-screen-2xl border-b border-border-soft px-6 pt-10 pb-6 md:px-10 md:pt-14">
+        <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-brand-text">
+          / 04 — Report
+        </span>
+        <h1 className="mt-3 font-display text-h3 text-ink">
           현장 일일 진단 보고서
         </h1>
+        <p className="mt-2 text-body-sm text-ink-mid">
+          일별 진단 · 만회 시나리오 · 원본 데이터를 한 화면에서 확인합니다.
+        </p>
       </div>
 
       <section className="mx-auto w-full max-w-screen-2xl px-6 pb-20 md:px-10">

@@ -34,17 +34,11 @@ export default function AgentTasksPage() {
 
   return (
     <div className="flex flex-col">
-      <div className="mx-auto w-full max-w-screen-2xl px-6 py-8 md:px-10">
-        <div className="flex items-center gap-3">
-          <span className="font-mono text-[11px] font-medium uppercase tracking-[0.2em] text-brand-text">
-            / 02 — Agent Tasks
-          </span>
-          <span className="h-px w-8 bg-border" />
-          <span className="font-mono text-[11px] uppercase tracking-wider text-ink-light">
-            Daily Run · Process Progress · Chat
-          </span>
-        </div>
-        <h1 className="mt-6 font-display text-h3 text-ink">
+      <div className="mx-auto w-full max-w-screen-2xl border-b border-border-soft px-6 pt-10 pb-6 md:px-10 md:pt-14">
+        <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-brand-text">
+          / 02 — Agent Tasks
+        </span>
+        <h1 className="mt-3 font-display text-h3 text-ink">
           AI Agent가 처리하는 작업 흐름
         </h1>
         <p className="mt-2 text-body-sm text-ink-mid">

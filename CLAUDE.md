@@ -13,8 +13,10 @@
 3. 오늘 작업 기록을 Vector DB에 적재한다 (Atomizer)
 4. 통합 보고서를 생성한다 (Reporter)
 5. 오늘 생산성이 과거 유사 상황 대비 적정한지 진단한다 (Forecaster)
-6. PM이 이상 공종을 선택하면 맥락 기반 조언을 생성한다 (Optimizer + H-i-L 2)
+6. Forecaster 결과의 4분면 중 **고위험군 공종에 자동 라우팅**되어 Optimizer 가 맥락 기반 조언을 생성한다
 7. 경영진 대시보드에서 전체 현황과 결과를 확인한다 (Dashboard)
+
+> **H-i-L 단순화 (2026-05-17 시연 시나리오 v1):** 원안의 2단계 H-i-L (Mapper Review + Trade Selection) 을 **1단계 (Mapper Review)** 로 축소. 2차 H-i-L 은 자동 라우팅으로 대체해 경영진 시연 흐름을 단축. 백엔드 `interrupt:hil_2` 노드는 우선순위에서 제외 (필요 시 재도입 가능).
 
 **핵심 차별점:** 절대 기준(품셈) 없이, 현장 실적 이력을 Vector DB에 쌓아 유사 과거 상황과 비교하는 상대적 판단.
 
@@ -61,7 +63,7 @@
         ↓ HTTP
 [FastAPI — pipeline/api.py]
    • POST /run        → graph.invoke()  (백그라운드 실행, run_id 즉시 반환)
-   • POST /resume     → checkpoint에서 graph 재개 (H-i-L 1/2)
+   • POST /resume     → checkpoint에서 graph 재개 (H-i-L 1)
    • GET  /status/{run_id}
         ↓ in-process
 [LangGraph]
@@ -69,7 +71,7 @@
                                                        ↓
                                         Reporter ‖ Forecaster
                                                        ↓
-                                              [interrupt:hil_2]
+                                       [auto-route: 4분면 고위험군]
                                                        ↓
                                                    Optimizer
         ↓ 결과 저장
@@ -83,7 +85,7 @@
    • sites (5개 mock + 1개 실 PoC)
 ```
 
-**H-i-L 통합 흐름:** Mapper 또는 Forecaster에서 LangGraph `interrupt` 발생 → FastAPI `/status`가 `waiting_hil_*` 반환 → Dashboard가 polling으로 감지 후 Modal 띄움 → 사용자 입력 → Next.js API `/hil/resume` → FastAPI `/resume` → checkpoint에서 graph 재개.
+**H-i-L 통합 흐름 (시연 v1):** Mapper 에서 LangGraph `interrupt` 발생 → FastAPI `/status` 가 `waiting_hil_1` 반환 → Dashboard 가 polling 으로 감지 후 Modal 띄움 → 사용자 입력 → Next.js API `/hil/resume` → FastAPI `/resume` → checkpoint 에서 graph 재개. Forecaster 이후는 자동 라우팅.
 
 ---
 
@@ -130,8 +132,7 @@
 │   │   └── components/
 │   │       ├── SiteCard.tsx
 │   │       ├── ProductivityChart.tsx
-│   │       ├── MappingReviewModal.tsx     ← H-i-L 1
-│   │       └── TradeSelectorModal.tsx     ← H-i-L 2
+│   │       └── MappingReviewModal.tsx     ← H-i-L 1 (시연 v1: H-i-L 2 는 자동 라우팅으로 대체)
 │   ├── lib/
 │   │   ├── db.ts
 │   │   └── fastapi.ts
@@ -178,9 +179,9 @@
 | Forecaster | Mapper JSON + ChromaDB 유사 이력 | 공종별 생산성 진단 + PostgreSQL 저장 | TBD (후속 plan) |
 | Optimizer | Forecaster 결과 + ChromaDB 과거 패턴 | 맥락 기반 조언 + PostgreSQL 저장 | TBD (후속 plan) |
 
-**H-i-L 포인트 2개:**
+**H-i-L 포인트 (시연 v1):**
 - H-i-L 1 (Mapper 이후): 확신도 낮은 매핑 항목 담당자 검토·수정
-- H-i-L 2 (Forecaster 이후): PM이 Optimizer 조언 받을 공종 선택
+- ~~H-i-L 2 (Forecaster 이후)~~ → Forecaster 4분면 중 **고위험군 자동 라우팅** 으로 대체
 
 ---
 

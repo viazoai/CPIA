@@ -22,10 +22,10 @@ export function StatusHeader({ lastUpdated }: StatusHeaderProps) {
             / 01 — Operations Console
           </span>
           <h1 className="mt-3 font-display text-h3 text-ink">
-            현장 운영 현황판
+            Agent 자동화/최적화 운영 현황
           </h1>
           <p className="mt-2 text-body-sm text-ink-mid">
-            7-Agent 파이프라인이 지금 처리 중인 작업과 누적 운영 지표를 한눈에 확인합니다.
+            CPIA의 7개 Agent가 워크플로우 단계별로 지금 처리 중인 작업과 누적 운영 지표를 한눈에 확인합니다.
           </p>
         </div>
 

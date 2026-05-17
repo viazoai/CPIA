@@ -57,13 +57,13 @@ export function ProductivityBarToggle({ contractorBars, tradeBars, historyMean }
         <div>
           <div className="font-display text-h6 text-ink">{title}</div>
           <div className="mt-3 flex items-baseline gap-2">
-            <span className="font-display text-3xl font-semibold tracking-[-0.015em] text-ink">
+            <span className="font-display text-h3 font-semibold text-ink">
               {avg.toFixed(1)}
             </span>
-            <span className="text-sm text-ink-light">%</span>
+            <span className="text-base text-ink-light">%</span>
             <span
               className={cn(
-                "ml-1 inline-flex items-center rounded-full px-2 py-0.5 font-display text-xs font-medium",
+                "ml-1 inline-flex items-center rounded-full px-2.5 py-0.5 font-display text-sm font-medium",
                 gapChipTone,
               )}
             >

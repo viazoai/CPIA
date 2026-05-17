@@ -107,10 +107,12 @@ export function BarChartH({
           >
             <Label
               value={`평균 ${avg.toFixed(1)}%`}
-              position={isVertical ? "right" : "top"}
+              position="top"
+              offset={6}
               fill="#1243a8"
-              fontSize={10}
-              fontFamily="JetBrains Mono, ui-monospace, monospace"
+              fontSize={14}
+              fontFamily='"Inter Tight", Pretendard, "Noto Sans KR", system-ui, sans-serif'
+              fontWeight={700}
             />
           </ReferenceLine>
         )}

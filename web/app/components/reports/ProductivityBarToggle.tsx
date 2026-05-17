@@ -74,7 +74,6 @@ export function ProductivityBarToggle({ contractorBars, tradeBars, historyMean }
             >
               평균 대비 {gapSign}{gap.toFixed(1)}%p
             </span>
-            <span className="text-[11px] text-ink-mid">· {items.length}개 {subLabel} · 이력 평균 {historyMean}%</span>
           </div>
         </div>
 

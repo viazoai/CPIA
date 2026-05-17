@@ -109,3 +109,32 @@
 | defer | D-1 ~ D-8 (8 건) | med/low | — | — |
 
 **다음 cycle 진입 권고:** #2 또는 #3 먼저 (현 audit 의 raw 신뢰성 향상 → 다른 cycle 진단 정확도 ↑). #1 Reporter 는 PoC 시연 단독 산출물이라 #2/#3 와 병렬 가능.
+
+---
+
+## 2026-05-17 hil1-forecaster-reporter cycle 흡수 + 신규 drift
+
+### 흡수 완료 (PR pending — 본 cycle commit 5건 + raw 1)
+
+| 우선순위 | 흡수 commit | 산출물 |
+|---------|------------|--------|
+| #1 Reporter 구현 | 22d44c2 feat(reporter) | pipeline/agents/reporter.py + reporter_node + graph edges + insert_daily_report + Reporter unit 3 + db 1 |
+| #2 Forecaster assessment | (classify.py:34 수정 X — PM 원안 v2 정합) | spec §2.3 명시. root cause = input 의 #3 오버산출. #3 fix 로 자동 해결 |
+| #3 시뮬 fixture bug | c093631 fix(synthetic_daily_report) | synthetic_daily_report.py:78 n_activities 분배 + :118 ValueError 가드 + fixture 재현/픽스/RAG 정합 3건 |
+| #4 HIL 1 구현 | 1bb78fb feat(hil_1) | graph.py hil_1_node + _build_review_needed + _apply_corrections + insert_mapping_correction + HIL 1 unit 3 + e2e 2 |
+| 추가 | 41908f6 feat(checkpointer) | InMemorySaver → AsyncPostgresSaver + memory fallback + checkpointer 3건 (design-intent O-6 권고) |
+| 추가 | 86c3ad3 test (통합 검증) | docs/audit/raw/v2-scenario-1-156657ed.md raw (Forecaster fix 효과 + Reporter 영속 + 결정성 diff 0) |
+
+**검증:** 회귀 baseline 183 → 197 passed + 1 xfailed in 412s. 본 cycle 7 성공 기준 모두 충족 (1 xfail = #N1).
+
+### 신규 drift (본 cycle 발견)
+
+| ID | 항목 | 출처 | 영향도 | 권고 처리 |
+|----|------|------|--------|----------|
+| #N1 | RAG fixture_prod vs synthetic_v2 분포 ±10% mismatch (delta=10.7%) | Task 1 Step 1.8 raw | med | 별 cycle — synthetic_v2 적재 분포 vs 90일 baseline 정렬. test_fixture_rag_alignment 가 xfail strict=False |
+| #N2 | postgres.md §8 mapping_corrections schema 와 init.sql 어긋남 (work_content/company/trade/correction_type 컬럼 누락) | Task 2 Step 2.4 발견 | low | 별 cycle — schema migration. 현재 original/corrected JSONB 안에 합쳐 박음 (work_content GIN index 의도 충족 X) |
+| #N3 | postgres.md §5 daily_reports schema 와 init.sql 어긋남 (date→report_date / summary→history_csv_row / bp_name 추가) | Task 3 Step 3.3 발견 | low | 별 cycle — postgres.md 정정 또는 init.sql 정렬. 현재 history_csv_row 컬럼 사용 |
+| #N4 | 시뮬 2 (우천 0.8) + 시뮬 3 (돌관) + 시뮬 4 (cold_start) 추가 검증 | Task 5 Step 5.2 skip | low | 별 cycle — 본 cycle 의 시뮬 1 + rerun 으로 7 성공 기준 충족, 추가 path 검증은 시간/Azure 비용 trade-off |
+| #N5 | LangGraph Command(resume=dict) 의 dict key 가 int 일 때 TypeError (is_xxh3_128_hexdigest re.fullmatch) | Task 2 Step 2.12 발견 | low | API 사용 룰 — str key 필수. hil_1_node 가 int(k) 변환 처리. 문서화 정도 충분 |
+| #N6 | pipeline/.env.local 경로 spec 명시 어긋남 (실제 = root /.env.local) | Task 0 Step 0.2 발견 | low | spec/plan 의 경로 명시 정정 (cosmetic) |
+| #N7 | synthetic_daily_report.py main_cli 의 final 출력에 report_md 미 print | Task 5 Step 5.4 plan 명시 | low | 가독성 개선 — 시뮬 결과 한눈에 확인. 본 cycle scope 외 |

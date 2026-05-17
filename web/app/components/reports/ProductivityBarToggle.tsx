@@ -17,7 +17,7 @@ interface Props {
 
 const MODES: { key: Mode; label: string }[] = [
   { key: "contractor", label: "업체별" },
-  { key: "trade",      label: "건물·공종별" },
+  { key: "trade",      label: "공종별" },
 ];
 
 function avgStatus(avg: number): "normal" | "caution" | "risk" {
@@ -57,7 +57,7 @@ const STATUS_CHIP = {
 export function ProductivityBarToggle({ contractorBars, tradeBars, historyMean, date }: Props) {
   const [mode, setMode] = useState<Mode>("contractor");
   const items = mode === "contractor" ? contractorBars : tradeBars;
-  const modeLabel = mode === "contractor" ? "업체별" : "건물·공종별";
+  const modeLabel = mode === "contractor" ? "업체별" : "공종별";
 
   const avg = items.length
     ? items.reduce((s, it) => s + it.value, 0) / items.length
@@ -73,7 +73,7 @@ export function ProductivityBarToggle({ contractorBars, tradeBars, historyMean, 
   const underCount = items.filter(
     (it) => typeof it.baseline === "number" && it.value < it.baseline,
   ).length;
-  const underUnit = mode === "contractor" ? "BP사" : "건물·공종";
+  const underUnit = mode === "contractor" ? "BP사" : "공종";
 
   return (
     <div className="rounded-card border border-border-soft bg-card p-4 pb-7 shadow-xs">

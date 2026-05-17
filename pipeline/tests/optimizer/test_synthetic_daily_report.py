@@ -86,8 +86,10 @@ def test_generate_fake_daily_report_unit():
     assert "돌관" in a0["conditions"]
     # workers_ratio=1.3 → 10 × 1.3 = 13.0
     assert a0["assigned_workers"] == 13.0
-    # productivity_ratio=0.45 → 31.0 × 0.45 = 13.95 → round(1) = 14.0
-    assert a0["today_qty"] == round(31.0 * 0.45, 1)
+    # productivity_ratio=0.45, n_activities=5 → row 당 31.0 × 0.45 / 5 = 2.79 → round(1) = 2.8
+    # group total (5 row 합산) = 5 × 2.8 = 14.0 (= baseline_q × ratio, 의도 부합)
+    assert a0["today_qty"] == round(31.0 * 0.45 / 5, 1)
+    assert sum(a["today_qty"] for a in nw) == pytest.approx(round(31.0 * 0.45 / 5, 1) * 5, abs=0.01)
     # work_content 단순 활동명 (pool 에 속함)
     assert a0["work_content"] in pools[("남웅건설", "철근콘크리트공사")]
     # mapper output 호환 필드

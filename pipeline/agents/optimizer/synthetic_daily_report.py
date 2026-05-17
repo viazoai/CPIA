@@ -75,7 +75,7 @@ def generate_fake_daily_report(
         for _ in range(sc["n_activities"]):
             activity_name = rng.choice(pool)
             cond = sc["incident"]
-            today_qty = round(baseline_q * sc["productivity_ratio"], 1)
+            today_qty = round(baseline_q * sc["productivity_ratio"] / sc["n_activities"], 1)
 
             # conditions list[str] (state.Activity 계약 — forecaster:92 iterate)
             conditions_list = ["맑음"] + ([cond] if cond != "정상" else [])
@@ -123,10 +123,13 @@ def _parse_scenario(raw: str) -> dict:
             f"scenario 형식 오류 — 7개 필드 필요 (company|l6_main|n_activities|"
             f"incident|productivity_ratio|workers_ratio|unit). 입력: {raw}"
         )
+    n_act = int(parts[2])
+    if n_act <= 0:
+        raise ValueError(f"n_activities > 0 필요 — 입력: {n_act} ({raw})")
     return {
         "company": parts[0],
         "l6_main": parts[1],
-        "n_activities": int(parts[2]),
+        "n_activities": n_act,
         "incident": parts[3],
         "productivity_ratio": float(parts[4]),
         "workers_ratio": float(parts[5]),

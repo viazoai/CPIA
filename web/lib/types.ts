@@ -163,6 +163,7 @@ export interface BarItem {
   label: string;            // BP사명 또는 공종명
   value: number;            // 생산성 %
   status: Status;
+  baseline?: number;        // 자체 기준값 (이력 평균 등). showBaseline 시 Line 시리즈 dot 으로 표시.
 }
 
 export interface QuadrantPoint {

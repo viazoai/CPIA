@@ -1,8 +1,9 @@
 "use client";
 import {
   ResponsiveContainer,
-  BarChart,
+  ComposedChart,
   Bar,
+  Line,
   XAxis,
   YAxis,
   Cell,
@@ -22,8 +23,10 @@ const STATUS_COLOR = {
 interface Props {
   items: BarItem[];
   title?: string;
-  /** 평균선 표시 (단순 평균 자동 계산 + ReferenceLine). */
+  /** 그룹 평균선 (단일 ReferenceLine). 다른 사용처용 — ProductivityBarToggle 은 showBaseline 사용. */
   showAverage?: boolean;
+  /** 각 항목의 baseline 값을 Line 시리즈로 연결. items 가 baseline 필드를 가져야 함. */
+  showBaseline?: boolean;
   /** true 면 카드 chrome·title 없이 차트만 렌더 — 다른 컴포넌트 안에 임베드용. */
   bare?: boolean;
   /**
@@ -38,6 +41,7 @@ export function BarChartH({
   items,
   title,
   showAverage,
+  showBaseline,
   bare,
   orientation = "horizontal",
 }: Props) {
@@ -45,15 +49,11 @@ export function BarChartH({
     ? items.reduce((sum, it) => sum + it.value, 0) / items.length
     : 0;
   const isVertical = orientation === "vertical";
-
-  /* 동적 높이/폭:
-   *  - horizontal: 항목 수에 비례한 세로 길이
-   *  - vertical: 고정 높이 280, 항목 많을 때 라벨 회전 */
   const height = isVertical ? 280 : items.length * 36 + 20;
 
   const chart = (
     <ResponsiveContainer width="100%" height={height}>
-      <BarChart
+      <ComposedChart
         data={items}
         layout={isVertical ? "horizontal" : "vertical"}
         margin={
@@ -88,15 +88,28 @@ export function BarChartH({
         )}
         <Tooltip
           contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid #e2e6ed" }}
-          formatter={(v) => [`${v}%`, "생산성"]}
+          formatter={(v, name) => [`${v}%`, name === "baseline" ? "이력 평균" : "생산성"]}
         />
         <Bar
           dataKey="value"
           radius={isVertical ? [4, 4, 0, 0] : [0, 4, 4, 0]}
           maxBarSize={isVertical ? 28 : undefined}
+          isAnimationActive={false}
         >
           {items.map((it, i) => <Cell key={i} fill={STATUS_COLOR[it.status]} />)}
         </Bar>
+        {showBaseline && items.some((it) => typeof it.baseline === "number") && (
+          <Line
+            dataKey="baseline"
+            type="monotone"
+            stroke="#1a56db"
+            strokeWidth={2}
+            strokeDasharray="4 3"
+            dot={{ fill: "#1a56db", stroke: "#ffffff", strokeWidth: 1.5, r: 4 }}
+            activeDot={{ r: 6 }}
+            isAnimationActive={false}
+          />
+        )}
         {showAverage && items.length > 0 && (
           <ReferenceLine
             {...(isVertical ? { y: avg } : { x: avg })}
@@ -116,7 +129,7 @@ export function BarChartH({
             />
           </ReferenceLine>
         )}
-      </BarChart>
+      </ComposedChart>
     </ResponsiveContainer>
   );
 

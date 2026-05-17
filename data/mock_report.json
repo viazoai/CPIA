@@ -116,104 +116,124 @@
         {
           "label": "A건설",
           "value": 92,
-          "status": "normal"
+          "status": "normal",
+          "baseline": 95
         },
         {
           "label": "B건설",
           "value": 78,
-          "status": "caution"
+          "status": "caution",
+          "baseline": 82
         },
         {
           "label": "C건설",
           "value": 71,
-          "status": "risk"
+          "status": "risk",
+          "baseline": 80
         },
         {
           "label": "D건설",
           "value": 88,
-          "status": "normal"
+          "status": "normal",
+          "baseline": 92
         },
         {
           "label": "E건설",
           "value": 84,
-          "status": "normal"
+          "status": "normal",
+          "baseline": 88
         },
         {
           "label": "F건설",
           "value": 95,
-          "status": "normal"
+          "status": "normal",
+          "baseline": 93
         },
         {
           "label": "G건설",
           "value": 89,
-          "status": "normal"
+          "status": "normal",
+          "baseline": 90
         },
         {
           "label": "H건설",
           "value": 76,
-          "status": "caution"
+          "status": "caution",
+          "baseline": 85
         },
         {
           "label": "I건설",
           "value": 91,
-          "status": "normal"
+          "status": "normal",
+          "baseline": 92
         },
         {
           "label": "J건설",
           "value": 68,
-          "status": "risk"
+          "status": "risk",
+          "baseline": 78
         },
         {
           "label": "K건설",
           "value": 87,
-          "status": "normal"
+          "status": "normal",
+          "baseline": 88
         },
         {
           "label": "L건설",
           "value": 93,
-          "status": "normal"
+          "status": "normal",
+          "baseline": 92
         },
         {
           "label": "M건설",
           "value": 79,
-          "status": "caution"
+          "status": "caution",
+          "baseline": 86
         },
         {
           "label": "N건설",
           "value": 96,
-          "status": "normal"
+          "status": "normal",
+          "baseline": 94
         },
         {
           "label": "O건설",
           "value": 90,
-          "status": "normal"
+          "status": "normal",
+          "baseline": 91
         }
       ],
       "trade_bars": [
         {
           "label": "거푸집",
           "value": 78,
-          "status": "caution"
+          "status": "caution",
+          "baseline": 84
         },
         {
           "label": "철근",
           "value": 72,
-          "status": "risk"
+          "status": "risk",
+          "baseline": 80
         },
         {
           "label": "콘크리트",
           "value": 96,
-          "status": "normal"
+          "status": "normal",
+          "baseline": 92
         },
         {
           "label": "방수",
           "value": 87,
-          "status": "caution"
+          "status": "caution",
+          "baseline": 90
         },
         {
           "label": "MEP",
           "value": 92,
-          "status": "normal"
+          "status": "normal",
+          "baseline": 91
         }
       ],
       "quadrant": [

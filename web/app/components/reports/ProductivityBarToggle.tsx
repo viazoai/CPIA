@@ -97,7 +97,7 @@ export function ProductivityBarToggle({ contractorBars, tradeBars, historyMean, 
         </div>
       </div>
 
-      <BarChartH items={items} showAverage bare orientation="vertical" />
+      <BarChartH items={items} showBaseline bare orientation="vertical" />
     </div>
   );
 }

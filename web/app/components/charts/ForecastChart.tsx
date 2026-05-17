@@ -218,7 +218,7 @@ function ToggleChip({ label, color, active, forced, onClick }: ToggleChipProps) 
       onClick={forced ? undefined : onClick}
       disabled={forced}
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-mono uppercase tracking-wider transition-colors",
+        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition-colors",
         active
           ? "border-brand bg-brand-light text-brand-text"
           : "border-border bg-card text-ink-light hover:border-ink-light/40 hover:text-ink-mid",
@@ -227,7 +227,7 @@ function ToggleChip({ label, color, active, forced, onClick }: ToggleChipProps) 
     >
       <span className={cn("h-1.5 w-1.5 rounded-full", dot)} />
       {label}
-      {forced && <span className="ml-0.5 text-[9px]">●</span>}
+      {forced && <span className="ml-0.5 text-[10px]">●</span>}
     </button>
   );
 }

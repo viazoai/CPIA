@@ -39,8 +39,8 @@
   "details": {
     "2026-05-15": {
       "kpi": {
-        "productivity_today": 88,
-        "productivity_history_diff": -12,
+        "productivity_today": 85,
+        "productivity_history_diff": -10,
         "delay_days": 14,
         "expected_completion": "2026-08-12",
         "recoverable_productivity": 9,
@@ -192,12 +192,12 @@
       "trade_bars": [
         {
           "label": "거푸집",
-          "value": 68,
+          "value": 78,
           "status": "caution"
         },
         {
           "label": "철근",
-          "value": 54,
+          "value": 72,
           "status": "risk"
         },
         {
@@ -207,12 +207,12 @@
         },
         {
           "label": "방수",
-          "value": 82,
-          "status": "normal"
+          "value": 87,
+          "status": "caution"
         },
         {
           "label": "MEP",
-          "value": 85,
+          "value": 92,
           "status": "normal"
         }
       ],

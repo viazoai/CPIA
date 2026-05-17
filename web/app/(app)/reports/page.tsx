@@ -10,6 +10,7 @@ import { RawDataTab } from "@/app/components/reports/RawDataTab";
 import { WPSummaryTable } from "@/app/components/reports/WPSummaryTable";
 import { ForecastChart } from "@/app/components/charts/ForecastChart";
 import { ProductivityBarToggle } from "@/app/components/reports/ProductivityBarToggle";
+import { ProductivityTrendChart } from "@/app/components/charts/ProductivityTrendChart";
 import { QuadrantScatter } from "@/app/components/charts/QuadrantScatter";
 import { diagnose } from "@/lib/diagnosis";
 import { toDiagnosisInput } from "@/lib/diagnosis-adapter";
@@ -116,6 +117,10 @@ export default function ReportPage() {
                 <SingleKpi item={kpiRest[1]} />
                 <SingleKpi item={kpiRest[2]} />
               </div>
+              <ProductivityTrendChart
+                siteId={REPORT_SITE_ID}
+                todayValue={detail.kpi.productivity_today}
+              />
             </Section>
 
             <Section eyebrow="/ 02 — 현재 상태" title="업체 · 공종 생산성">

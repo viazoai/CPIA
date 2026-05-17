@@ -148,40 +148,48 @@ export function ForecastChart({ diagnosis, recoveryActive = false, delayDays, re
         </ComposedChart>
       </ResponsiveContainer>
 
-      <div className="mt-4 space-y-1 rounded-md bg-surface-soft/50 px-3 py-2.5 text-sm leading-relaxed text-ink-mid">
-        <p>
-          <span className="font-semibold text-ink">실적</span>(검정 실선)이{" "}
-          <span className="font-semibold text-ink">계획</span>(회색 실선) 대비 어떻게 진행되었는지 보여주며,{" "}
-          파란 점선은 현 추세 유지 시 예측, 녹색 점선은 AI 권고 적용 시 만회 시나리오입니다.
-        </p>
-        <p>📊 {baseNarrative(diagnosis)}</p>
-        {recoveryActive && <p>⚡ {recoveryNarrative(diagnosis)}</p>}
+      <div className="mt-4 space-y-1.5 rounded-md bg-surface-soft/50 px-3 py-2.5 text-sm leading-relaxed text-ink-mid">
+        <p>📊 {situationNarrative(diagnosis, delayDays)}</p>
+        <p>⚡ {outlookNarrative(diagnosis, delayDays, recoveryDays)}</p>
       </div>
     </div>
   );
 }
 
-function baseNarrative(d: ProductivityDiagnosis): string {
-  const sign = d.z_score >= 0 ? "+" : "−";
+/** 현재 상황 분석 — 이력 평균 대비 위치 + 추세 + 현 공기 지연/단축 결론. */
+function situationNarrative(d: ProductivityDiagnosis, delayDays: number): string {
   const absZ = Math.abs(d.z_score).toFixed(1);
+  const direction = d.z_score >= 0 ? "위" : "아래";
   const within = Math.abs(d.z_score) < 1.5;
-  const range = within ? "정상 변동 범위 안" : "정상 변동 범위 밖";
-  const eta = d.scenarios.base.eta_days;
-  const etaText = Number.isFinite(eta) ? `자연 회귀 시 ${eta}일 회복` : "자연 회귀 불가";
-  return `이력 평균 ${sign}${absZ}σ — ${range}, ${etaText}.`;
+  const rangeText = within
+    ? `이력 평균보다 ${absZ}σ ${direction}쪽 정상 변동 범위 안에 머물고 있지만`
+    : `이력 평균보다 ${absZ}σ ${direction}쪽 정상 범위를 벗어난 구간이며`;
+  const trendText =
+    delayDays > 0
+      ? `최근 30일 동안 생산성이 우하향해 현 추세 유지 시 계획 대비 ${delayDays}일 지연이 예상됩니다.`
+      : delayDays < 0
+        ? `최근 추세가 우상향해 현 추세 유지 시 계획 대비 ${Math.abs(delayDays)}일 단축이 가능합니다.`
+        : `현재 추세는 계획선과 거의 일치합니다.`;
+  return `${rangeText}, ${trendText}`;
 }
 
-function recoveryNarrative(d: ProductivityDiagnosis): string {
-  const opt = d.scenarios.optimistic;
-  const baseEta = d.scenarios.base.eta_days;
-  if (!Number.isFinite(opt.eta_days)) {
-    return `AI 권고 적용 시에도 회복 불가.`;
+/** 만회 전망 — AI 권고 적용 시 단축 효과 + 최종 공기 결론. */
+function outlookNarrative(
+  d: ProductivityDiagnosis,
+  delayDays: number,
+  recoveryDays: number,
+): string {
+  if (recoveryDays <= 0) {
+    return `자연 회귀만으로는 추가 회복이 어렵고, AI 권고로도 의미 있는 단축은 어려운 상태입니다.`;
   }
-  if (!Number.isFinite(baseEta)) {
-    return `AI 권고 적용 시 ${opt.eta_days}일에 회복 가능.`;
+  const remaining = delayDays - recoveryDays;
+  if (remaining > 0) {
+    return `AI 권고 적용 시 ${recoveryDays}일 단축이 가능하며, 만회 시나리오를 따르면 계획 공기 대비 ${remaining}일 차이까지 좁힐 수 있습니다.`;
   }
-  const cut = baseEta - opt.eta_days;
-  return `AI 권고 적용 시 ${cut}일 단축 (${opt.eta_days}일에 회복).`;
+  if (remaining === 0) {
+    return `AI 권고 적용 시 ${recoveryDays}일 단축으로 계획 공기 회복이 가능합니다.`;
+  }
+  return `AI 권고 적용 시 ${recoveryDays}일 단축으로 계획 공기를 ${Math.abs(remaining)}일 앞당길 수 있습니다.`;
 }
 
 interface ForecastKpiProps {

@@ -67,16 +67,16 @@ export function ProductivityBarToggle({ contractorBars, tradeBars, historyMean, 
             {modeLabel} 현장 생산성{" "}
             <span className="text-sm font-normal text-ink-mid">({date} 기준)</span>
           </div>
-          <div className="mt-3 inline-flex items-baseline gap-3 rounded-card border border-border-soft bg-surface-soft px-4 py-3">
+          <div className="mt-3 flex items-baseline gap-2">
             <span
               className={cn(
-                "font-display text-h3 font-semibold leading-none",
+                "font-display text-h3 font-semibold",
                 underCount > 0 ? "text-rose-text" : "text-mint-text",
               )}
             >
               {underCount}
             </span>
-            <span className="text-sm text-ink-mid">
+            <span className="text-base text-ink-mid">
               {underUnit} 평균 미만
             </span>
           </div>

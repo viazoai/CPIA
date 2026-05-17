@@ -7,7 +7,7 @@ import { GapKpiCard } from "@/app/components/reports/GapKpiCard";
 import { OptimizerResult } from "@/app/components/reports/OptimizerResult";
 import { QuadrantCountKpi } from "@/app/components/reports/QuadrantCountKpi";
 import { RawDataTab } from "@/app/components/reports/RawDataTab";
-import { WPSummaryTable } from "@/app/components/reports/WPSummaryTable";
+import { WPSummaryTable, STATUS_DOT, STATUS_LABEL, recoveryDays } from "@/app/components/reports/WPSummaryTable";
 import { ForecastChart } from "@/app/components/charts/ForecastChart";
 import { ProductivityBarToggle } from "@/app/components/reports/ProductivityBarToggle";
 import { ProductivityTrendChart } from "@/app/components/charts/ProductivityTrendChart";
@@ -66,8 +66,6 @@ export default function ReportPage() {
     { label: "현 추세 공기", value: `D+${detail.kpi.delay_days}`, unit: "일 지연", sub: detail.kpi.expected_completion, tone: "risk" },
     { label: "회복 후 공기", value: `-${detail.kpi.recovery_days}`, unit: "일 회복", sub: detail.kpi.recovered_completion, tone: "normal" },
   ];
-
-  const selectedWp = detail.quadrant.find((p) => p.wp_id === selectedWpId) ?? null;
 
   // § 3 4분면 필터 → WP 리스트 필터 (safe ↔ normal 매핑)
   const filterToStatus: Record<Filter, "normal" | "caution" | "risk" | "all"> = {
@@ -156,13 +154,41 @@ export default function ReportPage() {
                 {/* 우측: 진단 결과 (단일 박스, 항목별 구분선) */}
                 <div className="col-span-12 flex h-full flex-col gap-3 md:col-span-6">
                   <div className="rounded-card border border-border-soft bg-card px-4 py-3 shadow-xs">
-                    <div className="text-body-sm text-ink-mid">
-                      {selectedWp ? (
-                        <>선택된 WP: <span className="font-semibold text-ink">{selectedWp.wp_name}</span> <span className="text-ink-light">({selectedWp.trade})</span></>
-                      ) : (
-                        <>WP 미선택 — 산점도에서 점을 클릭하세요</>
-                      )}
-                    </div>
+                    {(() => {
+                      const wpRow = detail.wp_summary.find((w) => w.wp_id === selectedWpId);
+                      if (!wpRow) {
+                        return (
+                          <div className="text-body-sm text-ink-mid">
+                            WP 미선택 — 산점도에서 점을 클릭하세요
+                          </div>
+                        );
+                      }
+                      const days = recoveryDays(wpRow.productivity, wpRow.baseline, wpRow.impact);
+                      return (
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="text-body-sm">
+                            <span className="font-semibold text-ink">{wpRow.wp_name}</span>
+                            <span className="ml-2 text-ink-light">({wpRow.trade})</span>
+                          </div>
+                          <div className="flex items-center gap-4">
+                            <span className="text-[12px] text-ink-mid">
+                              공기 단축{" "}
+                              {days > 0 ? (
+                                <span className="font-semibold text-mint-text">-{days}일</span>
+                              ) : (
+                                <span className="text-ink-light">—</span>
+                              )}
+                            </span>
+                            <span className="inline-flex items-center gap-1.5">
+                              <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[wpRow.status]}`} />
+                              <span className="text-[10px] font-semibold text-ink-mid">
+                                {STATUS_LABEL[wpRow.status]}
+                              </span>
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                   <div className="flex-1">
                     <OptimizerResult output={detail.optimizer} />

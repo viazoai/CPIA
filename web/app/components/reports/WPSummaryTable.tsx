@@ -8,13 +8,13 @@ interface Props {
   onSelect: (wpId: string) => void;
 }
 
-const STATUS_DOT = {
+export const STATUS_DOT = {
   normal:  "bg-mint",
   caution: "bg-sun",
   risk:    "bg-rose",
 } as const;
 
-const STATUS_LABEL = {
+export const STATUS_LABEL = {
   normal:  "정상",
   caution: "주의",
   risk:    "이상",
@@ -26,7 +26,7 @@ const STATUS_LABEL = {
  * scale 은 시연 합산이 적절한 폭(약 10~15일)이 되도록 조정한 PoC 상수.
  * A_Track 의 Optimizer 가 산출하는 실 회복일 수로 대체 예정.
  */
-function recoveryDays(productivity: number, baseline: number, impact: number): number {
+export function recoveryDays(productivity: number, baseline: number, impact: number): number {
   const gap = baseline - productivity;
   if (gap <= 0) return 0;
   return Math.max(0, Math.round((gap / 100) * impact * 0.3));

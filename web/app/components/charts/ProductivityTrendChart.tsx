@@ -139,10 +139,12 @@ export function ProductivityTrendChart({ siteId, todayValue, daysWindow = 90 }: 
           >
             <Label
               value={`현장 평균 ${avg.toFixed(1)}%`}
-              position="insideLeft"
+              position="top"
+              offset={6}
               fill="#1243a8"
-              fontSize={10}
-              fontFamily="JetBrains Mono, ui-monospace, monospace"
+              fontSize={12}
+              fontFamily="Inter Tight, system-ui, sans-serif"
+              fontWeight={500}
             />
           </ReferenceLine>
           <ReferenceDot

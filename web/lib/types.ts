@@ -66,7 +66,7 @@ export interface DailyRun {
 }
 
 export interface AgentProgress {
-  agent: string;                // "Collector" | "Parser" | "Mapper" | "HIL Review" | "Atomizer" | "Reporter" | "Forecaster" | "Optimizer"
+  agent: string;                // "Collector" | "Parser" | "Mapper" | "HIL Review" | "Atomizer" | "Exporter" | "Forecaster" | "Optimizer"
   unit: "per_report" | "per_review" | "per_run";
   processed: number;
   total: number;

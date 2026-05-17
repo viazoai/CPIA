@@ -15,7 +15,7 @@
       { "agent": "Mapper",     "unit": "per_report", "processed": 87, "total": 87, "waiting_hil": false },
       { "agent": "HIL Review", "unit": "per_review", "processed": 0,  "total": 12, "waiting_hil": true  },
       { "agent": "Atomizer",   "unit": "per_report", "processed": 0,  "total": 87, "waiting_hil": false },
-      { "agent": "Reporter",   "unit": "per_run",    "processed": 0,  "total": 1,  "waiting_hil": false },
+      { "agent": "Exporter",   "unit": "per_run",    "processed": 0,  "total": 1,  "waiting_hil": false },
       { "agent": "Forecaster", "unit": "per_run",    "processed": 0,  "total": 1,  "waiting_hil": false },
       { "agent": "Optimizer",  "unit": "per_run",    "processed": 0,  "total": 1,  "waiting_hil": false }
     ],
@@ -25,7 +25,7 @@
       { "agent": "Mapper",     "unit": "per_report", "processed": 95, "total": 95, "waiting_hil": false },
       { "agent": "HIL Review", "unit": "per_review", "processed": 8,  "total": 8,  "waiting_hil": false },
       { "agent": "Atomizer",   "unit": "per_report", "processed": 95, "total": 95, "waiting_hil": false },
-      { "agent": "Reporter",   "unit": "per_run",    "processed": 1,  "total": 1,  "waiting_hil": false },
+      { "agent": "Exporter",   "unit": "per_run",    "processed": 1,  "total": 1,  "waiting_hil": false },
       { "agent": "Forecaster", "unit": "per_run",    "processed": 1,  "total": 1,  "waiting_hil": false },
       { "agent": "Optimizer",  "unit": "per_run",    "processed": 1,  "total": 1,  "waiting_hil": false }
     ]

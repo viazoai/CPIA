@@ -28,7 +28,7 @@ const AGENT_META: Record<
   Parser:     { icon: FileSearch, bg: "bg-sky-light",      text: "text-sky-text" },
   Mapper:     { icon: GitBranch,  bg: "bg-sky-light",      text: "text-sky-text" },
   Atomizer:   { icon: Database,   bg: "bg-sky-light",      text: "text-sky-text" },
-  Reporter:   { icon: FileText,   bg: "bg-brand-light", text: "text-brand-text" },
+  Exporter:   { icon: FileText,   bg: "bg-brand-light", text: "text-brand-text" },
   Forecaster: { icon: Activity,   bg: "bg-brand-light", text: "text-brand-text" },
   Optimizer:  { icon: Sparkles,   bg: "bg-mint-light",     text: "text-mint-text" },
   "SKEP Manager": { icon: User,   bg: "bg-brand",       text: "text-white" },

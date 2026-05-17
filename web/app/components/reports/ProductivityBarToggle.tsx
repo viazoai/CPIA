@@ -41,7 +41,7 @@ const STATUS_CHIP = {
 export function ProductivityBarToggle({ contractorBars, tradeBars, historyMean, date }: Props) {
   const [mode, setMode] = useState<Mode>("contractor");
   const items = mode === "contractor" ? contractorBars : tradeBars;
-  const titleMain = mode === "contractor" ? "업체별 생산성" : "공종별 생산성";
+  const modeLabel = mode === "contractor" ? "업체별" : "공종별";
 
   const avg = items.length
     ? items.reduce((s, it) => s + it.value, 0) / items.length
@@ -58,8 +58,8 @@ export function ProductivityBarToggle({ contractorBars, tradeBars, historyMean, 
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
           <div className="font-display text-base font-semibold text-ink">
-            {titleMain}
-            <span className="ml-2 text-sm font-normal text-ink-mid">{date} 기준</span>
+            현장 생산성
+            <span className="ml-2 text-sm font-normal text-ink-mid">{modeLabel} · {date} 기준</span>
           </div>
           <div className="mt-3 flex items-baseline gap-2">
             <span className="font-display text-h3 font-semibold text-ink">

@@ -122,6 +122,7 @@ export default function ReportPage() {
               <ProductivityBarToggle
                 contractorBars={detail.contractor_bars}
                 tradeBars={detail.trade_bars}
+                historyMean={detail.kpi.target_productivity}
               />
             </Section>
 

@@ -9,6 +9,8 @@ type Mode = "contractor" | "trade";
 interface Props {
   contractorBars: BarItem[];
   tradeBars: BarItem[];
+  /** 이력 평균 — 격차 산출 기준 (보통 ReportKpi.target_productivity). */
+  historyMean: number;
 }
 
 const MODES: { key: Mode; label: string }[] = [
@@ -16,7 +18,6 @@ const MODES: { key: Mode; label: string }[] = [
   { key: "trade",      label: "공종별" },
 ];
 
-/* 평균값 → status tone — KPI 카드 색 톤. */
 function avgStatus(avg: number): "normal" | "caution" | "risk" {
   if (avg < 80) return "risk";
   if (avg < 90) return "caution";
@@ -29,7 +30,13 @@ const STATUS_VALUE_COLOR = {
   risk:    "text-rose-text",
 } as const;
 
-export function ProductivityBarToggle({ contractorBars, tradeBars }: Props) {
+const STATUS_CHIP = {
+  normal:  "bg-mint-light text-mint-text",
+  caution: "bg-sun-light text-sun-text",
+  risk:    "bg-rose-light text-rose-text",
+} as const;
+
+export function ProductivityBarToggle({ contractorBars, tradeBars, historyMean }: Props) {
   const [mode, setMode] = useState<Mode>("contractor");
   const items = mode === "contractor" ? contractorBars : tradeBars;
   const title = mode === "contractor" ? "업체별 생산성 (오늘 평균)" : "공종별 생산성 (오늘 평균)";
@@ -39,6 +46,10 @@ export function ProductivityBarToggle({ contractorBars, tradeBars }: Props) {
     : 0;
   const status = avgStatus(avg);
   const subLabel = mode === "contractor" ? "BP사 평균" : "공종 평균";
+
+  const gap = avg - historyMean;
+  const gapSign = gap >= 0 ? "+" : "";
+  const gapChipTone = gap >= -3 ? STATUS_CHIP.normal : gap >= -8 ? STATUS_CHIP.caution : STATUS_CHIP.risk;
 
   return (
     <div className="rounded-card border border-border-soft bg-card p-4 shadow-xs">
@@ -55,7 +66,15 @@ export function ProductivityBarToggle({ contractorBars, tradeBars }: Props) {
               {avg.toFixed(1)}
             </span>
             <span className="text-sm text-ink-light">%</span>
-            <span className="text-[11px] text-ink-mid">· {items.length}개 {subLabel}</span>
+            <span
+              className={cn(
+                "ml-1 inline-flex items-center rounded-full px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider",
+                gapChipTone,
+              )}
+            >
+              평균 대비 {gapSign}{gap.toFixed(1)}%p
+            </span>
+            <span className="text-[11px] text-ink-mid">· {items.length}개 {subLabel} · 이력 평균 {historyMean}%</span>
           </div>
         </div>
 

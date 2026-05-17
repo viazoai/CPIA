@@ -68,7 +68,7 @@ export function ProductivityBarToggle({ contractorBars, tradeBars, historyMean }
             <span className="text-sm text-ink-light">%</span>
             <span
               className={cn(
-                "ml-1 inline-flex items-center rounded-full px-2.5 py-0.5 font-mono text-sm font-semibold tracking-wider",
+                "ml-1 inline-flex items-center rounded-full px-2 py-0.5 font-display text-xs font-medium",
                 gapChipTone,
               )}
             >

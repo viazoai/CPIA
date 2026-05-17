@@ -46,9 +46,6 @@ export function ProductivityBarToggle({ contractorBars, tradeBars }: Props) {
         <div>
           <div className="font-display text-h6 text-ink">{title}</div>
           <div className="mt-1.5 flex items-baseline gap-2">
-            <span className="font-mono text-[10px] uppercase tracking-wider text-ink-light">
-              현재 생산성 KPI
-            </span>
             <span
               className={cn(
                 "font-display text-3xl font-semibold tracking-[-0.015em]",

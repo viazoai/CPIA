@@ -68,12 +68,7 @@ export function ProductivityBarToggle({ contractorBars, tradeBars, historyMean, 
             <span className="text-sm font-normal text-ink-mid">({date} 기준)</span>
           </div>
           <div className="mt-3 flex items-baseline gap-2">
-            <span
-              className={cn(
-                "font-display text-h3 font-semibold",
-                underCount > 0 ? "text-rose-text" : "text-mint-text",
-              )}
-            >
+            <span className="font-display text-h3 font-semibold tracking-[-0.015em] text-ink">
               {underCount}
             </span>
             <span className="text-base text-ink-mid">

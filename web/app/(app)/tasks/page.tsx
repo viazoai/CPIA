@@ -55,11 +55,10 @@ export default function AgentTasksPage() {
           / 02 — Agent Tasks
         </span>
         <h1 className="mt-3 font-display text-h3 text-ink">
-          AI Agent가 처리하는 작업 흐름
+          CPIA 작업 현황
         </h1>
         <p className="mt-2 text-body-sm text-ink-mid">
-          매일 ~80건의 작업일보를 7개 Agent + Human Review가 협업해 처리합니다.
-          일자를 고르고 Agent 단계를 선택하면 해당 건 목록을 확인할 수 있습니다.
+          매일 이메일로 접수되는 업체별 작업일보를 7개 Agent를 통해 업무를 처리하여 Middle Office 업무를 지원합니다.
         </p>
       </div>
 

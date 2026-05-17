@@ -91,7 +91,7 @@ export default function ReportPage() {
           현장 일일 진단 보고서
         </h1>
         <p className="mt-2 text-body-sm text-ink-mid">
-          결론 KPI → 생산성 현황 → 리스크 검토 → 시나리오 예측 → 원본 데이터 순으로 확인합니다.
+          생산성 분석을 기반으로 한 리스크 검토 및 예측 시나리오를 통해 공사기간 최적화를 제안합니다. 
         </p>
       </div>
 

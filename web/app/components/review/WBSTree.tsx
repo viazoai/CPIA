@@ -11,9 +11,27 @@ interface Props {
   onDrop?: (cardId: string, wpId: string) => void;
 }
 
-const RAIL_WIDTH = 24; // px per indent slot
+const RAIL_WIDTH = 32; // px per indent slot — 레벨 구분을 위해 넓게
 const LINE_COLOR = "#9aa3b2"; // tree branch line color
 const LINE_THICKNESS = 1.5; // px
+
+// 레벨별 타이포 — 깊이가 깊어질수록 작아지고 옅어짐
+const LEVEL_TEXT: Record<number, string> = {
+  0: "text-body-sm font-bold text-ink",          // root: 현장명
+  1: "text-sm font-semibold text-ink",           // 건물
+  2: "text-xs font-medium text-ink",             // 공종
+  3: "text-xs text-ink-mid",                     // Work Package
+};
+function levelTextClass(depth: number) {
+  return LEVEL_TEXT[depth] ?? LEVEL_TEXT[3];
+}
+
+// 레벨별 행 높이
+function levelMinHeight(depth: number): number {
+  if (depth === 0) return 34;
+  if (depth === 1) return 30;
+  return 26;
+}
 
 export function WBSTree({ root, selectedId, onSelect, onDrop }: Props) {
   return (
@@ -82,7 +100,7 @@ function Branch({ node, ancestorsLast, isLast, selectedId, onSelect, onDrop }: B
             key={i}
             aria-hidden
             className="relative shrink-0 self-stretch"
-            style={{ width: RAIL_WIDTH, minHeight: 28 }}
+            style={{ width: RAIL_WIDTH, minHeight: levelMinHeight(depth) }}
           >
             {!wasLast && (
               <div
@@ -104,7 +122,7 @@ function Branch({ node, ancestorsLast, isLast, selectedId, onSelect, onDrop }: B
           <div
             aria-hidden
             className="relative shrink-0 self-stretch"
-            style={{ width: RAIL_WIDTH, minHeight: 28 }}
+            style={{ width: RAIL_WIDTH, minHeight: levelMinHeight(depth) }}
           >
             {/* vertical: full height if not last, else only top half */}
             <div
@@ -134,12 +152,12 @@ function Branch({ node, ancestorsLast, isLast, selectedId, onSelect, onDrop }: B
         {/* Node row content */}
         <div className={cn("flex flex-1 min-w-0 items-center gap-1.5 py-1.5 pr-2", isRoot ? "pl-2" : "pl-1.5")}>
           {hasChildren ? (
-            open ? <ChevronDown className="h-3 w-3 text-ink-light shrink-0" /> : <ChevronRight className="h-3 w-3 text-ink-light shrink-0" />
+            open ? <ChevronDown className="h-3.5 w-3.5 text-ink-light shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 text-ink-light shrink-0" />
           ) : (
-            <span className="w-3 shrink-0" />
+            <span className="w-3.5 shrink-0" />
           )}
           <StatusDot status={node.status} />
-          <span className={cn("text-xs flex-1 truncate", isWP ? "text-ink-mid" : "text-ink")}>{node.name}</span>
+          <span className={cn("flex-1 truncate", levelTextClass(depth))}>{node.name}</span>
           {node.review_count > 0 && (
             <span className="inline-flex items-center gap-0.5 rounded-sm bg-sun-light px-1.5 py-0.5 text-[11px] font-bold text-sun-text shrink-0">
               <AlertTriangle className="h-2.5 w-2.5" />

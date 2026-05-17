@@ -2559,7 +2559,7 @@ export default function AgentTasksPage() {
           </span>
         </div>
         <h1 className="mt-6 font-display text-3xl font-bold tracking-tight text-ink">
-          AI Agent가 처리하는 작업 흐름
+          CPIA 작업 현황
         </h1>
         <p className="mt-2 text-sm text-ink-mid">
           매일 ~100건의 작업일보를 7개 Agent + Human Review가 협업해 처리합니다. Daily run을 선택하면 단계별 진행과 Agent 대화를 볼 수 있습니다.

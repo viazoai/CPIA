@@ -249,4 +249,5 @@ async def test_demo_graph_e2e_namwong_dolgwan(cfg_env, chroma_ready, run_row):
     assert isinstance(row.get("diagnosis"), str)
     assert len(row["diagnosis"]) > 0
     assert len(row.get("recommendations", [])) >= 1
-    assert final.get("current_node") == "optimizer"
+    # 신 graph: optimizer → reporter → END (hil1-forecaster-reporter cycle)
+    assert final.get("current_node") == "reporter"

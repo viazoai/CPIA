@@ -27,6 +27,7 @@ from pipeline.agents.atomizer import AtomizerConfig
 from pipeline.agents.forecaster import ForecasterConfig
 from pipeline.agents.mapper import MapperConfig
 from pipeline.agents.optimizer import OptimizerConfig
+from pipeline.agents.reporter import ReporterConfig
 from pipeline.db import PGClient
 from pipeline.graph import GraphConfig, build_graph
 
@@ -91,6 +92,13 @@ def cfg() -> GraphConfig:
             chroma_host=common_chroma_host,
             chroma_port=common_chroma_port,
             chroma_ssl=common_chroma_ssl,
+        ),
+        reporter=ReporterConfig(
+            azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
+            azure_api_key=os.environ["AZURE_OPENAI_API_KEY"],
+            azure_api_version=os.environ["AZURE_OPENAI_API_VERSION"],
+            llm_model=os.environ["LLM_MODEL"],
+            postgres_url=common_pg,
         ),
     )
 
@@ -214,8 +222,8 @@ async def test_hil_1_skip_no_review(cfg, run_row, monkeypatch):
         f"requires_review=False 만인데 __interrupt__ 발생: {final.get('__interrupt__')}"
     )
     assert final.get("hil_1_corrections") == {}
-    # END 도달 (hil_2 stub 의 current_node="hil_2" 가 마지막 stub 통과 후 conditional_edge → END)
-    assert final.get("current_node") in {"hil_1", "hil_2", "atomizer", "forecaster", "optimizer"}
+    # END 도달 (hil_2 stub → conditional_edge → reporter → END, 신 graph edges)
+    assert final.get("current_node") == "reporter"
 
 
 @pytest.mark.slow

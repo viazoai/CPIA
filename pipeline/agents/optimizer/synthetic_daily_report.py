@@ -282,6 +282,18 @@ def _build_optimizer_config():
     )
 
 
+def _build_reporter_config():
+    from pipeline.agents.reporter import ReporterConfig
+
+    return ReporterConfig(
+        azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
+        azure_api_key=os.environ["AZURE_OPENAI_API_KEY"],
+        azure_api_version=os.environ["AZURE_OPENAI_API_VERSION"],
+        llm_model=os.environ["LLM_MODEL"],
+        postgres_url=os.environ["POSTGRES_URL"],
+    )
+
+
 def _build_forecaster_config():
     from pipeline.agents.forecaster import ForecasterConfig
 
@@ -336,6 +348,7 @@ def build_demo_graph_config():
         ),
         forecaster=_build_forecaster_config(),
         optimizer=_build_optimizer_config(),
+        reporter=_build_reporter_config(),
     )
 
 

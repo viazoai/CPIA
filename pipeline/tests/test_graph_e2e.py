@@ -82,6 +82,13 @@ def cfg() -> GraphConfig:
             chroma_port=common_chroma_port,
             chroma_ssl=common_chroma_ssl,
         ),
+        reporter=ReporterConfig(
+            azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
+            azure_api_key=os.environ["AZURE_OPENAI_API_KEY"],
+            azure_api_version=os.environ["AZURE_OPENAI_API_VERSION"],
+            llm_model=os.environ["LLM_MODEL"],
+            postgres_url=common_pg,
+        ),
     )
 
 

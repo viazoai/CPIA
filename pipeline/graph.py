@@ -23,6 +23,7 @@ from pipeline.agents.optimizer.retrieve import (
     fetch_degradation_cases,
     fetch_recovery_trajectory,
 )
+from pipeline.agents.reporter import ReporterConfig, report
 from pipeline.checkpointer import build_checkpointer
 from pipeline.chroma_client import ChromaClient
 from pipeline.db import PGClient
@@ -35,6 +36,7 @@ class GraphConfig:
     atomizer: AtomizerConfig
     forecaster: ForecasterConfig
     optimizer: OptimizerConfig  # optimizer cycle Task 8
+    reporter: ReporterConfig  # hil1-forecaster-reporter cycle (2026-05-17)
 
 
 async def mapper_node(state: CPIAState, cfg: GraphConfig) -> dict:
@@ -308,6 +310,25 @@ async def optimizer_node(state: CPIAState, cfg: GraphConfig) -> dict:
     return {"optimizer_advice": advice, "current_node": "optimizer"}
 
 
+async def reporter_node(state: CPIAState, cfg: GraphConfig) -> dict:
+    """Mapper + Forecaster + Optimizer 결과 종합 보고서 생성 + PG INSERT.
+
+    Spec §5.3. hil_2_selection=[] (Optimizer skip) 또는 risky 0건 path 에서도
+    본 노드 진입. mapped empty → fallback MD + PG INSERT skip.
+    """
+    run_id = uuid.UUID(state["run_id"]) if isinstance(state["run_id"], str) else state["run_id"]
+    today = _date.fromisoformat(state["date"])
+    report_md, _summary = await report(
+        mapped=state["mapped"],
+        forecast_rows=state.get("forecast", []),
+        optimizer_advice=state.get("optimizer_advice", []),
+        run_id=run_id,
+        today=today,
+        cfg=cfg.reporter,
+    )
+    return {"report_md": report_md, "current_node": "reporter"}
+
+
 def build_demo_graph(cfg: GraphConfig):
     """데모 graph — START → forecaster → hil_2 → (optimizer | END) → END.
 
@@ -327,17 +348,22 @@ def build_demo_graph(cfg: GraphConfig):
     async def _optimizer(state: CPIAState) -> dict:
         return await optimizer_node(state, cfg)
 
+    async def _reporter(state: CPIAState) -> dict:
+        return await reporter_node(state, cfg)
+
     graph.add_node("forecaster", _forecaster)
     graph.add_node("hil_2", _hil_2)
     graph.add_node("optimizer", _optimizer)
+    graph.add_node("reporter", _reporter)
     graph.add_edge(START, "forecaster")
     graph.add_edge("forecaster", "hil_2")
     graph.add_conditional_edges(
         "hil_2",
-        lambda s: "optimizer" if s.get("hil_2_selection") else END,
-        {"optimizer": "optimizer", END: END},
+        lambda s: "optimizer" if s.get("hil_2_selection") else "reporter",
+        {"optimizer": "optimizer", "reporter": "reporter"},
     )
-    graph.add_edge("optimizer", END)
+    graph.add_edge("optimizer", "reporter")
+    graph.add_edge("reporter", END)
     return graph.compile(checkpointer=build_checkpointer())
 
 
@@ -368,12 +394,16 @@ def build_graph(cfg: GraphConfig):
     async def _optimizer(state: CPIAState) -> dict:
         return await optimizer_node(state, cfg)
 
+    async def _reporter(state: CPIAState) -> dict:
+        return await reporter_node(state, cfg)
+
     graph.add_node("mapper", _mapper)
     graph.add_node("hil_1", _hil_1)
     graph.add_node("atomizer", _atomizer)
     graph.add_node("forecaster", _forecaster)
     graph.add_node("hil_2", _hil_2)
     graph.add_node("optimizer", _optimizer)
+    graph.add_node("reporter", _reporter)
     graph.add_edge(START, "mapper")
     graph.add_edge("mapper", "hil_1")
     graph.add_edge("hil_1", "atomizer")
@@ -381,8 +411,9 @@ def build_graph(cfg: GraphConfig):
     graph.add_edge("forecaster", "hil_2")
     graph.add_conditional_edges(
         "hil_2",
-        lambda s: "optimizer" if s.get("hil_2_selection") else END,
-        {"optimizer": "optimizer", END: END},
+        lambda s: "optimizer" if s.get("hil_2_selection") else "reporter",
+        {"optimizer": "optimizer", "reporter": "reporter"},
     )
-    graph.add_edge("optimizer", END)
+    graph.add_edge("optimizer", "reporter")
+    graph.add_edge("reporter", END)
     return graph.compile(checkpointer=build_checkpointer())

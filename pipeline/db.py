@@ -342,3 +342,38 @@ class PGClient:
                 _json.dumps(original, ensure_ascii=False),
                 _json.dumps(corrected, ensure_ascii=False),
             )
+
+    async def insert_daily_report(
+        self,
+        run_id: uuid.UUID,
+        report_date: _date,
+        report_md: str,
+        history_csv_row: dict | None,
+        bp_name: str | None = None,
+    ) -> None:
+        """daily_reports 테이블 INSERT 1 row.
+
+        실 schema (infra/postgres/init.sql:33) = id, run_id, report_date,
+        bp_name (nullable), report_md, history_csv_row (jsonb, nullable),
+        created_at. postgres.md §5 의 'date' / 'summary' 필드명 mismatch
+        (drift backlog 별 cycle).
+
+        종합 보고서 (Reporter 위치 = Optimizer 다음 drift) → bp_name=None.
+        Reporter 의 summary dict (total_workers / risk_counts / advice_count)
+        는 history_csv_row 컬럼에 박음.
+        """
+        import json as _json
+
+        assert self._pool is not None, "connect() 미호출"
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO daily_reports (run_id, report_date, bp_name, report_md, history_csv_row)
+                VALUES ($1, $2, $3, $4, $5::jsonb)
+                """,
+                run_id,
+                report_date,
+                bp_name,
+                report_md,
+                _json.dumps(history_csv_row, ensure_ascii=False) if history_csv_row is not None else None,
+            )

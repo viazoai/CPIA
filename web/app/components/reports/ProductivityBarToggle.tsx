@@ -45,7 +45,7 @@ export function ProductivityBarToggle({ contractorBars, tradeBars }: Props) {
         </div>
       </div>
 
-      <BarChartH items={items} showAverage bare />
+      <BarChartH items={items} showAverage bare orientation="vertical" />
     </div>
   );
 }

@@ -10,7 +10,56 @@
 
 ## 0. Executive Summary
 
-(Task 5 Step 5.3 에서 작성)
+### 일치도 분포 (10 단계 매트릭스 §1)
+
+| 라벨 | 단계 수 | 단계 |
+|------|---------|------|
+| 일치 | 4 | Mapper / Atomizer / HIL 2 / (Forecaster 부분) |
+| 일치 (skip) | 1 | Parser (시뮬에서 우회, 코드 존재) |
+| 부분 일치 | 1 | Optimizer (advice 강도 PM 원안 대비 약함) |
+| 미구현 | 2 | Collector (0 byte) / Reporter (0 byte) |
+| 드리프트 | 1 | HIL 1 (state placeholder only) |
+| 의도된 변경 | 1 | Dashboard (Streamlit → Next.js, §3 marked) |
+
+### 컨셉 v1→v2 cross-cutting (§2)
+
+6 변경 모두 일치 또는 의도된 확대. **품셈 → Vector RAG 전환 = 완전 발현**.
+
+### Synthetic 변동/회복 패턴 (§2.7)
+
+원안 4 변동 중 3 일치 (우천/야간/장비대기/정상) + 1 드리프트 (병행작업 부재). 회복 2 패턴 모두 일치. 추가 룰 3 (자재미입고/돌관/장비대기 2일차).
+
+### 시뮬 4 건 결과 (§4)
+
+- 시나리오 1 (PM 데모 재현): risky 2 → Optimizer 2 row. PM 원안 권고 vs LLM = 일치 1 / 부분 2 / 드리프트 1
+- 시나리오 2 (우천): risk=주의 ✓
+- 시나리오 3 (돌관): risk=이상 ✗ (주의 발현, today_prod ≈ baseline → fixture bug §5.2)
+- 시나리오 4 (cold_start): spec §7.4 가정과 다른 path 발현 (§5.4)
+- 결정성 검증: 결정론 컬럼 100% 일치 (rerun)
+
+### 추가 발견 드리프트 9건 (§5)
+
+assessment vs risk 분기 / fixture productivity_ratio bug / assessment "정상" bias / cold_start 2 path / Optimizer 권고 강도 종속 / PM 원안 의미 일치도 / date off-by-one / plan deviation 5건 / recovery_distribution conditions 필터
+
+### 우선순위 #1~#5 후속 cycle 후보 (drift-backlog)
+
+1. **Reporter 구현** (PoC 성공 기준 #1)
+2. **Forecaster assessment 결정 path 정정** (§5.1+5.3+5.5 통합)
+3. **시뮬 fixture productivity_ratio bug** (§5.2)
+4. **HIL 1 구현** (PoC 성공 기준 #2)
+5. **Collector + 파일 드롭 + main.py**
+
+defer: 8건 (D-1 ~ D-8)
+
+상세: `docs/audit/2026-05-17-cpia-drift-backlog.md`
+
+### 회귀 baseline
+
+`183 passed in 569.85s` (audit 시작 시점 = 직전 cycle PR #15 머지 직후와 동일).
+
+### Azure 비용 실측 추정
+
+$0.10~$0.20 (시뮬 4 + rerun 1 = 약 13 LLM 호출, gpt-5.1 단가 추정). spec §7 예상 ~$0.3 대비 -33~67%.
 
 ---
 
@@ -173,7 +222,44 @@ PM 원안 §0 표의 6 변경이 현 구현에 반영됐는지.
 
 ## 4. 시뮬 시나리오 4 건 결과
 
-(Task 5 Step 5.1 — raw 부록 4 링크 + 검증 포인트 충족 여부)
+각 시나리오 raw = `docs/audit/raw/scenario-<N>-<run_id>.md`. Azure 비용 실측 추정 = $0.10~$0.20 (stdout token 카운트 미노출, 호출 회수 × gpt-5.1 단가 추정).
+
+### 4.1 시나리오 1 — PM 원안 데모 재현 (3 회사)
+
+- **run_id:** `ca7d820c-a02c-4094-afa3-6fa7cb765dc4`
+- **fixture (plan deviation 5건 fix 적용):** 남웅건설 철콘 m3 0.45 / 세보엠이씨 일반공조 m2 1.0 / 창원기전 전등 ea 1.0
+- **결과:**
+  - forecast row 3 (남웅 today_prod=69.62 / 세보 2.51 / 창원 0.59)
+  - risk: 남웅 주의 / 세보 정상 / 창원 주의
+  - assessment: 모두 정상 (LLM bias)
+  - HIL 2 risky_groups=2 (남웅 + 창원)
+  - Optimizer advice 2 row (남웅 정상 path + 창원 cold_start)
+  - recovery_distribution (남웅): `{d+1:2, d+5:1, d+6:1, not_recovered:1}`
+- **검증 포인트 충족:** PM 원안 §2 권고사항 패턴 vs 실 LLM advice = 일치 1 / 부분 2 / 드리프트 1 (raw §3)
+- **결정성 검증 (rerun run_id `0a175854`):** 결정론 컬럼 100% 일치, 비결정론은 diagnosis/reasoning 어휘만 차이
+
+### 4.2 시나리오 2 — 주의 (우천 -20%)
+
+- **run_id:** `c88e103d-058c-40f8-a3a1-9810f0047ac9`
+- **fixture:** 남웅건설 철콘 m3 0.8 우천 1.0
+- **결과:** today_prod=74.26 / risk=주의 / assessment=정상 / Optimizer 정상 path / recovery 시뮬 1 과 동일
+- **검증 포인트 충족:** risk=주의 ✓ / conditions=["맑음","우천"] ✓ / Optimizer 정상 path ✓
+- **추가 발견:** today_prod 74.26 = baseline 의 2.39× → §5.2
+
+### 4.3 시나리오 3 — 이상 (돌관 -45% × 1.3)
+
+- **run_id:** `8ee67861-d627-4c88-ac4f-62208539726b`
+- **fixture:** 남웅건설 철콘 m3 0.45 돌관 1.3
+- **결과:** today_prod=32.13 / risk=**주의** (이상 미발현) / assessment=정상 / LLM diagnosis "돌관 작업으로 평시 대비 높은 실적" (의도 반대)
+- **검증 포인트 충족:** risk=이상 ✗ (주의 발현) / recovery_distribution JSONB ✓
+- **추가 발견:** today_prod ≈ baseline 31.07 → §5.2, date off-by-one (CLI 9/29 → stdout 9/28) → §5.7
+
+### 4.4 시나리오 4 — cold_start (신규 회사)
+
+- **run_id:** `0dc69cbc-ed64-4a27-9f9b-adec01a24093`
+- **fixture:** 신규건설 토목공사 m3 1.0 정상
+- **결과:** today_qty=0 / today_prod=0 / risk=null / assessment=null / reasoning="데이터 부족 — 판단 보류" / Optimizer 미진입
+- **검증 포인트 충족:** spec §7.4 가정 (baseline=None hil_2 분기) 미발현. 다른 path (Forecaster today_qty=0 → risk=null) 발현 → §5.4 cold_start 2 path 발견
 
 ---
 
@@ -265,4 +351,31 @@ spec §4 의 사전 식별 8건 외에 시뮬 4건 raw + 매트릭스 작성 중
 
 ## 6. Limitation
 
-(Task 5 Step 5.2 — LLM 비결정성 컬럼 + 시뮬 1 회 한계 + audit 범위 외)
+### 6.1 LLM 비결정성 컬럼
+
+시나리오 1 결정성 검증 (Task 1 Step 1.13, rerun run_id `0a175854`) 결과:
+
+| 분류 | 컬럼 | 근거 |
+|------|------|------|
+| 결정론 | `today_productivity` | 산술 |
+| 결정론 | `risk_level` | 임계값 분기 (forecaster classify.py) |
+| 결정론 (또는 highly stable LLM) | `assessment` | rerun 100% 일치 — LLM bias 매우 일관 or 결정론 코드 path. 단일 fixture 만 검증, 일반화 한계 |
+| 결정론 | `recovery_distribution` | optimizer agent.py `_compute_recovery_distribution` 코드단 산출 |
+| 비결정론 | `reasoning` / `diagnosis` / `recommendations` | LLM 자유텍스트 |
+
+비결정론 컬럼의 audit 평가는 "의미적 일치" 기준 — 동일 fixture 의 다회 호출 어휘/순서 차이는 normal, 의미 차이는 anomaly.
+
+### 6.2 시뮬 1 회 한계
+
+시나리오 1 만 rerun 으로 결정성 검증 (2 회), 시나리오 2/3/4 는 단일 호출. 비결정 컬럼의 통계적 신뢰는 미확보 — 정성 평가만.
+
+### 6.3 audit 범위 외 (별 cycle)
+
+- 갭 자체의 구현 (Reporter / HIL 1 / Collector 등) — drift-backlog 의 #1, #4, #5
+- B_Track Next.js Dashboard 의 internal audit — 별 cycle (의도된 변경 §3 marked 만)
+- 코드 스타일 / 한자 / cosmetic — 별 채널
+- 시나리오 fine-tuning (drift-backlog #3) — 별 cycle, fix 후 시뮬 재현 가능
+
+### 6.4 본 audit 자체의 plan deviation 5건 (audit fact, §5.8)
+
+본 audit 의 plan (`docs/superpowers/plans/2026-05-17-cpia-e2e-audit-plan.md`) 작성 시 grep / .env / argparse / PG 데이터 확인 부족으로 발생한 deviation 이 5건 (port / CLI / fixture / pytest). audit 실행자 (본 sessions) 가 self-correct 로 진행했으나, plan 의 "Real research before guess" 룰 강화 필요 — 다음 plan 부터 사전 grep + .env 확인 step 명시.

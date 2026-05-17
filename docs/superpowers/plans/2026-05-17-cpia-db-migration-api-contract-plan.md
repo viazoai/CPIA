@@ -620,13 +620,13 @@ recovery_days        = 0  # PoC, Phase 2 = recovery_distribution 기반
 | 2026-05-17 | 초안 — PG↔types.ts 매핑 + 8 endpoint + derived 계산식 + 환경 분리 정책 | A_Track |
 ```
 
-- [ ] **Step 3.6: api-contract.md lines check (~400-500 lines 목표)**
+- [ ] **Step 3.6: api-contract.md lines check (~200-300 lines 목표)**
 
 Run:
 ```bash
 wc -l docs/architecture/api-contract.md
 ```
-Expected: `400~500 docs/architecture/api-contract.md` 라인. 너무 작으면 (~100) 부족, 너무 크면 (~800+) 과도.
+Expected: `200~350 docs/architecture/api-contract.md` 라인. 너무 작으면 (~50) 빠진 § 있음, 너무 크면 (~500+) 불필요한 sample 과다.
 
 - [ ] **Step 3.7: commit**
 
@@ -773,7 +773,14 @@ EOF
 
 **Files:** 없음 (prod 측 sql 적용만, 본인 commit 없음)
 
-### 옵션 A — A 머신에서 cloudflared tunnel 통해 5 sql sequence apply (권고: 본인이 직접 가능)
+### Step 5.0: 옵션 A vs B 결정
+
+조형준 측 응답 가능 + prod 머신 git/docker 권한 있음 → 옵션 B (가장 깔끔).
+조형준 측 응답 없음 / 1시간 이상 대기 / A 머신 단독 진행 → 옵션 A (cloudflared tunnel 통해 5 sql sequence).
+
+**권고 우선순위**: 본 cycle 진행 속도 위해 옵션 A 우선 (본인 권한만으로 가능). 옵션 B 는 조형준 측 응답 시점에 prod 머신 cleaner init 원하면 전환.
+
+### 옵션 A — A 머신에서 cloudflared tunnel 통해 5 sql sequence apply
 
 - [ ] **Step 5A.1: cloudflared tunnel 활성 재확인**
 
@@ -799,6 +806,40 @@ asyncio.run(main())
 PY
 ```
 Expected (baseline): sites=8, pipeline_runs=8, activity_master=21, forecasts=9, optimizer_advice=7.
+
+- [ ] **Step 5A.2.5: prod 의 데이터 보존 가드 (Critical — `2026-05-16_downstream_agents.sql` 의 `DROP TABLE forecasts` 가 silent data loss)**
+
+`2026-05-16_downstream_agents.sql` 의 `DROP TABLE IF EXISTS forecasts; CREATE TABLE forecasts ...` 패턴은 prod 에 forecasts 데이터가 있으면 silent 손실. apply 전 모든 영향 테이블 row=0 확인 필수. 0 아니면 hard STOP (옵션 B 또는 데이터 보존 계획 수립).
+
+Run:
+```bash
+pipeline/.venv/bin/python3 <<'PY'
+import asyncio, asyncpg, sys
+async def main():
+    c = await asyncpg.connect(host='127.0.0.1', port=5532, user='cpia', password='K7mP2xQ9nR4v', database='cpia')
+    all_zero = True
+    for t in ['forecasts', 'optimizer_advice', 'pipeline_runs', 'mapping_corrections', 'daily_reports', 'activity_master', 'sites']:
+        try:
+            n = await c.fetchval(f'SELECT count(*) FROM "{t}"')
+        except Exception:
+            n = -1
+        ok = (n == 0)
+        all_zero = all_zero and ok
+        print(f'{t:25s} rows = {n}  {"OK (empty)" if ok else "⚠️ NON-EMPTY"}')
+    await c.close()
+    if not all_zero:
+        print('\n=== HARD STOP ===')
+        print('prod 가 비어있지 않음 — Step 5A.3 의 DROP TABLE 이 데이터 손실.')
+        print('대응: 옵션 B 로 전환 (조형준 측 docker compose down -v) 또는')
+        print('     데이터 보존 계획 수립 (pg_dump → 마이그 후 restore)')
+        sys.exit(1)
+    print('\n=== ALL EMPTY — Step 5A.3 진입 안전 ===')
+asyncio.run(main())
+PY
+```
+Expected: 모든 `rows = 0` + `ALL EMPTY — Step 5A.3 진입 안전`. exit 0.
+
+만약 non-empty 면 `HARD STOP` + exit 1 → Step 5A.3 진입 금지. 사용자에게 옵션 B 전환 또는 데이터 보존 계획 협의.
 
 - [ ] **Step 5A.3: 5 sql sequence apply**
 
@@ -913,13 +954,18 @@ docker compose ps   # 4 컨테이너 Up 확인
 
 **Files:** 없음 (데이터 적재)
 
-- [ ] **Step 6.1: prod Chroma tunnel 활성 재확인**
+- [ ] **Step 6.1: prod tunnel 양쪽 활성 재확인 (PG + Chroma)**
 
 Run:
 ```bash
+# PG tunnel (cloudflared access tcp, 5532 listening)
+pgrep -f "cloudflared access tcp.*cpia-pg" > /dev/null && echo "PG tunnel UP" || echo "PG tunnel DOWN — STOP"
+nc -zv localhost 5532 2>&1 | head -1
+
+# Chroma tunnel (HTTP heartbeat)
 curl -fsS "https://cpia-chroma.zoai.uk/api/v1/heartbeat" 2>&1 | head -3
 ```
-Expected: `{"nanosecond heartbeat": ...}` 류 JSON. fail 면 Task 0.5 의 Hard Gate 미해소 → STOP.
+Expected: `PG tunnel UP`, `5532 succeeded`, Chroma heartbeat JSON. fail 면 STOP (Task 0.4 / 0.5 재실행).
 
 - [ ] **Step 6.2: load_master_list.py prod 호출**
 
@@ -965,19 +1011,20 @@ Expected: `PROD activity_master rows = 1059`, sample row 가 의미 있는 값 (
 
 - [ ] **Step 6.4: prod Chroma wbs_master group 검증**
 
+ChromaClient method 확정 (`pipeline/chroma_client.py:23`): `get_or_create_wbs_master() → Collection`.
+
 Run:
 ```bash
 CHROMA_HOST=cpia-chroma.zoai.uk CHROMA_PORT=443 CHROMA_SSL=true \
 PYTHONPATH="$(pwd)" pipeline/.venv/bin/python3 -c "
+import os
 from pipeline.chroma_client import ChromaClient
-c = ChromaClient(host='cpia-chroma.zoai.uk', port=443, ssl=True)
-coll = c.get_or_create_wbs_master() if hasattr(c, 'get_or_create_wbs_master') else c.client.get_collection('wbs_master')
+c = ChromaClient(host=os.environ['CHROMA_HOST'], port=int(os.environ['CHROMA_PORT']), ssl=os.environ.get('CHROMA_SSL','false').lower()=='true')
+coll = c.get_or_create_wbs_master()
 print(f'PROD Chroma wbs_master count = {coll.count()}')
 "
 ```
 Expected: `PROD Chroma wbs_master count = 30`.
-
-(주의: ChromaClient 의 method 이름이 정확히 `get_or_create_wbs_master` 인지 plan 작성 시점 grep 으로 확정 — 본 plan 의 코드는 best-effort, 실 호출 시 정정.)
 
 - [ ] **Step 6.5: 검증 raw 저장**
 
@@ -996,6 +1043,14 @@ echo "saved: docs/audit/raw/2026-05-17-prod-task6-master-load.txt"
 **의존**: Task 6 완료 (activity_master prod 적재 — synthetic_v2 가 PG 읽어서 적재)
 
 **Files:** 없음 (데이터 적재)
+
+- [ ] **Step 7.0: prod tunnel 양쪽 활성 재확인 (Step 6.1 와 동일 명령)**
+
+```bash
+pgrep -f "cloudflared access tcp.*cpia-pg" > /dev/null && echo "PG tunnel UP" || echo "PG tunnel DOWN — STOP"
+nc -zv localhost 5532 2>&1 | head -1
+curl -fsS "https://cpia-chroma.zoai.uk/api/v1/heartbeat" 2>&1 | head -3
+```
 
 - [ ] **Step 7.1: synthetic_v2.py prod 호출**
 
@@ -1020,12 +1075,15 @@ Azure embedding 비용: ~$0.05 (~2000 doc × text-embedding-3-small).
 
 - [ ] **Step 7.2: prod Chroma daily_activities 의 synthetic_v2 source 검증**
 
+ChromaClient method 확정 (`pipeline/chroma_client.py:30`): `get_or_create_daily_activities() → Collection`.
+
 Run:
 ```bash
 CHROMA_HOST=cpia-chroma.zoai.uk CHROMA_PORT=443 CHROMA_SSL=true \
 PYTHONPATH="$(pwd)" pipeline/.venv/bin/python3 -c "
+import os
 from pipeline.chroma_client import ChromaClient
-c = ChromaClient(host='cpia-chroma.zoai.uk', port=443, ssl=True)
+c = ChromaClient(host=os.environ['CHROMA_HOST'], port=int(os.environ['CHROMA_PORT']), ssl=os.environ.get('CHROMA_SSL','false').lower()=='true')
 coll = c.get_or_create_daily_activities()
 n = coll.count()
 # worker_source='synthetic_v2' filter count
@@ -1094,7 +1152,17 @@ echo "saved: docs/audit/raw/2026-05-17-prod-task8-sites-seed.txt"
 
 **Files:** 없음 (검증만, raw 저장은 Task 10 commit 묶음)
 
-- [ ] **Step 9.1: prod 시뮬 호출 (synthetic_daily_report --site-id m15x-ph3-ibl)**
+- [ ] **Step 9.0: prod tunnel 양쪽 활성 재확인 (Step 6.1 와 동일 명령)**
+
+```bash
+pgrep -f "cloudflared access tcp.*cpia-pg" > /dev/null && echo "PG tunnel UP" || echo "PG tunnel DOWN — STOP"
+nc -zv localhost 5532 2>&1 | head -1
+curl -fsS "https://cpia-chroma.zoai.uk/api/v1/heartbeat" 2>&1 | head -3
+```
+
+- [ ] **Step 9.1: prod 시뮬 호출 (synthetic_daily_report --site-id m15x-ph3-ibl --auto-select-all)**
+
+**Critical**: `--auto-select-all` 필수. 없으면 synthetic_daily_report.py:456 의 `if args.auto_select_all:` 분기를 안 타고 line 464 `input("선택> ")` 대화형 prompt 로 진입 → 비대화형 (자동/sub-agent) 환경에서 EOFError 또는 무한 blocking. spec §9.2 의 "HIL 2 명시 auto-resume" 의 실 구현 path = `--auto-select-all` flag.
 
 Run:
 ```bash
@@ -1108,6 +1176,7 @@ PYTHONPATH="$(pwd)" \
   --site-id m15x-ph3-ibl \
   --site-name "M15X Ph-3 IBL" \
   --date 2025-09-25 \
+  --auto-select-all \
   2>&1 | tee docs/audit/raw/2026-05-17-prod-task9-sim-stdout.txt
 ```
 Expected 마지막 line 패턴:

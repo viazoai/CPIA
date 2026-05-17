@@ -329,11 +329,11 @@ dev 가 prod 가리키지 않는 사유:
 
 ### 9.1 호출 명령
 
-synthetic_daily_report.py 의 실측 argparse (line 366):
+synthetic_daily_report.py 의 실측 argparse (line 366~381):
 - `--site-id` (기본 `DEMO_SITE`) — 본 cycle 검증 시 `m15x-ph3-ibl` (real PoC) 명시
 - `--site-name` (기본 `Demo Site`) — `'M15X Ph-3 IBL'` 명시
 - `--date` — 필수 (시뮬 일자)
-- 기타 scenario 인자는 plan 단계 grep 으로 확정
+- `--auto-select-all` (line 381) — **필수**: HIL 2 interrupt 의 비대화형 auto-resume. 없으면 script line 464 `input("선택> ")` 으로 stuck (비대화형 환경 EOFError 또는 무한 blocking)
 
 ```bash
 # A 머신에서 .env 일시 swap (.env.prod 활용 또는 inline override)
@@ -346,7 +346,8 @@ PYTHONPATH="$(pwd)" \
   pipeline/.venv/bin/python3 -m pipeline.agents.optimizer.synthetic_daily_report \
   --site-id m15x-ph3-ibl \
   --site-name "M15X Ph-3 IBL" \
-  --date 2025-09-25
+  --date 2025-09-25 \
+  --auto-select-all
 ```
 
 ### 9.2 기대 산출 (prod 측 row count delta)
@@ -455,7 +456,8 @@ Task 8  prod sites 6 seed (5 mock + 1 real)
         └ (코드 commit 없음 — 데이터 적재만)
 
 Task 9  prod 시뮬 1건 end-to-end 검증 (= Done)
-        ├ python -m pipeline.agents.optimizer.synthetic_daily_report --site-id m15x-ph3-ibl --site-name "M15X Ph-3 IBL" --date 2025-09-25 (POSTGRES_URL/CHROMA_HOST=prod, CPIA_CHECKPOINTER=postgres)
+        ├ python -m pipeline.agents.optimizer.synthetic_daily_report --site-id m15x-ph3-ibl --site-name "M15X Ph-3 IBL" --date 2025-09-25 --auto-select-all (POSTGRES_URL/CHROMA_HOST=prod, CPIA_CHECKPOINTER=postgres)
+        ├ --auto-select-all 필수 (script:381 line, HIL 2 input() 우회)
         ├ 검증: PROD pipeline_runs/forecasts/optimizer_advice/daily_reports/checkpoints 각 row ≥ 1, mapping_corrections=0 (HIL 1 우회)
         ├ Azure 비용 ~$0.1 (시뮬 1건)
         └ commit: chore(verify): prod 시뮬 1건 end-to-end 통과 (raw 검증 결과 docs/audit/raw/)

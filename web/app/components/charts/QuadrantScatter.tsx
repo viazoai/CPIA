@@ -25,8 +25,8 @@ export function QuadrantScatter({ points, selectedWpId, onSelect, filter = "all"
           <ReferenceArea x1={70} x2={100} y1={0}  y2={70}  fill="#0ea76a" fillOpacity={0.05} />
           <ReferenceLine x={70} stroke="#cbd5e1" strokeDasharray="4 4" />
           <ReferenceLine y={70} stroke="#cbd5e1" strokeDasharray="4 4" />
-          <XAxis type="number" dataKey="productivity" domain={[0, 100]} name="Productivity"
-            label={{ value: "Productivity →", position: "bottom", offset: 0, style: { fontSize: 11, fill: "#7a8494" } }}
+          <XAxis type="number" dataKey="productivity" domain={[0, 100]} name="Productivity" reversed
+            label={{ value: "← Productivity (저하 →)", position: "bottom", offset: 0, style: { fontSize: 11, fill: "#7a8494" } }}
             tick={{ fontSize: 10, fill: "#7a8494" }} tickFormatter={(v) => `${v}%`} />
           <YAxis type="number" dataKey="impact" domain={[0, 100]} name="Impact"
             label={{ value: "Impact ↑", angle: -90, position: "left", offset: 0, style: { fontSize: 11, fill: "#7a8494" } }}

@@ -220,11 +220,15 @@ async def map_activity(
     activity: Activity,
     parsed_report: ParsedDailyReport | None,
     cfg: MapperConfig,
+    bp_cand_lookup: dict[str, list[tuple[str, str]]] | None = None,
 ) -> Activity:
     """6단계 흐름 (mapping-layer.md §3).
 
     ① BP filter (PG) → ② 임베딩 input (단순) → ③ Chroma Top-K → BP filter ∩
     → ④ LLM input (풍부) → ⑤ LLM 분류 → ⑥ WA 결정 4단계.
+
+    bp_cand_lookup: mapper_node 가 미리 batch fetch 한 {company: cand_pool} 캐시.
+    전달 시 PG fetch skip (병렬 호출 시 tunnel connection 한계 회피).
     """
 
     client = AzureOpenAI(
@@ -234,13 +238,17 @@ async def map_activity(
     )
 
     # ① BP filter — PG (soft hint 로만 사용, Task 4 옵션 C)
-    pg = PGClient(cfg.postgres_url)
-    await pg.connect()
-    try:
-        cand_rows = await pg.fetch_bp_candidates(activity["company"])
-    finally:
-        await pg.close()
-    cand_pool: list[tuple[str, str]] = [(r["wa"], r["l6_main"]) for r in cand_rows]
+    # cache lookup 우선 → 없으면 PG fetch (back-compat)
+    if bp_cand_lookup is not None:
+        cand_pool: list[tuple[str, str]] = bp_cand_lookup.get(activity["company"], [])
+    else:
+        pg = PGClient(cfg.postgres_url)
+        await pg.connect()
+        try:
+            cand_rows = await pg.fetch_bp_candidates(activity["company"])
+        finally:
+            await pg.close()
+        cand_pool = [(r["wa"], r["l6_main"]) for r in cand_rows]
     cand_pool_set = set(cand_pool)
     # Task 4 — cand_pool 빈 시에도 매핑 진행. BP 는 보조 메타데이터일 뿐.
     # 사용자 명시: "work_area와 l6에 주로 매칭하고 bp는 추가로 도와주는 메타데이터"

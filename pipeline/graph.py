@@ -7,6 +7,7 @@ Spec:
 
 from __future__ import annotations
 
+import asyncio  # noqa: F401 — mapper_node Semaphore(20) 병렬화 용
 import uuid
 from dataclasses import dataclass
 from datetime import date as _date
@@ -40,11 +41,38 @@ class GraphConfig:
 
 
 async def mapper_node(state: CPIAState, cfg: GraphConfig) -> dict:
+    """Mapper 노드 — 활동을 Semaphore(10) 으로 병렬 LLM call.
+
+    BP cand_pool 미리 batch fetch (1 PG connection × N BP) → map_activity 안의 매
+    활동마다 새 PG connection 폭발 회피. asyncio.gather + Semaphore(10) 동시.
+    Azure OpenAI rate limit (gpt-5.1) 회피.
+    """
     parsed: ParsedDailyReport = state["parsed"]
-    mapped: list[Activity] = []
-    for activity in parsed["activities"]:
-        result = await map_activity(activity, parsed_report=parsed, cfg=cfg.mapper)
-        mapped.append(result)
+
+    # BP cand_pool 미리 batch fetch — 1 PG connection 으로 모든 company 조회
+    pg = PGClient(cfg.mapper.postgres_url)
+    await pg.connect()
+    try:
+        unique_companies = {a["company"] for a in parsed["activities"] if a.get("company")}
+        bp_cand_lookup: dict[str, list[tuple[str, str]]] = {}
+        for company in unique_companies:
+            cand_rows = await pg.fetch_bp_candidates(company)
+            bp_cand_lookup[company] = [(r["wa"], r["l6_main"]) for r in cand_rows]
+    finally:
+        await pg.close()
+
+    sem = asyncio.Semaphore(10)
+
+    async def _bounded_map(activity: Activity) -> Activity:
+        async with sem:
+            return await map_activity(
+                activity,
+                parsed_report=parsed,
+                cfg=cfg.mapper,
+                bp_cand_lookup=bp_cand_lookup,
+            )
+
+    mapped: list[Activity] = await asyncio.gather(*[_bounded_map(a) for a in parsed["activities"]])
 
     pg = PGClient(cfg.mapper.postgres_url)
     await pg.connect()

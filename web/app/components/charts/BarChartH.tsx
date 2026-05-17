@@ -64,7 +64,7 @@ export function BarChartH({
         layout={isVertical ? "horizontal" : "vertical"}
         margin={
           isVertical
-            ? { top: 24, right: 16, left: 0, bottom: 48 }
+            ? { top: 24, right: 16, left: 0, bottom: 12 }
             : { top: 0, right: 30, left: 50, bottom: 0 }
         }
       >

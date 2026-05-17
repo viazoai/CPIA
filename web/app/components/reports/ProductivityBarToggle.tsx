@@ -76,7 +76,7 @@ export function ProductivityBarToggle({ contractorBars, tradeBars, historyMean, 
   const underUnit = mode === "contractor" ? "개 BP사" : "개 공종";
 
   return (
-    <div className="rounded-card border border-border-soft bg-card p-4 pb-7 shadow-xs">
+    <div className="rounded-card border border-border-soft bg-card p-4 shadow-xs">
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
           <div className="font-display text-base font-semibold text-ink">

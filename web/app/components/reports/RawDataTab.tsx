@@ -39,8 +39,9 @@ export function RawDataTab({ rows }: { rows: RawDataRow[] }) {
   return (
     <div className="rounded-card border border-border-soft bg-card shadow-xs overflow-hidden">
       <div className="flex items-center justify-between p-3 border-b border-border-soft">
-        <div className="font-mono text-xs uppercase tracking-wider text-ink-light">
-          작업일보 매핑 결과 · {rows.length} rows
+        <div className="font-display text-h6 text-ink">
+          작업일보 매핑 결과
+          <span className="ml-2 text-body-sm font-normal text-ink-mid">{rows.length} rows</span>
         </div>
         <div className="flex items-center gap-2">
           <div className="relative">

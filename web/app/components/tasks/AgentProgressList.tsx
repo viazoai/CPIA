@@ -9,8 +9,9 @@ interface Props {
 export function AgentProgressList({ progress }: Props) {
   return (
     <div className="flex flex-col gap-3 p-4 h-full overflow-y-auto">
-      <div className="font-mono text-xs uppercase tracking-wider text-ink-light">
-        Process Progress · 단계별 진행
+      <div className="font-display text-h6 text-ink">
+        Process Progress
+        <span className="ml-2 text-body-sm font-normal text-ink-mid">단계별 진행</span>
       </div>
       <div className="flex flex-col gap-2">
         {progress.map((p, i) => {

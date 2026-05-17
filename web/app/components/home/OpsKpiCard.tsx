@@ -35,15 +35,13 @@ export function OpsKpiCard({
   live,
 }: OpsKpiCardProps) {
   return (
-    <div className="group rounded-card-lg bg-card p-5 shadow-sm transition-shadow hover:shadow-md">
+    <div className="group rounded-card border border-border-soft bg-card p-4 shadow-xs transition-shadow hover:shadow-sm">
       <div className={cn("mb-3 inline-flex h-10 w-10 items-center justify-center rounded-lg", CHIP[tone])}>
         {icon}
       </div>
 
       <div className="flex items-center gap-2">
-        <span className="font-mono text-xs uppercase tracking-wider text-ink-light">
-          {label}
-        </span>
+        <span className="font-display text-h6 text-ink">{label}</span>
         {live && (
           <span className="inline-flex items-center gap-1 rounded-full bg-mint-light px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wider text-mint-text">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-mint" />

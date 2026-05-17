@@ -46,7 +46,7 @@ export default function SiteDashboardPage() {
 
   return (
     <div className="flex flex-col">
-      <div className="mx-auto w-full max-w-wrap px-6 py-8 md:px-10">
+      <div className="mx-auto w-full max-w-screen-2xl px-6 py-8 md:px-10">
         <Link href="/dashboard" className="inline-flex items-center gap-1 text-xs font-mono uppercase tracking-wider text-ink-light hover:text-lavender">
           <ChevronLeft className="h-3.5 w-3.5" />
           전사로 돌아가기
@@ -55,7 +55,7 @@ export default function SiteDashboardPage() {
         <p className="mt-1 text-body-sm text-ink-mid">{site.location} · Hi-tech · 현장 모니터링</p>
       </div>
 
-      <section className="mx-auto w-full max-w-wrap px-6 pb-20 md:px-10">
+      <section className="mx-auto w-full max-w-screen-2xl px-6 pb-20 md:px-10">
         <Tabs defaultValue="performance" className="w-full">
           <TabsList className="w-fit">
             <TabsTrigger value="performance">Performance</TabsTrigger>
@@ -67,8 +67,9 @@ export default function SiteDashboardPage() {
             {detail ? (
               <>
                 <div className="rounded-card border border-border-soft bg-card p-5 shadow-xs">
-                  <div className="mb-3 font-mono text-xs uppercase tracking-wider text-ink-light">
-                    S-Curve · 4선 시나리오
+                  <div className="mb-3 font-display text-h6 text-ink">
+                    S-Curve
+                    <span className="ml-2 text-body-sm font-normal text-ink-mid">4선 시나리오</span>
                   </div>
                   <SCurveChart points={detail.s_curve} showRecovery />
                 </div>

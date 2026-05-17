@@ -12,7 +12,7 @@ export default async function HomePage() {
   const processingNow = agents.reduce((sum, a) => sum + a.active_count, 0);
 
   return (
-    <div className="mx-auto max-w-wrap px-6 py-10 md:px-10 md:py-14">
+    <div className="mx-auto max-w-screen-2xl px-6 py-10 md:px-10 md:py-14">
       <StatusHeader lastUpdated={summary.last_updated} />
 
       {/* Ops KPI 4 */}

@@ -20,7 +20,7 @@ export default function DashboardPage() {
 
   return (
     <div className="flex flex-col">
-      <div className="mx-auto w-full max-w-wrap px-6 py-8 md:px-10">
+      <div className="mx-auto w-full max-w-screen-2xl px-6 py-8 md:px-10">
         <div className="flex items-center gap-3">
           <span className="font-mono text-[11px] font-medium uppercase tracking-[0.2em] text-lavender-text">
             / 05 — Dashboard · Fleet
@@ -38,7 +38,7 @@ export default function DashboardPage() {
         </p>
       </div>
 
-      <section className="mx-auto w-full max-w-wrap px-6 pb-20 md:px-10">
+      <section className="mx-auto w-full max-w-screen-2xl px-6 pb-20 md:px-10">
         <Tabs defaultValue="performance" className="w-full">
           <TabsList className="w-fit">
             <TabsTrigger value="performance">Performance</TabsTrigger>

@@ -25,7 +25,7 @@ export function OptimizeTab({ detail }: { detail: ReportDetail }) {
     <div className="grid grid-cols-12 gap-4">
       <div className="col-span-12 md:col-span-6">
         <div className="rounded-card border border-border-soft bg-card p-4 shadow-xs">
-          <div className="font-mono text-xs uppercase tracking-wider text-ink-light mb-2">
+          <div className="mb-2 font-display text-h6 text-ink">
             Impact × Productivity 산점도
           </div>
           <QuadrantScatter

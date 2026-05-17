@@ -22,7 +22,7 @@ export function SiteOverviewCard({ site }: { site: Site }) {
       <div className="pl-3">
         <div className="flex items-start justify-between">
           <div className="min-w-0">
-            <div className="font-display text-base font-bold tracking-tight text-ink truncate">{site.name}</div>
+            <div className="truncate font-display text-h6 text-ink">{site.name}</div>
             <div className="font-mono text-xs uppercase tracking-wider text-ink-light mt-0.5">{site.location} · Hi-tech</div>
           </div>
           {site.status === "risk" && (

@@ -12,7 +12,7 @@ const STATUS_COLOR = {
 export function BarChartH({ items, title }: { items: BarItem[]; title?: string }) {
   return (
     <div className="rounded-card border border-border-soft bg-card p-4 shadow-xs">
-      {title && <div className="mb-3 font-mono text-xs uppercase tracking-wider text-ink-light">{title}</div>}
+      {title && <div className="mb-3 font-display text-h6 text-ink">{title}</div>}
       <ResponsiveContainer width="100%" height={items.length * 36 + 20}>
         <BarChart data={items} layout="vertical" margin={{ top: 0, right: 30, left: 50, bottom: 0 }}>
           <XAxis type="number" domain={[0, 110]} tick={{ fontSize: 10, fill: "#7a8494" }} tickFormatter={(v) => `${v}%`} />

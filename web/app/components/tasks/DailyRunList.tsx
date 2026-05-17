@@ -15,8 +15,9 @@ export function DailyRunList({ runs, selectedDate, onSelect }: Props) {
   return (
     <div className="flex flex-col h-full">
       <div className="px-3 py-3 border-b border-border-soft shrink-0">
-        <div className="font-mono text-xs uppercase tracking-wider text-ink-light">
-          Daily Runs · 일별 실행
+        <div className="font-display text-h6 text-ink">
+          Daily Runs
+          <span className="ml-2 text-body-sm font-normal text-ink-mid">일별 실행</span>
         </div>
         <div className="mt-1 text-xs text-ink-mid">{runs.length}일치 누적</div>
       </div>

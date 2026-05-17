@@ -146,6 +146,11 @@ CREATE TABLE IF NOT EXISTS sites (
     status            TEXT         CHECK (status IN ('normal','caution','risk','unknown')) DEFAULT 'unknown',
     last_run_id       UUID         REFERENCES pipeline_runs(run_id) ON DELETE SET NULL,
     is_mock           BOOLEAN      NOT NULL DEFAULT TRUE,
+    -- 2026-05-17: B_Track Dashboard Layer 1 카드 필드 (api-contract.md §3.1)
+    location          TEXT,
+    headcount         INT,
+    hours_saved       NUMERIC,
+    fte_saved         NUMERIC,
     updated_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 

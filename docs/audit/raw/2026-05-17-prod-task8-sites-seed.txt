@@ -1,0 +1,16 @@
+=== Task 8 적재 결과 (2026-05-17) ===
+
+호출: psql scripts/seed_sites.sql (POSTGRES_URL=prod)
+
+검증:
+  PROD sites rows = 6
+  PROD real (is_mock=FALSE) = m15x-ph3-ibl
+  sites:
+    indiana-hac        Indiana Fab HAC      미국       hc=60
+    m15x-obl-pt7       M15X OBL & PT7       청주       hc=50
+    m15x-ph3-ibl       M15X Ph-3 IBL        청주       hc=65
+    pt3-extension      P&T 3 증축             이천       hc=50
+    y1-ph1-ibl         Y-1 Ph-1 IBL         평택       hc=90
+    y1-ph1-obl         Y-1 Ph-1 OBL         평택       hc=130
+
+dev 측 DEMO_SITE 와 별개 (prod fresh init, 7 row 없음, 정확히 6 row).

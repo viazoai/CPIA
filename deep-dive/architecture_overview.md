@@ -197,10 +197,10 @@ START → mapper → hil_1 → atomizer → forecaster → hil_2 →
 | `pipeline_runs` | ✓ | run_id, site_id, date, status, current_node, atomized_count | 모든 노드 | Atomizer fail-fast 의존 |
 | `forecasts` | ✓ | 27 컬럼 (v3.1 main_unit + today_conditions 추가) | Forecaster insert / Dashboard SELECT | JSON 5종 (jsonb) |
 | `optimizer_advice` | ✓ | 9 컬럼 (4 JSONB + diagnosis + assessment) | Optimizer insert / Dashboard SELECT | JSONB falsy 보호 (cold_start 영속) |
-| `mapping_corrections` | ✓ ✦ NEW | 6 컬럼 (id, run_id, report_date, original JSONB, corrected JSONB, created_at) — `postgres.md §8` 의 work_content/company/trade/correction_type 컬럼은 init.sql 에 미반영 (drift #N2) — 본 cycle 은 original/corrected JSONB 안에 합쳐서 박음 | HIL 1 insert | drift #N2: schema migration 별 cycle |
-| `activity_master` | ✓ (RO) | wbs_activity_id, company, wa, l6_main, plan_total_qty, plan_mh, plan_start, plan_finish 등 | Mapper / Forecaster fetch | `scripts/load_master_list.py` 로 적재 |
-| `sites` | ✓ | site_id, name, mock_flag | Dashboard | 5 mock + 1 real PoC |
-| `daily_reports` | ✓ ✦ NEW | 7 컬럼 (id, run_id, report_date, bp_name nullable, report_md, history_csv_row JSONB nullable, created_at) — `postgres.md §5` 의 date/summary 필드명 mismatch (drift #N3) | Reporter insert | drift #N3: schema migration 별 cycle |
+| `mapping_corrections` | ✓ | 6 컬럼 (id, run_id, report_date, original JSONB, corrected JSONB, created_at) — `postgres.md §8` 정합 정정 완료 (drift #N2 흡수, 2026-05-17 cycle, commit 3fc20d0). top-level work_content/company/trade/correction_type 는 자가학습 cycle (drift D-1) 묶음으로 보류 | HIL 1 insert | YAGNI 룰 (현 호출 path 0) |
+| `activity_master` | ✓ (RO) | wbs_activity_id, wa, company, l6_main, plan_total_qty, plan_mh, plan_start, plan_finish 등 22 컬럼 | Mapper / Forecaster fetch | `scripts/load_master_list.py` 로 적재. wa 컬럼 prod alignment: migration `2026-05-17_activity_master_wa.sql` (commit 34703f5) |
+| `sites` | ✓ UPD | 12 컬럼 (8 기존 + 4 신규 = location, headcount, hours_saved, fte_saved) — B_Track Dashboard Layer 1 카드 필드. migration `2026-05-17_db_alignment.sql` (commit d56b1ee). seed `scripts/seed_sites.sql` (commit 6f6510f) — 5 mock + 1 real m15x-ph3-ibl | Dashboard / API contract `/api/sites` 집계 | derived 8 필드는 API layer 가 채움 (api-contract.md §4) |
+| `daily_reports` | ✓ | 7 컬럼 (id, run_id, report_date, bp_name nullable, report_md, history_csv_row JSONB nullable, created_at) — `postgres.md §5` 정합 정정 완료 (drift #N3 흡수, 2026-05-17 cycle, commit 3fc20d0). 보조 인덱스 `idx_daily_reports_date` (commit eb614bd) | Reporter insert | report_md 906 chars 시뮬 검증 (commit ea04b20) |
 | `checkpoints` + `checkpoint_writes` + `checkpoint_blobs` + `checkpoint_migrations` | ✓ ✦ NEW | (LangGraph PostgresSaver auto) | `_LazyAsyncPostgresSaver` 가 첫 호출 시 lazy open | design-intent O-6 해소 |
 
 ### ChromaDB (2 컬렉션 — 이전 cycle 동일)
@@ -281,12 +281,24 @@ drift #1 해소. spec = `../docs/superpowers/specs/2026-05-17-cpia-hil1-forecast
 | # | 항목 | 영향도 | 처리 |
 |---|---|---|---|
 | #N1 | RAG fixture_prod vs synthetic_v2 분포 ±10% mismatch (delta=10.7%) | med | xfail strict=False 마킹. 별 cycle. |
-| #N2 | postgres.md §8 mapping_corrections 와 init.sql 어긋남 (work_content/company/trade/correction_type 컬럼 누락) | low | JSONB 합쳐 박음 — schema migration 별 cycle |
-| #N3 | postgres.md §5 daily_reports 와 init.sql 어긋남 (date→report_date / summary→history_csv_row / bp_name 추가) | low | history_csv_row 사용 — postgres.md 정정 또는 init.sql 정렬 별 cycle |
+| #N2 | postgres.md §8 mapping_corrections 와 init.sql 어긋남 (work_content/company/trade/correction_type 컬럼 누락) | low | ✓ 2026-05-17 PM cycle 흡수 — postgres.md 정합 정정 (commit 3fc20d0) |
+| #N3 | postgres.md §5 daily_reports 와 init.sql 어긋남 (date→report_date / summary→history_csv_row / bp_name 추가) | low | ✓ 2026-05-17 PM cycle 흡수 — postgres.md 정합 정정 (commit 3fc20d0) |
 | #N4 | 시뮬 2/3/4 추가 검증 skip | low | 시뮬 1 + rerun 으로 7 성공 기준 충족, 추가 path 별 cycle |
 | #N5 | LangGraph Command(resume=dict) int key TypeError | low | API 사용 룰 — str key 필수, hil_1_node 가 int(k) 변환 처리 |
 | #N6 | .env.local 경로 spec 명시 어긋남 (실제 = root) | low | cosmetic spec 정정 |
 | #N7 | synthetic_daily_report main_cli final report_md 미 print | low | 가독성 개선 — 별 cycle |
+
+### 2026-05-17 PM cycle (DB Migration + API Contract) 신규 발견
+
+| # | 항목 | 영향도 | 처리 |
+|---|---|---|---|
+| #N8 | activity_master.wa 컬럼 누락 (init.sql 에 있지만 migration sql 누락) | med | ✓ 본 cycle 안에 fix — 신규 migration `2026-05-17_activity_master_wa.sql` (commit 34703f5). dev/prod 양쪽 alignment 완료 |
+| #N9 | pipeline_runs.status='running' final update path 누락 | low | 시뮬 끝나도 'completed' 갱신 X. dashboard 영향 낮음 (현 상태로 운영 가능), 다음 cycle 권고 |
+| #N10 | Chroma daily_activities dedupe 가 본 run doc 0 등록 | med | deterministic hash dedupe 가 기존 doc 우선 — run_id metadata 갱신 정책 결정 필요. baseline drift 의 root cause 와 동일 (test_graph_e2e_namwong_47 atomized_ids=0) |
+| #N11 | synthetic_daily_report --scenario required argparse | low | plan/spec 명시 누락. CLI usage 한 줄 추가 권고 |
+| #N12 | Chroma homelab 미준비 (cpia-chroma.zoai.uk NXDOMAIN) | high (PoC 데모 영향) | 본 cycle 잠시 dev 로컬 fallback (api-contract.md §1 commit 19db533). homelab Chroma 활성 후 다음 cycle 분리 |
+| #N13 | api-contract.md §3.1 SQL 의 4 derived 필드 (total_hours/ai_replacement_rate/recovered_completion/recovery_days) SELECT 출력 누락 | low | §4 derived 산식 명시되어 있지만 §3.1 SQL 블록에 코멘트 1줄 추가 권고 (code-reviewer suggestion) |
+| #N14 | api-contract.md §2.2 ai_mapped_path 산식이 PoC 에서 None concat | low | l7_sub/l7_5_activity PoC always None → "L5 > L6 > None None" 출력. fallback 명시 권고 (code-reviewer suggestion) |
 
 ### Design-intent 잔존 (audit cycle 발견, 본 cycle 미흡수)
 
@@ -356,11 +368,16 @@ pipeline/                              합계 ~4,271 LOC (테스트 제외) [+29
 
 ### 본 cycle 후 잔존 drift (`../docs/audit/2026-05-17-cpia-drift-backlog.md` 참조)
 
-1. **drift #5 Collector + main.py + api.py** — 통합 cycle (가장 높은 우선순위 — PoC 전체 흐름 완성)
-2. **drift #N1 RAG fixture_prod vs synthetic_v2 정합** — synthetic_v2 적재 분포 정렬 (Forecaster 검증 신뢰성 ↑)
-3. **drift #N2 + #N3 schema migration** — postgres.md 정정 또는 init.sql 정렬 (1 PR 묶음 가능)
-4. **drift #N4 시뮬 2/3/4 추가 검증** — Forecaster 다양 path 정합 (우천 0.8 / 돌관 / cold_start)
-5. **D-1 ~ D-8** — defer (med/low)
+1. **FastAPI `pipeline/api.py` 구현 (drift D-4)** — 가장 높은 우선순위. `docs/architecture/api-contract.md` 의 8 endpoint 구현, uvicorn 띄움, dev/prod 환경변수 분기, web/ fetch 가능. 본 cycle 의 계약 spec 완성 → 구현 cycle.
+2. **drift #N12 Chroma homelab 분리** — `cpia-chroma.zoai.uk:443 SSL` 활성 후 prod CHROMA_HOST 분리 (현재 dev 로컬 fallback). api-contract.md §1 prod CHROMA 라인 정합 복구.
+3. **drift #5 Collector + main.py + api.py** — 통합 cycle (#1 의 FastAPI 와 합치는 게 자연스러움)
+4. **drift #N10 Chroma daily_activities dedupe 정책** — run_id metadata 갱신 정책 결정. baseline drift `test_graph_e2e_namwong_47 atomized_ids=0` root cause 해소.
+5. **drift #N9 pipeline_runs status final update** — graph 종료 후 status='completed' + current_node=None 갱신 path. Dashboard /api/runs/:id 에 영향.
+6. **drift D-1 Mapper 자가학습** — mapping_corrections schema 확장 (work_content/company/trade/correction_type top-level + GIN index) + 백필 + INSERT 변경 + SELECT 신규 (fetch_similar_corrections) + Mapper 로직.
+7. **drift #N1 RAG fixture_prod vs synthetic_v2 정합** — synthetic_v2 적재 분포 정렬 (Forecaster 검증 신뢰성 ↑)
+8. **drift D-5 web/lib/fixtures.ts → 실 API swap** — FastAPI 구현 cycle 의 점진 (8 endpoint 별 1 PR)
+9. **drift #N4 시뮬 2/3/4 추가 검증** — Forecaster 다양 path 정합 (우천 0.8 / 돌관 / cold_start)
+10. **D-1~D-8 defer (med/low)**
 
 ### PoC 시연 준비
 

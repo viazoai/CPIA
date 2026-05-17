@@ -143,9 +143,6 @@ export default function ReportPage() {
                       onSelect={setSelectedWpId}
                       filter={filter}
                     />
-                    <div className="mt-3 text-center text-xs text-ink-light">
-                      점 크기 = 잔여 물량. 우상 = 고 WV · 저 Productivity (위험군).
-                    </div>
                   </div>
                   <WPSummaryTable
                     rows={filteredWpRows}

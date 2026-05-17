@@ -56,13 +56,8 @@ export function ProductivityBarToggle({ contractorBars, tradeBars, historyMean }
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
           <div className="font-display text-h6 text-ink">{title}</div>
-          <div className="mt-1.5 flex items-baseline gap-2">
-            <span
-              className={cn(
-                "font-display text-3xl font-semibold tracking-[-0.015em]",
-                STATUS_VALUE_COLOR[status],
-              )}
-            >
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="font-display text-3xl font-semibold tracking-[-0.015em] text-ink">
               {avg.toFixed(1)}
             </span>
             <span className="text-sm text-ink-light">%</span>

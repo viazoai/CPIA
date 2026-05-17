@@ -48,10 +48,18 @@ export function WPSummaryTable({ rows, selectedWpId, onSelect }: Props) {
                   onClick={() => onSelect(row.wp_id)}
                   className={cn(
                     "cursor-pointer border-b border-border-soft transition-colors hover:bg-surface-soft/50",
-                    selected && "bg-brand-light/40",
+                    selected && "bg-brand-light shadow-inner",
                   )}
                 >
-                  <td className="px-3 py-1 text-[12px] font-semibold text-ink">{row.wp_name}</td>
+                  <td
+                    className={cn(
+                      "relative px-3 py-1 text-[12px] font-semibold text-ink",
+                      selected &&
+                        "before:absolute before:inset-y-0 before:left-0 before:w-1 before:bg-brand",
+                    )}
+                  >
+                    {row.wp_name}
+                  </td>
                   <td className="px-3 py-1 text-[12px] text-ink">{row.trade}</td>
                   <td className="px-3 py-1 text-[12px] text-ink-mid">{row.bp_name}</td>
                   <td className="px-3 py-1 text-[12px] font-semibold text-ink tabular-nums">

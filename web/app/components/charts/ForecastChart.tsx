@@ -169,19 +169,19 @@ export function ForecastChart({ diagnosis, recoveryActive = false, delayDays, re
           {/* 100% 완료선 (가로 점선) */}
           <ReferenceLine y={100} stroke="#cbd5e1" strokeDasharray="3 3" />
 
-          {/* 계획 완공 시점 */}
+          {/* 계획 완공 시점 — 위쪽 라벨 */}
           {planEnd && (
             <ReferenceDot x={planEnd} y={100} r={5} fill="#94a3b8" stroke="#ffffff" strokeWidth={2}>
-              <Label value="계획 완공" position="top" offset={10} fill="#475569" fontSize={11} fontWeight={600} />
+              <Label value="계획" position="top" offset={10} fill="#475569" fontSize={11} fontWeight={600} />
             </ReferenceDot>
           )}
 
-          {/* 현 추세 도달 시점 — D+14 */}
+          {/* 현 추세 도달 시점 — 아래쪽 라벨 (겹침 방지) */}
           {baseEnd && (
             <ReferenceDot x={baseEnd} y={100} r={5} fill="#1a56db" stroke="#ffffff" strokeWidth={2}>
               <Label
-                value={`현 추세 ${delayDays > 0 ? `D+${delayDays}` : delayDays < 0 ? `D−${Math.abs(delayDays)}` : "동일"}`}
-                position="top"
+                value={delayDays > 0 ? `D+${delayDays}` : delayDays < 0 ? `D−${Math.abs(delayDays)}` : "동일"}
+                position="bottom"
                 offset={10}
                 fill="#1a56db"
                 fontSize={11}
@@ -190,11 +190,11 @@ export function ForecastChart({ diagnosis, recoveryActive = false, delayDays, re
             </ReferenceDot>
           )}
 
-          {/* 최적화 도달 시점 — -9일 */}
+          {/* 최적화 도달 시점 — 위쪽 라벨 */}
           {showOptimistic && optEnd && (
             <ReferenceDot x={optEnd} y={100} r={5} fill="#0ea76a" stroke="#ffffff" strokeWidth={2}>
               <Label
-                value={recoveryDays > 0 ? `최적화 -${recoveryDays}일` : "최적화"}
+                value={recoveryDays > 0 ? `−${recoveryDays}일` : "최적화"}
                 position="top"
                 offset={10}
                 fill="#0ea76a"

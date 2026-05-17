@@ -1,0 +1,103 @@
+{
+  "generated_at": "2026-05-17T00:00:00Z",
+  "git_sha": "f9a695f5315eba97b2686f55a72bc91ef6cae6b2",
+  "git_branch": "A_Track",
+  "scope": "pipeline 전체 (agents 7 + graph + state + db). Web/B_Track 제외.",
+  "subsystems": [
+    {
+      "name": "orchestration",
+      "file": "design_intent_orchestration.md",
+      "files": ["pipeline/graph.py", "pipeline/state.py", "pipeline/checkpointer.py", "pipeline/constants.py"],
+      "loc": 432,
+      "t1_count": 16,
+      "t2_count": 9,
+      "t1_coverage_pct": 100
+    },
+    {
+      "name": "persistence",
+      "file": "design_intent_persistence.md",
+      "files": ["pipeline/db.py", "pipeline/chroma_client.py"],
+      "loc": 349,
+      "t1_count": 16,
+      "t2_count": 9,
+      "t1_coverage_pct": 100
+    },
+    {
+      "name": "parser",
+      "file": "design_intent_parser.md",
+      "files": ["pipeline/agents/parser.py"],
+      "loc": 306,
+      "t1_count": 12,
+      "t2_count": 11,
+      "t1_coverage_pct": 100
+    },
+    {
+      "name": "mapper",
+      "file": "design_intent_mapper.md",
+      "files": ["pipeline/agents/mapper.py"],
+      "loc": 393,
+      "t1_count": 9,
+      "t2_count": 9,
+      "t1_coverage_pct": 100
+    },
+    {
+      "name": "atomizer",
+      "file": "design_intent_atomizer.md",
+      "files": ["pipeline/agents/atomizer.py"],
+      "loc": 118,
+      "t1_count": 4,
+      "t2_count": 4,
+      "t1_coverage_pct": 100
+    },
+    {
+      "name": "forecaster",
+      "file": "design_intent_forecaster.md",
+      "files": [
+        "pipeline/agents/forecaster/agent.py",
+        "pipeline/agents/forecaster/prompt.py",
+        "pipeline/agents/forecaster/classify.py",
+        "pipeline/agents/forecaster/rerank.py",
+        "pipeline/agents/forecaster/aggregate.py",
+        "pipeline/agents/forecaster/synthetic.py",
+        "pipeline/agents/forecaster/constants.py",
+        "pipeline/agents/forecaster/__init__.py"
+      ],
+      "loc": 898,
+      "t1_count": 22,
+      "t2_count": 13,
+      "t1_coverage_pct": 95
+    },
+    {
+      "name": "optimizer",
+      "file": "design_intent_optimizer.md",
+      "files": [
+        "pipeline/agents/optimizer/agent.py",
+        "pipeline/agents/optimizer/prompt.py",
+        "pipeline/agents/optimizer/retrieve.py",
+        "pipeline/agents/optimizer/synthetic_daily_report.py",
+        "pipeline/agents/optimizer/synthetic_v2.py",
+        "pipeline/agents/optimizer/__init__.py"
+      ],
+      "loc": 1485,
+      "t1_count": 22,
+      "t2_count": 7,
+      "t1_coverage_pct": 90
+    }
+  ],
+  "stubs_uncatalogued": [
+    {"file": "pipeline/agents/collector.py", "loc": 0, "drift_backlog_priority": "#5"},
+    {"file": "pipeline/agents/reporter.py", "loc": 0, "drift_backlog_priority": "#1"},
+    {"file": "pipeline/main.py", "loc": 0, "drift_backlog_priority": "D-7"},
+    {"file": "pipeline/api.py", "loc": 0, "drift_backlog_priority": "D-7"}
+  ],
+  "totals": {
+    "t1_count": 96,
+    "t2_count": 62,
+    "loc": 3981
+  },
+  "audit_drift_backlog_reference": "docs/audit/2026-05-17-cpia-drift-backlog.md",
+  "claude_md_rule_added": true,
+  "claude_md_rule_location": "CLAUDE.md '## 작업 규칙' 섹션 신규 추가 (파일 끝, '*최종 수정*' 라인 직전)",
+  "index_path": "deep-dive/design-intent/INDEX.md",
+  "last_checked_at": "2026-05-17T00:00:00Z"
+}

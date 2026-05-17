@@ -81,13 +81,6 @@ export function ForecastChart({ diagnosis, recoveryActive = false, delayDays, re
         />
       </div>
 
-      <div className="mb-3 space-y-1 text-body-sm text-ink-mid">
-        <p>📊 {baseNarrative(diagnosis)}</p>
-        {recoveryActive && (
-          <p>⚡ {recoveryNarrative(diagnosis)}</p>
-        )}
-      </div>
-
       <div className="mb-3 flex flex-wrap gap-1.5">
         <ToggleChip
           label="만회 시나리오"
@@ -154,6 +147,16 @@ export function ForecastChart({ diagnosis, recoveryActive = false, delayDays, re
           )}
         </ComposedChart>
       </ResponsiveContainer>
+
+      <div className="mt-4 space-y-1 rounded-md bg-surface-soft/50 px-3 py-2.5 text-sm leading-relaxed text-ink-mid">
+        <p>
+          <span className="font-semibold text-ink">실적</span>(검정 실선)이{" "}
+          <span className="font-semibold text-ink">계획</span>(회색 실선) 대비 어떻게 진행되었는지 보여주며,{" "}
+          파란 점선은 현 추세 유지 시 예측, 녹색 점선은 AI 권고 적용 시 만회 시나리오입니다.
+        </p>
+        <p>📊 {baseNarrative(diagnosis)}</p>
+        {recoveryActive && <p>⚡ {recoveryNarrative(diagnosis)}</p>}
+      </div>
     </div>
   );
 }

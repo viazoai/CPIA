@@ -4,7 +4,6 @@ import { ChevronDown } from "lucide-react";
 import { ReportDailyList } from "@/app/components/reports/ReportDailyList";
 import { KpiStrip, type KpiItem } from "@/app/components/reports/KpiStrip";
 import { GapKpiCard } from "@/app/components/reports/GapKpiCard";
-import { RecoveryEtaCard } from "@/app/components/reports/RecoveryEtaCard";
 import { OptimizerResult } from "@/app/components/reports/OptimizerResult";
 import { QuadrantCountKpi } from "@/app/components/reports/QuadrantCountKpi";
 import { RawDataTab } from "@/app/components/reports/RawDataTab";
@@ -92,7 +91,7 @@ export default function ReportPage() {
           현장 일일 진단 보고서
         </h1>
         <p className="mt-2 text-body-sm text-ink-mid">
-          생산성 현황 → 결론 KPI → 리스크 검토 → 시나리오 예측 → 원본 데이터 순으로 확인합니다.
+          결론 KPI → 생산성 현황 → 리스크 검토 → 시나리오 예측 → 원본 데이터 순으로 확인합니다.
         </p>
       </div>
 
@@ -106,14 +105,7 @@ export default function ReportPage() {
 
           <div className="col-span-12 flex flex-col gap-10 md:col-span-9">
 
-            <Section eyebrow="/ 01 — 현재 상태" title="업체 · 공종 생산성">
-              <ProductivityBarToggle
-                contractorBars={detail.contractor_bars}
-                tradeBars={detail.trade_bars}
-              />
-            </Section>
-
-            <Section eyebrow="/ 02 — 결론" title="생산성 지표">
+            <Section eyebrow="/ 01 — 결론" title="생산성 지표">
               <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
                 <SingleKpi item={kpiRest[0]} />
                 <GapKpiCard
@@ -124,6 +116,13 @@ export default function ReportPage() {
                 <SingleKpi item={kpiRest[1]} />
                 <SingleKpi item={kpiRest[2]} />
               </div>
+            </Section>
+
+            <Section eyebrow="/ 02 — 현재 상태" title="업체 · 공종 생산성">
+              <ProductivityBarToggle
+                contractorBars={detail.contractor_bars}
+                tradeBars={detail.trade_bars}
+              />
             </Section>
 
             <Section eyebrow="/ 03 — 리스크 및 대안 검토" title="4분면 + Optimizer">
@@ -155,7 +154,6 @@ export default function ReportPage() {
                     </div>
                   </div>
                   <OptimizerResult output={detail.optimizer} />
-                  <RecoveryEtaCard scenarios={diagnosis.scenarios} />
                 </div>
               </div>
 

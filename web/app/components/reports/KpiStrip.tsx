@@ -5,15 +5,16 @@ export interface KpiItem {
   value: string;
   unit?: string;
   sub?: string;
+  /** tone — 카드 외형은 단일 보더로 통일. 값 강조 색에만 사용. */
   tone: "primary" | "risk" | "caution" | "normal" | "muted";
 }
 
-const TONE_BORDER: Record<KpiItem["tone"], string> = {
-  primary: "border-t-2 border-t-lavender",
-  risk:    "border-t-2 border-t-rose",
-  caution: "border-t-2 border-t-sun",
-  normal:  "border-t-2 border-t-mint",
-  muted:   "border-t-2 border-t-border-soft",
+const VALUE_TONE: Record<KpiItem["tone"], string> = {
+  primary: "text-ink",
+  risk:    "text-rose-text",
+  caution: "text-sun-text",
+  normal:  "text-ink",
+  muted:   "text-ink-mid",
 };
 
 export function KpiStrip({ items }: { items: KpiItem[] }) {
@@ -24,9 +25,9 @@ export function KpiStrip({ items }: { items: KpiItem[] }) {
       items.length === 5 && "grid-cols-2 md:grid-cols-5",
     )}>
       {items.map((it, i) => (
-        <div key={i} className={cn("rounded-card border border-border-soft bg-card p-4 shadow-xs", TONE_BORDER[it.tone])}>
-          <div className="font-mono text-xs uppercase tracking-wider text-ink-light">{it.label}</div>
-          <div className="mt-2 font-display text-2xl font-semibold tracking-[-0.015em] text-ink">
+        <div key={i} className="rounded-card border border-border-soft bg-card p-4 shadow-xs transition-shadow hover:shadow-sm">
+          <div className="font-display text-h6 text-ink">{it.label}</div>
+          <div className={cn("mt-2 font-display text-2xl font-semibold tracking-[-0.015em]", VALUE_TONE[it.tone])}>
             {it.value}
             {it.unit && <span className="ml-1 text-sm font-medium text-ink-light">{it.unit}</span>}
           </div>

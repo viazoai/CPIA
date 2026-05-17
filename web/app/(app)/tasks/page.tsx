@@ -23,7 +23,7 @@ export default function AgentTasksPage() {
 
   if (!data) {
     return (
-      <div className="mx-auto max-w-wrap px-6 py-10 text-ink-light">
+      <div className="mx-auto max-w-screen-2xl px-6 py-10 text-ink-light">
         Loading...
       </div>
     );
@@ -34,7 +34,7 @@ export default function AgentTasksPage() {
 
   return (
     <div className="flex flex-col">
-      <div className="mx-auto w-full max-w-wrap px-6 py-8 md:px-10">
+      <div className="mx-auto w-full max-w-screen-2xl px-6 py-8 md:px-10">
         <div className="flex items-center gap-3">
           <span className="font-mono text-[11px] font-medium uppercase tracking-[0.2em] text-lavender-text">
             / 02 — Agent Tasks
@@ -52,7 +52,7 @@ export default function AgentTasksPage() {
         </p>
       </div>
 
-      <section className="mx-auto w-full max-w-wrap px-6 pb-20 md:px-10">
+      <section className="mx-auto w-full max-w-screen-2xl px-6 pb-20 md:px-10">
         <div className="grid grid-cols-12 gap-4 items-stretch">
           {/* 좌측: Daily List */}
           <div className="col-span-12 md:col-span-3 rounded-card border border-border-soft bg-card shadow-xs overflow-hidden flex flex-col lg:h-[calc(100vh-260px)]">

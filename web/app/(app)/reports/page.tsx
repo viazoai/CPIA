@@ -34,7 +34,7 @@ export default function ReportPage() {
 
   return (
     <div className="flex flex-col">
-      <div className="mx-auto w-full max-w-wrap px-6 py-8 md:px-10">
+      <div className="mx-auto w-full max-w-screen-2xl px-6 py-8 md:px-10">
         <div className="flex items-center gap-3">
           <span className="font-mono text-[11px] font-medium uppercase tracking-[0.2em] text-lavender-text">
             / 04 — Report
@@ -49,7 +49,7 @@ export default function ReportPage() {
         </h1>
       </div>
 
-      <section className="mx-auto w-full max-w-wrap px-6 pb-20 md:px-10">
+      <section className="mx-auto w-full max-w-screen-2xl px-6 pb-20 md:px-10">
         <div className="grid grid-cols-12 gap-4">
           <div className="col-span-12 md:col-span-3">
             <div className="rounded-card border border-border-soft bg-card shadow-xs overflow-hidden flex flex-col lg:h-[calc(100vh-220px)] lg:sticky lg:top-6">

@@ -14,8 +14,9 @@ interface Props {
 export function WBSTree({ root, selectedId, onSelect, onDrop }: Props) {
   return (
     <div className="flex flex-col h-full text-sm">
-      <div className="font-mono text-xs uppercase tracking-wider text-ink-light px-5 py-3 border-b border-border-soft shrink-0">
-        WBS Tree · 건물 &gt; 공종 &gt; Work Package
+      <div className="shrink-0 border-b border-border-soft px-5 py-3 font-display text-h6 text-ink">
+        WBS Tree
+        <span className="ml-2 text-body-sm font-normal text-ink-mid">건물 &gt; 공종 &gt; Work Package</span>
       </div>
       <div className="flex-1 overflow-y-auto p-3">
         <Branch node={root} depth={0} selectedId={selectedId} onSelect={onSelect} onDrop={onDrop} />

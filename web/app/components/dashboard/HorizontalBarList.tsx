@@ -14,7 +14,7 @@ export function HorizontalBarList({ items, unit, title }: Props) {
   const max = Math.max(...items.map((i) => i.value));
   return (
     <div className="rounded-card border border-border-soft bg-card p-4 shadow-xs">
-      {title && <div className="font-mono text-xs uppercase tracking-wider text-ink-light mb-3">{title}</div>}
+      {title && <div className="mb-3 font-display text-h6 text-ink">{title}</div>}
       <div className="flex flex-col gap-2">
         {items.map((it, i) => (
           <div key={i} className="flex items-center gap-3">

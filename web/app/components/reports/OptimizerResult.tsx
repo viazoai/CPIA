@@ -2,8 +2,8 @@ import { Brain, History, Lightbulb, Database } from "lucide-react";
 import type { OptimizerOutput } from "@/lib/types";
 
 /**
- * 진단·유사사례·권고·상세 4 섹션을 단일 박스 안에 항목별 구분선으로 분리.
- * 외곽 카드 한 개 + 내부 row 사이 border-t.
+ * 진단·유사사례·권고·상세 4 섹션을 단일 박스 + 항목별 구분선.
+ * 본문 텍스트는 모두 진단 디스크립션과 동일한 text-sm sans + leading-relaxed.
  */
 export function OptimizerResult({ output }: { output: OptimizerOutput }) {
   return (
@@ -14,23 +14,25 @@ export function OptimizerResult({ output }: { output: OptimizerOutput }) {
       <Row icon={<History className="h-4 w-4" />} tone="brand" title="유사 과거 사례" topBorder>
         <ul className="space-y-1.5">
           {output.similar_cases.map((c, i) => (
-            <li key={i} className="text-xs">
-              <span className="font-mono font-semibold text-ink">{c.date}</span>{" "}
-              · <span className="text-ink-mid">{c.description}</span>
-              <div className="mt-0.5 ml-1 text-[11px] text-mint-text">→ {c.outcome}</div>
+            <li key={i} className="text-sm text-ink-mid leading-relaxed">
+              <span className="font-semibold text-ink">{c.date}</span>{" "}
+              · {c.description}
+              <div className="mt-0.5 ml-1 text-sm text-mint-text leading-relaxed">
+                → {c.outcome}
+              </div>
             </li>
           ))}
         </ul>
       </Row>
       <Row icon={<Lightbulb className="h-4 w-4" />} tone="sun" title="권고사항" topBorder>
-        <ul className="space-y-1 list-decimal list-inside marker:text-sun-text marker:font-semibold">
+        <ul className="space-y-1.5 list-decimal list-inside marker:text-sun-text marker:font-semibold">
           {output.recommendations.map((r, i) => (
-            <li key={i} className="text-xs text-ink-mid">{r}</li>
+            <li key={i} className="text-sm text-ink-mid leading-relaxed">{r}</li>
           ))}
         </ul>
       </Row>
       <Row icon={<Database className="h-4 w-4" />} tone="mint" title="상세 현황" topBorder>
-        <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px]">
+        <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-sm leading-relaxed">
           {output.details.map((d, i) => (
             <div key={i} className="contents">
               <dt className="text-ink-light">{d.label}</dt>
@@ -64,7 +66,7 @@ function Row({
         <span className={`inline-flex h-6 w-6 items-center justify-center rounded-sm ${bg} ${text}`}>
           {icon}
         </span>
-        <span className={`font-mono text-xs uppercase tracking-wider font-bold ${text}`}>
+        <span className={`text-sm font-semibold ${text}`}>
           {title}
         </span>
       </div>

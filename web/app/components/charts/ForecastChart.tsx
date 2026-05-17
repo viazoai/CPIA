@@ -38,63 +38,32 @@ export function ForecastChart({ diagnosis, recoveryActive = false, delayDays, re
 
   const showOptimistic = toggles.optimistic || recoveryActive;
 
-  /**
-   * 그래프 데이터를 KPI(delayDays, recoveryDays) 기반으로 재구성.
-   *  - planned·actual : diagnosis.s_curve 원본
-   *  - base           : today → (planEnd + delayDays) 선형 보간 후 100% 유지
-   *  - optimistic     : today → (planEnd + delayDays - recoveryDays) 선형 보간 후 100% 유지
-   *  - pessimistic    : today → (planEnd + delayDays + 5) 선형 보간 (시연 더미)
-   *  - 데이터 길이 확장: max(planEnd + delayDays + 3)
-   * 이렇게 하면 base/optimistic 의 100% 도달 시점이 정확히 KPI 와 align.
-   */
-  const src = diagnosis.s_curve;
-  const planEndIdxRaw = src.findIndex((p) => p.planned >= 100);
-  const planEndIdx = planEndIdxRaw >= 0 ? planEndIdxRaw : src.length - 1;
+  const data = diagnosis.s_curve.map((p, i) => ({
+    date: p.date,
+    planned: p.planned,
+    actual: p.actual,
+    band_low:  diagnosis.band_p25[i],
+    band_high: diagnosis.band_p75[i],
+    base:      diagnosis.scenarios.base.curve[i],
+    optimistic:  diagnosis.scenarios.optimistic.curve[i],
+    pessimistic: diagnosis.scenarios.pessimistic.curve[i],
+  }));
 
-  const firstUndefSrc = src.findIndex((p) => p.actual === undefined);
-  const todayIdx = firstUndefSrc === -1 ? src.length - 1 : firstUndefSrc - 1;
-  const todayProgress =
-    todayIdx >= 0 ? (src[todayIdx].actual ?? src[todayIdx].planned ?? 0) : 0;
-
-  const baseEndIdx = planEndIdx + Math.max(0, delayDays);
-  const optEndIdx = planEndIdx + Math.max(0, delayDays - recoveryDays);
-  const pessEndIdx = planEndIdx + Math.max(0, delayDays + 5);
-  const dataLen = Math.max(src.length, pessEndIdx + 3);
-
-  const firstDate = src[0]?.date ?? "2026-01-01";
-  const dateAt = (i: number): string => {
-    const d = new Date(firstDate);
-    d.setDate(d.getDate() + i);
-    return d.toISOString().slice(0, 10);
-  };
-  const lerpTo100 = (i: number, endIdx: number): number | null => {
-    if (i < todayIdx) return null;
-    if (i >= endIdx) return 100;
-    if (endIdx <= todayIdx) return 100;
-    const t = (i - todayIdx) / (endIdx - todayIdx);
-    return todayProgress + (100 - todayProgress) * t;
-  };
-
-  const data = Array.from({ length: dataLen }, (_, i) => {
-    const original = i < src.length ? src[i] : null;
-    return {
-      date: original?.date ?? dateAt(i),
-      planned: original?.planned ?? 100,
-      actual: i <= todayIdx ? original?.actual : undefined,
-      band_low: diagnosis.band_p25[i] ?? null,
-      band_high: diagnosis.band_p75[i] ?? null,
-      base: lerpTo100(i, baseEndIdx),
-      optimistic: lerpTo100(i, optEndIdx),
-      pessimistic: lerpTo100(i, pessEndIdx),
-    };
-  });
-
-  const lastIdx = todayIdx;
+  const firstUndef = data.findIndex((d) => d.actual === undefined);
+  const lastIdx = firstUndef === -1 ? data.length - 1 : firstUndef - 1;
   const lastPoint = lastIdx >= 0 ? data[lastIdx] : null;
 
-  const planEnd = data[planEndIdx]?.date ?? null;
-  const baseEnd = data[baseEndIdx]?.date ?? null;
-  const optEnd  = data[optEndIdx]?.date ?? null;
+  // 100% 도달 시점 찾기 — 각 시나리오가 어디서 끝나는지 시각화
+  const completionDate = (key: "planned" | "base" | "optimistic"): string | null => {
+    for (const d of data) {
+      const v = d[key] as number | null | undefined;
+      if (typeof v === "number" && v >= 100) return d.date;
+    }
+    return null;
+  };
+  const planEnd = completionDate("planned");
+  const baseEnd = completionDate("base");
+  const optEnd  = completionDate("optimistic");
 
   return (
     <div className="rounded-card border border-border-soft bg-card p-5 shadow-xs">
@@ -159,9 +128,6 @@ export function ForecastChart({ diagnosis, recoveryActive = false, delayDays, re
           <Tooltip
             contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid #e2e6ed" }}
             labelFormatter={(v) => String(v)}
-            formatter={(v) =>
-              typeof v === "number" ? `${v.toFixed(1)}%` : (v as string)
-            }
           />
 
           <Area dataKey="band_high" stroke="none" fill="#e8eeff" fillOpacity={0.4} activeDot={false} isAnimationActive={false} />
@@ -236,35 +202,26 @@ export function ForecastChart({ diagnosis, recoveryActive = false, delayDays, re
       </ResponsiveContainer>
 
       <div className="mt-4 space-y-1.5 rounded-md bg-surface-soft/50 px-3 py-2.5 text-sm leading-relaxed text-ink-mid">
-        <p>{situationNarrative(diagnosis, delayDays)}</p>
-        <p>{outlookNarrative(diagnosis, delayDays, recoveryDays)}</p>
+        <p>{situationNarrative(delayDays)}</p>
+        <p>{outlookNarrative(delayDays, recoveryDays)}</p>
       </div>
     </div>
   );
 }
 
-/** 현재 상황 — 경영진 친화적 자연어 (통계 용어 회피). */
-function situationNarrative(d: ProductivityDiagnosis, delayDays: number): string {
-  const within = Math.abs(d.z_score) < 1.5;
-  const direction = d.z_score >= 0 ? "높은" : "낮은";
-  const rangeText = within
-    ? `현재 생산성은 예년 평균과 비슷한 수준입니다.`
-    : `현재 생산성이 예년 평균을 크게 벗어난 ${direction} 상태입니다.`;
-  const trendText =
-    delayDays > 0
-      ? `다만 최근 한 달간 생산성이 점차 떨어지는 추세로, 지금 흐름이 이어지면 당초 계획보다 ${delayDays}일 늦게 완공될 것으로 보입니다.`
-      : delayDays < 0
-        ? `최근 흐름이 좋아지고 있어, 이대로 유지된다면 당초 계획보다 ${Math.abs(delayDays)}일 빨리 완공할 수 있습니다.`
-        : `현재 추세는 당초 계획과 거의 일치합니다.`;
-  return `${rangeText} ${trendText}`;
+/** 현재 상황 — S-curve(누적 진척률) 의미에 맞춘 경영진 자연어. */
+function situationNarrative(delayDays: number): string {
+  if (delayDays > 0) {
+    return `지금까지의 진척률이 당초 계획보다 뒤처져 있고, 그 격차도 점점 벌어지고 있습니다. 지금 페이스가 이어지면 당초 계획보다 ${delayDays}일 늦게 완공될 것으로 보입니다.`;
+  }
+  if (delayDays < 0) {
+    return `지금까지의 진척률이 당초 계획보다 앞서 있고, 흐름도 양호하게 유지되고 있습니다. 이대로라면 당초 계획보다 ${Math.abs(delayDays)}일 빨리 완공할 수 있습니다.`;
+  }
+  return `현재 진척률은 당초 계획과 거의 일치하게 진행되고 있습니다.`;
 }
 
 /** 만회 전망 — AI 권고 효과를 경영진 의사결정 언어로. */
-function outlookNarrative(
-  _d: ProductivityDiagnosis,
-  delayDays: number,
-  recoveryDays: number,
-): string {
+function outlookNarrative(delayDays: number, recoveryDays: number): string {
   if (recoveryDays <= 0) {
     return `현재로서는 AI 가 제안할 수 있는 만회 방안이 제한적이며, 일정 회복은 어려운 상황입니다.`;
   }

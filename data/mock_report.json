@@ -80,6 +80,74 @@
         { "building": "M15X", "trade": "마감", "wp": "WP-5-2 타일",   "bp_name": "D건설", "work_content": "타일 부착 작업 (욕실)",            "quantity": 28,  "unit": "㎡", "workers": 6,  "equipment": "-" },
         { "building": "M15X", "trade": "토공사","wp": "WP-1-1 터파기","bp_name": "E건설", "work_content": "터파기 보강 작업 / 토류판 설치",    "quantity": 12,  "unit": "EA", "workers": 5,  "equipment": "굴삭기 0.7t" },
         { "building": "M15X", "trade": "MEP",  "wp": "WP-7-1 전기",   "bp_name": "G건설", "work_content": "1층 전기 트레이 설치",            "quantity": 38,  "unit": "m",  "workers": 6,  "equipment": "고소작업차" }
+      ],
+      "wp_summary": [
+        {
+          "wp_id": "wp-3-3",
+          "wp_name": "WP-3-3 철근",
+          "trade": "골조",
+          "bp_name": "B건설",
+          "start_date": "2026-05-04",
+          "end_date": "2026-05-28",
+          "progress_pct": 54,
+          "productivity": 54,
+          "status": "risk"
+        },
+        {
+          "wp_id": "wp-3-2",
+          "wp_name": "WP-3-2 거푸집",
+          "trade": "골조",
+          "bp_name": "A건설",
+          "start_date": "2026-05-08",
+          "end_date": "2026-05-22",
+          "progress_pct": 68,
+          "productivity": 68,
+          "status": "risk"
+        },
+        {
+          "wp_id": "wp-5-1",
+          "wp_name": "WP-5-1 방수",
+          "trade": "마감",
+          "bp_name": "C건설",
+          "start_date": "2026-05-10",
+          "end_date": "2026-06-05",
+          "progress_pct": 41,
+          "productivity": 82,
+          "status": "caution"
+        },
+        {
+          "wp_id": "wp-3-4",
+          "wp_name": "WP-3-4 콘크리트",
+          "trade": "골조",
+          "bp_name": "F건설",
+          "start_date": "2026-05-05",
+          "end_date": "2026-05-15",
+          "progress_pct": 92,
+          "productivity": 96,
+          "status": "caution"
+        },
+        {
+          "wp_id": "wp-7-1",
+          "wp_name": "WP-7-1 전기",
+          "trade": "MEP",
+          "bp_name": "D건설",
+          "start_date": "2026-05-12",
+          "end_date": "2026-06-20",
+          "progress_pct": 22,
+          "productivity": 95,
+          "status": "normal"
+        },
+        {
+          "wp_id": "wp-1-1",
+          "wp_name": "WP-1-1 터파기",
+          "trade": "토공사",
+          "bp_name": "E건설",
+          "start_date": "2026-04-20",
+          "end_date": "2026-05-18",
+          "progress_pct": 88,
+          "productivity": 92,
+          "status": "normal"
+        }
       ]
     }
   }

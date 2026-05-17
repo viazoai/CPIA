@@ -195,6 +195,19 @@ export interface RawDataRow {
   equipment: string;
 }
 
+// ────── /reports § 5 — WP 단위 요약 (작업일보 상세의 컨텍스트) ──────
+export interface WPSummaryRow {
+  wp_id: string;
+  wp_name: string;       // "WP-3-2 거푸집"
+  trade: string;         // "골조"
+  bp_name: string;       // "A건설"
+  start_date: string;    // "2026-05-08"
+  end_date: string;      // "2026-05-22"
+  progress_pct: number;  // 0..100
+  productivity: number;  // 0..100 — Quadrant 의 productivity 와 동일 값
+  status: "normal" | "caution" | "risk";
+}
+
 // ────── Dashboard Impact ──────
 export interface ImpactSiteDistribution {
   site_id: string;

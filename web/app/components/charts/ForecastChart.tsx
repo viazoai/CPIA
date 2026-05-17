@@ -202,8 +202,8 @@ export function ForecastChart({ diagnosis, recoveryActive = false, delayDays, re
       </ResponsiveContainer>
 
       <div className="mt-4 space-y-1.5 rounded-md bg-surface-soft/50 px-3 py-2.5 text-sm leading-relaxed text-ink-mid">
-        <p>📊 {situationNarrative(diagnosis, delayDays)}</p>
-        <p>⚡ {outlookNarrative(diagnosis, delayDays, recoveryDays)}</p>
+        <p>{situationNarrative(diagnosis, delayDays)}</p>
+        <p>{outlookNarrative(diagnosis, delayDays, recoveryDays)}</p>
       </div>
     </div>
   );

@@ -207,6 +207,7 @@ export interface WPSummaryRow {
   progress_pct: number;  // 0..100
   productivity: number;  // 0..100 — Quadrant 의 productivity 와 동일 값
   impact: number;        // 0..100 — WV (Work Volume), Quadrant 의 impact 와 동일 값
+  baseline: number;      // 이력 평균 (목표 productivity). 회복 폭 = baseline − productivity.
   status: "normal" | "caution" | "risk";
 }
 

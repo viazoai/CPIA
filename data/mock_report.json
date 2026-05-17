@@ -521,7 +521,8 @@
           "progress_pct": 54,
           "productivity": 54,
           "status": "risk",
-          "impact": 86
+          "impact": 86,
+          "baseline": 80
         },
         {
           "wp_id": "wp-3-2",
@@ -533,7 +534,8 @@
           "progress_pct": 68,
           "productivity": 68,
           "status": "risk",
-          "impact": 78
+          "impact": 78,
+          "baseline": 86
         },
         {
           "wp_id": "wp-5-1",
@@ -545,7 +547,8 @@
           "progress_pct": 41,
           "productivity": 82,
           "status": "caution",
-          "impact": 62
+          "impact": 62,
+          "baseline": 88
         },
         {
           "wp_id": "wp-3-4",
@@ -557,7 +560,8 @@
           "progress_pct": 92,
           "productivity": 96,
           "status": "caution",
-          "impact": 88
+          "impact": 88,
+          "baseline": 92
         },
         {
           "wp_id": "wp-7-1",
@@ -569,7 +573,8 @@
           "progress_pct": 22,
           "productivity": 95,
           "status": "normal",
-          "impact": 28
+          "impact": 28,
+          "baseline": 91
         },
         {
           "wp_id": "wp-1-1",
@@ -581,7 +586,8 @@
           "progress_pct": 88,
           "productivity": 92,
           "status": "normal",
-          "impact": 18
+          "impact": 18,
+          "baseline": 88
         }
       ]
     }

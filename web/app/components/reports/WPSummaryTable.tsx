@@ -20,6 +20,18 @@ const STATUS_LABEL = {
   risk:    "이상",
 } as const;
 
+/**
+ * WP 단위 공기 단축 추정 — baseline 까지 회복했을 때 전체 공기에 주는 영향.
+ *   days = max(0, round((baseline − productivity)/100 × impact × scale))
+ * scale 은 시연 합산이 적절한 폭(약 10~15일)이 되도록 조정한 PoC 상수.
+ * A_Track 의 Optimizer 가 산출하는 실 회복일 수로 대체 예정.
+ */
+function recoveryDays(productivity: number, baseline: number, impact: number): number {
+  const gap = baseline - productivity;
+  if (gap <= 0) return 0;
+  return Math.max(0, Math.round((gap / 100) * impact * 0.3));
+}
+
 export function WPSummaryTable({ rows, selectedWpId, onSelect }: Props) {
   return (
     <div className="rounded-card border border-border-soft bg-card shadow-xs overflow-hidden">
@@ -36,6 +48,7 @@ export function WPSummaryTable({ rows, selectedWpId, onSelect }: Props) {
               <th className="px-3 py-1.5 font-medium">BP사</th>
               <th className="px-3 py-1.5 font-medium">Impact</th>
               <th className="px-3 py-1.5 font-medium">Productivity</th>
+              <th className="px-3 py-1.5 font-medium">공기 단축</th>
               <th className="px-3 py-1.5 font-medium">Status</th>
             </tr>
           </thead>
@@ -67,6 +80,14 @@ export function WPSummaryTable({ rows, selectedWpId, onSelect }: Props) {
                   </td>
                   <td className="px-3 py-1 text-[12px] font-semibold text-ink tabular-nums">
                     {row.productivity}%
+                  </td>
+                  <td className="px-3 py-1 text-[12px] tabular-nums">
+                    {(() => {
+                      const days = recoveryDays(row.productivity, row.baseline, row.impact);
+                      return days > 0
+                        ? <span className="font-semibold text-mint-text">-{days}일</span>
+                        : <span className="text-ink-light">—</span>;
+                    })()}
                   </td>
                   <td className="px-3 py-1">
                     <span className="inline-flex items-center gap-1.5">

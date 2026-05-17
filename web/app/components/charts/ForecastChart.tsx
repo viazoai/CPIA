@@ -62,7 +62,7 @@ export function ForecastChart({ diagnosis, recoveryActive = false, delayDays, re
         <ConfidenceBadge sampleSize={diagnosis.sample_size} />
       </div>
 
-      <div className="mb-4 grid grid-cols-2 gap-x-8">
+      <div className="mb-4 flex flex-wrap gap-x-10">
         <div>
           <div className="text-sm text-ink-mid">예상 공기</div>
           <div className="mt-2 flex items-baseline gap-2">

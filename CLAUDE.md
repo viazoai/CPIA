@@ -311,5 +311,12 @@ docs/sample/WBS공정표_M15X IBL PH-3_CPRS_2025.09.25.xlsx
 
 ---
 
-*최종 수정: 2026-05-16 — A_Track 매핑 레이어 plan 반영 (Azure OpenAI gpt-5.1 + text-embedding-3-small 전환, ChromaDB `wbs_master`+`daily_activities` 두 컬렉션, PG `activity_master` 추가, A 는 로컬 Docker 로 PoC 진행 중 — homelab 은 대기·마이그레이션 예정)*
+## 작업 규칙
+
+> 코드 변경/추가 작업 시작 전 `deep-dive/design-intent/INDEX.md` 의 T1 인덱스에서 관련 함수 검색. 매칭 시 해당 T2 카드 확인 후 기존 핸들러 확장 우선 검토.
+
+---
+
+*최종 수정: 2026-05-17 — design-intent + deep-dive 산출물 추가 (`deep-dive/design-intent/INDEX.md` + 서브시스템 카드 7종, `deep-dive/architecture_overview.md`)*
+*이전 수정: 2026-05-16 — A_Track 매핑 레이어 plan 반영 (Azure OpenAI gpt-5.1 + text-embedding-3-small 전환, ChromaDB `wbs_master`+`daily_activities` 두 컬렉션, PG `activity_master` 추가, A 는 로컬 Docker 로 PoC 진행 중 — homelab 은 대기·마이그레이션 예정)*
 *이전 수정: 2026-05-14 — 2인 협업 확정안 (FastAPI 추가, H-i-L Dashboard 통합, 3주 압축 / 마감 2026-06-05, 브랜치 A_Track·B_Track 2개)*

@@ -16,6 +16,7 @@ from pipeline.agents.forecaster import ForecasterConfig
 from pipeline.agents.mapper import MapperConfig
 from pipeline.agents.optimizer import OptimizerConfig
 from pipeline.agents.parser import parse_daily_report
+from pipeline.agents.reporter import ReporterConfig
 from pipeline.chroma_client import ChromaClient
 from pipeline.db import PGClient
 from pipeline.graph import GraphConfig, build_graph
@@ -81,6 +82,13 @@ def cfg() -> GraphConfig:
             chroma_host=common_chroma_host,
             chroma_port=common_chroma_port,
             chroma_ssl=common_chroma_ssl,
+        ),
+        reporter=ReporterConfig(
+            azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
+            azure_api_key=os.environ["AZURE_OPENAI_API_KEY"],
+            azure_api_version=os.environ["AZURE_OPENAI_API_VERSION"],
+            llm_model=os.environ["LLM_MODEL"],
+            postgres_url=common_pg,
         ),
     )
 

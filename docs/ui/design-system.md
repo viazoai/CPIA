@@ -81,11 +81,48 @@ shadcn `<Button>` `<Card>` 등이 자동으로 v7.1 톤을 따라가도록 globa
 
 ### 2-4. 폰트 위계
 
+#### 폰트 패밀리
+
 | 클래스 | 폰트 | 사용 시점 |
 |---|---|---|
 | `font-sans` (default) | **Pretendard** + Noto Sans KR + system | 모든 본문·기본 텍스트 |
-| `font-display` | **Space Grotesk** + Pretendard | 헤더, 큰 숫자(`text-3xl+`), 영문 강조 |
+| `font-display` | **Inter Tight** + Pretendard | 헤더(`<h1>`~`<h4>`), 큰 숫자, 영문 강조 |
 | `font-mono` | **JetBrains Mono** | 코드, 작은 라벨(`/01`), site_id, 수치 단위 |
+
+#### 타입 스케일 (단일 출처: `docs/ui/sample/font.png`)
+
+| 토큰 | px | weight | line-height | letter-spacing | 용도 |
+|---|---:|:---:|---:|---:|---|
+| `text-h1` | 62 | 500 | 70 | -2%   | Hero 메인 타이틀 (md+ 이상) |
+| `text-h2` | 52 | 500 | 60 | -1.5% | 섹션 분기 / Hero 모바일 |
+| `text-h3` | 42 | 500 | 50 | -1.5% | **페이지 타이틀** (`<h1>` 표준) |
+| `text-h4` | 28 | 500 | 34 | -0.5% | KPI 수치, 큰 카드 헤더 |
+| `text-h5` | 20 | 600 | 30 | 0     | **카드/섹션 헤더** (`<h2>`/`<h3>`) |
+| `text-h6` | 18 | 500 | 27 | 0     | 작은 섹션 헤더 / 라벨 강조 |
+| `text-body` | 18 | 400 | 27 | 0   | Hero lead, 강조 본문 |
+| `text-body-sm` | 16 | 400 | 24 | 0 | **기본 본문** (body 기본값) |
+| `text-btn` | 20 | 500 | 30 | -2%   | Primary CTA Button |
+
+**규칙:**
+
+1. **새 코드는 의미 토큰만 사용.** `text-3xl`, `text-[56px]`, `leading-[1.05]`, `tracking-[-0.02em]` 같은 임의 값을 새로 쓰지 않는다.
+2. **`<h1>`~`<h6>` raw 태그는 자동 스케일.** `app/globals.css` `@layer base` 가 패밀리·사이즈·LH·LS·weight 를 일괄 적용. 별도 클래스 없이 `<h1>` 만 써도 62/70/-2%/500 으로 렌더.
+3. **여전히 클래스를 붙이는 경우**: 색(`text-ink`), 컬러 그라데이션, 반응형 점프(`text-h3 md:text-h1`), `text-balance` 만 추가. 사이즈/weight/LH/LS 재정의는 금지.
+4. **body 기본값**은 16px / LH 24 (`text-body-sm` 와 동일). globals.css `body { font-size: 16px; line-height: 1.5 }`.
+5. **Pretendard(한글) ↔ Inter Tight(영문)** 자동 fallback: `font-display` 는 두 폰트 모두 같은 스케일에서 잘 어울리도록 설계됨.
+6. **font.png 와 다른 스케일이 필요해지면** 토큰을 추가하고 본 표를 갱신한 다음 사용. 임의 픽셀 직진하지 않는다.
+
+**기존 코드 마이그레이션 가이드** (다른 트랙·과거 커밋에서 따라잡을 때):
+
+| Before | After |
+|---|---|
+| `text-4xl ... md:text-[56px]` | `text-h3 md:text-h1` |
+| `text-3xl font-medium tracking-[-0.02em]` | `text-h3` |
+| `text-lg font-bold` / `text-xl font-bold` | `text-h5` |
+| `text-base font-bold` | `text-h5` |
+| `text-base` 본문 | `text-body` |
+| `text-sm` 보조 본문 | `text-body-sm` |
+| `text-xs` 라벨 | `text-xs` 유지 (mono 라벨 등 11~12px는 별도 영역) |
 
 ### 2-5. 반경·그림자·여백
 
@@ -148,8 +185,16 @@ npx shadcn@latest add dialog sheet tabs sonner
 
 | 컴포넌트 | 경로 | 책임 |
 |---|---|---|
-| `<SiteCard>` | `app/components/SiteCard.tsx` | 현장 1 개 카드 — name·status·진척·KPI·pain·last_run·상세 버튼 |
 | `<Kpi>` | `app/page.tsx` 내부 | KPI 1 칸 — tone(아이콘+색 stripe)·label·value·sub |
+| `<TopBar>` | `app/components/TopBar.tsx` | 페르소나 토글 + 브랜드 |
+| `<Sidebar>` | `app/components/Sidebar.tsx` | 5 메뉴, 페르소나별 필터 |
+| `<PersonaToggle>` | `app/components/PersonaToggle.tsx` | 구성원/관리자 switch |
+| `<Hero>` `<NowStrip>` `<AgentCard>` `<HilReviewStage>` | `app/components/home/` | Home 4 컴포넌트 |
+| `<DailyRunList>` `<AgentProgressList>` `<AgentChatLog>` | `app/components/tasks/` | Agent Tasks 3 컴포넌트 |
+| `<WBSTree>` `<ReviewCard>` `<WPSearchCombobox>` | `app/components/review/` | Human Review 3 컴포넌트 |
+| `<ReportDailyList>` `<KpiStrip>` `<ForecastTab>` `<OptimizeTab>` `<OptimizerResult>` `<QuadrantCountKpi>` `<RawDataTab>` | `app/components/reports/` | Report 7 컴포넌트 |
+| `<PerformanceTab>` `<ImpactTab>` `<SiteOverviewCard>` `<HorizontalBarList>` | `app/components/dashboard/` | Dashboard 4 컴포넌트 |
+| `<SCurveChart>` `<BarChartH>` `<QuadrantScatter>` `<TrendLineChart>` | `app/components/charts/` | recharts 차트 4종 |
 
 ---
 
@@ -388,22 +433,14 @@ async function loadMockSites(): Promise<Site[]> {
 
 ---
 
-## 9. 다음 세션이 즉시 작업할 수 있는 곳
+## 9. 후속 작업 (Phase 2 — A_Track 연결)
 
-| 영역 | 시작 파일 | 비고 |
+| 영역 | 현재 | 다음 단계 |
 |---|---|---|
-| Layer 2 (사이트 상세) | `web/app/sites/[id]/page.tsx` (현재 빈 파일 또는 미생성) | 본 문서 §6-1 표준 레이아웃 따름. Sheet 활용 권장 |
-| H-i-L 1 Modal (Mapper 검토) | `web/app/components/MappingReviewModal.tsx` (미생성) | shadcn Dialog 추가 후 |
-| H-i-L 2 Modal (Trade 선택) | `web/app/components/TradeSelectorModal.tsx` (미생성) | 동일 |
-| ProductivityChart | `web/app/components/ProductivityChart.tsx` (미생성) | recharts 또는 visx — 본 문서에 추가 결정 박을 것 |
-
-### 새 작업 시작 절차
-1. `git pull origin main` (또는 B_Track)
-2. `cd web && npm install` (deps 동기화)
-3. `npm run dev` → `http://127.0.0.1:5535`
-4. 본 문서 §3·§4·§5 패턴 따라 신규 컴포넌트 작성
-5. 신규 토큰·컴포넌트는 본 문서 같이 갱신 + 같은 PR
-6. 커밋 메시지: `feat(B): <화면명> — <핵심 변경>`
+| Mock fixture → 실 API | `web/lib/fixtures.ts` 가 `data/mock_*.json` 로드 | A_Track GATE 통과 시 `web/app/api/mock/*` 라우트의 `loadFixture` 호출을 실제 Postgres SELECT / FastAPI proxy 로 swap. mock 과 실 API 의 응답 shape 이 같으므로 컴포넌트는 변경 없음. |
+| 현장별 detail 확장 | M15X 만 fixture 채워짐 (PoC 시연 우선) | 다른 5 현장의 detail 도 fixture 또는 실 데이터로 보강 |
+| Dashboard 14일 히트맵 | 보류 (spec §10-2) | 사용자 요청 시 wireframe v2 |
+| Daily Report 풀스크린 페이지 | 보류 (엑셀 산출물로 충분) | 사용자 요청 시 추가 |
 
 ---
 
@@ -434,5 +471,5 @@ web/
 
 ---
 
-*최종 수정: 2026-05-16 · B_Track ef08ff4 기준*
-*다음 갱신: shadcn Dialog/Sheet/Tabs/Sonner add 시점 + Layer 2 골격 도입 시점*
+*최종 수정: 2026-05-16 · 5 화면 구현 완료 + 신규 컴포넌트 30+개 등록*
+*다음 갱신: A_Track 데이터 연결 (Phase 2 진입) 시점*

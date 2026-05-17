@@ -1,0 +1,33 @@
+{
+  "daily_runs": [
+    { "date": "2026-05-15", "total_count": 87, "status": "review_pending", "has_anomaly": true,  "bar_value": 0.91 },
+    { "date": "2026-05-14", "total_count": 95, "status": "completed",      "has_anomaly": false, "bar_value": 1.00 },
+    { "date": "2026-05-13", "total_count": 82, "status": "completed",      "has_anomaly": false, "bar_value": 0.86 },
+    { "date": "2026-05-12", "total_count": 89, "status": "completed",      "has_anomaly": true,  "bar_value": 0.94 },
+    { "date": "2026-05-11", "total_count": 78, "status": "completed",      "has_anomaly": false, "bar_value": 0.82 },
+    { "date": "2026-05-10", "total_count": 91, "status": "completed",      "has_anomaly": false, "bar_value": 0.96 },
+    { "date": "2026-05-09", "total_count": 84, "status": "completed",      "has_anomaly": false, "bar_value": 0.88 }
+  ],
+  "progress_by_date": {
+    "2026-05-15": [
+      { "agent": "Collector",  "unit": "per_report", "processed": 87, "total": 87, "waiting_hil": false },
+      { "agent": "Parser",     "unit": "per_report", "processed": 87, "total": 87, "waiting_hil": false },
+      { "agent": "Mapper",     "unit": "per_report", "processed": 87, "total": 87, "waiting_hil": false },
+      { "agent": "HIL Review", "unit": "per_review", "processed": 0,  "total": 12, "waiting_hil": true  },
+      { "agent": "Atomizer",   "unit": "per_report", "processed": 0,  "total": 87, "waiting_hil": false },
+      { "agent": "Reporter",   "unit": "per_run",    "processed": 0,  "total": 1,  "waiting_hil": false },
+      { "agent": "Forecaster", "unit": "per_run",    "processed": 0,  "total": 1,  "waiting_hil": false },
+      { "agent": "Optimizer",  "unit": "per_run",    "processed": 0,  "total": 1,  "waiting_hil": false }
+    ],
+    "2026-05-14": [
+      { "agent": "Collector",  "unit": "per_report", "processed": 95, "total": 95, "waiting_hil": false },
+      { "agent": "Parser",     "unit": "per_report", "processed": 95, "total": 95, "waiting_hil": false },
+      { "agent": "Mapper",     "unit": "per_report", "processed": 95, "total": 95, "waiting_hil": false },
+      { "agent": "HIL Review", "unit": "per_review", "processed": 8,  "total": 8,  "waiting_hil": false },
+      { "agent": "Atomizer",   "unit": "per_report", "processed": 95, "total": 95, "waiting_hil": false },
+      { "agent": "Reporter",   "unit": "per_run",    "processed": 1,  "total": 1,  "waiting_hil": false },
+      { "agent": "Forecaster", "unit": "per_run",    "processed": 1,  "total": 1,  "waiting_hil": false },
+      { "agent": "Optimizer",  "unit": "per_run",    "processed": 1,  "total": 1,  "waiting_hil": false }
+    ]
+  }
+}

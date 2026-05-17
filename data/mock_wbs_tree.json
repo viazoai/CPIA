@@ -1,0 +1,60 @@
+{
+  "id": "m15x-ph3-ibl",
+  "type": "building",
+  "name": "M15X Ph-3 IBL",
+  "parent_id": null,
+  "review_count": 12,
+  "status": "caution",
+  "children": [
+    {
+      "id": "trade-civil",
+      "type": "trade",
+      "name": "토공사",
+      "parent_id": "m15x-ph3-ibl",
+      "review_count": 2,
+      "status": "caution",
+      "children": [
+        { "id": "wp-1-1", "type": "work_package", "name": "WP-1-1 터파기", "parent_id": "trade-civil", "review_count": 1, "status": "caution" },
+        { "id": "wp-1-2", "type": "work_package", "name": "WP-1-2 되메우기", "parent_id": "trade-civil", "review_count": 1, "status": "caution" }
+      ]
+    },
+    {
+      "id": "trade-structure",
+      "type": "trade",
+      "name": "골조",
+      "parent_id": "m15x-ph3-ibl",
+      "review_count": 5,
+      "status": "caution",
+      "children": [
+        { "id": "wp-3-2", "type": "work_package", "name": "WP-3-2 거푸집", "parent_id": "trade-structure", "review_count": 3, "status": "caution" },
+        { "id": "wp-3-3", "type": "work_package", "name": "WP-3-3 철근",   "parent_id": "trade-structure", "review_count": 2, "status": "risk"    },
+        { "id": "wp-3-4", "type": "work_package", "name": "WP-3-4 콘크리트", "parent_id": "trade-structure", "review_count": 0, "status": "normal"  }
+      ]
+    },
+    {
+      "id": "trade-finish",
+      "type": "trade",
+      "name": "마감",
+      "parent_id": "m15x-ph3-ibl",
+      "review_count": 5,
+      "status": "caution",
+      "children": [
+        { "id": "wp-5-1", "type": "work_package", "name": "WP-5-1 방수",   "parent_id": "trade-finish", "review_count": 2, "status": "caution" },
+        { "id": "wp-5-2", "type": "work_package", "name": "WP-5-2 타일",   "parent_id": "trade-finish", "review_count": 1, "status": "caution" },
+        { "id": "wp-5-3", "type": "work_package", "name": "WP-5-3 페인트", "parent_id": "trade-finish", "review_count": 2, "status": "caution" }
+      ]
+    },
+    {
+      "id": "trade-mep",
+      "type": "trade",
+      "name": "MEP",
+      "parent_id": "m15x-ph3-ibl",
+      "review_count": 0,
+      "status": "normal",
+      "children": [
+        { "id": "wp-7-1", "type": "work_package", "name": "WP-7-1 전기", "parent_id": "trade-mep", "review_count": 0, "status": "normal" },
+        { "id": "wp-7-2", "type": "work_package", "name": "WP-7-2 배관", "parent_id": "trade-mep", "review_count": 0, "status": "normal" }
+      ]
+    }
+  ]
+}

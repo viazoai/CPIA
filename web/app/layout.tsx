@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Noto_Sans_KR, Space_Grotesk, JetBrains_Mono } from "next/font/google";
+import { Noto_Sans_KR, Inter_Tight, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
 const notoSansKR = Noto_Sans_KR({
@@ -9,7 +9,7 @@ const notoSansKR = Noto_Sans_KR({
   display: "swap",
 });
 
-const spaceGrotesk = Space_Grotesk({
+const interTight = Inter_Tight({
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
   variable: "--font-display",
@@ -24,9 +24,8 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "CPIA — Construction Productivity Intelligence Agent",
-  description:
-    "Hi-tech 사업부 작업일보 → AI 파이프라인 → 생산성 진단 + 경영진 액션",
+  title: "CPIA · Construction Productivity Intelligence Agent",
+  description: "AI Agent 기반 현장 생산성 분석 + 공기 최적화",
 };
 
 export default function RootLayout({
@@ -35,9 +34,11 @@ export default function RootLayout({
   return (
     <html
       lang="ko"
-      className={`${notoSansKR.variable} ${spaceGrotesk.variable} ${jetbrainsMono.variable}`}
+      className={`${notoSansKR.variable} ${interTight.variable} ${jetbrainsMono.variable}`}
     >
-      <body className="font-sans antialiased">{children}</body>
+      <body className="min-h-screen bg-surface font-sans text-ink antialiased">
+        {children}
+      </body>
     </html>
   );
 }

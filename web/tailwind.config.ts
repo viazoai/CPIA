@@ -108,13 +108,30 @@ const config: Config = {
           "sans-serif",
         ],
         display: [
-          "Space Grotesk",
+          "Inter Tight",
           "var(--font-display)",
           "Pretendard",
           "system-ui",
           "sans-serif",
         ],
         mono: ["JetBrains Mono", "var(--font-mono)", "ui-monospace", "monospace"],
+      },
+      /* ──────────────────────────────────────────────────────────────────
+       * 타입 스케일 — docs/ui/sample/font.png 단일 출처.
+       *   각 토큰 = [size, { lineHeight, letterSpacing, fontWeight }]
+       *   Tailwind 기본 text-xs..text-9xl 은 그대로 사용 가능(extend).
+       *   새 코드에서는 임의 text-Nxl 대신 의미 토큰 사용 권장.
+       * ────────────────────────────────────────────────────────────────── */
+      fontSize: {
+        "h1":      ["3.875rem", { lineHeight: "4.375rem", letterSpacing: "-0.02em",  fontWeight: "500" }],
+        "h2":      ["3.25rem",  { lineHeight: "3.75rem",  letterSpacing: "-0.015em", fontWeight: "500" }],
+        "h3":      ["2.625rem", { lineHeight: "3.125rem", letterSpacing: "-0.015em", fontWeight: "500" }],
+        "h4":      ["1.75rem",  { lineHeight: "2.125rem", letterSpacing: "-0.005em", fontWeight: "500" }],
+        "h5":      ["1.25rem",  { lineHeight: "1.875rem", letterSpacing: "0",        fontWeight: "600" }],
+        "h6":      ["1.125rem", { lineHeight: "1.6875rem",letterSpacing: "0",        fontWeight: "500" }],
+        "body":    ["1.125rem", { lineHeight: "1.6875rem",letterSpacing: "0",        fontWeight: "400" }],
+        "body-sm": ["1rem",     { lineHeight: "1.5rem",   letterSpacing: "0",        fontWeight: "400" }],
+        "btn":     ["1.25rem",  { lineHeight: "1.875rem", letterSpacing: "-0.02em",  fontWeight: "500" }],
       },
       borderRadius: {
         lg: "var(--radius)",

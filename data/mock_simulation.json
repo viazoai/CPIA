@@ -1,0 +1,29 @@
+{
+  "home": {
+    "now_strip_today_count": { "base": 87, "variance": 1, "interval_ms": 5000 },
+    "last_updated_tick_ms": 60000,
+    "agent_card_status": {
+      "Collector":  [3, 2, 4, 3, 5, 3],
+      "Parser":     [2, 3, 2, 1, 2, 3],
+      "Mapper":     [1, 2, 1, 0, 1, 2],
+      "Atomizer":   [0, 0, 1, 0, 0, 0],
+      "Reporter":   [0, 0, 0, 0, 0, 0],
+      "Forecaster": [0, 0, 0, 0, 0, 0],
+      "Optimizer":  [0, 0, 0, 0, 0, 0]
+    },
+    "agent_card_interval_ms": 8000
+  },
+  "tasks": {
+    "daily_today_count": { "base": 87, "variance": 1, "interval_ms": 5000 },
+    "mapper_progress_step_ms": 2000,
+    "chat_reveal_interval_ms": 1500
+  },
+  "report": {
+    "s_curve_endpoint_jitter_ms": 60000,
+    "quadrant_jitter_ms": 10000
+  },
+  "dashboard": {
+    "kpi_strip_jitter_ms": 30000,
+    "site_card_sparkline_ms": 60000
+  }
+}

@@ -31,17 +31,17 @@ export function WPSummaryTable({ rows, selectedWpId, onSelect }: Props) {
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-body-sm">
-          <thead>
-            <tr className="border-b border-border-soft bg-surface-soft/40 text-left">
-              <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-ink-light">WP명</th>
-              <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-ink-light">공종</th>
-              <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-ink-light">BP사</th>
-              <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-ink-light">시작</th>
-              <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-ink-light">종료</th>
-              <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-ink-light">진척</th>
-              <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-ink-light">생산성</th>
-              <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-ink-light">Status</th>
+        <table className="w-full border-collapse">
+          <thead className="bg-surface-soft/80 text-[11px] text-ink-mid">
+            <tr className="border-b border-border-soft text-left">
+              <th className="px-3 py-1.5 font-medium">WP명</th>
+              <th className="px-3 py-1.5 font-medium">공종</th>
+              <th className="px-3 py-1.5 font-medium">BP사</th>
+              <th className="px-3 py-1.5 font-medium">시작</th>
+              <th className="px-3 py-1.5 font-medium">종료</th>
+              <th className="px-3 py-1.5 font-medium">진척</th>
+              <th className="px-3 py-1.5 font-medium">생산성</th>
+              <th className="px-3 py-1.5 font-medium">Status</th>
             </tr>
           </thead>
           <tbody>
@@ -52,16 +52,16 @@ export function WPSummaryTable({ rows, selectedWpId, onSelect }: Props) {
                   key={row.wp_id}
                   onClick={() => onSelect(row.wp_id)}
                   className={cn(
-                    "cursor-pointer border-b border-border-soft transition-colors hover:bg-surface-soft",
+                    "cursor-pointer border-b border-border-soft transition-colors hover:bg-surface-soft/50",
                     selected && "bg-brand-light/40",
                   )}
                 >
-                  <td className="px-3 py-2 font-semibold text-ink">{row.wp_name}</td>
-                  <td className="px-3 py-2 text-ink-mid">{row.trade}</td>
-                  <td className="px-3 py-2 text-ink-mid">{row.bp_name}</td>
-                  <td className="px-3 py-2 font-mono text-[11px] text-ink-mid">{row.start_date}</td>
-                  <td className="px-3 py-2 font-mono text-[11px] text-ink-mid">{row.end_date}</td>
-                  <td className="px-3 py-2">
+                  <td className="px-3 py-1 text-[12px] font-semibold text-ink">{row.wp_name}</td>
+                  <td className="px-3 py-1 text-[12px] text-ink">{row.trade}</td>
+                  <td className="px-3 py-1 text-[12px] text-ink-mid">{row.bp_name}</td>
+                  <td className="px-3 py-1 font-mono text-[11px] text-ink-mid">{row.start_date}</td>
+                  <td className="px-3 py-1 font-mono text-[11px] text-ink-mid">{row.end_date}</td>
+                  <td className="px-3 py-1">
                     <div className="flex items-center gap-2">
                       <div className="h-1.5 w-20 rounded-full bg-border">
                         <div
@@ -72,11 +72,11 @@ export function WPSummaryTable({ rows, selectedWpId, onSelect }: Props) {
                       <span className="font-mono text-[11px] text-ink-mid">{row.progress_pct}%</span>
                     </div>
                   </td>
-                  <td className="px-3 py-2 font-display font-semibold text-ink">{row.productivity}%</td>
-                  <td className="px-3 py-2">
+                  <td className="px-3 py-1 text-[12px] font-semibold text-ink tabular-nums">{row.productivity}%</td>
+                  <td className="px-3 py-1">
                     <span className="inline-flex items-center gap-1.5">
                       <span className={cn("h-1.5 w-1.5 rounded-full", STATUS_DOT[row.status])} />
-                      <span className="font-mono text-[10px] uppercase tracking-wider text-ink-mid">
+                      <span className="text-[10px] font-semibold text-ink-mid">
                         {STATUS_LABEL[row.status]}
                       </span>
                     </span>

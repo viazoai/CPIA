@@ -19,6 +19,10 @@ interface Props {
   diagnosis: ProductivityDiagnosis;
   /** Optimizer 권고 시나리오를 강조 표시. § 4 에서 WP 선택 시 true. */
   recoveryActive?: boolean;
+  /** 현 추세 공기 차이 (양수 = 지연, 음수 = 앞서감). */
+  delayDays: number;
+  /** 최적화 적용 시 단축 가능 일수 (양수). */
+  recoveryDays: number;
 }
 
 interface ToggleState {
@@ -26,7 +30,7 @@ interface ToggleState {
   pessimistic: boolean;
 }
 
-export function ForecastChart({ diagnosis, recoveryActive = false }: Props) {
+export function ForecastChart({ diagnosis, recoveryActive = false, delayDays, recoveryDays }: Props) {
   const [toggles, setToggles] = useState<ToggleState>({
     optimistic: false,
     pessimistic: false,
@@ -52,11 +56,29 @@ export function ForecastChart({ diagnosis, recoveryActive = false }: Props) {
   return (
     <div className="rounded-card border border-border-soft bg-card p-5 shadow-xs">
       <div className="mb-3 flex items-start justify-between gap-4">
-        <div>
-          <div className="font-display text-h6 text-ink">Forecast</div>
-          <div className="text-body-sm text-ink-mid">현 추세 + 신뢰 밴드</div>
+        <div className="font-display text-base font-semibold text-ink">
+          공정률 추세 예측
         </div>
         <ConfidenceBadge sampleSize={diagnosis.sample_size} />
+      </div>
+
+      <div className="mb-4 grid grid-cols-2 gap-3">
+        <ForecastKpi
+          label="예상 공기"
+          value={Math.abs(delayDays)}
+          unit="일"
+          caption={delayDays > 0 ? "지연 예상" : delayDays < 0 ? "단축 예상" : "계획 동일"}
+          prefix={delayDays > 0 ? "D+" : delayDays < 0 ? "D−" : ""}
+          tone={delayDays > 0 ? "rose" : delayDays < 0 ? "mint" : "ink"}
+        />
+        <ForecastKpi
+          label="최적화 공기"
+          value={recoveryDays}
+          unit="일"
+          caption={recoveryDays > 0 ? "추가 단축 가능" : "추가 단축 불가"}
+          prefix={recoveryDays > 0 ? "-" : ""}
+          tone="mint"
+        />
       </div>
 
       <div className="mb-3 space-y-1 text-body-sm text-ink-mid">
@@ -157,6 +179,35 @@ function recoveryNarrative(d: ProductivityDiagnosis): string {
   }
   const cut = baseEta - opt.eta_days;
   return `AI 권고 적용 시 ${cut}일 단축 (${opt.eta_days}일에 회복).`;
+}
+
+interface ForecastKpiProps {
+  label: string;
+  value: number;
+  unit: string;
+  caption: string;
+  prefix?: string;
+  tone: "rose" | "mint" | "ink";
+}
+
+function ForecastKpi({ label, value, unit, caption, prefix = "", tone }: ForecastKpiProps) {
+  const valueTone = {
+    rose: "text-rose-text",
+    mint: "text-mint-text",
+    ink:  "text-ink",
+  }[tone];
+  return (
+    <div className="rounded-card border border-border-soft bg-surface-soft/40 px-4 py-3">
+      <div className="text-sm text-ink-mid">{label}</div>
+      <div className="mt-1 flex items-baseline gap-2">
+        <span className={cn("font-display text-h3 font-semibold tracking-[-0.015em]", valueTone)}>
+          {prefix}{value}
+        </span>
+        <span className="text-base text-ink-light">{unit}</span>
+        <span className="ml-1 text-sm text-ink-mid">{caption}</span>
+      </div>
+    </div>
+  );
 }
 
 interface ToggleChipProps {

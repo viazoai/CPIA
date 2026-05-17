@@ -201,6 +201,8 @@ export default function ReportPage() {
               <ForecastChart
                 diagnosis={diagnosis}
                 recoveryActive={selectedWpId !== null}
+                delayDays={detail.kpi.delay_days}
+                recoveryDays={detail.kpi.recovery_days}
               />
             </Section>
 

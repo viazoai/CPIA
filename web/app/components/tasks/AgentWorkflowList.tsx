@@ -1,4 +1,5 @@
 "use client";
+import { Fragment } from "react";
 import {
   Inbox,
   FileSearch,
@@ -41,19 +42,31 @@ const KOREAN: Record<string, string> = {
 };
 
 export function AgentWorkflowList({ stages, selectedAgent, onSelect }: Props) {
+  // 현재 작업중 단계 — HIL 대기 우선 → 첫 미완 단계 → 모두 완료면 마지막 단계
+  const waitingStage = stages.find((s) => s.waiting_hil);
+  const inflightStage = stages.find((s) => s.received > 0 && s.percent < 100 && !s.waiting_hil);
+  const allDone = stages.length > 0 && stages.every((s) => s.percent === 100 && !s.waiting_hil);
+  const currentStage = waitingStage ?? inflightStage ?? (allDone ? stages[stages.length - 1] : null);
+
+  let statusLabel = "대기 없음";
+  if (waitingStage) statusLabel = "검토 대기중";
+  else if (inflightStage) statusLabel = "처리중";
+  else if (allDone) statusLabel = "전 단계 완료";
+
   return (
     <div className="flex flex-col h-full">
       <div className="px-4 py-2.5 border-b border-border-soft shrink-0">
         <div className="font-display text-h6 font-bold text-ink">
           Agent Workflow
-          <span className="ml-2 text-body-sm font-normal text-ink-mid">단계별 진도율</span>
         </div>
-        <div className="mt-0.5 text-xs text-ink-mid">
-          단계를 클릭하면 우측에 해당 건이 표시됩니다
+        <div className="mt-0.5 flex items-center gap-2 text-xs text-ink-mid tabular-nums">
+          <span>현재 단계 {currentStage ? currentStage.agent : "—"}</span>
+          <span>·</span>
+          <span>상태 {statusLabel}</span>
         </div>
       </div>
 
-      <ol className="flex-1 overflow-y-auto p-3 flex flex-col">
+      <ol className="flex-1 min-h-0 p-3 flex flex-col">
         {stages.map((s, i) => {
           const Icon = STEP_ICON[s.agent] ?? Sparkles;
           const isHil = s.is_hil;
@@ -63,18 +76,18 @@ export function AgentWorkflowList({ stages, selectedAgent, onSelect }: Props) {
           const barColor = s.waiting_hil ? "bg-sun" : isDone ? "bg-mint" : "bg-sky";
 
           return (
-            <div key={s.agent}>
+            <Fragment key={s.agent}>
               <button
                 type="button"
                 onClick={() => onSelect(s.agent)}
                 className={cn(
-                  "w-full flex items-center gap-3 rounded-card border px-3 py-2 transition-colors text-left",
+                  "w-full shrink-0 flex items-center gap-3 rounded-card border px-3 py-3 transition-all text-left",
                   isHil
                     ? active
-                      ? "border-brand bg-brand-light/60"
+                      ? "border-brand bg-brand-light ring-2 ring-brand/40 shadow-sm"
                       : "border-dashed border-brand/60 bg-brand-light/30 hover:bg-brand-light/50"
                     : active
-                      ? "border-brand bg-brand-light/40"
+                      ? "border-brand bg-brand-light ring-2 ring-brand/40 shadow-sm"
                       : "border-border-soft bg-surface-soft/40 hover:bg-surface-soft"
                 )}
               >
@@ -87,16 +100,16 @@ export function AgentWorkflowList({ stages, selectedAgent, onSelect }: Props) {
                     {isHil ? "HIL" : String(s.step).padStart(2, "0")}
                   </span>
                   <span className={cn(
-                    "inline-flex h-7 w-7 items-center justify-center rounded-md shadow-xs shrink-0",
+                    "inline-flex h-8 w-8 items-center justify-center rounded-md shadow-xs shrink-0",
                     isHil ? "bg-brand text-white" : "bg-card text-ink-mid"
                   )}>
-                    <Icon className="h-3.5 w-3.5" />
+                    <Icon className="h-4 w-4" />
                   </span>
                 </div>
 
                 {/* Name + counts + bar */}
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-baseline justify-between gap-2 mb-1">
+                  <div className="flex items-baseline justify-between gap-2 mb-1.5">
                     <div className="flex items-baseline gap-1.5 min-w-0">
                       <span className="font-display text-body-sm font-semibold text-ink truncate">
                         {s.agent}
@@ -127,11 +140,11 @@ export function AgentWorkflowList({ stages, selectedAgent, onSelect }: Props) {
               </button>
 
               {!isLast && (
-                <div aria-hidden className="flex h-3 justify-center">
+                <div aria-hidden className="flex flex-1 min-h-[6px] justify-center">
                   <span className="block h-full w-px bg-border" />
                 </div>
               )}
-            </div>
+            </Fragment>
           );
         })}
       </ol>

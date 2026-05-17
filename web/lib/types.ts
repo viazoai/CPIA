@@ -257,7 +257,7 @@ export interface ScenarioPoint {
   eta_days: number;              // 평균 도달 / 만회 예상 일수 (∞ 허용)
   recovery_pct: number;          // 회복 후 누적 진척률 (%)
   delta_completion_days: number; // 계획 완공일 대비. 음수 = 단축, 양수 = 지연
-  curve: number[];               // 시각화용 시계열 (길이 = s_curve.length)
+  curve: (number | null)[];      // 시각화용 시계열 (길이 = s_curve.length). today 이전은 null — 차트에서 선 안 그리도록
 }
 
 export interface ProductivityDiagnosis {

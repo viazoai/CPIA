@@ -24,14 +24,12 @@ interface Props {
 interface ToggleState {
   optimistic: boolean;
   pessimistic: boolean;
-  ewma: boolean;
 }
 
 export function ForecastChart({ diagnosis, recoveryActive = false }: Props) {
   const [toggles, setToggles] = useState<ToggleState>({
     optimistic: false,
     pessimistic: false,
-    ewma: false,
   });
 
   const showOptimistic = toggles.optimistic || recoveryActive;
@@ -42,7 +40,6 @@ export function ForecastChart({ diagnosis, recoveryActive = false }: Props) {
     actual: p.actual,
     band_low:  diagnosis.band_p25[i],
     band_high: diagnosis.band_p75[i],
-    ewma:      diagnosis.ewma_trend[i],
     base:      diagnosis.scenarios.base.curve[i],
     optimistic:  diagnosis.scenarios.optimistic.curve[i],
     pessimistic: diagnosis.scenarios.pessimistic.curve[i],
@@ -83,12 +80,6 @@ export function ForecastChart({ diagnosis, recoveryActive = false }: Props) {
           active={toggles.pessimistic}
           onClick={() => setToggles((s) => ({ ...s, pessimistic: !s.pessimistic }))}
         />
-        <ToggleChip
-          label="최근 추세 (EWMA)"
-          color="ink"
-          active={toggles.ewma}
-          onClick={() => setToggles((s) => ({ ...s, ewma: !s.ewma }))}
-        />
       </div>
 
       <ResponsiveContainer width="100%" height={320}>
@@ -112,22 +103,21 @@ export function ForecastChart({ diagnosis, recoveryActive = false }: Props) {
           <Area dataKey="band_high" stroke="none" fill="#e8eeff" fillOpacity={0.4} activeDot={false} isAnimationActive={false} />
           <Area dataKey="band_low"  stroke="none" fill="#ffffff" fillOpacity={1}   activeDot={false} isAnimationActive={false} />
 
-          <Line dataKey="planned" stroke="#7a8494" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+          {/* Plan — 가장 강조 (회색 두꺼운 실선) */}
+          <Line dataKey="planned" stroke="#4b5563" strokeWidth={2.5} dot={false} isAnimationActive={false} />
 
-          <Line dataKey="base" stroke="#1a56db" strokeWidth={2.5} dot={false} isAnimationActive={false} />
+          {/* Actual — 가장 강조 (검정 더 두꺼운 실선) */}
+          <Line dataKey="actual" stroke="#0d1117" strokeWidth={3} dot={false} isAnimationActive={false} />
 
-          <Line dataKey="actual" stroke="#0d1117" strokeWidth={2} dot={false} isAnimationActive={false} />
+          {/* Forecast (base) — 오늘부터 시작, 점선으로 미래 예측임을 표시 */}
+          <Line dataKey="base" stroke="#1a56db" strokeWidth={2} strokeDasharray="5 4" dot={false} isAnimationActive={false} connectNulls={false} />
 
           {showOptimistic && (
-            <Line dataKey="optimistic" stroke="#0ea76a" strokeWidth={2.5} strokeDasharray="4 3" dot={false} isAnimationActive={false} />
+            <Line dataKey="optimistic" stroke="#0ea76a" strokeWidth={2} strokeDasharray="5 4" dot={false} isAnimationActive={false} connectNulls={false} />
           )}
 
           {toggles.pessimistic && (
-            <Line dataKey="pessimistic" stroke="#ef4444" strokeWidth={2} strokeDasharray="4 3" dot={false} isAnimationActive={false} />
-          )}
-
-          {toggles.ewma && (
-            <Line dataKey="ewma" stroke="#444e5e" strokeWidth={1.5} strokeDasharray="2 2" dot={false} isAnimationActive={false} />
+            <Line dataKey="pessimistic" stroke="#ef4444" strokeWidth={2} strokeDasharray="5 4" dot={false} isAnimationActive={false} connectNulls={false} />
           )}
 
           {lastPoint && lastPoint.actual !== undefined && (

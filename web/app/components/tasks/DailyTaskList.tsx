@@ -10,14 +10,26 @@ interface Props {
 }
 
 export function DailyTaskList({ tasks, selectedDate, onSelect }: Props) {
+  const totalReceived = tasks.reduce((sum, t) => sum + t.total_count, 0);
+  const totalProcessed = tasks.reduce(
+    (sum, t) => sum + Math.round((t.total_count * t.progress_percent) / 100),
+    0
+  );
+  const completionRate = totalReceived === 0 ? 0 : Math.round((totalProcessed / totalReceived) * 100);
+
   return (
     <div className="flex flex-col h-full">
       <div className="px-3 py-2.5 border-b border-border-soft shrink-0">
         <div className="font-display text-h6 font-bold text-ink">
-          Daily Tasks
-          <span className="ml-2 text-body-sm font-normal text-ink-mid">일자별 진행률</span>
+          Agent 작업 목록
         </div>
-        <div className="mt-0.5 text-xs text-ink-mid">{tasks.length}일치 누적</div>
+        <div className="mt-0.5 flex items-center gap-2 text-xs text-ink-mid tabular-nums">
+          <span>접수 {totalReceived.toLocaleString()}건</span>
+          <span>·</span>
+          <span>처리 {totalProcessed.toLocaleString()}건</span>
+          <span>·</span>
+          <span>완료율 {completionRate}%</span>
+        </div>
       </div>
       <div className="flex flex-col flex-1 overflow-y-auto">
         {tasks.map((t) => {
@@ -28,8 +40,10 @@ export function DailyTaskList({ tasks, selectedDate, onSelect }: Props) {
               key={t.date}
               onClick={() => onSelect(t.date)}
               className={cn(
-                "flex items-center gap-2 border-b border-border-soft px-3 py-1.5 text-left transition-colors",
-                active ? "bg-brand-light/50" : "hover:bg-surface-soft"
+                "relative flex items-center gap-2 border-b border-border-soft px-3 py-1.5 text-left transition-colors",
+                active
+                  ? "bg-brand-light shadow-inner before:absolute before:inset-y-0 before:left-0 before:w-1 before:bg-brand"
+                  : "hover:bg-surface-soft"
               )}
             >
               <span className={cn(

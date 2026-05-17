@@ -21,7 +21,17 @@ export default function AgentTasksPage() {
       .then((r) => r.json())
       .then((d: PageData) => {
         setData(d);
-        if (d.tasks.length > 0) setSelectedDate(d.tasks[0].date);
+        if (d.tasks.length > 0) {
+          const latest = d.tasks[0].date;
+          setSelectedDate(latest);
+          // 최신 일자의 현재 처리중 단계 = HIL 대기중 or 첫 미완 단계
+          const stages = d.progressByDate[latest] || [];
+          const current =
+            stages.find((s) => s.waiting_hil) ??
+            stages.find((s) => s.received > 0 && s.percent < 100) ??
+            stages[stages.length - 1];
+          if (current) setSelectedAgent(current.agent);
+        }
       });
   }, []);
 
@@ -39,8 +49,8 @@ export default function AgentTasksPage() {
   const selectedStage = selectedAgent ? stages.find((s) => s.agent === selectedAgent) ?? null : null;
 
   return (
-    <div className="flex flex-col">
-      <div className="mx-auto w-full max-w-screen-2xl border-b border-border-soft px-6 pt-10 pb-6 md:px-10 md:pt-14">
+    <div className="flex flex-col lg:h-[calc(100vh-4rem)] lg:overflow-hidden">
+      <div className="mx-auto w-full max-w-screen-2xl border-b border-border-soft px-6 pt-10 pb-6 md:px-10 md:pt-14 shrink-0">
         <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-brand-text">
           / 02 — Agent Tasks
         </span>
@@ -53,21 +63,26 @@ export default function AgentTasksPage() {
         </p>
       </div>
 
-      <section className="mx-auto w-full max-w-screen-2xl px-6 pb-20 md:px-10">
-        <div className="grid grid-cols-12 gap-4 items-stretch">
+      <section className="mx-auto w-full max-w-screen-2xl px-6 pt-4 pb-8 md:px-10 flex-1 min-h-0">
+        <div className="grid grid-cols-12 gap-3 items-stretch h-full">
           {/* 좌측: Daily Tasks */}
-          <div className="col-span-12 md:col-span-3 rounded-card border border-border-soft bg-card shadow-xs overflow-hidden flex flex-col lg:h-[calc(100vh-260px)]">
+          <div className="col-span-12 md:col-span-3 rounded-card border border-border-soft bg-card shadow-xs overflow-hidden flex flex-col min-h-0">
             <DailyTaskList
               tasks={data.tasks}
               selectedDate={selectedDate}
               onSelect={(d) => {
                 setSelectedDate(d);
-                setSelectedAgent(null);
+                const stages = data.progressByDate[d] || [];
+                const current =
+                  stages.find((s) => s.waiting_hil) ??
+                  stages.find((s) => s.received > 0 && s.percent < 100) ??
+                  stages[stages.length - 1];
+                setSelectedAgent(current ? current.agent : null);
               }}
             />
           </div>
           {/* 중앙: Agent Workflow */}
-          <div className="col-span-12 md:col-span-4 rounded-card border border-border-soft bg-card shadow-xs overflow-hidden flex flex-col lg:h-[calc(100vh-260px)]">
+          <div className="col-span-12 md:col-span-4 rounded-card border border-border-soft bg-card shadow-xs overflow-hidden flex flex-col min-h-0">
             <AgentWorkflowList
               stages={stages}
               selectedAgent={selectedAgent}
@@ -75,7 +90,7 @@ export default function AgentTasksPage() {
             />
           </div>
           {/* 우측: 단계별 건 목록 */}
-          <div className="col-span-12 md:col-span-5 rounded-card border border-border-soft bg-card shadow-xs overflow-hidden flex flex-col lg:h-[calc(100vh-260px)]">
+          <div className="col-span-12 md:col-span-5 rounded-card border border-border-soft bg-card shadow-xs overflow-hidden flex flex-col min-h-0">
             <AgentTaskItemList
               selectedAgent={selectedAgent}
               stage={selectedStage}

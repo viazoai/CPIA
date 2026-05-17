@@ -12,10 +12,12 @@ interface Props {
 export function ReportDailyList({ daily, selectedDate, onSelect }: Props) {
   return (
     <div className="flex flex-col h-full">
-      <div className="px-3 py-3 border-b border-border-soft shrink-0">
-        <div className="font-display text-h6 text-ink">
-          Daily Reports
-          <span className="ml-2 text-body-sm font-normal text-ink-mid">일별 보고서</span>
+      <div className="px-3 py-2.5 border-b border-border-soft shrink-0">
+        <div className="font-display text-h6 font-bold text-ink">
+          일별 보고서
+        </div>
+        <div className="mt-0.5 text-xs text-ink-mid">
+          총 {daily.length}개 리포트 생성됨
         </div>
       </div>
       <div className="flex flex-col flex-1 overflow-y-auto">
@@ -29,8 +31,10 @@ export function ReportDailyList({ daily, selectedDate, onSelect }: Props) {
             key={d.date}
             onClick={() => onSelect(d.date)}
             className={cn(
-              "flex flex-col gap-1 border-b border-border-soft px-3 py-3 text-left transition-colors",
-              active ? "bg-brand-light/50" : "hover:bg-surface-soft"
+              "relative flex flex-col gap-1 border-b border-border-soft px-3 py-3 text-left transition-colors",
+              active
+                ? "bg-brand-light shadow-inner before:absolute before:inset-y-0 before:left-0 before:w-1 before:bg-brand"
+                : "hover:bg-surface-soft"
             )}
           >
             <div className="flex items-center justify-between">

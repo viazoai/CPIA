@@ -69,6 +69,19 @@ export default function ReportPage() {
 
   const selectedWp = detail.quadrant.find((p) => p.wp_id === selectedWpId) ?? null;
 
+  // § 3 4분면 필터 → WP 리스트 필터 (safe ↔ normal 매핑)
+  const filterToStatus: Record<Filter, "normal" | "caution" | "risk" | "all"> = {
+    all: "all",
+    risk: "risk",
+    caution: "caution",
+    safe: "normal",
+  };
+  const wpStatusFilter = filterToStatus[filter];
+  const filteredWpRows =
+    wpStatusFilter === "all"
+      ? detail.wp_summary
+      : detail.wp_summary.filter((w) => w.status === wpStatusFilter);
+
   return (
     <div className="flex flex-col">
       <div className="mx-auto w-full max-w-screen-2xl border-b border-border-soft px-6 pt-10 pb-6 md:px-10 md:pt-14">
@@ -79,7 +92,7 @@ export default function ReportPage() {
           현장 일일 진단 보고서
         </h1>
         <p className="mt-2 text-body-sm text-ink-mid">
-          결론 → 현재 상태 → 추세 → 이슈+권고 → 원본의 인과 흐름으로 확인합니다.
+          생산성 현황 → 결론 KPI → 리스크 검토 → 시나리오 예측 → 원본 데이터 순으로 확인합니다.
         </p>
       </div>
 
@@ -93,7 +106,14 @@ export default function ReportPage() {
 
           <div className="col-span-12 flex flex-col gap-10 md:col-span-9">
 
-            <Section eyebrow="/ 01 — 결론" title="KPI 요약">
+            <Section eyebrow="/ 01 — 현재 상태" title="업체 · 공종 생산성">
+              <ProductivityBarToggle
+                contractorBars={detail.contractor_bars}
+                tradeBars={detail.trade_bars}
+              />
+            </Section>
+
+            <Section eyebrow="/ 02 — 결론" title="생산성 지표">
               <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
                 <SingleKpi item={kpiRest[0]} />
                 <GapKpiCard
@@ -106,21 +126,7 @@ export default function ReportPage() {
               </div>
             </Section>
 
-            <Section eyebrow="/ 02 — 현재 상태" title="업체 · 공종 생산성">
-              <ProductivityBarToggle
-                contractorBars={detail.contractor_bars}
-                tradeBars={detail.trade_bars}
-              />
-            </Section>
-
-            <Section eyebrow="/ 03 — Forecasting" title="현 추세 + 신뢰 밴드">
-              <ForecastChart
-                diagnosis={diagnosis}
-                recoveryActive={selectedWpId !== null}
-              />
-            </Section>
-
-            <Section eyebrow="/ 04 — 이슈 + 권고" title="4분면 + Optimizer">
+            <Section eyebrow="/ 03 — 리스크 및 대안 검토" title="4분면 + Optimizer">
               <div className="grid grid-cols-12 gap-4">
                 <div className="col-span-12 md:col-span-6 flex flex-col gap-3">
                   <QuadrantCountKpi points={detail.quadrant} filter={filter} onFilterChange={setFilter} />
@@ -152,9 +158,24 @@ export default function ReportPage() {
                   <RecoveryEtaCard scenarios={diagnosis.scenarios} />
                 </div>
               </div>
+
+              <div className="mt-4">
+                <WPSummaryTable
+                  rows={filteredWpRows}
+                  selectedWpId={selectedWpId}
+                  onSelect={setSelectedWpId}
+                />
+              </div>
             </Section>
 
-            <Section eyebrow="/ 05 — 원본 데이터" title="WP 요약 + 작업일보 상세">
+            <Section eyebrow="/ 04 — 공기 단축 예측 시나리오" title="현 추세 + 신뢰 밴드">
+              <ForecastChart
+                diagnosis={diagnosis}
+                recoveryActive={selectedWpId !== null}
+              />
+            </Section>
+
+            <Section eyebrow="/ 05 — 원본 데이터" title="작업일보 상세">
               <button
                 type="button"
                 onClick={() => setRawOpen((v) => !v)}
@@ -162,19 +183,14 @@ export default function ReportPage() {
                 aria-expanded={rawOpen}
               >
                 <span className="text-body-sm text-ink">
-                  {rawOpen ? "원본 데이터 접기" : `원본 데이터 펼치기 · WP ${detail.wp_summary.length}개 · 작업일보 ${detail.raw_data.length} rows`}
+                  {rawOpen ? "원본 데이터 접기" : `원본 데이터 펼치기 · 작업일보 ${detail.raw_data.length} rows`}
                 </span>
                 <ChevronDown
                   className={`h-4 w-4 text-ink-mid transition-transform ${rawOpen ? "rotate-180" : ""}`}
                 />
               </button>
               {rawOpen && (
-                <div className="mt-3 flex flex-col gap-4">
-                  <WPSummaryTable
-                    rows={detail.wp_summary}
-                    selectedWpId={selectedWpId}
-                    onSelect={setSelectedWpId}
-                  />
+                <div className="mt-3">
                   <RawDataTab
                     rows={detail.raw_data}
                     filterWpId={selectedWpId}

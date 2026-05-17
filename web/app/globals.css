@@ -8,7 +8,7 @@
 /* ──────────────────────────────────────────────────────────────────────
  * CPIA 디자인 토큰 — v7.1 시안 기반.
  * 두 그룹:
- *   (1) v7.1 의미 색 — mint/lavender/peach/sky/sun/rose · ink/surface
+ *   (1) v7.1 의미 색 — mint/brand/peach/sky/sun/rose · ink/surface
  *   (2) shadcn 표준 색 — primary/secondary/destructive/muted/border/ring/card
  *       (v7.1 토큰에 매핑하여 shadcn 컴포넌트가 같은 톤으로 렌더)
  * ────────────────────────────────────────────────────────────────────── */
@@ -23,7 +23,7 @@
   --ink-light: #7a8494;
 
   --mint: #e3f9f0;       --mint-deep: #0ea76a;     --mint-text: #075c3c;
-  --lavender: #e8eeff;   --lavender-deep: #1a56db; --lavender-text: #1243a8;
+  --brand: #e8eeff;      --brand-deep: #1a56db;    --brand-text: #1243a8;
   --peach: #fef0eb;      --peach-deep: #e55c2b;    --peach-text: #a13a14;
   --sky: #dbeafe;        --sky-deep: #2563eb;      --sky-text: #1d4ed8;
   --sun: #fef3c7;        --sun-deep: #d97706;      --sun-text: #92400e;
@@ -44,7 +44,7 @@
   --card-foreground: 220 39% 6%;
   --popover: 0 0% 100%;
   --popover-foreground: 220 39% 6%;
-  --primary: 220 76% 48%;             /* lavender-deep #1a56db */
+  --primary: 220 76% 48%;             /* brand-deep #1a56db (정통 royal blue) */
   --primary-foreground: 0 0% 100%;
   --secondary: 220 25% 97%;           /* bg-soft */
   --secondary-foreground: 220 39% 6%;

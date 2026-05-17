@@ -51,7 +51,7 @@ export interface AgentStatus {
   korean_name: string;          // "수집"
   description: string;          // "작업일보 자동 수집"
   model: string;                // "규칙 기반" | "Sonnet 4.6" | "Opus 4.7" | "임베딩 모델"
-  group: "collect" | "analyze"; // sky | lavender
+  group: "collect" | "analyze"; // sky | brand
   active_count: number;         // 시뮬 base 값
   state: "processing" | "waiting" | "idle";
 }

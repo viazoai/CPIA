@@ -36,7 +36,7 @@
 | **mint** | 정상·성공·긍정 변화 | `bg-mint-light` `#e3f9f0` | `bg-mint` `#0ea76a` | `text-mint-text` `#075c3c` |
 | **sun** | 주의·경계 | `bg-sun-light` `#fef3c7` | `bg-sun` `#d97706` | `text-sun-text` `#92400e` |
 | **rose** | 위험·destructive | `bg-rose-light` `#fee2e2` | `bg-rose` `#ef4444` | `text-rose-text` `#b91c1c` |
-| **lavender** | primary·강조 액션 | `bg-lavender-light` `#e8eeff` | `bg-lavender` `#1a56db` | `text-lavender-text` `#1243a8` |
+| **brand** | primary·강조 액션 | `bg-brand-light` `#e8eeff` | `bg-brand` `#1a56db` | `text-brand-text` `#1243a8` |
 | **sky** | 정보·중립 데이터 | `bg-sky-light` `#dbeafe` | `bg-sky` `#2563eb` | `text-sky-text` `#1d4ed8` |
 | **peach** | 이벤트·데모·warm chip | `bg-peach-light` `#fef0eb` | `bg-peach` `#e55c2b` | `text-peach-text` `#a13a14` |
 
@@ -66,7 +66,7 @@ border-soft    #eef0f4   (얇은 구분 · 카드 외곽)
 shadcn `<Button>` `<Card>` 등이 자동으로 v7.1 톤을 따라가도록 globals.css 에 HSL 매핑:
 
 ```
---primary       → lavender-deep   (220 76% 48%)
+--primary       → brand-deep   (220 76% 48%)
 --accent        → mint-deep       (152 88% 35%)
 --destructive   → rose-deep       (0 84% 60%)
 --background    → bg              (0 0% 100%)
@@ -141,7 +141,7 @@ shadcn `<Button>` `<Card>` 등이 자동으로 v7.1 톤을 따라가도록 globa
 
 ### 2-6. 배경 라디얼 blob
 
-`<body>::before/::after` 에 lavender + mint radial gradient blob 2 개. 임원 보고서 톤. 모든 페이지에 자동 적용. **건드리지 말 것**.
+`<body>::before/::after` 에 brand + mint radial gradient blob 2 개. 임원 보고서 톤. 모든 페이지에 자동 적용. **건드리지 말 것**.
 
 ---
 
@@ -261,7 +261,7 @@ import { cn } from "@/lib/utils";
 
 ```tsx
 <div className="flex items-center gap-3">
-  <span className="font-mono text-[11px] font-medium uppercase tracking-[0.2em] text-lavender-text">
+  <span className="font-mono text-[11px] font-medium uppercase tracking-[0.2em] text-brand-text">
     / 01 — Hi-tech 사업부
   </span>
   <span className="h-px w-8 bg-border" />
@@ -276,7 +276,7 @@ import { cn } from "@/lib/utils";
 ```tsx
 <h1 className="font-display text-4xl font-bold leading-[1.15] tracking-tight text-ink md:text-5xl">
   <span>작업일보 →</span>{" "}
-  <span className="bg-gradient-to-r from-lavender to-mint bg-clip-text text-transparent">
+  <span className="bg-gradient-to-r from-brand to-mint bg-clip-text text-transparent">
     AI 파이프라인
   </span>{" "}
   <span>→ 생산성 진단</span>
@@ -289,7 +289,7 @@ import { cn } from "@/lib/utils";
 <div className="relative overflow-hidden rounded-card border border-border-soft bg-card p-5 shadow-xs">
   <span
     aria-hidden
-    className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-lavender to-lavender opacity-90"
+    className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-brand to-brand opacity-90"
   />
   {/* … 콘텐츠 … */}
 </div>
@@ -426,7 +426,7 @@ async function loadMockSites(): Promise<Site[]> {
 ### Don't
 - ❌ 임의의 hex 색 inline (예: `style={{ color: "#ff0000" }}`) — 토큰 우회
 - ❌ 새 폰트 추가 (한국어 + 영문 가독성 3 fam 이미 충분)
-- ❌ shadcn primitive 의 base 클래스 (`bg-primary`, `text-foreground` 등) 를 의미 색으로 덮기 — primary 는 lavender 매핑이 정해진 상태, 다른 의미로 쓰지 말 것
+- ❌ shadcn primitive 의 base 클래스 (`bg-primary`, `text-foreground` 등) 를 의미 색으로 덮기 — primary 는 brand 매핑이 정해진 상태, 다른 의미로 쓰지 말 것
 - ❌ Tailwind v4 문법 (`@theme` 등) — 우리는 v3.4 고정
 - ❌ Geist 폰트 재추가 (한글 글리프 부족으로 폐기)
 - ❌ 카드를 흰 사각형으로만 두기 — 좌측 stripe / 상단 stripe / 아이콘 박스 중 하나는 시각 신호로

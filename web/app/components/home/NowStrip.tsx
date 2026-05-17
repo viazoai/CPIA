@@ -46,7 +46,7 @@ export function NowStrip({ summary }: Props) {
 
 function NowItem({ icon, tone, label, value }: { icon: React.ReactNode; tone: "info" | "risk" | "muted"; label: string; value: string }) {
   const toneBg = {
-    info:  "bg-lavender-light text-lavender-text",
+    info:  "bg-brand-light text-brand-text",
     risk:  "bg-rose-light text-rose-text",
     muted: "bg-surface-soft text-ink-mid",
   }[tone];

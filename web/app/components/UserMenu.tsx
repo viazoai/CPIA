@@ -18,7 +18,7 @@ const USERS = {
     role: "경영진 · Top Mgmt",
     email: "lee.exec@cpia.demo",
     initials: "이",
-    tone: "bg-lavender-light text-lavender-text",
+    tone: "bg-brand-light text-brand-text",
   },
 } as const;
 
@@ -91,7 +91,7 @@ export function UserMenu() {
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1">
                 <span className="truncate text-sm font-semibold text-ink">{user.name}</span>
-                <BadgeCheck className="h-3.5 w-3.5 shrink-0 text-lavender" />
+                <BadgeCheck className="h-3.5 w-3.5 shrink-0 text-brand" />
               </div>
               <span className="block truncate text-xs text-ink-mid">{user.role}</span>
               <span className="mt-0.5 block truncate font-mono text-[10px] text-ink-light">

@@ -40,7 +40,7 @@ function Branch({
       <div
         className={cn(
           "group flex items-center gap-1.5 px-2 py-1.5 rounded-sm cursor-pointer transition-colors",
-          isSelected ? "bg-lavender-light text-lavender-text font-semibold" : "hover:bg-surface-soft",
+          isSelected ? "bg-brand-light text-brand-text font-semibold" : "hover:bg-surface-soft",
           dragOver && "ring-2 ring-mint"
         )}
         style={{ paddingLeft: `${depth * 14 + 8}px` }}

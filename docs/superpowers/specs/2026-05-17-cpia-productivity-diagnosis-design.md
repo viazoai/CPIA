@@ -53,7 +53,7 @@
 | 시나리오 | 가정 | 색 | 비고 |
 |---|---|---|---|
 | **Optimistic** | Optimizer 권고 catch-up 적용 + 평균보다 빠른 회복 | `mint` | "AI 만회 시나리오" |
-| **Base** | 현재 추세 + 자연 평균 회귀 (개입 없음) | `lavender` (= primary blue `#1a56db`) | 메인 강조선 |
+| **Base** | 현재 추세 + 자연 평균 회귀 (개입 없음) | `brand` (= primary blue `#1a56db`) | 메인 강조선 |
 | **Pessimistic** | 현재 추세 유지 (회귀 없음) | `rose` | 위험 시그널 |
 
 각 시나리오는 다음을 산출:
@@ -75,8 +75,8 @@
 
 | 용도 | 토큰 | hex |
 |---|---|---|
-| Base 시나리오 (메인) · 신뢰 밴드 · 강조선 | `lavender` (primary) | `#1a56db` |
-| 볼린저 음영 | `lavender-light/40` | `#e8eeff` 40% |
+| Base 시나리오 (메인) · 신뢰 밴드 · 강조선 | `brand` (primary) | `#1a56db` |
+| 볼린저 음영 | `brand-light/40` | `#e8eeff` 40% |
 | Optimistic 시나리오 · 정상 상태 | `mint` | `#0ea76a` |
 | Pessimistic 시나리오 · 이상 상태 | `rose` | `#ef4444` |
 | 주의 상태 · 샘플 부족 경고 | `sun` | `#d97706` |
@@ -176,12 +176,12 @@ A_Track 실 데이터 도착 시 이 모듈만 교체하면 화면 영향 최소
 
 레이어 (z-index 낮음 → 높음):
 1. 격자 배경
-2. 볼린저 음영 (P25–P75) — lavender-light/40
-3. Base 시나리오 선 — lavender 굵기 2.5px
+2. 볼린저 음영 (P25–P75) — brand-light/40
+3. Base 시나리오 선 — brand 굵기 2.5px
 4. Optimistic 선 — mint 굵기 2px dashed
 5. Pessimistic 선 — rose 굵기 2px dashed
 6. EWMA 추세선 — ink-mid 굵기 1.5px dotted
-7. 실적 점 (오늘) — ink fill, lavender ring
+7. 실적 점 (오늘) — ink fill, brand ring
 8. 우상단: `ConfidenceBadge` (N 표시)
 9. 하단: `ScenarioLegend` (3색 + 라벨)
 

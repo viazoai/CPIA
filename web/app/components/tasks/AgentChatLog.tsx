@@ -28,10 +28,10 @@ const AGENT_META: Record<
   Parser:     { icon: FileSearch, bg: "bg-sky-light",      text: "text-sky-text" },
   Mapper:     { icon: GitBranch,  bg: "bg-sky-light",      text: "text-sky-text" },
   Atomizer:   { icon: Database,   bg: "bg-sky-light",      text: "text-sky-text" },
-  Reporter:   { icon: FileText,   bg: "bg-lavender-light", text: "text-lavender-text" },
-  Forecaster: { icon: Activity,   bg: "bg-lavender-light", text: "text-lavender-text" },
+  Reporter:   { icon: FileText,   bg: "bg-brand-light", text: "text-brand-text" },
+  Forecaster: { icon: Activity,   bg: "bg-brand-light", text: "text-brand-text" },
   Optimizer:  { icon: Sparkles,   bg: "bg-mint-light",     text: "text-mint-text" },
-  Human:      { icon: User,       bg: "bg-lavender",       text: "text-white" },
+  Human:      { icon: User,       bg: "bg-brand",       text: "text-white" },
 };
 
 export function AgentChatLog({ messages, intervalMs = 1500 }: Props) {
@@ -126,7 +126,7 @@ function ChatBubble({ message, align, highlight }: BubbleProps) {
             className={cn(
               "rounded-2xl px-4 py-2.5 text-body-sm leading-relaxed",
               right
-                ? "rounded-tr-sm bg-lavender text-white"
+                ? "rounded-tr-sm bg-brand text-white"
                 : highlight
                 ? "rounded-tl-sm border border-sun/40 bg-sun-light/40 text-ink"
                 : "rounded-tl-sm bg-surface-soft text-ink"

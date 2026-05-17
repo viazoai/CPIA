@@ -34,10 +34,10 @@ const config: Config = {
           DEFAULT: "var(--mint-deep)",
           text: "var(--mint-text)",
         },
-        lavender: {
-          light: "var(--lavender)",
-          DEFAULT: "var(--lavender-deep)",
-          text: "var(--lavender-text)",
+        brand: {
+          light: "var(--brand)",
+          DEFAULT: "var(--brand-deep)",
+          text: "var(--brand-text)",
         },
         peach: {
           light: "var(--peach)",

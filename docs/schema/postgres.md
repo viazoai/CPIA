@@ -29,19 +29,27 @@
 
 ```sql
 CREATE TABLE sites (
-    site_id          TEXT PRIMARY KEY,         -- 'M15X_PH3_IBL'
-    name             TEXT NOT NULL,            -- 'M15X Ph-3 IBL'
-    plan_progress    NUMERIC,                  -- 계획 공정률 (Dashboard Layer 1)
-    actual_progress  NUMERIC,                  -- 실적 공정률
-    last_run_id      UUID,                     -- 최근 pipeline run
-    status           TEXT,                     -- 'normal' / 'attention' / 'risk'
-    is_mock          BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+    site_id          TEXT PRIMARY KEY,                                  -- 'm15x-ph3-ibl'
+    name             TEXT NOT NULL,                                     -- 'M15X Ph-3 IBL'
+    plan_progress    NUMERIC(5,2),                                      -- 계획 공정률 (Dashboard Layer 1)
+    actual_progress  NUMERIC(5,2),                                      -- 실적 공정률
+    status           TEXT CHECK (status IN ('normal','caution','risk','unknown')) DEFAULT 'unknown',
+    last_run_id      UUID REFERENCES pipeline_runs(run_id) ON DELETE SET NULL,
+    is_mock          BOOLEAN NOT NULL DEFAULT TRUE,
+    -- 2026-05-17: B_Track Dashboard Layer 1 카드 필드 (api-contract.md §3.1)
+    location         TEXT,                                              -- 현장 위치 (청주/평택/미국/이천)
+    headcount        INT,                                               -- 현장 전체 근무 인원 (Impact 분모)
+    hours_saved      NUMERIC,                                           -- 월 절감 시간
+    fte_saved        NUMERIC,                                           -- 확보 FTE
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 ```
 
-- PoC 시연용: 5 mock site (Dashboard Layer 1 카드용) + 1 real site (`M15X_PH3_IBL`).
-- `last_run_id` 는 forward reference. FK 안 거는 이유: 첫 run 전에는 NULL.
+- PoC 시연용: 5 mock site (Dashboard Layer 1 카드용) + 1 real site (`m15x-ph3-ibl`).
+- `last_run_id` FK 는 `ON DELETE SET NULL` — 첫 run 전 또는 run 삭제 시 NULL 허용.
+- `status` CHECK 제약: `'normal' | 'caution' | 'risk' | 'unknown'` (DEFAULT `'unknown'`).
+- `is_mock` DEFAULT `TRUE` — 신규 row 는 mock 으로 시작, 실 PoC site 만 명시적으로 FALSE.
+- `location` / `headcount` / `hours_saved` / `fte_saved` 4 컬럼: Dashboard Layer 1 카드 노출용 (2026-05-17 추가, api-contract.md §3.1 정합).
 
 ---
 
@@ -160,15 +168,19 @@ LangGraph 의 `PostgresSaver` 가 자동 생성·관리. 손대지 않음. 참�
 ```sql
 CREATE TABLE daily_reports (
     id               BIGSERIAL PRIMARY KEY,
-    run_id           UUID NOT NULL REFERENCES pipeline_runs(run_id),
-    date             DATE NOT NULL,
-    report_md        TEXT NOT NULL,            -- 마크다운 본문
-    summary          JSONB,                    -- {total_workers, total_qty_by_trade, ...}
-    created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+    run_id           UUID NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
+    report_date      DATE NOT NULL,                  -- (drift #N3: date → report_date)
+    bp_name          TEXT,                           -- (drift #N3 신규: 협력사 명 또는 NULL = 종합)
+    report_md        TEXT NOT NULL,                  -- 마크다운 본문 (Reporter 결과)
+    history_csv_row  JSONB,                          -- {total_workers, risk_counts, advice_count, ...} (CSV row 누적 의도)
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_reports_run ON daily_reports (run_id);
+CREATE INDEX idx_daily_reports_run  ON daily_reports (run_id);
+CREATE INDEX idx_daily_reports_date ON daily_reports (report_date DESC);
 ```
+
+- `history_csv_row` 컬럼명은 CSV 누적 의도 그 자체. reporter.py 내부 변수명 `summary` 와 별개 — DB 컬럼명은 `history_csv_row`.
 
 ---
 
@@ -291,24 +303,18 @@ CREATE INDEX idx_optimizer_advice_company_l6  ON optimizer_advice (company, l6_m
 ```sql
 CREATE TABLE mapping_corrections (
     id              BIGSERIAL PRIMARY KEY,
-    run_id          UUID NOT NULL REFERENCES pipeline_runs(run_id),
-    date            DATE NOT NULL,
-    work_content    TEXT NOT NULL,                     -- 원천 텍스트 (Parser 출력)
-    company         TEXT,
-    trade           TEXT,                              -- l5_disc
-
-    original        JSONB NOT NULL,                    -- {wbs_activity_id, confidence, ...} (Mapper 가 추천)
-    corrected       JSONB NOT NULL,                    -- {wbs_activity_id, ...} (사용자 정정)
-    correction_type TEXT,                              -- 'replace' / 'split' / 'reject'
-
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    run_id          UUID REFERENCES pipeline_runs(run_id) ON DELETE SET NULL,
+    report_date     DATE NOT NULL,                     -- (drift #N2: date → report_date)
+    original        JSONB NOT NULL,                    -- {work_content, company, trade, wa, l6_main, mapping_conf, mapping_source}
+    corrected       JSONB NOT NULL,                    -- {wa, l6_main, mapping_source, correction_type}
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_corr_workcontent ON mapping_corrections USING GIN (to_tsvector('simple', work_content));
-CREATE INDEX idx_corr_run         ON mapping_corrections (run_id);
+CREATE INDEX idx_mapping_corrections_date ON mapping_corrections (report_date DESC);
 ```
 
-- Mapper 가 다음 run 진입 시 동일 `work_content` 패턴 검색 → corrections 우선 적용. 시간 지나면서 Mapper 정확도 자가 학습.
+- 본 cycle (2026-05-17) 정합: 6 컬럼 schema. `work_content` / `company` / `trade` / `correction_type` 은 `original` / `corrected` JSONB 안에 박힘 — top-level 컬럼 아님.
+- Mapper 자가학습 (동일 `work_content` 검색 → corrections 우선 적용) 은 §11 별 섹션의 미래 의도로 보류 (현 호출 path 0).
 
 ---
 
@@ -355,6 +361,18 @@ activity_master  ◄── Mapper 가 SELECT / Forecaster 가 plan 값 조회
 | ③ | `pipeline_runs.input_files` JSONB vs 별도 테이블 | PoC 는 JSONB. 다중 입력 파일이 표준이 되면 별도 테이블 분리 |
 | ④ | `activity_master` 의 Master List 갱신 | Master List xlsx 가 매주 갱신될 가능성. `--upsert` 시 plan_mh 변경 추적은 Phase 2 |
 
+### 미래 의도 (drift D-1 / 자가학습 cycle 묶음)
+
+위 §11 ② 의 Mapper 자가학습 기능 구현 시점에 mapping_corrections schema 를 다음과
+같이 확장한다 (별 PR 묶음):
+- work_content TEXT (top-level), company TEXT, trade TEXT, correction_type TEXT
+- GIN index on to_tsvector('simple', work_content)
+- 백필 SQL: UPDATE ... SET work_content = original->>'work_content' WHERE work_content IS NULL
+- insert_mapping_correction signature 변경 (4 인자 추가)
+- fetch_similar_corrections SELECT 함수 신규
+
+본 cycle (2026-05-17) 는 현 호출 path 0 검증 후 YAGNI 룰로 보류.
+
 ---
 
 ## 12. 변경 이력
@@ -365,3 +383,4 @@ activity_master  ◄── Mapper 가 SELECT / Forecaster 가 plan 값 조회
 | 2026-05-16 | downstream-agents spec §8 적용 — forecasts (company, l6_main) grain 정정 + pipeline_runs.atomized_count + optimizer_advice rename | A 트랙 |
 | 2026-05-16 | Forecaster spec 정합 — forecasts 12 컬럼 추가 (plan_start/finish, plan_mh_per_day, schedule_state, window_*, mh_gap, today_productivity, recovery_likelihood), delay_days INT → NUMERIC | A 트랙 |
 | 2026-05-16 | Optimizer + hil_2 spec §3 정합 — optimizer_advice +5 컬럼 (company, forecast_assessment, degradation_cases, recovery_distribution) + recommendations TEXT→JSONB + idx_optimizer_advice_company_l6, forecasts +2 컬럼 (main_unit, today_conditions). 마이그레이션: `2026-05-16_optimizer_hil2.sql` | A 트랙 |
+| 2026-05-17 | mapping_corrections / daily_reports / sites 실 init.sql 정합 정정 (drift #N2+#N3 흡수). sites +4 컬럼 (location/headcount/hours_saved/fte_saved). 마이그레이션: `2026-05-17_db_alignment.sql` | A 트랙 |

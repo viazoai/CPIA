@@ -1,0 +1,106 @@
+=== PROD schema (Task 5A.5 raw, 2026-05-17) ===
+적용 sequence: 2026-05-16_downstream_agents + 2026-05-16_forecaster + 2026-05-16_optimizer_hil2 + 20260516_add_activity_master + 2026-05-17_db_alignment + 2026-05-17_activity_master_wa
+
+=== sites (12 cols) ===
+  site_id                          text
+  name                             text
+  plan_progress                    numeric
+  actual_progress                  numeric
+  status                           text
+  last_run_id                      uuid
+  is_mock                          boolean
+  updated_at                       timestamp with time zone
+  location                         text
+  headcount                        integer
+  hours_saved                      numeric
+  fte_saved                        numeric
+=== pipeline_runs (9 cols) ===
+  run_id                           uuid
+  site_id                          text
+  report_date                      date
+  status                           text
+  current_node                     text
+  error                            text
+  started_at                       timestamp with time zone
+  completed_at                     timestamp with time zone
+  atomized_count                   integer
+=== activity_master (22 cols) ===
+  wbs_activity_id                  text
+  l5_disc                          text
+  l6_main                          text
+  l6_code                          text
+  l7_sub                           text
+  l7_code                          text
+  l7_5_activity                    text
+  sub_work_area                    text
+  company                          text
+  unit                             text
+  plan_total_qty                   numeric
+  plan_mh_rev2                     numeric
+  plan_mh_rev1                     numeric
+  plan_mh_rev0                     numeric
+  plan_wv                          numeric
+  plan_start                       date
+  plan_finish                      date
+  actual_start                     date
+  actual_finish                    date
+  source_file                      text
+  loaded_at                        timestamp with time zone
+  wa                               text
+=== forecasts (29 cols) ===
+  id                               bigint
+  run_id                           uuid
+  company                          text
+  l6_main                          text
+  today_qty_by_unit                jsonb
+  today_assigned_workers           numeric
+  plan_total_qty_by_unit           jsonb
+  plan_mh_sum                      numeric
+  rag_n_similar                    integer
+  similar_cases                    jsonb
+  assessment                       text
+  reasoning                        text
+  expected_completion              date
+  delay_days                       numeric
+  risk_level                       text
+  created_at                       timestamp with time zone
+  today_productivity               numeric
+  plan_start                       date
+  plan_finish                      date
+  plan_mh_per_day                  numeric
+  schedule_state                   text
+  window_start                     date
+  window_days                      integer
+  expected_in_window_mh            numeric
+  actual_in_window_mh              numeric
+  mh_gap                           numeric
+  recovery_likelihood              numeric
+  main_unit                        text
+  today_conditions                 text
+=== optimizer_advice (11 cols) ===
+  id                               bigint
+  run_id                           uuid
+  l6_main                          text
+  diagnosis                        text
+  recovery_pattern                 jsonb
+  recommendations                  jsonb
+  created_at                       timestamp with time zone
+  company                          text
+  forecast_assessment              text
+  degradation_cases                jsonb
+  recovery_distribution            jsonb
+=== mapping_corrections (6 cols) ===
+  id                               bigint
+  run_id                           uuid
+  report_date                      date
+  original                         jsonb
+  corrected                        jsonb
+  created_at                       timestamp with time zone
+=== daily_reports (7 cols) ===
+  id                               bigint
+  run_id                           uuid
+  report_date                      date
+  bp_name                          text
+  report_md                        text
+  history_csv_row                  jsonb
+  created_at                       timestamp with time zone

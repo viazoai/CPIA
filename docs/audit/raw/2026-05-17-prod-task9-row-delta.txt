@@ -1,0 +1,24 @@
+=== Task 9 결과: prod 시뮬 1건 e2e (2026-05-17) ===
+
+호출: synthetic_daily_report --site-id m15x-ph3-ibl --date 2025-09-25
+      --scenario "남웅건설|철근콘크리트공사|5|장비대기|0.45|1.0|m3" --auto-select-all
+환경: POSTGRES_URL=prod (5532 tunnel) + CHROMA_HOST=localhost (dev fallback)
+
+=== PROD row delta (after sim 1) ===
+  pipeline_runs             rows = 2
+  forecasts                 rows = 1
+  optimizer_advice          rows = 1
+  daily_reports             rows = 1
+  mapping_corrections       rows = 0
+  checkpoints               rows = 6
+  checkpoint_writes         rows = 31
+  checkpoint_blobs          rows = 15
+
+last pipeline_runs: {'run_id': 'b826e4d9-5b36-41fd-99fa-f989817c6122', 'site_id': 'm15x-ph3-ibl', 'report_date': '2025-09-25', 'status': 'running', 'current_node': None}
+
+last daily_report:
+  run_id      = b826e4d9-5b36-41fd-99fa-f989817c6122
+  report_date = 2025-09-25
+  chars       = 906
+  bp_name     = None (NULL = 종합 보고서)
+  history_csv_row = {"risk_counts": {"이상": 0, "정상": 0, "주의": 1}, "advice_count": 1, "total_workers": 440.0, "total_qty_by_trade": {"철근콘크리트공사": 1225.5}}

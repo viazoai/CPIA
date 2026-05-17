@@ -1,10 +1,10 @@
 {
   "generated_at": "2026-05-17T13:00:00Z",
-  "updated_at": "2026-05-17T14:30:00Z",
-  "git_sha": "d57b0c5",
+  "updated_at": "2026-05-17T18:30:00Z",
+  "git_sha": "ea04b20",
   "git_branch": "A_Track",
   "scope": "pipeline 전체 (agents 7 active + 신규 reporter + graph + state + db + checkpointer). Web/B_Track 제외.",
-  "cycle_note": "hil1-forecaster-reporter incremental update (PR #19 pending — 조형준 main 머지 리뷰 대기)",
+  "cycle_note": "db-migration-api-contract incremental update (코드 변경 0 — schema/문서/시드만). 본 cycle 후속 cycle = FastAPI 구현 (drift D-4). PR pending 조형준 main 머지 리뷰 대기.",
   "subsystems": [
     {
       "name": "orchestration",
@@ -115,12 +115,20 @@
     "loc": 4380
   },
   "audit_drift_backlog_reference": "docs/audit/2026-05-17-cpia-drift-backlog.md",
-  "cycle_drift_absorbed": ["#1", "#2", "#3", "#4", "O-2", "O-5", "O-6"],
+  "cycle_drift_absorbed": ["#1", "#2", "#3", "#4", "O-2", "O-5", "O-6", "#N2", "#N3"],
   "cycle_drift_new": ["#N1", "#N2", "#N3", "#N4", "#N5", "#N6", "#N7"],
+  "cycle_drift_new_2026_05_17_pm": [
+    "activity_master.wa migration 누락 (PR 어디서 init.sql 만 수정, 본 cycle 안에 fix — commit 34703f5)",
+    "pipeline_runs status='running' final update path 누락 (graph 종료 후 'completed' 갱신 X)",
+    "Chroma daily_activities dedupe 가 본 run doc 0 등록 (deterministic hash, run_id 갱신 정책 결정 필요)",
+    "synthetic_daily_report --scenario required (plan/spec 명시 누락)",
+    "Chroma homelab 미준비 — 본 cycle 잠시 dev 로컬 fallback (api-contract.md §1 갱신, commit 19db533)"
+  ],
   "regression_baseline": "183 passed",
-  "regression_current": "197 passed + 1 xfailed in 411.97s",
+  "regression_current": "1 failed + 197 passed + 1 xfailed in 591s (drift: test_graph_e2e_namwong_47 atomized_ids=0 vs 11, dev Chroma 누적으로 deterministic hash dedupe 가 모두 skip. 본 cycle 책임 아님, 코드 변경 0)",
   "claude_md_rule_added": true,
   "claude_md_rule_location": "CLAUDE.md '## 작업 규칙' 섹션 (파일 끝, '*최종 수정*' 라인 직전)",
   "index_path": "deep-dive/design-intent/INDEX.md",
-  "last_checked_at": "2026-05-17T14:30:00Z"
+  "last_checked_at": "2026-05-17T18:30:00Z",
+  "cycle_2026_05_17_pm_scope": "DB Migration + API Contract — sites +4 컬럼 + postgres.md 정정 + api-contract.md 신규 (205 lines) + seed_sites.sql + prod schema sync (7/7 ALL OK) + 시뮬 1건 e2e (run_id b826e4d9). 코드 변경 0 — pipeline/ 손 X. 13 commits on A_Track (origin 미반영)."
 }

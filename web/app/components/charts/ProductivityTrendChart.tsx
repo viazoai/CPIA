@@ -93,13 +93,13 @@ export function ProductivityTrendChart({ siteId, todayValue, endDate, daysWindow
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
           <div className="font-display text-h6 text-ink">
-            현장 생산성 Trend
+            현장 생산성
           </div>
           <div className="mt-3 flex items-baseline gap-2">
-            <span className="font-display text-3xl font-semibold tracking-[-0.015em] text-ink">
+            <span className="font-display text-h3 font-semibold text-ink">
               {todayValue}
             </span>
-            <span className="text-sm text-ink-light">%</span>
+            <span className="text-base text-ink-light">%</span>
             <span
               className={cn(
                 "ml-1 inline-flex items-center rounded-full px-2 py-0.5 font-display text-xs font-medium",

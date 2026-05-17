@@ -94,8 +94,8 @@ def fetch_chroma_actual(
 
     Spec §5.4 정합 — reviewer #5 정정:
     return: (actual_window_start, actual_cum_mh)
-      Chroma 에 과거 row 없음 (오늘만)  → (None, today_workers × 8)
-      Chroma 에 과거 row 있음           → (min(Chroma date), Σ unique date workers × 8h)
+      Chroma 에 과거 row 없음 (오늘만)  → (None, today_workers × WORK_HOURS_PER_DAY)
+      Chroma 에 과거 row 있음           → (min(Chroma date), Σ unique date workers × WORK_HOURS_PER_DAY)
     """
     result = coll.get(
         where={"$and": [{"company": company}, {"l6_main": l6_main}]},

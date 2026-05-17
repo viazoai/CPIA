@@ -121,7 +121,9 @@ class CPIAState(TypedDict):
     # 분기 결과
     report_md: str
     forecast: list[dict]
+    # optimizer cycle Task 1 (v3.1) — 3 필드 (hil_2 / Optimizer 데이터 계약)
     hil_2_selection: list[str]
+    pre_optimizer_cases: dict[str, list[dict]]
     optimizer_advice: list[dict]
 
     # 상태 추적

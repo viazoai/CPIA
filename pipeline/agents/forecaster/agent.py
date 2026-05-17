@@ -220,6 +220,9 @@ async def _forecast_one_group(
         "recovery_likelihood": recovery_likelihood,
         "expected_completion": plan["plan_finish"] if plan else None,
         "risk_level": risk_level,
+        # v3.1 (optimizer cycle Task 1) — Optimizer / hil_2 가 소비할 2 필드
+        "main_unit": main_unit,
+        "today_conditions": ",".join(conditions_set) if conditions_set else "",
     }
 
 

@@ -73,7 +73,7 @@ export function ProductivityBarToggle({ contractorBars, tradeBars, historyMean, 
   const underCount = items.filter(
     (it) => typeof it.baseline === "number" && it.value < it.baseline,
   ).length;
-  const underUnit = mode === "contractor" ? "BP사" : "공종";
+  const underUnit = mode === "contractor" ? "개 BP사" : "개 공종";
 
   return (
     <div className="rounded-card border border-border-soft bg-card p-4 pb-7 shadow-xs">

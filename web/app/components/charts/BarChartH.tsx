@@ -102,11 +102,11 @@ export function BarChartH({
           <Line
             dataKey="baseline"
             type="monotone"
-            stroke="#1a56db"
+            stroke="#ef4444"
             strokeWidth={2.5}
             strokeDasharray="5 4"
-            dot={{ fill: "#0d1117", stroke: "#1a56db", strokeWidth: 2, r: 5 }}
-            activeDot={{ r: 7 }}
+            dot={false}
+            activeDot={{ r: 5, fill: "#ef4444", stroke: "#ffffff", strokeWidth: 2 }}
             isAnimationActive={false}
             connectNulls
           />

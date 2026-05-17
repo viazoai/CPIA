@@ -141,16 +141,16 @@ export function ProductivityTrendChart({ siteId, todayValue, endDate, daysWindow
           />
           <ReferenceLine
             y={avg}
-            stroke="#1a56db"
-            strokeWidth={1.5}
-            strokeDasharray="3 3"
+            stroke="#ef4444"
+            strokeWidth={2}
+            strokeDasharray="5 4"
             ifOverflow="extendDomain"
           >
             <Label
               value={`현장 평균 ${avg.toFixed(1)}%`}
               position="top"
               offset={6}
-              fill="#1243a8"
+              fill="#b91c1c"
               fontSize={14}
               fontFamily='"Inter Tight", Pretendard, "Noto Sans KR", system-ui, sans-serif'
               fontWeight={700}

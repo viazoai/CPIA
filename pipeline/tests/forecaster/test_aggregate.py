@@ -13,6 +13,7 @@ from pipeline.agents.forecaster.aggregate import (
     aggregate_today_by_unit,
     compute_delay,
 )
+from pipeline.constants import WORK_HOURS_PER_DAY
 
 
 def test_aggregate_today_by_unit_single():
@@ -213,7 +214,7 @@ def test_fetch_chroma_actual_with_data():
 
     ws, mh = fetch_chroma_actual(coll, "X", "Y", date(2025, 9, 25), 100)
     assert ws == date(2025, 9, 20)
-    assert mh == pytest.approx(4 * 100 * 8)  # 4일 (20,21,22,25)
+    assert mh == pytest.approx(4 * 100 * WORK_HOURS_PER_DAY)  # 4일 (20,21,22,25)
 
 
 def test_fetch_chroma_actual_empty():

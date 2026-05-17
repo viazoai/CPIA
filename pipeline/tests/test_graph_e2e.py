@@ -14,6 +14,7 @@ import pytest_asyncio
 from pipeline.agents.atomizer import AtomizerConfig
 from pipeline.agents.forecaster import ForecasterConfig
 from pipeline.agents.mapper import MapperConfig
+from pipeline.agents.optimizer import OptimizerConfig
 from pipeline.agents.parser import parse_daily_report
 from pipeline.chroma_client import ChromaClient
 from pipeline.db import PGClient
@@ -66,6 +67,16 @@ def cfg() -> GraphConfig:
             azure_api_version=os.environ["AZURE_OPENAI_API_VERSION"],
             llm_model=os.environ["LLM_MODEL"],
             embedding_model=os.environ["EMBEDDING_MODEL"],
+            postgres_url=common_pg,
+            chroma_host=common_chroma_host,
+            chroma_port=common_chroma_port,
+            chroma_ssl=common_chroma_ssl,
+        ),
+        optimizer=OptimizerConfig(
+            azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
+            azure_api_key=os.environ["AZURE_OPENAI_API_KEY"],
+            azure_api_version=os.environ["AZURE_OPENAI_API_VERSION"],
+            llm_model=os.environ["LLM_MODEL"],
             postgres_url=common_pg,
             chroma_host=common_chroma_host,
             chroma_port=common_chroma_port,
@@ -142,13 +153,17 @@ async def test_graph_e2e_namwong_47(cfg, wbs_master_ready, run_row):
         "report_md": "",
         "forecast": [],
         "hil_2_selection": [],
+        "pre_optimizer_cases": {},
         "optimizer_advice": [],
         "current_node": "",
         "status": "running",
     }
 
     graph = build_graph(cfg)
-    final = await graph.ainvoke(state)
+    # optimizer cycle Task 8 — graph compiled with InMemorySaver checkpointer,
+    # thread_id 필수 (interrupt/resume cycle 의 thread-local 상태 key).
+    graph_config = {"configurable": {"thread_id": str(run_row)}}
+    final = await graph.ainvoke(state, config=graph_config)
 
     assert len(final["mapped"]) == 47, f"mapped 수: {len(final['mapped'])}"
     assert all(a["l6_main"] == "철근콘크리트공사" for a in final["mapped"]), (
@@ -169,3 +184,21 @@ async def test_graph_e2e_namwong_47(cfg, wbs_master_ready, run_row):
     assert forecast_row["assessment"] in {"정상", "주의", "이상", None}
     assert forecast_row["risk_level"] in {"정상", "주의", "이상", None}
     assert forecast_row["schedule_state"] in {"early", "on_schedule", "post_due", "unknown"}
+
+    # optimizer cycle Task 8 — hil_2 / optimizer 노드 통합 검증.
+    # 비-risky path (risk_level ∈ {정상, None}): hil_2 가 interrupt 미발생 → END 직행.
+    # risky path (주의/이상): hil_2 가 interrupt → __interrupt__ payload 박힘 (resume 없음).
+    if forecast_row["risk_level"] in {"주의", "이상"}:
+        assert "__interrupt__" in final, (
+            "risky path 인데 __interrupt__ 미발생 — hil_2_node interrupt 호출 누락 의심"
+        )
+    else:
+        assert final.get("hil_2_selection") == [], (
+            f"non-risky path: hil_2_selection != [] ({final.get('hil_2_selection')})"
+        )
+        assert final.get("pre_optimizer_cases") == {}, (
+            f"non-risky path: pre_optimizer_cases != {{}} ({final.get('pre_optimizer_cases')})"
+        )
+        assert final.get("optimizer_advice") == [], (
+            f"non-risky path: optimizer_advice != [] ({final.get('optimizer_advice')})"
+        )

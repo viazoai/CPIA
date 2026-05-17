@@ -205,7 +205,9 @@ class PGClient:
     async def insert_forecast(self, row: dict) -> None:
         """forecasts 테이블 INSERT 1 row.
 
-        Spec §5.6 — 25 컬럼 (id/created_at auto). row dict 키 = 컬럼명.
+        Spec §5.6 + optimizer cycle Task 1 (v3.1) — 27 컬럼
+        (id/created_at auto, main_unit + today_conditions Task 1 추가).
+        row dict 키 = 컬럼명.
         """
         import json as _json
 
@@ -221,7 +223,8 @@ class PGClient:
                     expected_in_window_mh, actual_in_window_mh, mh_gap, delay_days,
                     rag_n_similar, similar_cases,
                     assessment, reasoning, recovery_likelihood,
-                    expected_completion, risk_level
+                    expected_completion, risk_level,
+                    main_unit, today_conditions
                 ) VALUES (
                     $1, $2, $3,
                     $4::jsonb, $5, $6,
@@ -230,7 +233,8 @@ class PGClient:
                     $15, $16, $17, $18,
                     $19, $20::jsonb,
                     $21, $22, $23,
-                    $24, $25
+                    $24, $25,
+                    $26, $27
                 )
                 """,
                 row["run_id"],
@@ -262,4 +266,44 @@ class PGClient:
                 row.get("recovery_likelihood"),
                 row.get("expected_completion"),
                 row.get("risk_level"),
+                row.get("main_unit"),
+                row.get("today_conditions"),
+            )
+
+    async def insert_optimizer_advice(self, row: dict) -> None:
+        """optimizer_advice 테이블 INSERT 1 row — 9 컬럼 (id/created_at auto).
+
+        Spec §9 + §3.1.1 — JSONB falsy 회피 (is not None) — cold_start 의 빈 dict/list 도 INSERT.
+        """
+        import json as _json
+
+        assert self._pool is not None, "connect() 미호출"
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO optimizer_advice (
+                    run_id, company, l6_main, forecast_assessment,
+                    diagnosis, degradation_cases, recovery_pattern,
+                    recovery_distribution, recommendations
+                ) VALUES (
+                    $1, $2, $3, $4,
+                    $5, $6::jsonb, $7::jsonb,
+                    $8::jsonb, $9::jsonb
+                )
+                """,
+                row["run_id"],
+                row["company"],
+                row["l6_main"],
+                row.get("forecast_assessment"),
+                row.get("diagnosis"),
+                _json.dumps(row["degradation_cases"], ensure_ascii=False)
+                if row.get("degradation_cases") is not None
+                else None,
+                _json.dumps(row["recovery_pattern"]) if row.get("recovery_pattern") is not None else None,
+                _json.dumps(row["recovery_distribution"])
+                if row.get("recovery_distribution") is not None
+                else None,
+                _json.dumps(row["recommendations"], ensure_ascii=False)
+                if row.get("recommendations") is not None
+                else None,
             )

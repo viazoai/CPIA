@@ -190,3 +190,18 @@ def test_classify_risk_severe_boundary_delay_0():
     """이상 + delay=0 정확 → 주의 (delay≤0)."""
     result = classify_risk_level("이상", 0.5, 0.0, "on_schedule")
     assert result == "주의"
+
+
+def test_classify_assessment_rag_boundary_epsilon():
+    """boundary 가 약간 어긋났을 때의 분류 검증 (spec §11.3).
+
+    classify_assessment_rag 의 eps=1e-9 보호 회귀 신호.
+    rag_avg=1.0, today=0.75 → delta=-0.25 (RAG_WARN_BOUND 정확 경계).
+    eps=1e-9 보다 큰 외측 (-1e-8) → "이상", 내측 (+1e-8) → "주의".
+    """
+    from pipeline.agents.forecaster.classify import classify_assessment_rag
+
+    # 경계보다 1e-8 만큼 더 나쁨 (eps=1e-9 보호 범위 밖) → "이상"
+    assert classify_assessment_rag(today_prod=0.75 - 1e-8, rag_avg_prod=1.0) == "이상"
+    # 경계보다 1e-8 만큼 더 좋음 → "주의"
+    assert classify_assessment_rag(today_prod=0.75 + 1e-8, rag_avg_prod=1.0) == "주의"

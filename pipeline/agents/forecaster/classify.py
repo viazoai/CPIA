@@ -15,17 +15,25 @@ from typing import Optional
 
 from .constants import WORK_HOURS_PER_DAY
 
+# ─── 분류 임계값 (Task 10 §11.3) ──────────────────────────────────────────
+RAG_NORMAL_BOUND = 0.15  # |delta| <= 0.15 → 정상 (delta = (today-rag)/rag)
+RAG_WARN_BOUND = 0.25  # 0.15 < |delta| <= 0.25 → 주의
+PLAN_NORMAL_RATIO = 0.85  # today_prod / plan_prod_proxy >= 0.85 → 정상
+PLAN_WARN_RATIO = 0.65  # 0.65 <= ratio < 0.85 → 주의
+DELAY_DAYS_BOUND = 5  # delay_days > 5 → 누적 지연 신호
+RECOVERY_LIKELIHOOD_BOUND = 0.7  # recovery >= 0.7 → 회복 가능
+
 
 def classify_assessment_rag(today_prod: float, rag_avg_prod: float) -> str:
     """RAG 모드 — productivity delta 임계 ±15% / ±25%."""
     if rag_avg_prod == 0:
         return "정상"
     delta = (today_prod - rag_avg_prod) / rag_avg_prod
-    # 임계 -0.15 / -0.25 (경계 포함). 부동소수점 epsilon 1e-9 로 boundary 보호.
+    # 임계 -RAG_NORMAL_BOUND / -RAG_WARN_BOUND (경계 포함). 부동소수점 epsilon 1e-9 로 boundary 보호.
     eps = 1e-9
-    if delta >= -0.15 - eps:
+    if delta >= -RAG_NORMAL_BOUND - eps:
         return "정상"
-    if delta >= -0.25 - eps:
+    if delta >= -RAG_WARN_BOUND - eps:
         return "주의"
     return "이상"
 
@@ -47,9 +55,9 @@ def classify_assessment_plan(
     if plan_prod_proxy == 0:
         return "정상"
     ratio = today_prod / plan_prod_proxy
-    if ratio >= 0.85:
+    if ratio >= PLAN_NORMAL_RATIO:
         return "정상"
-    if ratio >= 0.65:
+    if ratio >= PLAN_WARN_RATIO:
         return "주의"
     return "이상"
 
@@ -80,7 +88,7 @@ def classify_risk_level(
 ) -> Optional[str]:
     """hybrid 룰 — assessment + recovery + delay + state.
 
-    임계 5일·0.7 = 가정값 (회귀 후 조정).
+    임계 DELAY_DAYS_BOUND·RECOVERY_LIKELIHOOD_BOUND = 가정값 (회귀 후 조정).
     """
     if assessment is None:
         return None
@@ -90,11 +98,15 @@ def classify_risk_level(
         return assessment
 
     if assessment == "정상":
-        if delay_days > 5:
+        if delay_days > DELAY_DAYS_BOUND:
             return "주의"
         return "정상"
     if assessment == "주의":
-        if recovery_likelihood is not None and recovery_likelihood >= 0.7 and delay_days <= 5:
+        if (
+            recovery_likelihood is not None
+            and recovery_likelihood >= RECOVERY_LIKELIHOOD_BOUND
+            and delay_days <= DELAY_DAYS_BOUND
+        ):
             return "주의"
         return "이상"
     if delay_days <= 0:

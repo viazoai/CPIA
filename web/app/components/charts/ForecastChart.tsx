@@ -15,8 +15,6 @@ import {
 } from "recharts";
 import { cn } from "@/lib/utils";
 import type { ProductivityDiagnosis } from "@/lib/types";
-import { ConfidenceBadge } from "../reports/ConfidenceBadge";
-
 interface Props {
   diagnosis: ProductivityDiagnosis;
   /** Optimizer 권고 시나리오를 강조 표시. § 4 에서 WP 선택 시 true. */
@@ -69,11 +67,8 @@ export function ForecastChart({ diagnosis, recoveryActive = false, delayDays, re
 
   return (
     <div className="rounded-card border border-border-soft bg-card p-5 shadow-xs">
-      <div className="mb-3 flex items-start justify-between gap-4">
-        <div className="font-display text-base font-semibold text-ink">
-          공정률 추세 예측
-        </div>
-        <ConfidenceBadge sampleSize={diagnosis.sample_size} />
+      <div className="mb-3 font-display text-base font-semibold text-ink">
+        공정률 추세 예측
       </div>
 
       <div className="mb-4 flex flex-wrap gap-x-10">

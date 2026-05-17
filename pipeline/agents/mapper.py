@@ -79,6 +79,7 @@ class WAResolution:
         "auto_bp_single",
         "auto_l6_single",
         "auto_sheet1_text",
+        "auto_chroma_top1",  # Task 4 — BP master 미등록 BP사 (cand_pool 빈 시)
         "hil_required",
     ]
 
@@ -168,8 +169,18 @@ def resolve_wa(
     l6_choice: str,
     cand_pool: list[tuple[str, str]],
     parsed_report: ParsedDailyReport | None,
+    chosen_wa: str | None = None,
 ) -> WAResolution:
-    """WA 결정 4단계 (mapping-layer.md §4)."""
+    """WA 결정 4단계 (mapping-layer.md §4) + Task 4 fallback.
+
+    cand_pool 빈 시 (BP master 미등록 BP사) → chosen_wa (LLM 선택 후보의 WA)
+    를 그대로 채택 + source='auto_chroma_top1'. 사용자 명시 설계 의도
+    "work_area + l6 가 주 매칭 키, BP 는 보조 메타데이터".
+    """
+    # Task 4 — cand_pool 빈 시 (BP master 미등록) — Chroma 선택 결과 그대로
+    if not cand_pool:
+        return WAResolution(value=chosen_wa, source="auto_chroma_top1")
+
     # 1단계 — BP scope WA 단일
     bp_wa = {wa for wa, _ in cand_pool}
     if len(bp_wa) == 1:
@@ -222,7 +233,7 @@ async def map_activity(
         azure_endpoint=cfg.azure_endpoint,
     )
 
-    # ① BP filter — PG
+    # ① BP filter — PG (soft hint 로만 사용, Task 4 옵션 C)
     pg = PGClient(cfg.postgres_url)
     await pg.connect()
     try:
@@ -230,23 +241,16 @@ async def map_activity(
     finally:
         await pg.close()
     cand_pool: list[tuple[str, str]] = [(r["wa"], r["l6_main"]) for r in cand_rows]
-    if not cand_pool:
-        # BP filter 후 0 → H-i-L (Master 미등록 BP사)
-        return {
-            **activity,
-            "wa": None,
-            "l6_main": None,
-            "mapping_source": "hil_required",
-            "mapping_conf": 0.0,
-            "requires_review": True,
-        }
+    cand_pool_set = set(cand_pool)
+    # Task 4 — cand_pool 빈 시에도 매핑 진행. BP 는 보조 메타데이터일 뿐.
+    # 사용자 명시: "work_area와 l6에 주로 매칭하고 bp는 추가로 도와주는 메타데이터"
 
     # ② 임베딩 input (단순)
     embed_text = build_embedding_input(activity)
     emb_resp = client.embeddings.create(model=cfg.embedding_model, input=[embed_text])
     inp_vec = emb_resp.data[0].embedding
 
-    # ③ Chroma Top-K → BP filter ∩
+    # ③ Chroma Top-K — 전체 후보 유지 (BP filter ∩ 안 함, Task 4)
     chroma = ChromaClient(host=cfg.chroma_host, port=cfg.chroma_port, ssl=cfg.chroma_ssl)
     coll = chroma.get_or_create_wbs_master()
     chroma_result = coll.query(
@@ -258,30 +262,38 @@ async def map_activity(
     for i, _doc_id in enumerate(chroma_result["ids"][0]):
         meta = chroma_result["metadatas"][0][i]
         key = (meta["wa"], meta["l6_main"])
-        if key in cand_pool:
-            candidates.append(
-                {
-                    "key": key,
-                    "doc_text": chroma_result["documents"][0][i],
-                }
-            )
-            if len(candidates) >= cfg.max_candidates:
-                break
+        candidates.append(
+            {
+                "key": key,
+                "doc_text": chroma_result["documents"][0][i],
+                "is_bp_registered": key in cand_pool_set,  # Task 4 soft hint
+            }
+        )
+        if len(candidates) >= cfg.max_candidates:
+            break
 
-    # 임베딩 후보가 BP filter 통과 0개 → BP filter 전체 fallback
+    # Edge case: Chroma 가 빈 결과 반환 (불가능에 가까우나 방어) → HIL
     if not candidates:
-        candidates = [
-            {"key": k, "doc_text": f"Work PKG-1 (L6): {k[1]} (WA: {k[0]})"}
-            for k in cand_pool[: cfg.max_candidates]
-        ]
+        return {
+            **activity,
+            "wa": None,
+            "l6_main": None,
+            "mapping_source": "hil_required",
+            "mapping_conf": 0.0,
+            "requires_review": True,
+        }
 
     # ④ LLM input (풍부)
     llm_text = build_llm_input(activity, parsed_report)
 
-    # ⑤ LLM 분류
-    cand_str = "\n".join(f"[{i}] {c['doc_text']}" for i, c in enumerate(candidates))
+    # ⑤ LLM 분류 — ★ 마크 = 이 BP사가 마스터에 등록된 (WA, L6) (soft hint, 가산점)
+    cand_str = "\n".join(
+        f"[{i}] {'★ ' if c['is_bp_registered'] else '  '}{c['doc_text']}" for i, c in enumerate(candidates)
+    )
     user_msg = (
-        f"작업일보 1행을 WBS 매핑 후보 중 1개로 분류.\n\n"
+        f"작업일보 1행을 WBS 매핑 후보 중 1개로 분류.\n"
+        f"★ = 이 BP사가 마스터에 등록된 (WA, L6) 조합 (가산점, 단 절대 기준 X).\n"
+        f"BP 미등록이라도 work_area + L6 매칭이 자연스러우면 선택 가능.\n\n"
         f"### 작업일보 + BP사 컨텍스트\n{llm_text}\n\n"
         f"### 후보\n{cand_str}\n\n"
         f"### 응답 (JSON only)\n"
@@ -324,12 +336,13 @@ async def map_activity(
     chosen_key = candidates[choice]["key"]
     confidence = float(llm_result.get("confidence", 0.0))
 
-    # ⑥ WA 결정 4단계
+    # ⑥ WA 결정 4단계 + Task 4 fallback (chosen_wa 전달)
     wa_result = resolve_wa(
         activity,
         l6_choice=chosen_key[1],
         cand_pool=cand_pool,
         parsed_report=parsed_report,
+        chosen_wa=chosen_key[0],
     )
 
     requires_review = confidence < cfg.conf_threshold or wa_result.source == "hil_required"

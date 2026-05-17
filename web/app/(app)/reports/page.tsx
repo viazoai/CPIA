@@ -153,25 +153,25 @@ export default function ReportPage() {
 
                 {/* 우측: 진단 결과 (단일 박스, 항목별 구분선) */}
                 <div className="col-span-12 flex h-full flex-col gap-3 md:col-span-6">
-                  <div className="rounded-card border border-border-soft bg-card px-4 py-3 shadow-xs">
+                  <div className="rounded-card border border-border-soft bg-card px-5 py-4 shadow-xs">
                     {(() => {
                       const wpRow = detail.wp_summary.find((w) => w.wp_id === selectedWpId);
                       if (!wpRow) {
                         return (
-                          <div className="text-body-sm text-ink-mid">
+                          <div className="text-body text-ink-mid">
                             WP 미선택 — 산점도에서 점을 클릭하세요
                           </div>
                         );
                       }
                       const days = recoveryDays(wpRow.productivity, wpRow.baseline, wpRow.impact);
                       return (
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="text-body-sm">
+                        <div className="flex items-center justify-between gap-4">
+                          <div className="font-display text-h6">
                             <span className="font-semibold text-ink">{wpRow.wp_name}</span>
                             <span className="ml-2 text-ink-light">({wpRow.trade})</span>
                           </div>
-                          <div className="flex items-center gap-4">
-                            <span className="text-[12px] text-ink-mid">
+                          <div className="flex items-center gap-5">
+                            <span className="text-sm text-ink-mid">
                               공기 단축{" "}
                               {days > 0 ? (
                                 <span className="font-semibold text-mint-text">-{days}일</span>
@@ -180,8 +180,8 @@ export default function ReportPage() {
                               )}
                             </span>
                             <span className="inline-flex items-center gap-1.5">
-                              <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[wpRow.status]}`} />
-                              <span className="text-[10px] font-semibold text-ink-mid">
+                              <span className={`h-2 w-2 rounded-full ${STATUS_DOT[wpRow.status]}`} />
+                              <span className="text-xs font-semibold text-ink-mid">
                                 {STATUS_LABEL[wpRow.status]}
                               </span>
                             </span>

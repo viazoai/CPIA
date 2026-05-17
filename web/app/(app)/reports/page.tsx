@@ -136,7 +136,7 @@ export default function ReportPage() {
                 <div className="col-span-12 md:col-span-6 flex flex-col gap-3">
                   <QuadrantCountKpi points={detail.quadrant} filter={filter} onFilterChange={setFilter} />
                   <div className="rounded-card border border-border-soft bg-card p-4 shadow-xs">
-                    <div className="mb-2 font-display text-h6 text-ink">WV × Productivity 분포도</div>
+                    <div className="mb-2 font-display text-h6 text-ink">Impact × Productivity 분포도</div>
                     <QuadrantScatter
                       points={detail.quadrant}
                       selectedWpId={selectedWpId}

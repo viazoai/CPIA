@@ -11,7 +11,16 @@ interface Props {
   onDrop?: (cardId: string, wpId: string) => void;
 }
 
-const RAIL_WIDTH = 32; // px per indent slot — 레벨 구분을 위해 넓게
+// 레벨별 들여쓰기 폭 — 위계에 따라 누진적으로 증가
+//  depth 0 (root)              → 0
+//  depth 1 (건물)               → 20
+//  depth 2 (공종)               → 20 + 28 = 48
+//  depth 3 (Work Package)      → 20 + 28 + 36 = 84
+const LEVEL_INDENT = [0, 20, 28, 36, 40, 40] as const;
+function getRailWidth(depth: number): number {
+  return LEVEL_INDENT[Math.min(depth, LEVEL_INDENT.length - 1)] ?? 36;
+}
+
 const LINE_COLOR = "#9aa3b2"; // tree branch line color
 const LINE_THICKNESS = 1.5; // px
 
@@ -95,59 +104,65 @@ function Branch({ node, ancestorsLast, isLast, selectedId, onSelect, onDrop }: B
         } : undefined}
       >
         {/* Ancestor rail slots — vertical line continues only where an ancestor wasn't the last child */}
-        {ancestorsLast.map((wasLast, i) => (
-          <div
-            key={i}
-            aria-hidden
-            className="relative shrink-0 self-stretch"
-            style={{ width: RAIL_WIDTH, minHeight: levelMinHeight(depth) }}
-          >
-            {!wasLast && (
+        {ancestorsLast.map((wasLast, i) => {
+          const slotWidth = getRailWidth(i + 1); // 조상 i 가 그 자식을 indent 시키는 폭
+          return (
+            <div
+              key={i}
+              aria-hidden
+              className="relative shrink-0 self-stretch"
+              style={{ width: slotWidth, minHeight: levelMinHeight(depth) }}
+            >
+              {!wasLast && (
+                <div
+                  className="pointer-events-none absolute"
+                  style={{
+                    top: 0,
+                    bottom: 0,
+                    left: slotWidth / 2 - LINE_THICKNESS / 2,
+                    width: LINE_THICKNESS,
+                    backgroundColor: LINE_COLOR,
+                  }}
+                />
+              )}
+            </div>
+          );
+        })}
+
+        {/* Immediate connector slot — └ if last child, ├ otherwise */}
+        {!isRoot && (() => {
+          const slotWidth = getRailWidth(depth);
+          return (
+            <div
+              aria-hidden
+              className="relative shrink-0 self-stretch"
+              style={{ width: slotWidth, minHeight: levelMinHeight(depth) }}
+            >
+              {/* vertical: full height if not last, else only top half */}
               <div
                 className="pointer-events-none absolute"
                 style={{
                   top: 0,
-                  bottom: 0,
-                  left: RAIL_WIDTH / 2 - LINE_THICKNESS / 2,
+                  ...(isLast ? { height: "50%" } : { bottom: 0 }),
+                  left: slotWidth / 2 - LINE_THICKNESS / 2,
                   width: LINE_THICKNESS,
                   backgroundColor: LINE_COLOR,
                 }}
               />
-            )}
-          </div>
-        ))}
-
-        {/* Immediate connector slot — └ if last child, ├ otherwise */}
-        {!isRoot && (
-          <div
-            aria-hidden
-            className="relative shrink-0 self-stretch"
-            style={{ width: RAIL_WIDTH, minHeight: levelMinHeight(depth) }}
-          >
-            {/* vertical: full height if not last, else only top half */}
-            <div
-              className="pointer-events-none absolute"
-              style={{
-                top: 0,
-                ...(isLast ? { height: "50%" } : { bottom: 0 }),
-                left: RAIL_WIDTH / 2 - LINE_THICKNESS / 2,
-                width: LINE_THICKNESS,
-                backgroundColor: LINE_COLOR,
-              }}
-            />
-            {/* horizontal connector at row midline */}
-            <div
-              className="pointer-events-none absolute"
-              style={{
-                top: `calc(50% - ${LINE_THICKNESS / 2}px)`,
-                left: RAIL_WIDTH / 2,
-                width: RAIL_WIDTH / 2,
-                height: LINE_THICKNESS,
-                backgroundColor: LINE_COLOR,
-              }}
-            />
-          </div>
-        )}
+              {/* horizontal connector at row midline */}
+              <div
+                className="pointer-events-none absolute"
+                style={{
+                  top: `calc(50% - ${LINE_THICKNESS / 2}px)`,
+                  left: slotWidth / 2,
+                  width: slotWidth / 2,
+                  height: LINE_THICKNESS,
+                  backgroundColor: LINE_COLOR,
+                }}
+              />
+            </div>
+          );
+        })()}
 
         {/* Node row content */}
         <div className={cn("flex flex-1 min-w-0 items-center gap-1.5 py-1.5 pr-2", isRoot ? "pl-2" : "pl-1.5")}>

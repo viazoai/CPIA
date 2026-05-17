@@ -179,7 +179,87 @@ PM 원안 §0 표의 6 변경이 현 구현에 반영됐는지.
 
 ## 5. 추가 발견 드리프트
 
-(Task 4 Step 4.2 — 시뮬 raw + 매트릭스에서 새로 드러난 항목)
+spec §4 의 사전 식별 8건 외에 시뮬 4건 raw + 매트릭스 작성 중 새로 드러난 9건.
+
+### 5.1 forecast_assessment vs risk_level 분기 일관성
+
+- 원안 의도: Forecaster 가 단일 판단 결과 산출 (§4 Week 3 "오늘 생산성이 ... 적정한지 판단")
+- 시뮬 fact: 시뮬 1/2/3 모두 `assessment=정상` 인데 `risk_level=주의` (시뮬 1 raw §1.2). 두 컬럼이 서로 다른 결정 path 사용 — risk_level=임계값 결정론, assessment=LLM 자유텍스트 (또는 highly stable bias).
+- 영향도: high (PM 원안의 "정상이 아닌 게 정상" 의 분기 의도가 모호)
+- 우선순위 권고: #2 (Forecaster 코드 검토)
+
+### 5.2 시뮬 fixture productivity_ratio ↔ today_productivity 불일치
+
+- 시뮬 1 (남웅 ratio=0.45, workers=1.0): today_prod=69.62 (baseline 31.07 의 **2.24배**)
+- 시뮬 2 (남웅 ratio=0.80, workers=1.0): today_prod=74.26 (baseline 의 **2.39배**)
+- 시뮬 3 (남웅 ratio=0.45, workers=1.3): today_prod=32.13 (baseline 의 **+3.4%**, 거의 동일)
+- → ratio 가 작을수록 today_prod 가 낮아져야 하는데 시뮬 1/2 비교 시 0.45 가 0.80 보다 today_prod 낮음 (반대). 시뮬 3 는 baseline 과 거의 동일. fixture 의 today_qty 산출 또는 baseline_qty 산출 로직 잠재 bug.
+- 영향도: high (Forecaster 정확도 검증 신뢰성 직결, 본 audit 시뮬 raw 의 진위 의문)
+- 우선순위 권고: #3 (시뮬 fine-tuning cycle 별도)
+
+### 5.3 assessment "정상" highly stable bias
+
+- 시뮬 1/2/3 + rerun 모두 assessment="정상" — fixture 다양성 (0.45 / 0.80 / 돌관) 무관.
+- 가설 A: LLM (gpt-5.1) 의 systematic "정상" bias
+- 가설 B: Forecaster 의 결정론 코드 path 가 항상 "정상" 산출 (assessment 컬럼 자체 무력)
+- 검증 필요 (코드 grep: forecaster agent.py 의 assessment 결정 path)
+- 영향도: high (assessment 컬럼이 모든 시나리오에서 동일하면 의미 X)
+- 우선순위 권고: #2 (Forecaster 코드 검토)
+
+### 5.4 cold_start 2 path 발견
+
+- Path A (신규 회사): 시뮬 4 = 신규건설|토목공사 → activity_master 미존재 → baseline_qty=0 → today_qty=0 → risk=null → risky 0건 → Optimizer 미진입
+- Path B (기존 회사 + baseline=None): 시뮬 1 창원기전 → activity_master 존재 but Chroma 의 baseline_value=None → hil_2_node:122 cold_start_no_baseline → risky 주의 → Optimizer cold_start path
+- → spec §7.4 가 정의한 cold_start 는 Path B 인데, fixture "신규 회사" 는 Path A 발현. spec 정정 또는 fixture 정정 필요.
+- 영향도: med (개념 정합성 영향, 시연 영향 작음)
+- 우선순위 권고: defer (Forecaster 코드 검토 시 함께)
+
+### 5.5 Optimizer 권고 강도 ↔ forecast_assessment 종속
+
+- 시뮬 1 남웅 (assessment=정상): Optimizer advice = "장비대기 표기 반복 여부 확인" 류 약한 점검 권고
+- 시뮬 2 우천: "우천 표기 영향 제한적" + 약한 권고
+- PM 원안 §2 예시 (의도): "타워크레인 스케줄 확인 필수" + "야간 연장 검토" 강한 액션
+- → assessment="정상" 으로 LLM 입력되면 약한 권고 산출. PM 원안의 "이상 → 강한 권고" 흐름 미발현.
+- 영향도: high (경영진 시연 임팩트 직결)
+- 우선순위 권고: #2 종속 (assessment 결정 path 정정 시 자연 해소)
+
+### 5.6 PM 원안 §2 권고사항 패턴 vs 실 LLM advice 의미 일치도
+
+- 시뮬 1 raw §3 의미 비교 표: 일치 1 / 부분 2 / 드리프트 1 (4 권고 중)
+- 영향도: low (LLM 비결정 + 의미는 일부 일치)
+- 우선순위 권고: defer
+
+### 5.7 date off-by-one 잠재 이슈
+
+- 시뮬 3: CLI `--date 2025-09-29` 입력, stdout `date=2025-09-28` 출력
+- 시뮬 1/2/4: CLI 입력 = stdout 일치 (off-by-one 미발현)
+- 일관성 X — date 파싱 or sites/pipeline_runs INSERT timezone 이슈 가능
+- 영향도: med (PG row 의 report_date 정확성)
+- 우선순위 권고: defer (재현 시 확인)
+
+### 5.8 plan deviation 5건 (본 audit 가 발견)
+
+| # | plan 표기 | 실제 | 분류 |
+|---|----------|------|------|
+| 1 | Chroma port 8765 | 8000 | plan 작성 시 grep 부족 |
+| 2 | PG port 5433 | 5432 | plan 작성 시 .env 미확인 |
+| 3 | CLI `--report-date` | `--date` | plan 작성 시 CLI argparse 미확인 |
+| 4 | fixture `세보건설/거푸집공사`, `한일건설/콘크리트타설` | activity_master 미존재 | plan 작성 시 PG 데이터 미확인 |
+| 5 | pytest `-p no:slow` | slow plugin 부재로 무효 | pytest marker 와 plugin 옵션 혼동 |
+
+- 영향도: low (audit 실 진행에 영향, fix 후 재현 가능)
+- 우선순위 권고: defer (audit 가 self-correct, plan 자체 정정 X)
+
+### 5.9 recovery_distribution 동일 (시뮬 1/2/3) — case retrieval conditions 필터 검증 필요
+
+- 시뮬 1 (장비대기), 시뮬 2 (우천), 시뮬 3 (돌관) 모두 동일 recovery_distribution `{d+1:2, d+5:1, d+6:1, not_recovered:1}`
+- 가설: `fetch_degradation_cases` 가 conditions 필터 적용 X 가능성. 또는 남웅 철콘 그룹의 case 분포가 conditions 와 무관하게 균일.
+- 영향도: med (Forecaster RAG 매칭 정확도 영향)
+- 우선순위 권고: defer
+
+---
+
+
 
 ---
 

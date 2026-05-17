@@ -24,10 +24,10 @@
 | 3 | `docs/schema/postgres.md` | 정정 — mapping_corrections / daily_reports / sites 실 schema 정합 (drift #N2, #N3 흡수) |
 | 4 | `docs/architecture/api-contract.md` | 신규 (0 → ~500 lines) — PG↔types.ts 매핑 + 8 endpoint 명세 + sample JSON + 환경 분리 정책 |
 | 5 | prod schema sync 실행 | 4 기존 migrations + 본 cycle 1 = 5 sql sequence apply 또는 prod docker volume 재생성 |
-| 6 | prod `activity_master` + Chroma `wbs_master` 적재 | `scripts/load_master_list.py` POSTGRES_URL/CHROMA_HOST = prod 로 1회 호출 (189 row + 189 doc) |
-| 7 | prod Chroma `synthetic_v2` 적재 | `scripts/build_synthetic_v2.py` prod Chroma 1회 호출 (90일 더미) |
-| 8 | prod `sites` 5 mock seed | fixture `web/lib/types.ts` 의 5 Site → SQL INSERT 또는 `scripts/seed_sites.sql` |
-| 9 | prod 시뮬 1건 end-to-end 검증 | A 머신에서 .env=prod swap 후 `synthetic_daily_report --site M15X --date 2025-09-25` → 7 agent 통과 + PG/Chroma row 생성 확인 |
+| 6 | prod `activity_master` + Chroma `wbs_master` 적재 | `scripts/load_master_list.py --filter-companies 남웅건설 세보엠이씨 창원기전` POSTGRES_URL/CHROMA_HOST = prod 로 1회 호출 (PG activity_master 1059 row + Chroma wbs_master 30 groups, A_LOCAL 실측 기준) |
+| 7 | prod Chroma `synthetic_v2` 적재 | `python -m pipeline.agents.optimizer.synthetic_v2 --reference-date 2025-09-25 --days 90 --seed 42` (POSTGRES_URL+CHROMA_HOST=prod). Chroma `daily_activities` collection 에 worker_source="synthetic_v2" 90일 더미 적재 |
+| 8 | prod `sites` 6 mock seed | fixture `data/mock_sites.json` 의 6 Site → `scripts/seed_sites.sql` INSERT (5 mock + 1 real M15X PoC). fixture 와 1:1 정합 (id/name/location/status/headcount/hours_saved/fte_saved 전사) |
+| 9 | prod 시뮬 1건 end-to-end 검증 | A 머신에서 .env=prod swap 후 `python -m pipeline.agents.optimizer.synthetic_daily_report --site-id m15x-ph3-ibl --date 2025-09-25` → 7 agent 통과 + PG/Chroma row 생성 확인. HIL 1 우회 (synthetic_daily_report 의 mapped 가 `requires_review=False` 고정, synthetic_daily_report.py:97), HIL 2 는 script 가 명시 auto-resume |
 
 ---
 
@@ -176,6 +176,10 @@ prod schema sync 후 4 시드 (Master List + Chroma wbs_master + Chroma syntheti
 
 ### 7.1 activity_master + Chroma wbs_master
 
+A_LOCAL 실측 (2026-05-17 17:00 KST, `--filter-companies 남웅건설 세보엠이씨 창원기전`):
+- PG `activity_master` row = **1059** (UPSERT)
+- Chroma `wbs_master` group = **30** ((WA, L6) 그룹 단위 임베딩)
+
 ```bash
 # .env.prod 또는 inline env override
 POSTGRES_URL="postgresql://cpia:K7mP2xQ9nR4v@127.0.0.1:5532/cpia" \
@@ -186,41 +190,54 @@ PYTHONPATH="$(pwd)" \
   uv run --project pipeline scripts/load_master_list.py \
   --filter-companies 남웅건설 세보엠이씨 창원기전
 
-# 기대 출력:
-#   [load] PG activity_master upsert: 1059 rows  (또는 PoC 범위 189 rows)
-#   [load] Chroma wbs_master upsert: 30 groups   (또는 189 doc)
+# 기대 출력 (A_LOCAL 실측 정합):
+#   [load] 전체 (WA, L6) 그룹: 102
+#   [load] filter 적용 후 그룹: 30
+#   [load] 적재 row: 1059
+#   [load] PG activity_master upsert: 1059 rows
+#   [load] Chroma wbs_master upsert: 30 groups
 ```
 
 ### 7.2 Chroma synthetic_v2 (Forecaster RAG 더미)
 
+entry point 실측 (`pipeline/agents/optimizer/synthetic_v2.py:360`):
+- 모듈 = `pipeline.agents.optimizer.synthetic_v2` 의 `_main_cli`
+- argparse 인자 (line 193): `--reference-date 2025-09-25` (기본), `--days 90` (기본), `--seed 42` (기본)
+- 적재 대상: Chroma `daily_activities` collection 에 `metadata.worker_source="synthetic_v2"` 로 누적. (별 collection 아님 — daily_activities 와 공존, source 로 분리)
+
 ```bash
-# build script (이미 존재 — pipeline/agents/optimizer/synthetic_v2.py 또는 별 scripts/)
+POSTGRES_URL="postgresql://cpia:K7mP2xQ9nR4v@127.0.0.1:5532/cpia" \
 CHROMA_HOST=cpia-chroma.zoai.uk \
 CHROMA_PORT=443 \
 CHROMA_SSL=true \
 PYTHONPATH="$(pwd)" \
-  pipeline/.venv/bin/python3 -m pipeline.agents.optimizer.synthetic_v2 build
+  pipeline/.venv/bin/python3 -m pipeline.agents.optimizer.synthetic_v2 \
+  --reference-date 2025-09-25 --days 90 --seed 42
 
-# 기대: Chroma synthetic_v2 collection 에 ~90일 더미 row
+# 기대 출력 (synthetic_v2.py 의 print):
+#   OK upserted N rows to Chroma daily_activities. worker_source="synthetic_v2".
+# (N = 30 groups × 90일 ≈ 2700, 실측은 group skip 룰에 따라 변동)
 ```
 
-(정확한 build entry point 는 plan 단계에서 grep 으로 확정.)
+### 7.3 sites 6 mock seed
 
-### 7.3 sites 5 mock seed
+fixture `data/mock_sites.json` 실측 (2026-05-17): **6 site** (5 mock + 1 real M15X PoC). 본 spec §2 #8 의 "5 mock" 표기는 fixture 6건 (5 mock + 1 real) 의 mock 부분만 의미. seed sql 은 6 row INSERT.
 
 `scripts/seed_sites.sql` (신규):
 
 ```sql
--- 2026-05-17 — sites 5 mock seed (fixture web/lib/types.ts → PG)
--- 4 mock + 1 real (M15X_PH3_IBL). is_mock 으로 구분.
+-- 2026-05-17 — sites 6 mock seed (fixture data/mock_sites.json → PG)
+-- 5 mock + 1 real (m15x-ph3-ibl PoC). is_mock 으로 구분.
+-- fixture 와 1:1 정합 (id/name/location/status/plan_progress/actual_progress/headcount/hours_saved/fte_saved).
 
 INSERT INTO sites (site_id, name, location, status, plan_progress, actual_progress, headcount, hours_saved, fte_saved, is_mock)
 VALUES
-  ('m15x-ph3-ibl',  'M15X Ph-3 IBL',  '청주', 'risk',    38.5, 34.2, 65, 221, 1.6, FALSE),
-  ('y1-ph1-obl',    'Y-1 Ph-1 OBL',   '평택', 'normal',  52.0, 51.7, 92, 832, 5.9, TRUE),
-  ('indiana-hac',   'Indiana HAC',    'Indiana', 'normal', 28.0, 27.5, 110, 654, 4.7, TRUE),
-  ('arizona-pjt',   'Arizona Pjt',    'Arizona', 'caution', 41.2, 39.8, 88, 271, 1.9, TRUE),
-  ('texas-fab',     'Texas Fab',      'Texas', 'normal',  18.0, 18.0, 90, 177, 1.3, TRUE)
+  ('m15x-ph3-ibl',   'M15X Ph-3 IBL',   '청주', 'risk',    38.5, 34.2,  65, 221, 1.6, FALSE),
+  ('y1-ph1-obl',     'Y-1 Ph-1 OBL',    '평택', 'normal',  62.1, 62.5, 130, 832, 5.9, TRUE),
+  ('indiana-hac',    'Indiana Fab HAC', '미국', 'normal',  48.7, 48.6,  60, 353, 2.5, TRUE),
+  ('pt3-extension',  'P&T 3 증축',       '이천', 'normal',  71.4, 72.6,  50, 255, 1.8, TRUE),
+  ('m15x-obl-pt7',   'M15X OBL & PT7',  '청주', 'normal',  22.8, 22.5,  50, 246, 1.7, TRUE),
+  ('y1-ph1-ibl',     'Y-1 Ph-1 IBL',    '평택', 'normal',  55.6, 55.8,  90, 248, 1.8, TRUE)
 ON CONFLICT (site_id) DO UPDATE SET
   name = EXCLUDED.name,
   location = EXCLUDED.location,
@@ -234,7 +251,9 @@ ON CONFLICT (site_id) DO UPDATE SET
   updated_at = NOW();
 ```
 
-(정확한 5건 값은 `data/mock_sites.json` 에서 추출, plan 단계에서 fixture 와 1:1 동기.)
+검증: `SELECT count(*) FROM sites` = 6, `SELECT site_id FROM sites WHERE is_mock = FALSE` = `m15x-ph3-ibl` 1행.
+
+(추가 fixture 컬럼 — progress_planned 의 fixture 표기 `plan_progress` vs PG `plan_progress` 매핑 동일. fixture 의 derived 컬럼 — gap_percent / spi / productivity_today / abnormal_trades / total_hours / ai_replacement_rate / expected_completion / recovered_completion / delay_days / recovery_days — API layer 가 계산, sites 컬럼 아님. §8.3 derived 계산식 참조.)
 
 ### 7.4 의도된 비시드
 
@@ -310,6 +329,12 @@ dev 가 prod 가리키지 않는 사유:
 
 ### 9.1 호출 명령
 
+synthetic_daily_report.py 의 실측 argparse (line 366):
+- `--site-id` (기본 `DEMO_SITE`) — 본 cycle 검증 시 `m15x-ph3-ibl` (real PoC) 명시
+- `--site-name` (기본 `Demo Site`) — `'M15X Ph-3 IBL'` 명시
+- `--date` — 필수 (시뮬 일자)
+- 기타 scenario 인자는 plan 단계 grep 으로 확정
+
 ```bash
 # A 머신에서 .env 일시 swap (.env.prod 활용 또는 inline override)
 POSTGRES_URL="postgresql://cpia:K7mP2xQ9nR4v@127.0.0.1:5532/cpia" \
@@ -319,23 +344,26 @@ CHROMA_SSL=true \
 CPIA_CHECKPOINTER=postgres \
 PYTHONPATH="$(pwd)" \
   pipeline/.venv/bin/python3 -m pipeline.agents.optimizer.synthetic_daily_report \
-  --site m15x-ph3-ibl \
-  --date 2025-09-25 \
-  --bp-name 남웅건설 \
-  --scenario 1
+  --site-id m15x-ph3-ibl \
+  --site-name "M15X Ph-3 IBL" \
+  --date 2025-09-25
 ```
 
 ### 9.2 기대 산출 (prod 측 row count delta)
 
+`synthetic_daily_report` 의 HIL path:
+- **HIL 1 우회** — synthetic_daily_report:97 에서 mapped activity 마다 `"requires_review": False` 고정. graph.py:124 의 `if not review_needed: return {"hil_1_corrections": {}, ...}` 분기로 자동 통과. mapping_corrections INSERT 0건.
+- **HIL 2 명시 auto-resume** — script line 430 의 `if "__interrupt__" not in first: ... 종료` 검증 + line 445~ 의 `interrupts[0].value` 추출 후 자동 Command(resume=...) 호출. Optimizer → Reporter → END 자연 진행.
+
 | 적재 | 기대 delta |
 |---|---|
 | PG `pipeline_runs` | +1 (status='completed') |
-| PG `forecasts` | +N (N = 시뮬의 (company, l6_main) 그루핑 개수) |
-| PG `optimizer_advice` | +M (M = forecasts 중 risk_level<>'정상' 개수) |
+| PG `forecasts` | +N (N = 시뮬의 (company, l6_main) 그루핑 개수, fixture 47 row 기준 ~3-5건) |
+| PG `optimizer_advice` | +M (M = forecasts 중 risk_level<>'정상' 개수, 0 ≤ M ≤ N) |
 | PG `daily_reports` | +1 (Reporter 종합보고서, bp_name=NULL) |
-| PG `mapping_corrections` | 0 (HIL 1 corrections 없는 시뮬이라) |
-| PG `checkpoints` / `checkpoint_writes` / `checkpoint_blobs` / `checkpoint_migrations` | 자동 create + insert (PostgresSaver 첫 호출) |
-| Chroma `daily_activities` | +K (K = Atomizer 적재 doc 개수) |
+| PG `mapping_corrections` | 0 (HIL 1 우회 path) |
+| PG `checkpoints` / `checkpoint_writes` / `checkpoint_blobs` / `checkpoint_migrations` | 자동 create + insert (PostgresSaver 첫 호출, CPIA_CHECKPOINTER=postgres 필수) |
+| Chroma `daily_activities` | +K (K = Atomizer 적재 doc 개수, fixture 47 row 의 unique 매핑 ~11-15건) |
 
 ### 9.3 검증 쿼리 (사람이 본인 확인)
 
@@ -362,11 +390,11 @@ EOF
 
 ## §10. 사전 필요 (사용자/조형준 측 조치)
 
-| 상태 | 항목 |
-|---|---|
-| ✅ 완료 | prod PG tunnel (`cpia-pg.zoai.uk:5532`) — issue #21 sync 완료, cpia/K7mP2xQ9nR4v 통과 (본인 검증) |
-| ⚠️ 본 cycle 진입 전 | **prod Chroma tunnel hostname** — `cpia-chroma.zoai.uk` (또는 별 호스트) 활성 + 본인에게 알려주기. cloudflared HTTP 모드 또는 access tcp 둘 다 가능. 본 cycle §7.1, §7.2, §9.1 호출 시 필요 |
-| ⚠️ 본 cycle 중 | **prod docker volume 재생성 (옵션 B)** 또는 **5 sql sequence apply (옵션 A)** — 본인이 cloudflared tunnel 통해 직접 실행 가능 (단 docker compose 명령은 prod 머신에서, 조형준 측 실행 필요) |
+| 상태 | 항목 | 본 spec 의 어느 단계 에 필요 |
+|---|---|---|
+| ✅ 완료 | prod PG tunnel (`cpia-pg.zoai.uk:5532`) — issue #21 sync 완료, cpia/K7mP2xQ9nR4v 통과 (본인 검증 2026-05-17 16:30) | §5, §6, §7, §9 모두 |
+| ⚠️ 본 cycle Task 6/7/9 진입 전 (=Hard Gate) | **prod Chroma tunnel hostname 확정 + 활성** — `.env.example:19` 명시 `cpia-chroma.<your-domain>` 패턴 + PG 가 `cpia-pg.zoai.uk` (zoai.uk) 이므로 **추정 = `cpia-chroma.zoai.uk`** (TBD 조형준 확정). cloudflared HTTP 모드 (CHROMA_PORT=443 SSL) 권장. **조형준 확인 후 본 spec §7.1/§7.2/§9.1 의 hostname 값 마지막 검증 후 실 호출.** | §7.1, §7.2, §9.1 |
+| ⚠️ 본 cycle Task 5 (옵션 B 채택 시) | **prod 머신에서 git pull (본 cycle commit 후) + docker compose down -v && up -d** — 조형준 측 실행. prod 가 본 cycle 의 갱신된 init.sql 을 git fetch 필요. **옵션 A fallback** (본인 cloudflared tunnel 통해 5 sql sequence psql) 은 prod 머신 git pull 무관, A 측만으로 가능 — 옵션 B 가 조형준 측 응답 지연 시 fallback. | §6 (Task 5) |
 
 ---
 
@@ -402,11 +430,14 @@ Task 4  scripts/seed_sites.sql 신규
         ├ dev 적용 + SELECT 검증 (5 rows)
         └ commit: feat(seed): sites 5 mock (4 mock + 1 real, fixture types.ts 정합)
 
-Task 5  prod schema sync (조형준 또는 본인)
-        ├ 옵션 B 권고: prod 머신에서 docker compose down -v && up -d (조형준 실행)
-        ├ 또는 옵션 A: 본인이 5 sql sequence psql 호출
-        ├ 검증: A_LOCAL ↔ PROD schema diff = 0 격차
-        └ (코드 commit 없음 — prod 머신 작업)
+Task 5  prod schema sync (의존: Task 1 commit. 옵션 B 추가 의존: 조형준 측 git pull + docker)
+        ├ 옵션 B 권고: prod 머신에서 git pull A_Track (또는 본 cycle branch) + docker compose down -v && up -d (조형준 실행)
+        │   → 본 cycle init.sql 1회 적용, 5 sql sequence 생략
+        ├ 옵션 A fallback: A 머신에서 cloudflared tunnel 통해 5 sql sequence psql 호출 (§6.1)
+        │   → prod 머신 git pull 불필요. 조형준 측 응답 지연 시 또는 A 단독 진행 시
+        ├ 옵션 A 의 4 기존 migrations 는 git A_Track 의 infra/postgres/migrations/ 그대로
+        ├ 검증: A_LOCAL ↔ PROD schema diff = 0 격차 (각 테이블 컬럼 수/이름/타입 동일)
+        └ (코드 commit 없음 — prod 머신 작업, 옵션 B 또는 본인 tunnel)
 
 Task 6  prod activity_master + Chroma wbs_master 적재
         ├ scripts/load_master_list.py 호출 (POSTGRES_URL/CHROMA_HOST=prod)

@@ -96,7 +96,14 @@ export function BarChartH({
           maxBarSize={isVertical ? 28 : undefined}
           isAnimationActive={false}
         >
-          {items.map((it, i) => <Cell key={i} fill={STATUS_COLOR[it.status]} />)}
+          {items.map((it, i) => {
+            /* showBaseline 모드: baseline 미만이면 rose, 이상이면 brand.
+             * 미설정 모드(다른 사용처): 기존 status 기반 색. */
+            const color = showBaseline
+              ? (typeof it.baseline === "number" && it.value < it.baseline ? "#ef4444" : "#1a56db")
+              : STATUS_COLOR[it.status];
+            return <Cell key={i} fill={color} />;
+          })}
         </Bar>
         {showBaseline && items.some((it) => typeof it.baseline === "number") && (
           <Line

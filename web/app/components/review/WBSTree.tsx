@@ -18,7 +18,7 @@ const LINE_THICKNESS = 1.5; // px
 export function WBSTree({ root, selectedId, onSelect, onDrop }: Props) {
   return (
     <div className="flex flex-col h-full text-sm">
-      <div className="shrink-0 border-b border-border-soft px-5 py-3 font-display text-h6 text-ink">
+      <div className="shrink-0 border-b border-border-soft px-5 py-3 font-display text-h6 font-bold text-ink">
         WBS
         <span className="ml-2 text-body-sm font-normal text-ink-mid">(건물 &gt; 공종 &gt; Work Package)</span>
       </div>

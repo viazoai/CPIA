@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -H 127.0.0.1 -p 5535",
+    "dev": "next dev -H 127.0.0.1 -p 5536",
     "build": "next build",
-    "start": "next start -H 127.0.0.1 -p 5535",
+    "start": "next start -H 127.0.0.1 -p 5536",
     "lint": "next lint",
     "test": "vitest run",
     "test:watch": "vitest"

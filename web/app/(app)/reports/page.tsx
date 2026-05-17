@@ -1,12 +1,8 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { ChevronDown } from "lucide-react";
 import { ReportDailyList } from "@/app/components/reports/ReportDailyList";
-import { KpiStrip, type KpiItem } from "@/app/components/reports/KpiStrip";
-import { GapKpiCard } from "@/app/components/reports/GapKpiCard";
 import { OptimizerResult } from "@/app/components/reports/OptimizerResult";
 import { QuadrantCountKpi } from "@/app/components/reports/QuadrantCountKpi";
-import { RawDataTab } from "@/app/components/reports/RawDataTab";
 import { WPSummaryTable, STATUS_DOT, STATUS_LABEL, recoveryDays } from "@/app/components/reports/WPSummaryTable";
 import { ForecastChart } from "@/app/components/charts/ForecastChart";
 import { ProductivityBarToggle } from "@/app/components/reports/ProductivityBarToggle";
@@ -27,7 +23,6 @@ export default function ReportPage() {
   const [selectedDate, setSelectedDate] = useState<string>("");
   const [filter, setFilter] = useState<Filter>("all");
   const [selectedWpId, setSelectedWpId] = useState<string | null>(null);
-  const [rawOpen, setRawOpen] = useState(false);
 
   useEffect(() => {
     fetch("/api/mock/report")
@@ -52,20 +47,9 @@ export default function ReportPage() {
     return diagnose(toDiagnosisInput(detail.kpi, detail.s_curve, REPORT_SITE_ID));
   }, [detail]);
 
-  const wpNameById = useMemo(() => {
-    if (!detail) return {};
-    return Object.fromEntries(detail.wp_summary.map((w) => [w.wp_id, w.wp_name]));
-  }, [detail]);
-
   if (!detail || !diagnosis) {
     return <div className="px-6 py-10 text-ink-light">Loading...</div>;
   }
-
-  const kpiRest: KpiItem[] = [
-    { label: "현재 생산성", value: `${detail.kpi.productivity_today}`, unit: "%", sub: `이력 ${detail.kpi.productivity_history_diff > 0 ? "+" : ""}${detail.kpi.productivity_history_diff}%`, tone: detail.kpi.productivity_today < 90 ? "risk" : "normal" },
-    { label: "현 추세 공기", value: `D+${detail.kpi.delay_days}`, unit: "일 지연", sub: detail.kpi.expected_completion, tone: "risk" },
-    { label: "회복 후 공기", value: `-${detail.kpi.recovery_days}`, unit: "일 회복", sub: detail.kpi.recovered_completion, tone: "normal" },
-  ];
 
   // § 3 4분면 필터 → WP 리스트 필터 (safe ↔ normal 매핑)
   const filterToStatus: Record<Filter, "normal" | "caution" | "risk" | "all"> = {
@@ -105,16 +89,6 @@ export default function ReportPage() {
           <div className="col-span-12 flex flex-col gap-10 md:col-span-9">
 
             <Section eyebrow="/ 01 — 생산성 지표" title="현장 생산성 진단">
-              <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-                <SingleKpi item={kpiRest[0]} />
-                <GapKpiCard
-                  gap_pct={diagnosis.gap_pct}
-                  z_score={diagnosis.z_score}
-                  status={diagnosis.status}
-                />
-                <SingleKpi item={kpiRest[1]} />
-                <SingleKpi item={kpiRest[2]} />
-              </div>
               <ProductivityTrendChart
                 siteId={REPORT_SITE_ID}
                 todayValue={detail.kpi.productivity_today}
@@ -206,31 +180,6 @@ export default function ReportPage() {
               />
             </Section>
 
-            <Section eyebrow="/ 04 — 원본 데이터" title="작업일보 상세">
-              <button
-                type="button"
-                onClick={() => setRawOpen((v) => !v)}
-                className="flex w-full items-center justify-between rounded-card border border-border-soft bg-card px-5 py-4 shadow-xs transition-shadow hover:shadow-sm"
-                aria-expanded={rawOpen}
-              >
-                <span className="text-body-sm text-ink">
-                  {rawOpen ? "원본 데이터 접기" : `원본 데이터 펼치기 · 작업일보 ${detail.raw_data.length} rows`}
-                </span>
-                <ChevronDown
-                  className={`h-4 w-4 text-ink-mid transition-transform ${rawOpen ? "rotate-180" : ""}`}
-                />
-              </button>
-              {rawOpen && (
-                <div className="mt-3">
-                  <RawDataTab
-                    rows={detail.raw_data}
-                    filterWpId={selectedWpId}
-                    wpNameById={wpNameById}
-                  />
-                </div>
-              )}
-            </Section>
-
           </div>
         </div>
       </section>
@@ -265,6 +214,3 @@ function Section({
   );
 }
 
-function SingleKpi({ item }: { item: KpiItem }) {
-  return <KpiStrip items={[item]} />;
-}

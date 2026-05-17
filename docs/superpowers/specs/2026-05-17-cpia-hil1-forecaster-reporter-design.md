@@ -32,7 +32,7 @@ CPIA E2E 파이프라인의 **3 갭** 을 1 spec / 1 plan / 1 PR 로 동시 메�
 - Dashboard / FastAPI 연동 (B_Track) — HIL 1 = CLI 인터랙티브로 자체완결
 - Collector / Parser / main.py / api.py — 본 cycle 미터치 (drift-backlog #5 별 cycle)
 - classify.py 양방향 임계 추가 — PM 원안 v2 와 정합 (저하만 분류 의도)
-- Persistent checkpoint (현 InMemorySaver 그대로)
+- (out of scope 였으나 §7.4 보강으로 **본 cycle 포함**) PostgresSaver 전환은 본 cycle 의 Task 4 (신규) 로 분리 — design-intent O-6 권고 대응
 
 ## 2. 사전 fact (실 코드 검증 — Iron Law 3 요소 적용)
 
@@ -205,9 +205,29 @@ async def hil_1_node(state: CPIAState, cfg: GraphConfig) -> dict:
 **state 변경 0건** — 모두 이미 정의됨 (state.py:118, 56, 43).
 
 **CLI 인터랙티브 (synthetic_daily_report 의 hil_2 패턴 차용):**
-- `--auto-correct-all` flag: Mapper 추천 (wa, l6_main) 그대로 수용 + `mapping_source="user_corrected"` 박음 (학습 데이터로 활용 가능)
-- `input()` 인터랙티브: idx 별 wa/l6_main 입력 받음
-- 일부만 답: 답 안 한 row 는 `requires_review=True` 유지
+
+- **HIL 1 큐 크기 fact** (design-intent/design_intent_mapper.md:257): v3 시뮬 자동 98.7% but WA 결정 4단계 hil_required = 61% (남웅건설 case). 47 row 작업일보 → ~29 row review 가능. **일괄 처리 UX 가 중요.**
+
+- **`--auto-correct-all` flag:** Mapper 추천 (wa, l6_main) 그대로 수용 + `mapping_source="user_corrected"` 박음 (학습 데이터로 활용 가능). 사람 입력 0건.
+
+- **`input()` 인터랙티브 형식 (예시):**
+
+```
+[HIL-1 INTERRUPT] 29 row review 필요:
+  [0] 남웅건설 | 철근콘크리트공사 | 1F 벽체 콘크리트 타설 (conf=0.55, source=hil_required)
+      추천: wa=CUB, l6_main=철근콘크리트공사
+  [1] 세보엠이씨 | 일반공조설비공사 | AHU 덕트 조립 (conf=0.62, source=hil_required)
+      추천: wa=SK0XX, l6_main=일반공조설비공사
+  ...
+
+수정 형식: <idx> <wa> <l6_main> (쉼표 구분, 여러 row 일괄 처리 가능).
+빈 입력 = 모든 row 추천 수용 (--auto-correct-all 와 동일).
+선택> 0 CUB 철근콘크리트공사, 2 PIP 배관공사
+[OK] HIL 1: 2 corrections applied (idx 0+2), 27 row 추천 수용
+```
+
+- **일부만 답:** 답 안 한 row 는 Mapper 추천 그대로 수용 (`requires_review=False`). 답 안 한 row 를 `requires_review=True` 유지 옵션은 후속 cycle (현재 PoC 는 모든 row 처리 후 진행).
+- **파싱 오류:** 형식 위반 (예: `0` 만 입력, wa/l6 누락) → re-prompt 최대 3 회 → abort (Exit 3).
 
 ### 5.2 Forecaster fix — `synthetic_daily_report.py:78`
 
@@ -231,6 +251,7 @@ async def hil_1_node(state: CPIAState, cfg: GraphConfig) -> dict:
 Spec: docs/superpowers/specs/2026-05-17-cpia-hil1-forecaster-reporter-design.md §5.3
 """
 from __future__ import annotations
+import json
 import uuid
 from dataclasses import dataclass
 from datetime import date
@@ -239,12 +260,29 @@ from pipeline.db import PGClient
 from pipeline.state import Activity
 
 SYSTEM_PROMPT = """건설 현장 작업일보 종합 보고서 생성기.
-입력: 매핑 결과 + 공종별 진단 + PM 선택 공종 권고.
-출력: 마크다운 종합 보고서 1 종.
-구조:
-  1부 작업 통합 — trade/BP사 별 인원·물량·작업 요지
-  2부 진단 (Forecaster) — 공종별 생산성 + risk_level + reasoning
-  3부 권고 (Optimizer) — diagnosis + recommendations (없으면 생략)
+입력 JSON 의 (1) 매핑 결과 (mapped) (2) 진단 (forecast) (3) 권고 (optimizer_advice) 를 받아
+마크다운 종합 보고서 1 종을 생성한다.
+
+출력 schema (마크다운, 머리말 + 3 부):
+  # YYYY-MM-DD 작업일보 종합 보고서
+
+  ## 1부 작업 통합
+    - trade/BP사별 인원·물량·작업 요지 (mapped 합산)
+    - 표 우선, 행 많으면 bullet
+
+  ## 2부 생산성 진단
+    - 공종별 today_productivity / risk_level / reasoning (forecast row 별 1 단락)
+    - assessment=None (cold_start) 인 경우 "데이터 부족 — 판단 보류" 그대로 유지
+
+  ## 3부 PM 선택 공종 권고 (optimizer_advice 가 비어있으면 본 부 전체 생략)
+    - 공종별 diagnosis + recommendations rank 1~4 (optimizer_advice row 별)
+    - recovery_distribution 가 있으면 footnote 인용
+
+규칙:
+  - 마크다운만 (HTML 사용 금지, 한자 사용 금지 — 한글 + 영어만)
+  - 들여쓰기 1~2 단계만 (3 단계 이상 금지)
+  - 텍스트는 한국어 위주, 코드/식별자/외래어 고유명사만 영어
+  - 진단의 risk_level 과 reasoning 이 의미적으로 정합되도록 (분류 결과 뒤집지 말 것)
 """
 
 @dataclass
@@ -320,6 +358,67 @@ async def reporter_node(state: CPIAState, cfg: GraphConfig) -> dict:
 - `PGClient.insert_mapping_correction(run_id, date, work_content, company, trade, original, corrected, correction_type)`
 - `PGClient.insert_daily_report(run_id, date, report_md, summary)`
 
+**Few-shot 1 건 (Reporter LLM prompt):**
+
+```json
+INPUT (golden fixture):
+{
+  "date": "2025-09-27",
+  "activities": [
+    {"company": "남웅건설", "trade": "철근콘크리트공사", "l6_main": "철근콘크리트공사",
+     "unit": "m3", "today_qty": 14.0, "assigned_workers": 31.0,
+     "work_content": "1F 벽체 콘크리트 타설"},
+    {"company": "세보엠이씨", "trade": "일반공조설비공사", "l6_main": "일반공조설비공사",
+     "unit": "m2", "today_qty": 120.0, "assigned_workers": 12.0,
+     "work_content": "AHU 덕트 조립"}
+  ],
+  "forecast": [
+    {"company": "남웅건설", "l6_main": "철근콘크리트공사",
+     "today_productivity": 0.452, "assessment": "이상", "risk_level": "이상",
+     "reasoning": "맑음, 병행작업 없음. 유사 5건 평균 0.78 m3/인 대비 -42%. work_content 에 '타워크레인 대기' 기재 — 장비 스케줄 충돌 가능성."}
+  ],
+  "optimizer_advice": [
+    {"company": "남웅건설", "l6_main": "철근콘크리트공사", "forecast_assessment": "이상",
+     "diagnosis": "타워크레인 스케줄 충돌로 인한 강한 저하. 잔여 물량 대비 D+5 시 4일 지연 추정.",
+     "recommendations": [
+       {"rank": 1, "text": "내일 오전 타워크레인 스케줄 확인 필수"},
+       {"rank": 2, "text": "과거 패턴상 장비 확보 시 다음날 자연 복귀 가능성 높음"}
+     ],
+     "recovery_distribution": {"d+1": 2, "d+5": 1, "not_recovered": 1}}
+  ]
+}
+```
+
+```markdown
+OUTPUT (LLM 산출 기대):
+# 2025-09-27 작업일보 종합 보고서
+
+## 1부 작업 통합
+
+| 공종 | BP사 | 인원 | 물량 | 단위 | 주요작업 |
+|---|---|---:|---:|---|---|
+| 철근콘크리트공사 | 남웅건설 | 31.0 | 14.0 | m3 | 1F 벽체 콘크리트 타설 |
+| 일반공조설비공사 | 세보엠이씨 | 12.0 | 120.0 | m2 | AHU 덕트 조립 |
+
+## 2부 생산성 진단
+
+**남웅건설 / 철근콘크리트공사** — risk_level: 이상, productivity 0.452 m3/인
+> 맑음, 병행작업 없음. 유사 5건 평균 0.78 m3/인 대비 -42%. work_content 에 '타워크레인 대기' 기재 — 장비 스케줄 충돌 가능성.
+
+## 3부 PM 선택 공종 권고
+
+### 남웅건설 / 철근콘크리트공사
+**진단:** 타워크레인 스케줄 충돌로 인한 강한 저하. 잔여 물량 대비 D+5 시 4일 지연 추정.
+
+권고사항:
+1. 내일 오전 타워크레인 스케줄 확인 필수
+2. 과거 패턴상 장비 확보 시 다음날 자연 복귀 가능성 높음
+
+> recovery_distribution: d+1=2건 / d+5=1건 / not_recovered=1건
+```
+
+→ 본 few-shot 은 `pipeline/tests/test_reporter.py` 의 golden fixture 로 활용 (LLM mock test 의 expected output prefix 검증용 + 통합 테스트 의 LLM 응답 정합성 검증).
+
 ## 6. 데이터 플로
 
 ```
@@ -359,7 +458,11 @@ async def reporter_node(state: CPIAState, cfg: GraphConfig) -> dict:
 - **PG INSERT FK violation:** `pg.assert_pipeline_run_exists(run_id)` 차용 (forecaster/agent.py:249).
 
 ### 7.4 전반
-- LangGraph checkpoint: `build_checkpointer()` (InMemorySaver) 그대로 — PoC 시연 OK.
+- **LangGraph checkpoint: PostgresSaver 전환** (design-intent/design_intent_orchestration.md:246 + architecture_overview.md O-6 권고 — "Reporter cycle 또는 통합 cycle 진입 시 전환"). 본 cycle = 통합 cycle 진입 = 전환 적기.
+  - `pipeline/checkpointer.py:13 build_checkpointer()` 수정 — `InMemorySaver` → `PostgresSaver`
+  - `langgraph-checkpoint-postgres` 의존성 추가 (pyproject.toml / requirements.txt)
+  - `checkpoints` 테이블 LangGraph auto-manage (`PostgresSaver.from_conn_string` 호출 시 자동 생성)
+  - 회귀: 기존 HIL 2 e2e 테스트들 (test_graph_e2e_hil2.py 4개) 가 thread_id 별 fresh checkpointer 박는 패턴 — 영향 격리 확인 필요. 회귀 발생 시 fallback flag 로 InMemorySaver 유지 분기 추가.
 
 ## 8. 테스트 전략
 
@@ -409,16 +512,21 @@ async def reporter_node(state: CPIAState, cfg: GraphConfig) -> dict:
 
 ## 9. 실행 절차 (병렬 atomic)
 
-3 갭 사이 의존성 0 — 동시 atomic commit 진행 가능. plan 단계에서 task 분리:
+3 갭 사이 의존성 0 — 동시 atomic commit 진행 가능. PostgresSaver 전환 (§7.4 보강) 은 모든 graph 노드 / HIL 테스트에 영향 → 별 Task 로 분리. plan 단계에서 task 분리:
 
 1. **Task 0 — 환경 점검 + 회귀 baseline** (현 183 passed 재확인)
 2. **Task 1 — Forecaster fixture fix** (synthetic_daily_report.py:78 + 118 + 재현/픽스/RAG 정합 회귀 테스트)
 3. **Task 2 — HIL 1 구현** (hil_1_node + graph edges + PG client method + CLI prompt + unit/e2e 테스트)
 4. **Task 3 — Reporter 구현** (reporter.py + reporter_node + graph edges + PG client method + unit 테스트)
-5. **Task 4 — 통합 검증** (회귀 183+~25 / 시뮬 4 건 실 호출 / 결정성 / 시뮬 1 Reporter 통합)
-6. **Task 5 — 정리 + PR**
+5. **Task 4 — PostgresSaver 전환** (신규 — design-intent O-6 권고 대응)
+   - `pipeline/checkpointer.py` 수정 (InMemorySaver → PostgresSaver)
+   - 의존성 추가 + `checkpoints` 테이블 auto-init 확인
+   - 기존 HIL 2 e2e 테스트 (test_graph_e2e_hil2.py 4건) 회귀 검증 + 신규 HIL 1 e2e 테스트 (Task 2 산출) 회귀 검증
+   - 회귀 발생 시 InMemorySaver fallback flag 분기
+6. **Task 5 — 통합 검증** (회귀 183+~25 / 시뮬 4 건 실 호출 / 결정성 / 시뮬 1 Reporter 통합 / PostgresSaver checkpoint 영속 검증)
+7. **Task 6 — 정리 + PR**
 
-Task 1~3 은 의존성 0 → plan 단계에서 inline 순차 또는 subagent 병렬 선택 가능. 사용자 결정 = 병렬 atomic (단 inline 실행 시 자연 순차).
+Task 1~3 은 의존성 0 → plan 단계에서 inline 순차 또는 subagent 병렬 선택 가능. Task 4 는 Task 2 + 3 완료 후 진입 (HIL 1 e2e 테스트가 회귀 대상이라). 사용자 결정 = 병렬 atomic (단 inline 실행 시 자연 순차).
 
 ## 10. 성공 기준
 
@@ -430,6 +538,7 @@ Task 1~3 은 의존성 0 → plan 단계에서 inline 순차 또는 subagent 병
 | 4 | Reporter 종합 MD 산출 + PG INSERT | 시뮬 1 Reporter 통합 + `SELECT * FROM daily_reports WHERE run_id=$1` |
 | 5 | 회귀 0 건 | `pytest pipeline/tests/` 183+~25 PASS |
 | 6 | 결정성 검증 통과 | rerun diff = 0 (결정론 컬럼) |
+| 7 | PostgresSaver checkpoint 영속 동작 | `pytest pipeline/tests/test_graph_e2e_hil2.py` 4건 + HIL 1 e2e PASS + `SELECT COUNT(*) FROM checkpoints WHERE thread_id=...` >= 1 |
 
 ## 11. 하드룰
 
@@ -451,10 +560,11 @@ plan 의 bite-sized task 분해:
 - Task 1 Forecaster fix (~10 step)
 - Task 2 HIL 1 (~15 step)
 - Task 3 Reporter (~15 step)
-- Task 4 통합 검증 (~10 step)
-- Task 5 정리 + PR (~5 step)
+- Task 4 PostgresSaver 전환 (~10 step) — design-intent O-6 권고
+- Task 5 통합 검증 (~10 step)
+- Task 6 정리 + PR (~5 step)
 
-총 ~60 step. inline (executing-plans) 또는 subagent (subagent-driven-development) 선택 가능.
+총 ~70 step. inline (executing-plans) 또는 subagent (subagent-driven-development) 선택 가능.
 
 ---
 

@@ -11,6 +11,8 @@ interface Props {
   tradeBars: BarItem[];
   /** 이력 평균 — 격차 산출 기준 (보통 ReportKpi.target_productivity). */
   historyMean: number;
+  /** 기준 날짜 (ISO "YYYY-MM-DD"). 헤더 보조 라벨 'YYYY-MM-DD 기준'. */
+  date: string;
 }
 
 const MODES: { key: Mode; label: string }[] = [
@@ -36,10 +38,10 @@ const STATUS_CHIP = {
   risk:    "bg-rose-light text-rose-text",
 } as const;
 
-export function ProductivityBarToggle({ contractorBars, tradeBars, historyMean }: Props) {
+export function ProductivityBarToggle({ contractorBars, tradeBars, historyMean, date }: Props) {
   const [mode, setMode] = useState<Mode>("contractor");
   const items = mode === "contractor" ? contractorBars : tradeBars;
-  const title = mode === "contractor" ? "업체별 생산성 (오늘 평균)" : "공종별 생산성 (오늘 평균)";
+  const titleMain = mode === "contractor" ? "업체별 생산성" : "공종별 생산성";
 
   const avg = items.length
     ? items.reduce((s, it) => s + it.value, 0) / items.length
@@ -55,7 +57,10 @@ export function ProductivityBarToggle({ contractorBars, tradeBars, historyMean }
     <div className="rounded-card border border-border-soft bg-card p-4 shadow-xs">
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
-          <div className="font-display text-h6 text-ink">{title}</div>
+          <div className="font-display text-base font-semibold text-ink">
+            {titleMain}
+            <span className="ml-2 text-sm font-normal text-ink-mid">{date} 기준</span>
+          </div>
           <div className="mt-3 flex items-baseline gap-2">
             <span className="font-display text-h3 font-semibold text-ink">
               {avg.toFixed(1)}

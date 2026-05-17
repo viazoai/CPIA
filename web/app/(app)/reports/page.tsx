@@ -106,7 +106,7 @@ export default function ReportPage() {
 
           <div className="col-span-12 flex flex-col gap-10 md:col-span-9">
 
-            <Section eyebrow="/ 01 — 현재 상태" title="생산성 지표">
+            <Section eyebrow="/ 01 — 생산성 지표" title="현장 생산성 진단">
               <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
                 <SingleKpi item={kpiRest[0]} />
                 <GapKpiCard
@@ -126,6 +126,7 @@ export default function ReportPage() {
                 contractorBars={detail.contractor_bars}
                 tradeBars={detail.trade_bars}
                 historyMean={detail.kpi.target_productivity}
+                date={selectedDate}
               />
             </Section>
 

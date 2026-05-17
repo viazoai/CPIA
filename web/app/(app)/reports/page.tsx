@@ -131,9 +131,9 @@ export default function ReportPage() {
             </Section>
 
             <Section eyebrow="/ 02 — 4분면 산점도" title="리스크 및 대안 검토">
-              <div className="grid grid-cols-12 gap-4">
-                {/* 좌측: 산점도 + 테이블 (세로 stack) */}
-                <div className="col-span-12 md:col-span-6 flex flex-col gap-3">
+              <div className="grid grid-cols-12 items-stretch gap-4">
+                {/* 좌측: 산점도 + 테이블 (세로 stack, 마지막 자식 flex-1 로 컬럼 끝까지) */}
+                <div className="col-span-12 flex h-full flex-col gap-3 md:col-span-6">
                   <QuadrantCountKpi points={detail.quadrant} filter={filter} onFilterChange={setFilter} />
                   <div className="rounded-card border border-border-soft bg-card p-4 shadow-xs">
                     <div className="mb-2 font-display text-h6 text-ink">Impact × Productivity 분포도</div>
@@ -144,15 +144,17 @@ export default function ReportPage() {
                       filter={filter}
                     />
                   </div>
-                  <WPSummaryTable
-                    rows={filteredWpRows}
-                    selectedWpId={selectedWpId}
-                    onSelect={setSelectedWpId}
-                  />
+                  <div className="flex-1">
+                    <WPSummaryTable
+                      rows={filteredWpRows}
+                      selectedWpId={selectedWpId}
+                      onSelect={setSelectedWpId}
+                    />
+                  </div>
                 </div>
 
                 {/* 우측: 진단 결과 (단일 박스, 항목별 구분선) */}
-                <div className="col-span-12 md:col-span-6 flex flex-col gap-3">
+                <div className="col-span-12 flex h-full flex-col gap-3 md:col-span-6">
                   <div className="rounded-card border border-border-soft bg-card px-4 py-3 shadow-xs">
                     <div className="text-body-sm text-ink-mid">
                       {selectedWp ? (
@@ -162,12 +164,14 @@ export default function ReportPage() {
                       )}
                     </div>
                   </div>
-                  <OptimizerResult output={detail.optimizer} />
+                  <div className="flex-1">
+                    <OptimizerResult output={detail.optimizer} />
+                  </div>
                 </div>
               </div>
             </Section>
 
-            <Section eyebrow="/ 03 — 공기 단축 예측 시나리오" title="현 추세 + 신뢰 밴드">
+            <Section eyebrow="/ 03 — 공정률 추세" title="공기 단축 예측 시나리오">
               <ForecastChart
                 diagnosis={diagnosis}
                 recoveryActive={selectedWpId !== null}

@@ -34,7 +34,7 @@ function recoveryDays(productivity: number, baseline: number, impact: number): n
 
 export function WPSummaryTable({ rows, selectedWpId, onSelect }: Props) {
   return (
-    <div className="rounded-card border border-border-soft bg-card shadow-xs overflow-hidden">
+    <div className="h-full rounded-card border border-border-soft bg-card shadow-xs overflow-hidden">
       <div className="border-b border-border-soft px-4 py-3">
         <div className="font-display text-h6 text-ink">Work Package 목록</div>
       </div>

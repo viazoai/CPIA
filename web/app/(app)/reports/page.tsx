@@ -122,9 +122,6 @@ export default function ReportPage() {
                 todayValue={detail.kpi.productivity_today}
                 endDate={selectedDate}
               />
-            </Section>
-
-            <Section eyebrow="/ 02 — 현재 상태" title="업체 · 공종 생산성">
               <ProductivityBarToggle
                 contractorBars={detail.contractor_bars}
                 tradeBars={detail.trade_bars}
@@ -132,7 +129,7 @@ export default function ReportPage() {
               />
             </Section>
 
-            <Section eyebrow="/ 03 — 리스크 및 대안 검토" title="4분면 + Optimizer">
+            <Section eyebrow="/ 02 — 리스크 및 대안 검토" title="4분면 + Optimizer">
               <div className="grid grid-cols-12 gap-4">
                 <div className="col-span-12 md:col-span-6 flex flex-col gap-3">
                   <QuadrantCountKpi points={detail.quadrant} filter={filter} onFilterChange={setFilter} />
@@ -173,14 +170,14 @@ export default function ReportPage() {
               </div>
             </Section>
 
-            <Section eyebrow="/ 04 — 공기 단축 예측 시나리오" title="현 추세 + 신뢰 밴드">
+            <Section eyebrow="/ 03 — 공기 단축 예측 시나리오" title="현 추세 + 신뢰 밴드">
               <ForecastChart
                 diagnosis={diagnosis}
                 recoveryActive={selectedWpId !== null}
               />
             </Section>
 
-            <Section eyebrow="/ 05 — 원본 데이터" title="작업일보 상세">
+            <Section eyebrow="/ 04 — 원본 데이터" title="작업일보 상세">
               <button
                 type="button"
                 onClick={() => setRawOpen((v) => !v)}

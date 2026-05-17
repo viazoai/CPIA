@@ -102,7 +102,7 @@ export function ProductivityTrendChart({ siteId, todayValue, endDate, daysWindow
             <span className="text-base text-ink-light">%</span>
             <span
               className={cn(
-                "ml-1 inline-flex items-center rounded-full px-2 py-0.5 font-display text-xs font-medium",
+                "ml-1 inline-flex items-center rounded-full px-2.5 py-0.5 font-display text-sm font-medium",
                 gapChipTone,
               )}
             >

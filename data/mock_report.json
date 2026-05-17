@@ -206,34 +206,64 @@
       ],
       "trade_bars": [
         {
-          "label": "M15X · 거푸집",
+          "label": "M15X-FAB · 거푸집",
           "value": 78,
           "status": "risk",
           "baseline": 84
         },
         {
-          "label": "M15X · 철근",
+          "label": "M15X-FAB · 철근",
           "value": 72,
           "status": "risk",
           "baseline": 80
         },
         {
-          "label": "M15X · 콘크리트",
+          "label": "M15X-FAB · 콘크리트",
           "value": 96,
           "status": "normal",
           "baseline": 92
         },
         {
-          "label": "M15X · 방수",
+          "label": "M15X-FAB · 방수",
           "value": 87,
           "status": "caution",
           "baseline": 90
         },
         {
-          "label": "M15X · MEP",
+          "label": "M15X-FAB · MEP",
           "value": 92,
           "status": "normal",
           "baseline": 91
+        },
+        {
+          "label": "M15X-CUB · 거푸집",
+          "value": 82,
+          "status": "caution",
+          "baseline": 86
+        },
+        {
+          "label": "M15X-CUB · 철근",
+          "value": 76,
+          "status": "risk",
+          "baseline": 82
+        },
+        {
+          "label": "M15X-CUB · 콘크리트",
+          "value": 93,
+          "status": "normal",
+          "baseline": 90
+        },
+        {
+          "label": "M15X-CUB · 방수",
+          "value": 85,
+          "status": "caution",
+          "baseline": 88
+        },
+        {
+          "label": "M15X-CUB · MEP",
+          "value": 89,
+          "status": "caution",
+          "baseline": 90
         },
         {
           "label": "M15Y · 거푸집",

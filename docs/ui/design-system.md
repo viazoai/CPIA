@@ -81,11 +81,48 @@ shadcn `<Button>` `<Card>` 등이 자동으로 v7.1 톤을 따라가도록 globa
 
 ### 2-4. 폰트 위계
 
+#### 폰트 패밀리
+
 | 클래스 | 폰트 | 사용 시점 |
 |---|---|---|
 | `font-sans` (default) | **Pretendard** + Noto Sans KR + system | 모든 본문·기본 텍스트 |
-| `font-display` | **Space Grotesk** + Pretendard | 헤더, 큰 숫자(`text-3xl+`), 영문 강조 |
+| `font-display` | **Inter Tight** + Pretendard | 헤더(`<h1>`~`<h4>`), 큰 숫자, 영문 강조 |
 | `font-mono` | **JetBrains Mono** | 코드, 작은 라벨(`/01`), site_id, 수치 단위 |
+
+#### 타입 스케일 (단일 출처: `docs/ui/sample/font.png`)
+
+| 토큰 | px | weight | line-height | letter-spacing | 용도 |
+|---|---:|:---:|---:|---:|---|
+| `text-h1` | 62 | 500 | 70 | -2%   | Hero 메인 타이틀 (md+ 이상) |
+| `text-h2` | 52 | 500 | 60 | -1.5% | 섹션 분기 / Hero 모바일 |
+| `text-h3` | 42 | 500 | 50 | -1.5% | **페이지 타이틀** (`<h1>` 표준) |
+| `text-h4` | 28 | 500 | 34 | -0.5% | KPI 수치, 큰 카드 헤더 |
+| `text-h5` | 20 | 600 | 30 | 0     | **카드/섹션 헤더** (`<h2>`/`<h3>`) |
+| `text-h6` | 18 | 500 | 27 | 0     | 작은 섹션 헤더 / 라벨 강조 |
+| `text-body` | 18 | 400 | 27 | 0   | Hero lead, 강조 본문 |
+| `text-body-sm` | 16 | 400 | 24 | 0 | **기본 본문** (body 기본값) |
+| `text-btn` | 20 | 500 | 30 | -2%   | Primary CTA Button |
+
+**규칙:**
+
+1. **새 코드는 의미 토큰만 사용.** `text-3xl`, `text-[56px]`, `leading-[1.05]`, `tracking-[-0.02em]` 같은 임의 값을 새로 쓰지 않는다.
+2. **`<h1>`~`<h6>` raw 태그는 자동 스케일.** `app/globals.css` `@layer base` 가 패밀리·사이즈·LH·LS·weight 를 일괄 적용. 별도 클래스 없이 `<h1>` 만 써도 62/70/-2%/500 으로 렌더.
+3. **여전히 클래스를 붙이는 경우**: 색(`text-ink`), 컬러 그라데이션, 반응형 점프(`text-h3 md:text-h1`), `text-balance` 만 추가. 사이즈/weight/LH/LS 재정의는 금지.
+4. **body 기본값**은 16px / LH 24 (`text-body-sm` 와 동일). globals.css `body { font-size: 16px; line-height: 1.5 }`.
+5. **Pretendard(한글) ↔ Inter Tight(영문)** 자동 fallback: `font-display` 는 두 폰트 모두 같은 스케일에서 잘 어울리도록 설계됨.
+6. **font.png 와 다른 스케일이 필요해지면** 토큰을 추가하고 본 표를 갱신한 다음 사용. 임의 픽셀 직진하지 않는다.
+
+**기존 코드 마이그레이션 가이드** (다른 트랙·과거 커밋에서 따라잡을 때):
+
+| Before | After |
+|---|---|
+| `text-4xl ... md:text-[56px]` | `text-h3 md:text-h1` |
+| `text-3xl font-medium tracking-[-0.02em]` | `text-h3` |
+| `text-lg font-bold` / `text-xl font-bold` | `text-h5` |
+| `text-base font-bold` | `text-h5` |
+| `text-base` 본문 | `text-body` |
+| `text-sm` 보조 본문 | `text-body-sm` |
+| `text-xs` 라벨 | `text-xs` 유지 (mono 라벨 등 11~12px는 별도 영역) |
 
 ### 2-5. 반경·그림자·여백
 

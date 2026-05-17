@@ -34,12 +34,14 @@ export interface SitesSummary {
   review_pending: number;       // Review 대기 2건
   abnormal_count: number;       // 이상 1건
   last_updated: string;         // "09:12"
-  total_hours_saved: number;    // 2155
+  total_hours_saved: number;    // 2155 (월간)
   total_fte_saved: number;      // 15.4
   total_headcount: number;      // 480
   total_hours: number;          // 67200
   ai_replacement_rate: number;  // 3.2
   yearly_saving: number;        // 203 (억)
+  total_processed: number;          // 누적 처리 건수 (런칭 이후) — 1247
+  total_hours_saved_cum: number;    // 누적 절감 시간 (런칭 이후) — 12840
 }
 
 // ────── 7-Agent 카드 status (Home) ──────

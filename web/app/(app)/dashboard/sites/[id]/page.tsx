@@ -4,10 +4,10 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { KpiStrip, type KpiItem } from "../../../components/reports/KpiStrip";
-import { SCurveChart } from "../../../components/charts/SCurveChart";
-import { BarChartH } from "../../../components/charts/BarChartH";
-import { ImpactTab } from "../../../components/dashboard/ImpactTab";
+import { KpiStrip, type KpiItem } from "@/app/components/reports/KpiStrip";
+import { SCurveChart } from "@/app/components/charts/SCurveChart";
+import { BarChartH } from "@/app/components/charts/BarChartH";
+import { ImpactTab } from "@/app/components/dashboard/ImpactTab";
 import type { Site, MiddleOfficeAutomation, ImpactTrendPoint, SitesSummary } from "@/lib/types";
 import type { ReportDetail } from "@/lib/fixtures";
 
@@ -41,6 +41,7 @@ export default function SiteDashboardPage() {
     total_hours_saved: site.hours_saved, total_fte_saved: site.fte_saved,
     total_headcount: site.headcount, total_hours: site.total_hours,
     ai_replacement_rate: site.ai_replacement_rate, yearly_saving: 0,
+    total_processed: 0, total_hours_saved_cum: 0,
   };
 
   return (
@@ -50,8 +51,8 @@ export default function SiteDashboardPage() {
           <ChevronLeft className="h-3.5 w-3.5" />
           전사로 돌아가기
         </Link>
-        <h1 className="mt-4 font-display text-3xl font-medium tracking-[-0.02em] text-ink">{site.name}</h1>
-        <p className="mt-1 text-sm text-ink-mid">{site.location} · Hi-tech · 현장 모니터링</p>
+        <h1 className="mt-4 font-display text-h3 text-ink">{site.name}</h1>
+        <p className="mt-1 text-body-sm text-ink-mid">{site.location} · Hi-tech · 현장 모니터링</p>
       </div>
 
       <section className="mx-auto w-full max-w-wrap px-6 pb-20 md:px-10">

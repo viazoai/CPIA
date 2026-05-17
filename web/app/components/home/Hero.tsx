@@ -46,7 +46,7 @@ export function Hero() {
         </span>
       </div>
 
-      <h1 className="mt-6 font-display text-4xl font-medium leading-[1.1] tracking-[-0.02em] text-ink md:text-[56px] md:leading-[1.05]">
+      <h1 className="mt-6 font-display text-h3 text-ink md:text-h1">
         현장 공정 데이터 자동화 및{" "}
         <span className="font-semibold text-lavender">
           공기 리스크 선행 탐지
@@ -54,7 +54,7 @@ export function Hero() {
         Agent
       </h1>
 
-      <p className="mt-5 max-w-3xl text-base text-ink-mid md:text-lg">
+      <p className="mt-5 max-w-3xl text-body-sm text-ink-mid md:text-body">
         7개 전문 Agent + Vector RAG 기반 현장 실적 이력 판단 체계.
       </p>
 

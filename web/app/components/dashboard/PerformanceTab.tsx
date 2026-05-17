@@ -20,7 +20,7 @@ export function PerformanceTab({ sites, fleetKpi }: Props) {
       <KpiStrip items={kpi} />
       <div>
         <div className="mb-3 flex items-baseline gap-2">
-          <h3 className="font-display text-base font-bold text-ink">현장별 진척 · 상태</h3>
+          <h3 className="font-display text-h5 text-ink">현장별 진척 · 상태</h3>
           <span className="font-mono text-xs uppercase tracking-wider text-ink-light">{sites.length} sites</span>
         </div>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">

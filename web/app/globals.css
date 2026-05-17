@@ -1,5 +1,11 @@
-/* Pretendard — v7.1 시안 메인 본문 폰트 (한글 최적) */
+/* 폰트 — jsdelivr CDN (fonts.gstatic.com 차단 환경 대응)
+ *   - Pretendard: 한글 본문
+ *   - Inter Tight: 영문 헤더(font-display)
+ *   - JetBrains Mono: 라벨·코드(font-mono)
+ * 셋 중 어느 하나도 CDN 접근이 막히면 Tailwind fallback (system-ui / ui-monospace) 으로 떨어진다. */
 @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css");
+@import url("https://cdn.jsdelivr.net/npm/@fontsource/inter-tight@5.0.20/index.min.css");
+@import url("https://cdn.jsdelivr.net/npm/@fontsource/jetbrains-mono@5.0.20/index.min.css");
 
 @tailwind base;
 @tailwind components;
@@ -65,8 +71,7 @@ html { scroll-behavior: smooth; }
 body {
   background: var(--bg);
   color: var(--ink);
-  font-family: "Pretendard", "Noto Sans KR", var(--font-noto, sans-serif),
-    -apple-system, "system-ui", sans-serif;
+  font-family: "Pretendard", "Noto Sans KR", -apple-system, "system-ui", sans-serif;
   font-size: 16px;            /* Paragraph 02 baseline (font.png) */
   line-height: 1.5;
   letter-spacing: 0;
@@ -113,28 +118,28 @@ body::after {
    * 일반 <h1>~<h6> 태그는 별도 클래스 없이 자동으로 스케일을 따른다.
    * Tailwind 의 text-h1..text-btn 토큰과 동일한 사이즈/LH/LS/weight. */
   h1 {
-    font-family: "Inter Tight", var(--font-display), Pretendard, system-ui, sans-serif;
+    font-family: "Inter Tight", Pretendard, system-ui, sans-serif;
     font-size: 3.875rem;       /* 62 */
     line-height: 4.375rem;     /* 70 */
     letter-spacing: -0.02em;
     font-weight: 500;
   }
   h2 {
-    font-family: "Inter Tight", var(--font-display), Pretendard, system-ui, sans-serif;
+    font-family: "Inter Tight", Pretendard, system-ui, sans-serif;
     font-size: 3.25rem;        /* 52 */
     line-height: 3.75rem;      /* 60 */
     letter-spacing: -0.015em;
     font-weight: 500;
   }
   h3 {
-    font-family: "Inter Tight", var(--font-display), Pretendard, system-ui, sans-serif;
+    font-family: "Inter Tight", Pretendard, system-ui, sans-serif;
     font-size: 2.625rem;       /* 42 */
     line-height: 3.125rem;     /* 50 */
     letter-spacing: -0.015em;
     font-weight: 500;
   }
   h4 {
-    font-family: "Inter Tight", var(--font-display), Pretendard, system-ui, sans-serif;
+    font-family: "Inter Tight", Pretendard, system-ui, sans-serif;
     font-size: 1.75rem;        /* 28 */
     line-height: 2.125rem;     /* 34 */
     letter-spacing: -0.005em;

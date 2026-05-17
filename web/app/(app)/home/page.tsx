@@ -1,12 +1,18 @@
+export const dynamic = "force-dynamic";
+
 import { Layers, Calendar, Clock4, Activity } from "lucide-react";
 import { loadFixture } from "@/lib/fixtures";
 import { StatusHeader } from "@/app/components/home/StatusHeader";
 import { OpsKpiCard } from "@/app/components/home/OpsKpiCard";
 import { AgentWorkflow } from "@/app/components/home/AgentWorkflow";
+import { AgentChatLog } from "@/app/components/tasks/AgentChatLog";
 
 export default async function HomePage() {
   const summary = await loadFixture("sites_summary");
   const agents = await loadFixture("agent_status");
+  const chatByDate = await loadFixture("chat_sequence");
+  const latestDate = Object.keys(chatByDate).sort().pop() ?? "";
+  const chat = chatByDate[latestDate] ?? [];
 
   /* 현재 처리 중 = 7 Agent active_count 합 (LIVE 인상) */
   const processingNow = agents.reduce((sum, a) => sum + a.active_count, 0);
@@ -52,9 +58,14 @@ export default async function HomePage() {
         />
       </section>
 
-      {/* Agent + HIL 세로 워크플로우 */}
-      <section className="mt-10">
-        <AgentWorkflow agents={agents} />
+      {/* Agent + HIL 세로 워크플로우 + Agent Chat Log */}
+      <section className="mt-10 grid grid-cols-12 items-start gap-6">
+        <div className="col-span-12 xl:col-span-8">
+          <AgentWorkflow agents={agents} />
+        </div>
+        <div className="col-span-12 xl:col-span-4 flex h-[720px] flex-col overflow-hidden rounded-card-lg border border-border bg-card xl:sticky xl:top-20 xl:h-[calc(100vh-140px)]">
+          <AgentChatLog messages={chat} />
+        </div>
       </section>
     </div>
   );

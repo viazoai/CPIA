@@ -1,0 +1,33 @@
+# Build artifacts
+.next
+node_modules
+out
+
+# Local dev
+.env
+.env.local
+.env.development
+.env.development.local
+
+# Source control / IDE
+.git
+.gitignore
+.vscode
+.idea
+
+# Test / lint
+coverage
+.nyc_output
+*.log
+npm-debug.log*
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editor caches
+*.swp
+*.swo
+
+# TypeScript incremental cache
+tsconfig.tsbuildinfo

@@ -64,18 +64,12 @@ export default function HumanReviewPage() {
 
   return (
     <div className="flex flex-col">
-      <div className="mx-auto w-full max-w-screen-2xl px-6 py-8 md:px-10">
-        <div className="flex items-center gap-3">
-          <span className="font-mono text-[11px] font-medium uppercase tracking-[0.2em] text-brand-text">
-            / 03 — Human Review
-          </span>
-          <span className="h-px w-8 bg-border" />
-          <span className="font-mono text-[11px] uppercase tracking-wider text-ink-light">
-            확신도 낮은 매핑 검토
-          </span>
-        </div>
-        <h1 className="mt-6 font-display text-h3 text-ink">
-          작업 물량 Mapping
+      <div className="mx-auto w-full max-w-screen-2xl border-b border-border-soft px-6 pt-10 pb-6 md:px-10 md:pt-14">
+        <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-brand-text">
+          / 03 — Human Review
+        </span>
+        <h1 className="mt-3 font-display text-h3 text-ink">
+          WBS-작업 물량 Mapping
         </h1>
         <p className="mt-2 text-body-sm text-ink-mid">
           좌측 WBS 트리에서 공종을 선택하거나, 검색 입력·드래그앤드롭으로 매핑을 수정·확정합니다.

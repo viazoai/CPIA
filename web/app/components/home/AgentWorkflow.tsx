@@ -1,5 +1,4 @@
 import {
-  ChevronDown,
   Inbox,
   FileSearch,
   GitBranch,
@@ -8,7 +7,6 @@ import {
   Activity,
   Sparkles,
   ClipboardCheck,
-  Users,
 } from "lucide-react";
 import type { AgentStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -28,15 +26,15 @@ const STEP_ICON: Record<number, React.ComponentType<{ className?: string }>> = {
   7: Sparkles,
 };
 
-/* mock — 시연용 오늘/누적 분배 (Collector 87 → Optimizer 24 로 점진 감소) */
-const COUNTS: Record<number, { today: number; total: number }> = {
-  1: { today: 87, total: 1247 },
-  2: { today: 87, total: 1247 },
-  3: { today: 81, total: 1201 },
-  4: { today: 78, total: 1166 },
-  5: { today: 78, total: 1166 },
-  6: { today: 78, total: 1166 },
-  7: { today: 24, total: 824 },
+/* mock — 시연용 대기/오늘/누적 분배 (Collector 87 → Optimizer 24 로 점진 감소) */
+const COUNTS: Record<number, { waiting: number; today: number; total: number }> = {
+  1: { waiting: 2,  today: 87, total: 1247 },
+  2: { waiting: 4,  today: 87, total: 1247 },
+  3: { waiting: 6,  today: 81, total: 1201 },
+  4: { waiting: 3,  today: 78, total: 1166 },
+  5: { waiting: 1,  today: 78, total: 1166 },
+  6: { waiting: 0,  today: 78, total: 1166 },
+  7: { waiting: 54, today: 24, total: 824 },
 };
 
 const STATE_DOT: Record<AgentStatus["state"], string> = {
@@ -51,14 +49,15 @@ const STATE_LABEL: Record<AgentStatus["state"], string> = {
   idle:       "idle",
 };
 
-/* 2개의 HIL 단계 — step 3 다음(=index after Mapper), step 6 다음(=after Forecaster) */
+/* HIL 단계 — 시연 시나리오 v1 에 따라 1단계(Mapper Review)만 표시.
+ * 2차 H-i-L 은 Forecaster 4분면 자동 라우팅으로 대체. */
 interface HilSpec {
-  no: 1 | 2;
+  no: 1;
   title: string;
   description: string;
   waiting: number;
   icon: React.ComponentType<{ className?: string }>;
-  /** Agent step 다음에 끼움 (3 = Mapper 다음, 6 = Forecaster 다음) */
+  /** Agent step 다음에 끼움 (3 = Mapper 다음) */
   afterStep: number;
 }
 const HILS: HilSpec[] = [
@@ -69,14 +68,6 @@ const HILS: HilSpec[] = [
     description: "확신도 낮은 WBS 매핑 항목을 담당자가 검토·수정",
     waiting: 3,
     icon: ClipboardCheck,
-  },
-  {
-    no: 2,
-    afterStep: 6,
-    title: "Trade Selection",
-    description: "Optimizer 조언을 받을 이상 공종을 PM 이 선택",
-    waiting: 1,
-    icon: Users,
   },
 ];
 
@@ -100,8 +91,10 @@ export function AgentWorkflow({ agents }: AgentWorkflowProps) {
 
   return (
     <div className="rounded-card-lg border border-border bg-card p-6 md:p-8">
-      <div className="mb-6 flex items-baseline justify-between">
-        <h2 className="font-display text-h5 text-ink">7-Agent + H-i-L 워크플로우</h2>
+      <div className="mb-5 flex items-baseline justify-between">
+        <h2 className="font-display text-h5 text-ink">
+          Agent 워크플로우 단계별 처리현황
+        </h2>
         <span className="font-mono text-[11px] uppercase tracking-wider text-ink-light">
           LangGraph · 세로 진행
         </span>
@@ -114,58 +107,79 @@ export function AgentWorkflow({ agents }: AgentWorkflowProps) {
 
 /* ============================================================== */
 
+function CountCol({
+  label,
+  value,
+  tone = "ink",
+}: {
+  label: string;
+  value: number;
+  tone?: "ink" | "ink-mid" | "brand";
+}) {
+  const valueClass =
+    tone === "brand"
+      ? "text-brand-text"
+      : tone === "ink-mid"
+      ? "text-ink-mid"
+      : "text-ink";
+  return (
+    <div className="text-right tabular-nums">
+      <div className="font-mono text-[9px] uppercase tracking-wider text-ink-light">
+        {label}
+      </div>
+      <div className={cn("font-display text-base font-semibold leading-none", valueClass)}>
+        {value.toLocaleString()}
+      </div>
+    </div>
+  );
+}
+
 function AgentRow({ agent }: { agent: AgentStatus }) {
   const Icon = STEP_ICON[agent.step] ?? Sparkles;
   const counts = COUNTS[agent.step];
   return (
-    <li className="flex items-center gap-4 rounded-card border border-border-soft bg-surface-soft/40 p-4 transition-colors hover:bg-surface-soft md:p-5">
-      {/* Left — STEP badge + icon */}
-      <div className="flex items-center gap-3">
-        <span className="inline-flex h-10 w-10 items-center justify-center rounded-md bg-card text-ink-mid shadow-xs">
-          <Icon className="h-4 w-4" />
+    <li className="flex items-center gap-3 rounded-card border border-border-soft bg-surface-soft/40 px-3 py-2 transition-colors hover:bg-surface-soft md:px-4 md:py-2.5">
+      {/* Left — STEP + icon */}
+      <div className="flex items-center gap-2">
+        <span className="hidden font-mono text-[10px] font-semibold uppercase tracking-wider text-ink-light md:inline">
+          {String(agent.step).padStart(2, "0")}
         </span>
-        <div className="hidden font-mono text-[10px] font-semibold uppercase tracking-wider text-ink-light md:block">
-          STEP
-          <br />
-          <span className="text-base text-ink">{String(agent.step).padStart(2, "0")}</span>
-        </div>
+        <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-card text-ink-mid shadow-xs">
+          <Icon className="h-3.5 w-3.5" />
+        </span>
       </div>
 
-      {/* Middle — name + description */}
+      {/* Middle — name + description (1줄) */}
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">
-          <span className="font-display text-h6 text-ink">{agent.name}</span>
-          <span className="text-body-sm text-ink-mid">{agent.korean_name}</span>
-        </div>
-        <p className="mt-0.5 truncate text-body-sm text-ink-mid">{agent.description}</p>
-        <span className="mt-1 inline-block font-mono text-[10px] uppercase tracking-wider text-ink-light">
-          {agent.model}
-        </span>
-      </div>
-
-      {/* Right — today / total counts + state dot */}
-      <div className="hidden items-center gap-6 md:flex">
-        <div className="text-right">
-          <div className="font-mono text-[10px] uppercase tracking-wider text-ink-light">오늘</div>
-          <div className="font-display text-h5 text-ink">{counts.today}</div>
-        </div>
-        <div className="text-right">
-          <div className="font-mono text-[10px] uppercase tracking-wider text-ink-light">누적</div>
-          <div className="font-display text-h5 text-ink-mid">{counts.total.toLocaleString()}</div>
-        </div>
-        <div className="flex flex-col items-center gap-1">
-          <span className={cn("h-2 w-2 rounded-full", STATE_DOT[agent.state])} />
-          <span className="font-mono text-[9px] uppercase tracking-wider text-ink-light">
-            {STATE_LABEL[agent.state]}
+          <span className="font-display text-body-sm font-semibold text-ink">
+            {agent.name}
+          </span>
+          <span className="shrink-0 text-xs text-ink-mid">{agent.korean_name}</span>
+          <span className="hidden truncate text-xs text-ink-light md:inline">
+            · {agent.description}
           </span>
         </div>
       </div>
 
-      {/* mobile compact counts */}
-      <div className="text-right md:hidden">
-        <div className="font-display text-h5 text-ink">{counts.today}</div>
+      {/* Right — 대기 / 오늘 / 누적 + state dot */}
+      <div className="hidden items-center gap-4 md:flex">
+        <CountCol label="대기" value={counts.waiting} tone={counts.waiting > 0 ? "brand" : "ink-mid"} />
+        <CountCol label="오늘" value={counts.today} tone="ink" />
+        <CountCol label="누적" value={counts.total} tone="ink-mid" />
+        <span
+          className={cn("ml-1 h-2 w-2 rounded-full", STATE_DOT[agent.state])}
+          title={STATE_LABEL[agent.state]}
+        />
+      </div>
+
+      {/* mobile compact — 오늘만 */}
+      <div className="text-right tabular-nums md:hidden">
+        <div className="font-display text-body-sm font-semibold text-ink">
+          {counts.today}
+        </div>
         <div className="font-mono text-[9px] uppercase tracking-wider text-ink-light">
-          / {counts.total.toLocaleString()}
+          대기 {counts.waiting}
         </div>
       </div>
     </li>
@@ -175,46 +189,47 @@ function AgentRow({ agent }: { agent: AgentStatus }) {
 function HilRow({ spec }: { spec: HilSpec }) {
   const Icon = spec.icon;
   return (
-    <li className="flex items-center gap-4 rounded-card border-2 border-dashed border-brand/60 bg-brand-light/40 p-4 md:p-5">
-      <div className="flex items-center gap-3">
-        <span className="inline-flex h-10 w-10 items-center justify-center rounded-md bg-brand text-white shadow-sm">
-          <Icon className="h-4 w-4" />
-        </span>
-        <div className="hidden font-mono text-[10px] font-semibold uppercase tracking-wider text-brand-text md:block">
+    <li className="flex items-center gap-3 rounded-card border-2 border-dashed border-brand/60 bg-brand-light/40 px-3 py-2 md:px-4 md:py-2.5">
+      <div className="flex items-center gap-2">
+        <span className="hidden font-mono text-[10px] font-semibold uppercase tracking-wider text-brand-text md:inline">
           H-i-L
-          <br />
-          <span className="text-base">{`0${spec.no}`}</span>
-        </div>
+        </span>
+        <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-brand text-white shadow-sm">
+          <Icon className="h-3.5 w-3.5" />
+        </span>
       </div>
 
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
+        <div className="flex items-baseline gap-2">
           <span className="inline-flex items-center rounded-sm bg-brand px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wider text-white">
             HIL
           </span>
-          <span className="font-display text-h6 text-ink">{spec.title}</span>
+          <span className="font-display text-body-sm font-semibold text-ink">
+            {spec.title}
+          </span>
+          <span className="hidden truncate text-xs text-ink-light md:inline">
+            · {spec.description}
+          </span>
         </div>
-        <p className="mt-0.5 truncate text-body-sm text-ink-mid">{spec.description}</p>
       </div>
 
-      <div className="text-right">
-        <div className="font-mono text-[10px] uppercase tracking-wider text-brand-text">대기</div>
-        <div className="font-display text-h5 text-brand-text">{spec.waiting}</div>
+      <div className="text-right tabular-nums">
+        <div className="font-mono text-[9px] uppercase tracking-wider text-brand-text">
+          대기
+        </div>
+        <div className="font-display text-base font-semibold leading-none text-brand-text">
+          {spec.waiting}
+        </div>
       </div>
     </li>
   );
 }
 
 function Connector() {
+  /* 박스 가운데에 짧은 세로선 — 화살표 대신 단순 라인 */
   return (
-    <li
-      aria-hidden
-      className="relative my-1 flex h-8 justify-start pl-[19px] md:pl-5"
-    >
-      <span className="block h-full w-px border-l-2 border-dashed border-border" />
-      <span className="absolute -bottom-1.5 left-3 inline-flex items-center justify-center md:left-[13px]">
-        <ChevronDown className="h-3.5 w-3.5 text-ink-light" />
-      </span>
+    <li aria-hidden className="flex h-4 justify-center">
+      <span className="block h-full w-px bg-border" />
     </li>
   );
 }

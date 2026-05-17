@@ -9,7 +9,7 @@
     { "ts": "09:01:18", "agent": "Mapper", "type": "hil_request",
       "summary": "WBS 매핑을 진행했는데, 12건은 확신도가 낮아 직접 확인이 필요해 보입니다.",
       "detail": "특히 '방수 시트 정리작업' 같은 표현은 두 공종에 걸쳐 있어요. Human Review 요청 ⏸" },
-    { "ts": "09:18:34", "agent": "Human", "type": "human_action",
+    { "ts": "09:18:34", "agent": "SKEP Manager", "type": "human_action",
       "summary": "12건 검토를 완료했어요.",
       "detail": "8건은 AI 추천대로 확정, 4건은 다른 WP로 수정했습니다." },
     { "ts": "09:18:40", "agent": "Atomizer", "type": "info",

@@ -73,6 +73,32 @@ export interface AgentProgress {
   waiting_hil: boolean;
 }
 
+// ────── Daily Tasks (rebuilt) ──────
+export interface DailyTask {
+  date: string;                 // "2026-05-15"
+  total_count: number;          // 작업일보 건수
+  progress_percent: number;     // 0..100 — 파이프라인 전체 진행률
+  status: "running" | "completed" | "review_pending";
+  has_anomaly: boolean;
+}
+
+export interface AgentStageProgress {
+  step: number;                 // 1..7 + HIL은 3.5
+  agent: string;                // "Collector" ... "Optimizer" | "HIL Review"
+  is_hil: boolean;
+  received: number;             // 접수 건수
+  processed: number;            // 처리 건수
+  percent: number;              // 0..100
+  waiting_hil: boolean;
+}
+
+export interface AgentTaskItem {
+  id: string;                   // "RPT-20260515-001"
+  trade: string;                // "철근공사"
+  contractor: string;           // "(주)A건설"
+  status: "done" | "processing" | "received" | "hil_pending" | "blocked";
+}
+
 export interface ChatMessage {
   ts: string;                   // "09:01:18"
   agent: string;

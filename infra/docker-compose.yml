@@ -48,7 +48,7 @@ services:
     image: cloudflare/cloudflared:latest
     container_name: cpia-cloudflared
     restart: unless-stopped
-    command: tunnel --no-autoupdate run --token ${CLOUDFLARED_TOKEN:?CLOUDFLARED_TOKEN required}
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARED_TOKEN:?CLOUDFLARED_TOKEN required (infra/.env → ../.env symlink 확인)}
     depends_on:
       postgres:
         condition: service_healthy
@@ -69,6 +69,33 @@ services:
       - "127.0.0.1:${ADMINER_PORT:-5534}:8080"
     depends_on:
       postgres:
+        condition: service_healthy
+    networks:
+      - cpia_net
+
+  web:
+    build:
+      context: ..
+      dockerfile: web/Dockerfile
+    image: cpia/web:latest
+    container_name: cpia-web
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      TZ: Asia/Seoul
+      # Phase 1: fixture 기반 (DB 미사용). 추후 A_Track 연동 시 아래 주석 해제:
+      # POSTGRES_URL: postgresql://${POSTGRES_USER:-cpia}:${POSTGRES_PASSWORD:-cpia}@cpia-postgres:5432/${POSTGRES_DB:-cpia}
+      # CHROMA_HOST: cpia-chroma
+      # CHROMA_PORT: "8000"
+    ports:
+      - "127.0.0.1:${WEB_PORT:-5535}:5535"
+    volumes:
+      # fixtures.ts: path.join(process.cwd(), "..", "data") → /app/data
+      - ../data:/app/data:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      chroma:
         condition: service_healthy
     networks:
       - cpia_net

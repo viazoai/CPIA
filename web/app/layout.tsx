@@ -1,27 +1,9 @@
 import type { Metadata } from "next";
-import { Noto_Sans_KR, Inter_Tight, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
-const notoSansKR = Noto_Sans_KR({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800"],
-  variable: "--font-noto",
-  display: "swap",
-});
-
-const interTight = Inter_Tight({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  variable: "--font-display",
-  display: "swap",
-});
-
-const jetbrainsMono = JetBrains_Mono({
-  subsets: ["latin"],
-  weight: ["400", "500", "700"],
-  variable: "--font-mono",
-  display: "swap",
-});
+/* 폰트는 globals.css 에서 jsdelivr CDN @import 로 로드한다.
+ * next/font/google 은 빌드/dev 시 fonts.gstatic.com 으로 직접 fetch 시도하는데
+ * homelab/사내 네트워크에서 차단되는 경우가 많아 사용하지 않는다. */
 
 export const metadata: Metadata = {
   title: "CPIA · Construction Productivity Intelligence Agent",
@@ -32,10 +14,7 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html
-      lang="ko"
-      className={`${notoSansKR.variable} ${interTight.variable} ${jetbrainsMono.variable}`}
-    >
+    <html lang="ko">
       <body className="min-h-screen bg-surface font-sans text-ink antialiased">
         {children}
       </body>

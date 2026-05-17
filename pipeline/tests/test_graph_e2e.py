@@ -16,6 +16,7 @@ from pipeline.agents.forecaster import ForecasterConfig
 from pipeline.agents.mapper import MapperConfig
 from pipeline.agents.optimizer import OptimizerConfig
 from pipeline.agents.parser import parse_daily_report
+from pipeline.agents.reporter import ReporterConfig
 from pipeline.chroma_client import ChromaClient
 from pipeline.db import PGClient
 from pipeline.graph import GraphConfig, build_graph

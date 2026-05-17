@@ -163,6 +163,7 @@ export interface BarItem {
   label: string;            // BP사명 또는 공종명
   value: number;            // 생산성 %
   status: Status;
+  baseline?: number;        // 자체 기준값 (이력 평균 등). showBaseline 시 Line 시리즈 dot 으로 표시.
 }
 
 export interface QuadrantPoint {
@@ -205,6 +206,8 @@ export interface WPSummaryRow {
   end_date: string;      // "2026-05-22"
   progress_pct: number;  // 0..100
   productivity: number;  // 0..100 — Quadrant 의 productivity 와 동일 값
+  impact: number;        // 0..100 — WV (Work Volume), Quadrant 의 impact 와 동일 값
+  baseline: number;      // 이력 평균 (목표 productivity). 회복 폭 = baseline − productivity.
   status: "normal" | "caution" | "risk";
 }
 

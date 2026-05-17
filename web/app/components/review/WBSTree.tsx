@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { ChevronRight, ChevronDown, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { WBSNode, Status } from "@/lib/types";
 
@@ -11,9 +11,22 @@ interface Props {
   onDrop?: (cardId: string, wpId: string) => void;
 }
 
-const RAIL_WIDTH = 24; // px per indent slot
-const LINE_COLOR = "#9aa3b2"; // tree branch line color
-const LINE_THICKNESS = 1.5; // px
+// 레벨별 들여쓰기 폭 (px). depth 가 깊을수록 누적 indent
+const INDENT_STEP = [0, 16, 32, 48, 64, 80] as const;
+function indentPx(depth: number): number {
+  return INDENT_STEP[Math.min(depth, INDENT_STEP.length - 1)];
+}
+
+// 레벨별 타이포 — 깊이가 깊어질수록 작아지고 옅어짐
+const LEVEL_TEXT: Record<number, string> = {
+  0: "text-body-sm font-bold text-ink",
+  1: "text-sm font-semibold text-ink",
+  2: "text-xs font-medium text-ink",
+  3: "text-xs text-ink-mid",
+};
+function levelTextClass(depth: number) {
+  return LEVEL_TEXT[depth] ?? LEVEL_TEXT[3];
+}
 
 export function WBSTree({ root, selectedId, onSelect, onDrop }: Props) {
   return (
@@ -25,8 +38,7 @@ export function WBSTree({ root, selectedId, onSelect, onDrop }: Props) {
       <div className="flex-1 overflow-y-auto p-3">
         <Branch
           node={root}
-          ancestorsLast={[]}
-          isLast
+          depth={0}
           selectedId={selectedId}
           onSelect={onSelect}
           onDrop={onDrop}
@@ -38,31 +50,28 @@ export function WBSTree({ root, selectedId, onSelect, onDrop }: Props) {
 
 interface BranchProps {
   node: WBSNode;
-  ancestorsLast: boolean[];
-  isLast: boolean;
+  depth: number;
   selectedId: string | null;
   onSelect: (id: string) => void;
   onDrop?: (cardId: string, wpId: string) => void;
 }
 
-function Branch({ node, ancestorsLast, isLast, selectedId, onSelect, onDrop }: BranchProps) {
-  const depth = ancestorsLast.length;
+function Branch({ node, depth, selectedId, onSelect, onDrop }: BranchProps) {
   const [open, setOpen] = useState(depth < 2);
   const hasChildren = !!(node.children && node.children.length > 0);
   const isSelected = node.id === selectedId;
   const isWP = node.type === "work_package";
-  const isRoot = depth === 0;
-
   const [dragOver, setDragOver] = useState(false);
 
   return (
     <div>
       <div
         className={cn(
-          "group relative flex items-stretch rounded-sm cursor-pointer transition-colors",
+          "group flex items-center gap-1.5 py-1.5 pr-2 rounded-sm cursor-pointer transition-colors",
           isSelected ? "bg-brand-light text-brand-text font-semibold" : "hover:bg-surface-soft",
           dragOver && "ring-2 ring-mint"
         )}
+        style={{ paddingLeft: 8 + indentPx(depth) }}
         onClick={() => {
           if (hasChildren) setOpen(!open);
           onSelect(node.id);
@@ -76,88 +85,24 @@ function Branch({ node, ancestorsLast, isLast, selectedId, onSelect, onDrop }: B
           if (cardId && onDrop) onDrop(cardId, node.id);
         } : undefined}
       >
-        {/* Ancestor rail slots — vertical line continues only where an ancestor wasn't the last child */}
-        {ancestorsLast.map((wasLast, i) => (
-          <div
-            key={i}
-            aria-hidden
-            className="relative shrink-0 self-stretch"
-            style={{ width: RAIL_WIDTH, minHeight: 28 }}
-          >
-            {!wasLast && (
-              <div
-                className="pointer-events-none absolute"
-                style={{
-                  top: 0,
-                  bottom: 0,
-                  left: RAIL_WIDTH / 2 - LINE_THICKNESS / 2,
-                  width: LINE_THICKNESS,
-                  backgroundColor: LINE_COLOR,
-                }}
-              />
-            )}
-          </div>
-        ))}
-
-        {/* Immediate connector slot — └ if last child, ├ otherwise */}
-        {!isRoot && (
-          <div
-            aria-hidden
-            className="relative shrink-0 self-stretch"
-            style={{ width: RAIL_WIDTH, minHeight: 28 }}
-          >
-            {/* vertical: full height if not last, else only top half */}
-            <div
-              className="pointer-events-none absolute"
-              style={{
-                top: 0,
-                ...(isLast ? { height: "50%" } : { bottom: 0 }),
-                left: RAIL_WIDTH / 2 - LINE_THICKNESS / 2,
-                width: LINE_THICKNESS,
-                backgroundColor: LINE_COLOR,
-              }}
-            />
-            {/* horizontal connector at row midline */}
-            <div
-              className="pointer-events-none absolute"
-              style={{
-                top: `calc(50% - ${LINE_THICKNESS / 2}px)`,
-                left: RAIL_WIDTH / 2,
-                width: RAIL_WIDTH / 2,
-                height: LINE_THICKNESS,
-                backgroundColor: LINE_COLOR,
-              }}
-            />
-          </div>
+        <StatusDot status={node.status} />
+        <span className={cn("flex-1 truncate", levelTextClass(depth))}>{node.name}</span>
+        {node.review_count > 0 && (
+          <span className="inline-flex items-center gap-0.5 rounded-sm bg-sun-light px-1.5 py-0.5 text-[11px] font-bold text-sun-text shrink-0">
+            <AlertTriangle className="h-2.5 w-2.5" />
+            {node.review_count}
+          </span>
         )}
-
-        {/* Node row content */}
-        <div className={cn("flex flex-1 min-w-0 items-center gap-1.5 py-1.5 pr-2", isRoot ? "pl-2" : "pl-1.5")}>
-          {hasChildren ? (
-            open ? <ChevronDown className="h-3 w-3 text-ink-light shrink-0" /> : <ChevronRight className="h-3 w-3 text-ink-light shrink-0" />
-          ) : (
-            <span className="w-3 shrink-0" />
-          )}
-          <StatusDot status={node.status} />
-          <span className={cn("text-xs flex-1 truncate", isWP ? "text-ink-mid" : "text-ink")}>{node.name}</span>
-          {node.review_count > 0 && (
-            <span className="inline-flex items-center gap-0.5 rounded-sm bg-sun-light px-1.5 py-0.5 text-[11px] font-bold text-sun-text shrink-0">
-              <AlertTriangle className="h-2.5 w-2.5" />
-              {node.review_count}
-            </span>
-          )}
-          {isWP && node.review_count === 0 && (
-            <CheckCircle2 className="h-3 w-3 text-mint/70 shrink-0" />
-          )}
-        </div>
+        {isWP && node.review_count === 0 && (
+          <CheckCircle2 className="h-3 w-3 text-mint/70 shrink-0" />
+        )}
       </div>
 
-      {open && hasChildren && node.children!.map((c, i, arr) => (
+      {open && hasChildren && node.children!.map((c) => (
         <Branch
           key={c.id}
           node={c}
-          ancestorsLast={isRoot ? [] : [...ancestorsLast, isLast]}
-          isLast={i === arr.length - 1}
+          depth={depth + 1}
           selectedId={selectedId}
           onSelect={onSelect}
           onDrop={onDrop}

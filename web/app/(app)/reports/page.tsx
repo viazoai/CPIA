@@ -1,15 +1,12 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { ChevronDown } from "lucide-react";
 import { ReportDailyList } from "@/app/components/reports/ReportDailyList";
-import { KpiStrip, type KpiItem } from "@/app/components/reports/KpiStrip";
-import { GapKpiCard } from "@/app/components/reports/GapKpiCard";
 import { OptimizerResult } from "@/app/components/reports/OptimizerResult";
 import { QuadrantCountKpi } from "@/app/components/reports/QuadrantCountKpi";
-import { RawDataTab } from "@/app/components/reports/RawDataTab";
-import { WPSummaryTable } from "@/app/components/reports/WPSummaryTable";
+import { WPSummaryTable, STATUS_DOT, STATUS_LABEL, recoveryDays } from "@/app/components/reports/WPSummaryTable";
 import { ForecastChart } from "@/app/components/charts/ForecastChart";
 import { ProductivityBarToggle } from "@/app/components/reports/ProductivityBarToggle";
+import { ProductivityTrendChart } from "@/app/components/charts/ProductivityTrendChart";
 import { QuadrantScatter } from "@/app/components/charts/QuadrantScatter";
 import { diagnose } from "@/lib/diagnosis";
 import { toDiagnosisInput } from "@/lib/diagnosis-adapter";
@@ -26,7 +23,6 @@ export default function ReportPage() {
   const [selectedDate, setSelectedDate] = useState<string>("");
   const [filter, setFilter] = useState<Filter>("all");
   const [selectedWpId, setSelectedWpId] = useState<string | null>(null);
-  const [rawOpen, setRawOpen] = useState(false);
 
   useEffect(() => {
     fetch("/api/mock/report")
@@ -51,22 +47,9 @@ export default function ReportPage() {
     return diagnose(toDiagnosisInput(detail.kpi, detail.s_curve, REPORT_SITE_ID));
   }, [detail]);
 
-  const wpNameById = useMemo(() => {
-    if (!detail) return {};
-    return Object.fromEntries(detail.wp_summary.map((w) => [w.wp_id, w.wp_name]));
-  }, [detail]);
-
   if (!detail || !diagnosis) {
     return <div className="px-6 py-10 text-ink-light">Loading...</div>;
   }
-
-  const kpiRest: KpiItem[] = [
-    { label: "현재 생산성", value: `${detail.kpi.productivity_today}`, unit: "%", sub: `이력 ${detail.kpi.productivity_history_diff > 0 ? "+" : ""}${detail.kpi.productivity_history_diff}%`, tone: detail.kpi.productivity_today < 90 ? "risk" : "normal" },
-    { label: "현 추세 공기", value: `D+${detail.kpi.delay_days}`, unit: "일 지연", sub: detail.kpi.expected_completion, tone: "risk" },
-    { label: "회복 후 공기", value: `-${detail.kpi.recovery_days}`, unit: "일 회복", sub: detail.kpi.recovered_completion, tone: "normal" },
-  ];
-
-  const selectedWp = detail.quadrant.find((p) => p.wp_id === selectedWpId) ?? null;
 
   // § 3 4분면 필터 → WP 리스트 필터 (safe ↔ normal 매핑)
   const filterToStatus: Record<Filter, "normal" | "caution" | "risk" | "all"> = {
@@ -91,7 +74,7 @@ export default function ReportPage() {
           현장 일일 진단 보고서
         </h1>
         <p className="mt-2 text-body-sm text-ink-mid">
-          결론 KPI → 생산성 현황 → 리스크 검토 → 시나리오 예측 → 원본 데이터 순으로 확인합니다.
+          생산성 분석을 기반으로 한 리스크 검토 및 예측 시나리오를 통해 공사기간 최적화를 제안합니다. 
         </p>
       </div>
 
@@ -105,97 +88,96 @@ export default function ReportPage() {
 
           <div className="col-span-12 flex flex-col gap-10 md:col-span-9">
 
-            <Section eyebrow="/ 01 — 결론" title="생산성 지표">
-              <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-                <SingleKpi item={kpiRest[0]} />
-                <GapKpiCard
-                  gap_pct={diagnosis.gap_pct}
-                  z_score={diagnosis.z_score}
-                  status={diagnosis.status}
-                />
-                <SingleKpi item={kpiRest[1]} />
-                <SingleKpi item={kpiRest[2]} />
-              </div>
-            </Section>
-
-            <Section eyebrow="/ 02 — 현재 상태" title="업체 · 공종 생산성">
+            <Section eyebrow="/ 01 — 생산성 지표" title="현장 생산성 진단">
+              <ProductivityTrendChart
+                siteId={REPORT_SITE_ID}
+                todayValue={detail.kpi.productivity_today}
+                endDate={selectedDate}
+              />
               <ProductivityBarToggle
                 contractorBars={detail.contractor_bars}
                 tradeBars={detail.trade_bars}
+                historyMean={detail.kpi.target_productivity}
+                date={selectedDate}
               />
             </Section>
 
-            <Section eyebrow="/ 03 — 리스크 및 대안 검토" title="4분면 + Optimizer">
-              <div className="grid grid-cols-12 gap-4">
-                <div className="col-span-12 md:col-span-6 flex flex-col gap-3">
+            <Section eyebrow="/ 02 — 4분면 산점도" title="리스크 및 대안 검토">
+              <div className="grid grid-cols-12 items-stretch gap-4">
+                {/* 좌측: 산점도 + 테이블 (세로 stack, 마지막 자식 flex-1 로 컬럼 끝까지) */}
+                <div className="col-span-12 flex h-full flex-col gap-3 md:col-span-6">
                   <QuadrantCountKpi points={detail.quadrant} filter={filter} onFilterChange={setFilter} />
                   <div className="rounded-card border border-border-soft bg-card p-4 shadow-xs">
-                    <div className="mb-2 font-display text-h6 text-ink">Impact × Productivity 산점도</div>
+                    <div className="mb-2 font-display text-h6 text-ink">Impact × Productivity 분포도</div>
                     <QuadrantScatter
                       points={detail.quadrant}
                       selectedWpId={selectedWpId}
                       onSelect={setSelectedWpId}
                       filter={filter}
                     />
-                    <div className="mt-3 text-center text-xs text-ink-light">
-                      점 크기 = 잔여 물량. 좌상 = 고 Impact · 저 Productivity (위험군).
-                    </div>
+                  </div>
+                  <div className="flex-1">
+                    <WPSummaryTable
+                      rows={filteredWpRows}
+                      selectedWpId={selectedWpId}
+                      onSelect={setSelectedWpId}
+                    />
                   </div>
                 </div>
 
-                <div className="col-span-12 md:col-span-6 flex flex-col gap-3">
-                  <div className="rounded-card border border-border-soft bg-card p-4 shadow-xs">
-                    <div className="text-body-sm text-ink-mid">
-                      {selectedWp ? (
-                        <>선택된 WP: <span className="font-semibold text-ink">{selectedWp.wp_name}</span> <span className="text-ink-light">({selectedWp.trade})</span></>
-                      ) : (
-                        <>WP 미선택 — 산점도에서 점을 클릭하세요</>
-                      )}
-                    </div>
+                {/* 우측: 진단 결과 (단일 박스, 항목별 구분선) */}
+                <div className="col-span-12 flex h-full flex-col gap-3 md:col-span-6">
+                  <div className="rounded-card border border-border-soft bg-card px-5 py-4 shadow-xs">
+                    {(() => {
+                      const wpRow = detail.wp_summary.find((w) => w.wp_id === selectedWpId);
+                      if (!wpRow) {
+                        return (
+                          <div className="text-body text-ink-mid">
+                            WP 미선택 — 산점도에서 점을 클릭하세요
+                          </div>
+                        );
+                      }
+                      const days = recoveryDays(wpRow.productivity, wpRow.baseline, wpRow.impact);
+                      return (
+                        <div className="flex items-center justify-between gap-4">
+                          <div className="font-display text-h6">
+                            <span className="font-semibold text-ink">{wpRow.wp_name}</span>
+                            <span className="ml-2 text-ink-light">({wpRow.trade})</span>
+                          </div>
+                          <div className="flex items-center gap-5">
+                            <span className="text-sm text-ink-mid">
+                              공기 단축{" "}
+                              {days > 0 ? (
+                                <span className="font-semibold text-mint-text">-{days}일</span>
+                              ) : (
+                                <span className="text-ink-light">—</span>
+                              )}
+                            </span>
+                            <span className="inline-flex items-center gap-1.5">
+                              <span className={`h-2 w-2 rounded-full ${STATUS_DOT[wpRow.status]}`} />
+                              <span className="text-xs font-semibold text-ink-mid">
+                                {STATUS_LABEL[wpRow.status]}
+                              </span>
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
-                  <OptimizerResult output={detail.optimizer} />
+                  <div className="flex-1">
+                    <OptimizerResult output={detail.optimizer} />
+                  </div>
                 </div>
-              </div>
-
-              <div className="mt-4">
-                <WPSummaryTable
-                  rows={filteredWpRows}
-                  selectedWpId={selectedWpId}
-                  onSelect={setSelectedWpId}
-                />
               </div>
             </Section>
 
-            <Section eyebrow="/ 04 — 공기 단축 예측 시나리오" title="현 추세 + 신뢰 밴드">
+            <Section eyebrow="/ 03 — 공정률 추세" title="공기 단축 예측 시나리오">
               <ForecastChart
                 diagnosis={diagnosis}
                 recoveryActive={selectedWpId !== null}
+                delayDays={detail.kpi.delay_days}
+                recoveryDays={detail.kpi.recovery_days}
               />
-            </Section>
-
-            <Section eyebrow="/ 05 — 원본 데이터" title="작업일보 상세">
-              <button
-                type="button"
-                onClick={() => setRawOpen((v) => !v)}
-                className="flex w-full items-center justify-between rounded-card border border-border-soft bg-card px-5 py-4 shadow-xs transition-shadow hover:shadow-sm"
-                aria-expanded={rawOpen}
-              >
-                <span className="text-body-sm text-ink">
-                  {rawOpen ? "원본 데이터 접기" : `원본 데이터 펼치기 · 작업일보 ${detail.raw_data.length} rows`}
-                </span>
-                <ChevronDown
-                  className={`h-4 w-4 text-ink-mid transition-transform ${rawOpen ? "rotate-180" : ""}`}
-                />
-              </button>
-              {rawOpen && (
-                <div className="mt-3">
-                  <RawDataTab
-                    rows={detail.raw_data}
-                    filterWpId={selectedWpId}
-                    wpNameById={wpNameById}
-                  />
-                </div>
-              )}
             </Section>
 
           </div>
@@ -232,6 +214,3 @@ function Section({
   );
 }
 
-function SingleKpi({ item }: { item: KpiItem }) {
-  return <KpiStrip items={[item]} />;
-}

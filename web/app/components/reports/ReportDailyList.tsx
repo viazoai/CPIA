@@ -38,10 +38,10 @@ export function ReportDailyList({ daily, selectedDate, onSelect }: Props) {
             )}
           >
             <div className="flex items-center justify-between">
-              <span className={cn("font-mono text-xs", active ? "text-brand-text font-bold" : "text-ink")}>{d.date}</span>
-              <Icon className={cn("h-3.5 w-3.5", iconColor)} />
+              <span className={cn("font-mono text-sm", active ? "text-brand-text font-bold" : "text-ink")}>{d.date}</span>
+              <Icon className={cn("h-4 w-4", iconColor)} />
             </div>
-            <div className="text-[11px] text-ink-mid">
+            <div className="text-body-sm text-ink-mid">
               생산성 <b className="text-ink">{d.productivity_today}%</b>
               {d.delay_days > 0 && <span> · D+{d.delay_days} 지연</span>}
             </div>

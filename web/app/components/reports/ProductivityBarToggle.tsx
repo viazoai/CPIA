@@ -9,6 +9,10 @@ type Mode = "contractor" | "trade";
 interface Props {
   contractorBars: BarItem[];
   tradeBars: BarItem[];
+  /** 이력 평균 — 격차 산출 기준 (보통 ReportKpi.target_productivity). */
+  historyMean: number;
+  /** 기준 날짜 (ISO "YYYY-MM-DD"). 헤더 보조 라벨 'YYYY-MM-DD 기준'. */
+  date: string;
 }
 
 const MODES: { key: Mode; label: string }[] = [
@@ -16,16 +20,80 @@ const MODES: { key: Mode; label: string }[] = [
   { key: "trade",      label: "공종별" },
 ];
 
-export function ProductivityBarToggle({ contractorBars, tradeBars }: Props) {
+function avgStatus(avg: number): "normal" | "caution" | "risk" {
+  if (avg < 80) return "risk";
+  if (avg < 90) return "caution";
+  return "normal";
+}
+
+/**
+ * 라벨이 "M15X · 거푸집" 같이 "{building} · {trade}" 형식일 때,
+ * 같은 building 의 첫 항목은 제외하고 나머지 building 시작 라벨을 추출.
+ * BarChartH 의 그룹 divider 위치로 사용.
+ */
+function deriveBuildingBoundaries(items: BarItem[]): string[] {
+  const out: string[] = [];
+  let prev: string | null = null;
+  for (const it of items) {
+    const building = it.label.split("·")[0]?.trim() ?? "";
+    if (prev !== null && building !== prev) out.push(it.label);
+    prev = building;
+  }
+  return out;
+}
+
+const STATUS_VALUE_COLOR = {
+  normal:  "text-mint-text",
+  caution: "text-sun-text",
+  risk:    "text-rose-text",
+} as const;
+
+const STATUS_CHIP = {
+  normal:  "bg-mint-light text-mint-text",
+  caution: "bg-sun-light text-sun-text",
+  risk:    "bg-rose-light text-rose-text",
+} as const;
+
+export function ProductivityBarToggle({ contractorBars, tradeBars, historyMean, date }: Props) {
   const [mode, setMode] = useState<Mode>("contractor");
   const items = mode === "contractor" ? contractorBars : tradeBars;
-  const title = mode === "contractor" ? "업체별 생산성 (오늘 평균)" : "공종별 생산성 (오늘 평균)";
+  const modeLabel = mode === "contractor" ? "업체별" : "공종별";
+
+  const avg = items.length
+    ? items.reduce((s, it) => s + it.value, 0) / items.length
+    : 0;
+  const status = avgStatus(avg);
+  const subLabel = mode === "contractor" ? "BP사 평균" : "공종 평균";
+
+  const gap = avg - historyMean;
+  const gapSign = gap >= 0 ? "+" : "";
+  const gapChipTone = gap >= -3 ? STATUS_CHIP.normal : gap >= -8 ? STATUS_CHIP.caution : STATUS_CHIP.risk;
+
+  /* baseline 미만 항목 수 — 자체 기준 도달 못한 항목들 */
+  const underCount = items.filter(
+    (it) => typeof it.baseline === "number" && it.value < it.baseline,
+  ).length;
+  const underUnit = mode === "contractor" ? "개 BP사" : "개 공종";
 
   return (
     <div className="rounded-card border border-border-soft bg-card p-4 shadow-xs">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="font-display text-h6 text-ink">{title}</div>
-        <div className="inline-flex rounded-md border border-border bg-white p-0.5">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <div className="font-display text-base font-semibold text-ink">
+            {modeLabel} 현장 생산성{" "}
+            <span className="text-sm font-normal text-ink-mid">({date} 기준)</span>
+          </div>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="font-display text-h3 font-semibold tracking-[-0.015em] text-ink">
+              {underCount}
+            </span>
+            <span className="text-base text-ink-mid">
+              {underUnit} 평균 미만
+            </span>
+          </div>
+        </div>
+
+        <div className="inline-flex shrink-0 rounded-md border border-border bg-white p-0.5">
           {MODES.map((m) => {
             const active = mode === m.key;
             return (
@@ -45,7 +113,13 @@ export function ProductivityBarToggle({ contractorBars, tradeBars }: Props) {
         </div>
       </div>
 
-      <BarChartH items={items} showAverage bare orientation="vertical" />
+      <BarChartH
+        items={items}
+        showBaseline
+        bare
+        orientation="vertical"
+        groupBoundaries={mode === "trade" ? deriveBuildingBoundaries(items) : undefined}
+      />
     </div>
   );
 }

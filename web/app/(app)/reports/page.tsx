@@ -10,7 +10,7 @@ import { QuadrantCountKpi } from "@/app/components/reports/QuadrantCountKpi";
 import { RawDataTab } from "@/app/components/reports/RawDataTab";
 import { WPSummaryTable } from "@/app/components/reports/WPSummaryTable";
 import { ForecastChart } from "@/app/components/charts/ForecastChart";
-import { BarChartH } from "@/app/components/charts/BarChartH";
+import { ProductivityBarToggle } from "@/app/components/reports/ProductivityBarToggle";
 import { QuadrantScatter } from "@/app/components/charts/QuadrantScatter";
 import { diagnose } from "@/lib/diagnosis";
 import { toDiagnosisInput } from "@/lib/diagnosis-adapter";
@@ -24,7 +24,7 @@ const REPORT_SITE_ID = "M15X-Ph3-IBL";
 export default function ReportPage() {
   const [daily, setDaily] = useState<ReportDaily[]>([]);
   const [details, setDetails] = useState<Record<string, ReportDetail>>({});
-  const [selectedDate, setSelectedDate] = useState<string>("2026-05-15");
+  const [selectedDate, setSelectedDate] = useState<string>("");
   const [filter, setFilter] = useState<Filter>("all");
   const [selectedWpId, setSelectedWpId] = useState<string | null>(null);
   const [rawOpen, setRawOpen] = useState(false);
@@ -32,7 +32,11 @@ export default function ReportPage() {
   useEffect(() => {
     fetch("/api/mock/report")
       .then((r) => r.json())
-      .then((d) => { setDaily(d.daily); setDetails(d.details); });
+      .then((d) => {
+        setDaily(d.daily);
+        setDetails(d.details);
+        if (d.daily.length > 0) setSelectedDate(d.daily[0].date);
+      });
   }, []);
 
   useEffect(() => {
@@ -102,11 +106,11 @@ export default function ReportPage() {
               </div>
             </Section>
 
-            <Section eyebrow="/ 02 — 현재 상태" title="업체 · 공종 생산성" subtitle="KPI #1·#2 의 근거">
-              <div className="grid gap-4 md:grid-cols-2">
-                <BarChartH items={detail.contractor_bars} title="업체별 생산성 (오늘 평균)" />
-                <BarChartH items={detail.trade_bars} title="공종별 생산성 (오늘 평균)" />
-              </div>
+            <Section eyebrow="/ 02 — 현재 상태" title="업체 · 공종 생산성" subtitle="KPI #1·#2 의 근거 · 박스 내 토글로 전환, 평균선 표시">
+              <ProductivityBarToggle
+                contractorBars={detail.contractor_bars}
+                tradeBars={detail.trade_bars}
+              />
             </Section>
 
             <Section eyebrow="/ 03 — Forecasting" title="현 추세 + 신뢰 밴드" subtitle="KPI #3 의 근거 · § 4 클릭 시 만회 곡선 추가">

@@ -1,26 +1,30 @@
 {
-  "generated_at": "2026-05-17T00:00:00Z",
-  "git_sha": "f9a695f5315eba97b2686f55a72bc91ef6cae6b2",
+  "generated_at": "2026-05-17T13:00:00Z",
+  "updated_at": "2026-05-17T14:30:00Z",
+  "git_sha": "d57b0c5",
   "git_branch": "A_Track",
-  "scope": "pipeline 전체 (agents 7 + graph + state + db). Web/B_Track 제외.",
+  "scope": "pipeline 전체 (agents 7 active + 신규 reporter + graph + state + db + checkpointer). Web/B_Track 제외.",
+  "cycle_note": "hil1-forecaster-reporter incremental update (PR #19 pending — 조형준 main 머지 리뷰 대기)",
   "subsystems": [
     {
       "name": "orchestration",
       "file": "design_intent_orchestration.md",
       "files": ["pipeline/graph.py", "pipeline/state.py", "pipeline/checkpointer.py", "pipeline/constants.py"],
-      "loc": 432,
-      "t1_count": 16,
-      "t2_count": 9,
-      "t1_coverage_pct": 100
+      "loc": 621,
+      "t1_count": 21,
+      "t2_count": 14,
+      "t1_coverage_pct": 100,
+      "cycle_changes": ["hil_1_node", "reporter_node", "_LazyAsyncPostgresSaver", "_build_review_needed", "_apply_corrections", "GraphConfig.reporter 필드", "graph edges 5개 변경"]
     },
     {
       "name": "persistence",
       "file": "design_intent_persistence.md",
       "files": ["pipeline/db.py", "pipeline/chroma_client.py"],
-      "loc": 349,
-      "t1_count": 16,
-      "t2_count": 9,
-      "t1_coverage_pct": 100
+      "loc": 385,
+      "t1_count": 18,
+      "t2_count": 11,
+      "t1_coverage_pct": 100,
+      "cycle_changes": ["insert_mapping_correction", "insert_daily_report"]
     },
     {
       "name": "parser",
@@ -29,7 +33,8 @@
       "loc": 306,
       "t1_count": 12,
       "t2_count": 11,
-      "t1_coverage_pct": 100
+      "t1_coverage_pct": 100,
+      "cycle_changes": []
     },
     {
       "name": "mapper",
@@ -38,7 +43,8 @@
       "loc": 393,
       "t1_count": 9,
       "t2_count": 9,
-      "t1_coverage_pct": 100
+      "t1_coverage_pct": 100,
+      "cycle_changes": []
     },
     {
       "name": "atomizer",
@@ -47,7 +53,8 @@
       "loc": 118,
       "t1_count": 4,
       "t2_count": 4,
-      "t1_coverage_pct": 100
+      "t1_coverage_pct": 100,
+      "cycle_changes": []
     },
     {
       "name": "forecaster",
@@ -65,7 +72,9 @@
       "loc": 898,
       "t1_count": 22,
       "t2_count": 13,
-      "t1_coverage_pct": 95
+      "t1_coverage_pct": 95,
+      "cycle_changes": [],
+      "note": "classify.py:34 수정 X (PM 원안 v2 정합 — drift #2 root cause 는 #3 input over-산출, #3 fix 로 자동 해소)"
     },
     {
       "name": "optimizer",
@@ -78,26 +87,40 @@
         "pipeline/agents/optimizer/synthetic_v2.py",
         "pipeline/agents/optimizer/__init__.py"
       ],
-      "loc": 1485,
-      "t1_count": 22,
+      "loc": 1498,
+      "t1_count": 23,
       "t2_count": 7,
-      "t1_coverage_pct": 90
+      "t1_coverage_pct": 90,
+      "cycle_changes": ["generate_fake_daily_report:78 산식 정정 (n_activities 분배)", "_parse_scenario:118 ValueError 가드", "_build_reporter_config 신규"]
+    },
+    {
+      "name": "reporter",
+      "file": "design_intent_reporter.md",
+      "files": ["pipeline/agents/reporter.py"],
+      "loc": 161,
+      "t1_count": 5,
+      "t2_count": 4,
+      "t1_coverage_pct": 100,
+      "cycle_changes": ["서브시스템 자체 신규 (drift #1 해소)"]
     }
   ],
   "stubs_uncatalogued": [
     {"file": "pipeline/agents/collector.py", "loc": 0, "drift_backlog_priority": "#5"},
-    {"file": "pipeline/agents/reporter.py", "loc": 0, "drift_backlog_priority": "#1"},
     {"file": "pipeline/main.py", "loc": 0, "drift_backlog_priority": "D-7"},
     {"file": "pipeline/api.py", "loc": 0, "drift_backlog_priority": "D-7"}
   ],
   "totals": {
-    "t1_count": 96,
-    "t2_count": 62,
-    "loc": 3981
+    "t1_count": 114,
+    "t2_count": 73,
+    "loc": 4380
   },
   "audit_drift_backlog_reference": "docs/audit/2026-05-17-cpia-drift-backlog.md",
+  "cycle_drift_absorbed": ["#1", "#2", "#3", "#4", "O-2", "O-5", "O-6"],
+  "cycle_drift_new": ["#N1", "#N2", "#N3", "#N4", "#N5", "#N6", "#N7"],
+  "regression_baseline": "183 passed",
+  "regression_current": "197 passed + 1 xfailed in 411.97s",
   "claude_md_rule_added": true,
-  "claude_md_rule_location": "CLAUDE.md '## 작업 규칙' 섹션 신규 추가 (파일 끝, '*최종 수정*' 라인 직전)",
+  "claude_md_rule_location": "CLAUDE.md '## 작업 규칙' 섹션 (파일 끝, '*최종 수정*' 라인 직전)",
   "index_path": "deep-dive/design-intent/INDEX.md",
-  "last_checked_at": "2026-05-17T00:00:00Z"
+  "last_checked_at": "2026-05-17T14:30:00Z"
 }

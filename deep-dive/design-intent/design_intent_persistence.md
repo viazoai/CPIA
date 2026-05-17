@@ -249,3 +249,80 @@ PostgreSQL asyncpg pool 래퍼 + ChromaDB HTTP 클라이언트. 7 테이블 중 
 - **`mapping_corrections` dead schema**: `infra/postgres/init.sql` 에 테이블 정의는 있으나 `pipeline/db.py` 에 INSERT/SELECT 함수 없음. HIL 1 미구현 (drift backlog #4) 와 연결.
 - **`PGClient.fetch_activity` 미사용 의심**: `grep -rn "fetch_activity" pipeline/` 결과 `test_db.py` 만 호출, agent 코드 미호출. Mapper 가 Chroma + activity_master 직접 JOIN 으로 통합한 흔적. 삭제 후보.
 - **연결 설정 default**: `PGClient.__init__` 은 DSN 외부 주입 강제 (default 없음), `ChromaClient` 는 port=8000 default. homelab (5532/5533) vs A 로컬 Docker (5532/5533) 동시 운용 흔적 — `.env.example` 참조.
+
+---
+
+## 2026-05-17 hil1-forecaster-reporter cycle 변경 (Git SHA d57b0c5)
+
+### T1 신규 함수 2
+
+| Function/Class | File:Line | Signature | One-line role | T2? |
+|---|---|---|---|---|
+| `PGClient.insert_mapping_correction` | db.py:315 | `async (run_id, report_date, original, corrected) -> None` | HIL 1 사용자 정정 영속 — `mapping_corrections` 1 row INSERT | ✅ |
+| `PGClient.insert_daily_report` | db.py:347 | `async (run_id, report_date, report_md, history_csv_row, bp_name=None) -> None` | Reporter 종합 MD 영속 — `daily_reports` 1 row INSERT | ✅ |
+
+### O-2 해소
+
+- `mapping_corrections` dead schema (이전 cycle 미해결) → 본 cycle `insert_mapping_correction` 으로 활성화. drift #4 흡수.
+
+### 신규 drift (본 cycle 발견)
+
+- **#N2 mapping_corrections schema mismatch**: `postgres.md §8` 명시 (id + run_id + date + work_content + company + trade + original + corrected + correction_type + created_at — 10 컬럼) vs `infra/postgres/init.sql:127` 실 정의 (id + run_id + report_date + original + corrected + created_at — 6 컬럼만). 본 cycle 의 `insert_mapping_correction` 은 실 schema 정합 = 4 인자 (run_id + report_date + original + corrected). work_content/company/trade/correction_type 은 `original` / `corrected` JSONB 안에 합쳐 박음 (work_content GIN index 의도 충족 X — 별 cycle schema migration).
+- **#N3 daily_reports schema mismatch**: `postgres.md §5` 명시 (date / summary) vs `init.sql:33` 실 정의 (report_date / history_csv_row + bp_name nullable 추가). 본 cycle 의 `insert_daily_report` 는 실 schema 정합 = 5 인자. summary dict → history_csv_row 컬럼.
+
+---
+
+### T2 신규 카드
+
+#### `PGClient.insert_mapping_correction` — HIL 1 사용자 정정 영속
+
+- **위치**: `pipeline/db.py:315-345` (31 LOC, 분기 0)
+- **시그니처**: `async def insert_mapping_correction(self, run_id: uuid.UUID, report_date: _date, original: dict, corrected: dict) -> None`
+- **이슈**:
+  - git log `1bb78fb` (feat(hil_1): Mapper 결과 사람 검토 + PG mapping_corrections 영속) — 본 cycle 신규.
+  - drift backlog #4 (HIL 1 구현) + O-2 (mapping_corrections dead schema) 동시 해소.
+  - schema drift `#N2` (postgres.md §8 10 컬럼 vs init.sql 6 컬럼) — 실 schema 정합 signature 채택.
+  - docstring (db.py:315-326): "mapping_corrections 테이블 INSERT 1 row. 실 schema (infra/postgres/init.sql:127) = id, run_id, report_date, original JSONB, corrected JSONB, created_at — 6 컬럼. postgres.md §8 의 work_content/company/trade/correction_type top-level 컬럼은 실 PG 미반영 (drift backlog 별 cycle). 본 cycle 은 code-only scope → original/corrected JSONB 안에 합쳐서 박음."
+- **설계 의도**:
+  - 실 schema 정합 + JSONB 합쳐 박음 (work_content/company/trade/correction_type 등) — 의미 보존, schema migration 별 cycle.
+  - Mapper 자가 학습 기반: 다음 run 진입 시 `mapping_corrections` 검색 가능 (postgres.md:311 의도, 단 work_content GIN index 부재 — 별 cycle).
+  - 단순 patten = forecaster.insert_forecast / optimizer.insert_optimizer_advice 와 동일 (pool acquire + execute + json.dumps).
+- **대응 패턴**:
+  - 발동: `graph.hil_1_node` 가 corrections idx 마다 호출
+  - 입력: run_id + report_date + original dict (work_content/company/trade 합쳐) + corrected dict (correction_type 합쳐)
+  - 처리: pool.acquire → conn.execute (INSERT 4 컬럼, JSONB cast) → release
+  - 출력: None
+- **관련**:
+  - 호출자: `graph.hil_1_node:160`
+  - 테스트: `tests/test_db_mapping_corrections.py::test_insert_mapping_correction_roundtrip` (PG INSERT + SELECT 검증)
+  - schema: `infra/postgres/init.sql:127` (실) vs `docs/schema/postgres.md §8` (spec drift)
+- **Suspected related** (2026-05-17 stale):
+  - `insert_forecast` + `insert_optimizer_advice` 동일 패턴 — 향후 공통 helper 추출 후보 (low).
+  - schema migration 별 cycle 진입 시 work_content/company/trade/correction_type 컬럼 추가 + 본 함수 signature 확장 → JSONB 안 합치기 제거.
+
+#### `PGClient.insert_daily_report` — Reporter 종합 MD 영속
+
+- **위치**: `pipeline/db.py:347-385` (39 LOC, 분기 1 — None 처리)
+- **시그니처**: `async def insert_daily_report(self, run_id: uuid.UUID, report_date: _date, report_md: str, history_csv_row: dict | None, bp_name: str | None = None) -> None`
+- **이슈**:
+  - git log `22d44c2` (feat(reporter): Mapper+Forecaster+Optimizer 종합 보고서 + PG daily_reports) — 본 cycle 신규.
+  - drift backlog #1 (Reporter 미구현) 흡수.
+  - schema drift `#N3` (postgres.md §5 date/summary vs init.sql report_date/history_csv_row/bp_name) — 실 schema 정합 signature.
+  - docstring (db.py:347-358): "daily_reports 테이블 INSERT 1 row. 실 schema (infra/postgres/init.sql:33) = id, run_id, report_date, bp_name (nullable), report_md, history_csv_row (jsonb, nullable), created_at. postgres.md §5 의 'date' / 'summary' 필드명 mismatch (drift backlog 별 cycle). 종합 보고서 (Reporter 위치 = Optimizer 다음 drift) → bp_name=None. Reporter 의 summary dict (total_workers / risk_counts / advice_count) 는 history_csv_row 컬럼에 박음."
+- **설계 의도**:
+  - 실 schema 정합 5 인자 — date→report_date / summary→history_csv_row 명시 mapping (postgres.md spec 의 의미 동일).
+  - `bp_name=None` default — 종합 보고서 (Reporter 위치 = Optimizer 다음 drift, 1 종) 가정. 향후 BP사별 보고서 구현 시 인자 채움.
+  - `history_csv_row` 가 None 가능 (mapped empty fallback path) — JSON dumps 시 None 처리.
+- **대응 패턴**:
+  - 발동: `reporter.report` 가 LLM 호출 + summary 산출 후 1회 호출
+  - 입력: run_id + report_date + report_md (LLM 산출) + history_csv_row (summary dict 또는 None) + bp_name=None
+  - 처리: pool.acquire → conn.execute (INSERT 5 컬럼, JSONB cast None 처리) → release
+  - 출력: None
+- **관련**:
+  - 호출자: `reporter.report:154` (agents/reporter.py)
+  - 테스트: `tests/test_db_daily_reports.py::test_insert_daily_report_roundtrip` (PG INSERT + SELECT 검증)
+  - schema: `infra/postgres/init.sql:33` (실) vs `docs/schema/postgres.md §5` (spec drift)
+  - 실 검증: `docs/audit/raw/v2-scenario-1-156657ed.md` (시뮬 1 의 PG SELECT — report_md 1481 chars + history_csv_row 4 키)
+- **Suspected related** (2026-05-17 stale):
+  - reporter 카드 `_build_summary` — history_csv_row 의 4 키 (total_workers / total_qty_by_trade / risk_counts / advice_count) 생산자.
+  - B_Track Dashboard 의 daily_reports SELECT — 향후 history_csv_row 활용 (drift #5 통합 cycle).

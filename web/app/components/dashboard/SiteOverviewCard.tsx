@@ -58,7 +58,7 @@ export function SiteOverviewCard({ site }: { site: Site }) {
           <span className={cn("inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[11px] font-semibold", statusBg)}>
             {site.abnormal_trades > 0 ? `이상 공종 ${site.abnormal_trades}` : "정상"}
           </span>
-          <ArrowRight className="h-3.5 w-3.5 text-ink-light group-hover:text-lavender group-hover:translate-x-0.5 transition-all" />
+          <ArrowRight className="h-3.5 w-3.5 text-ink-light group-hover:text-brand group-hover:translate-x-0.5 transition-all" />
         </div>
       </div>
     </Link>

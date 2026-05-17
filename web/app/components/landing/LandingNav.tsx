@@ -15,7 +15,7 @@ export function LandingNav() {
       <div className="mx-auto flex h-16 max-w-wrap items-center justify-between px-6 md:px-10">
         {/* Brand */}
         <Link href="/" className="flex items-center gap-2.5">
-          <span className="flex h-8 w-8 items-center justify-center rounded-md bg-gradient-to-br from-lavender to-lavender-text">
+          <span className="flex h-8 w-8 items-center justify-center rounded-md bg-gradient-to-br from-brand to-brand-text">
             <Sparkles className="h-4 w-4 text-white" strokeWidth={2.5} />
           </span>
           <span className="font-display text-base font-bold tracking-tight text-ink">

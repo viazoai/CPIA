@@ -31,7 +31,7 @@ export function BackgroundSection() {
     >
       <div className="mx-auto max-w-wrap px-6 md:px-10">
         <div className="max-w-3xl">
-          <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-lavender-text">
+          <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-brand-text">
             / 01 — Background
           </span>
           <h2 className="mt-3 font-display text-h3 text-ink">

@@ -18,7 +18,7 @@ export function StatusHeader({ lastUpdated }: StatusHeaderProps) {
     <header className="border-b border-border-soft pb-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-lavender-text">
+          <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-brand-text">
             / 01 — Operations Console
           </span>
           <h1 className="mt-3 font-display text-h3 text-ink">

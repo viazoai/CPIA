@@ -44,7 +44,7 @@ export function ScalabilitySection() {
     >
       <div className="mx-auto max-w-wrap px-6 md:px-10">
         <div className="max-w-3xl">
-          <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-lavender-text">
+          <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-brand-text">
             / 04 — Roadmap
           </span>
           <h2 className="mt-3 font-display text-h3 text-ink">
@@ -63,7 +63,7 @@ export function ScalabilitySection() {
                 key={i}
                 className={`relative rounded-card-lg border p-6 transition-all ${
                   h.active
-                    ? "border-lavender bg-gradient-to-br from-lavender-light/60 via-card to-card shadow-md"
+                    ? "border-brand bg-gradient-to-br from-brand-light/60 via-card to-card shadow-md"
                     : "border-border-soft bg-surface-soft/40"
                 }`}
               >
@@ -71,7 +71,7 @@ export function ScalabilitySection() {
                   <span
                     className={`inline-flex h-9 w-9 items-center justify-center rounded-md ${
                       h.active
-                        ? "bg-lavender text-white"
+                        ? "bg-brand text-white"
                         : "bg-card text-ink-mid"
                     }`}
                   >
@@ -79,7 +79,7 @@ export function ScalabilitySection() {
                   </span>
                   <span
                     className={`font-mono text-[11px] uppercase tracking-wider ${
-                      h.active ? "text-lavender-text" : "text-ink-light"
+                      h.active ? "text-brand-text" : "text-ink-light"
                     }`}
                   >
                     {h.phase}
@@ -96,7 +96,7 @@ export function ScalabilitySection() {
                   </span>
                   <div
                     className={`mt-0.5 font-display text-base font-semibold ${
-                      h.active ? "text-lavender-text" : "text-ink"
+                      h.active ? "text-brand-text" : "text-ink"
                     }`}
                   >
                     {h.target}

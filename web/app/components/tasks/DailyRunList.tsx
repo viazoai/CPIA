@@ -31,11 +31,11 @@ export function DailyRunList({ runs, selectedDate, onSelect }: Props) {
               onClick={() => onSelect(run.date)}
               className={cn(
                 "group flex flex-col gap-1 border-b border-border-soft px-3 py-3 text-left transition-colors",
-                active ? "bg-lavender-light/50" : "hover:bg-surface-soft"
+                active ? "bg-brand-light/50" : "hover:bg-surface-soft"
               )}
             >
               <div className="flex items-center justify-between">
-                <span className={cn("font-mono text-xs", active ? "text-lavender-text font-bold" : "text-ink")}>
+                <span className={cn("font-mono text-xs", active ? "text-brand-text font-bold" : "text-ink")}>
                   {run.date}
                 </span>
                 <RunStatusIcon status={run.status} />

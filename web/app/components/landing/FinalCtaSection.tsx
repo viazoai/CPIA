@@ -7,8 +7,8 @@ export function FinalCtaSection() {
       <div className="mx-auto max-w-wrap">
         <div className="relative overflow-hidden rounded-card-xl bg-ink px-8 py-20 text-center md:px-16 md:py-28">
           {/* Decorative halos */}
-          <div className="pointer-events-none absolute -right-32 -top-32 h-96 w-96 rounded-full bg-lavender/30 blur-3xl" />
-          <div className="pointer-events-none absolute -bottom-40 -left-32 h-96 w-96 rounded-full bg-lavender/20 blur-3xl" />
+          <div className="pointer-events-none absolute -right-32 -top-32 h-96 w-96 rounded-full bg-brand/30 blur-3xl" />
+          <div className="pointer-events-none absolute -bottom-40 -left-32 h-96 w-96 rounded-full bg-brand/20 blur-3xl" />
 
           <div className="relative">
             <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-[12px] font-medium text-white/90 backdrop-blur-sm">

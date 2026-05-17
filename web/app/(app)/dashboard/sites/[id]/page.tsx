@@ -47,7 +47,7 @@ export default function SiteDashboardPage() {
   return (
     <div className="flex flex-col">
       <div className="mx-auto w-full max-w-screen-2xl px-6 py-8 md:px-10">
-        <Link href="/dashboard" className="inline-flex items-center gap-1 text-xs font-mono uppercase tracking-wider text-ink-light hover:text-lavender">
+        <Link href="/dashboard" className="inline-flex items-center gap-1 text-xs font-mono uppercase tracking-wider text-ink-light hover:text-brand">
           <ChevronLeft className="h-3.5 w-3.5" />
           전사로 돌아가기
         </Link>

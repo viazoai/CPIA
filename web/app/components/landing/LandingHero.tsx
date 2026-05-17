@@ -9,14 +9,14 @@ export function LandingHero() {
         {/* LEFT — copy */}
         <div className="relative z-10">
           {/* Badge */}
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-lavender-light px-3 py-1 text-[12px] font-medium text-lavender-text">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-light px-3 py-1 text-[12px] font-medium text-brand-text">
             <Sparkles className="h-3 w-3" />
             Welcome to CPIA
           </span>
 
           <h1 className="mt-6 font-display text-h2 text-ink md:text-h1">
             현장 보고 업무를 줄이는 게 아니라,{" "}
-            <span className="text-lavender">현장의 일을 재정의합니다.</span>
+            <span className="text-brand">현장의 일을 재정의합니다.</span>
           </h1>
 
           <p className="mt-6 max-w-xl text-body text-ink-mid">
@@ -35,7 +35,7 @@ export function LandingHero() {
             </Link>
             <a
               href="#impact"
-              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-white px-5 py-3.5 text-body-sm font-medium text-ink-mid transition-colors hover:border-lavender hover:text-ink"
+              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-white px-5 py-3.5 text-body-sm font-medium text-ink-mid transition-colors hover:border-brand hover:text-ink"
             >
               임팩트 보기
             </a>
@@ -52,7 +52,7 @@ export function LandingHero() {
         {/* RIGHT — floating mockup stack */}
         <div className="relative hidden md:block">
           {/* Soft halo */}
-          <div className="absolute -inset-8 rounded-card-xl bg-gradient-to-tr from-lavender-light via-white to-lavender-light/40 blur-2xl" />
+          <div className="absolute -inset-8 rounded-card-xl bg-gradient-to-tr from-brand-light via-white to-brand-light/40 blur-2xl" />
 
           {/* Main KPI mockup */}
           <div className="relative rotate-1 rounded-card-lg border border-border bg-card p-6 shadow-lg">
@@ -78,7 +78,7 @@ export function LandingHero() {
               {[40, 55, 48, 70, 62, 88, 76, 95, 82, 100, 92, 98].map((h, i) => (
                 <span
                   key={i}
-                  className="flex-1 rounded-sm bg-gradient-to-t from-lavender-light to-lavender"
+                  className="flex-1 rounded-sm bg-gradient-to-t from-brand-light to-brand"
                   style={{ height: `${h * 0.6}px` }}
                 />
               ))}

@@ -26,6 +26,22 @@ function avgStatus(avg: number): "normal" | "caution" | "risk" {
   return "normal";
 }
 
+/**
+ * 라벨이 "M15X · 거푸집" 같이 "{building} · {trade}" 형식일 때,
+ * 같은 building 의 첫 항목은 제외하고 나머지 building 시작 라벨을 추출.
+ * BarChartH 의 그룹 divider 위치로 사용.
+ */
+function deriveBuildingBoundaries(items: BarItem[]): string[] {
+  const out: string[] = [];
+  let prev: string | null = null;
+  for (const it of items) {
+    const building = it.label.split("·")[0]?.trim() ?? "";
+    if (prev !== null && building !== prev) out.push(it.label);
+    prev = building;
+  }
+  return out;
+}
+
 const STATUS_VALUE_COLOR = {
   normal:  "text-mint-text",
   caution: "text-sun-text",
@@ -60,7 +76,7 @@ export function ProductivityBarToggle({ contractorBars, tradeBars, historyMean, 
   const underUnit = mode === "contractor" ? "BP사" : "건물·공종";
 
   return (
-    <div className="rounded-card border border-border-soft bg-card p-4 shadow-xs">
+    <div className="rounded-card border border-border-soft bg-card p-4 pb-7 shadow-xs">
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
           <div className="font-display text-base font-semibold text-ink">
@@ -97,7 +113,13 @@ export function ProductivityBarToggle({ contractorBars, tradeBars, historyMean, 
         </div>
       </div>
 
-      <BarChartH items={items} showBaseline bare orientation="vertical" />
+      <BarChartH
+        items={items}
+        showBaseline
+        bare
+        orientation="vertical"
+        groupBoundaries={mode === "trade" ? deriveBuildingBoundaries(items) : undefined}
+      />
     </div>
   );
 }

@@ -35,6 +35,11 @@ interface Props {
    *  - "vertical": 세로 막대 (라벨 X축, 값 Y축). 수십 개 항목용.
    */
   orientation?: "horizontal" | "vertical";
+  /**
+   * 그룹 경계로 둘 라벨 값들 — 그 항목 좌측에 vertical divider 표시.
+   * vertical 모드 전용. (예: building 단위로 묶을 때)
+   */
+  groupBoundaries?: string[];
 }
 
 export function BarChartH({
@@ -44,6 +49,7 @@ export function BarChartH({
   showBaseline,
   bare,
   orientation = "horizontal",
+  groupBoundaries,
 }: Props) {
   const avg = items.length
     ? items.reduce((sum, it) => sum + it.value, 0) / items.length
@@ -97,10 +103,11 @@ export function BarChartH({
           isAnimationActive={false}
         >
           {items.map((it, i) => {
-            /* showBaseline 모드: baseline 미만이면 rose, 이상이면 brand.
+            /* showBaseline 모드: baseline 미만이면 옅은 rose, 이상이면 옅은 blue.
+             * 막대 색이 너무 진하면 baseline 라인·KPI 텍스트에 시선 분산 → 부드러운 톤.
              * 미설정 모드(다른 사용처): 기존 status 기반 색. */
             const color = showBaseline
-              ? (typeof it.baseline === "number" && it.value < it.baseline ? "#ef4444" : "#1a56db")
+              ? (typeof it.baseline === "number" && it.value < it.baseline ? "#fca5a5" : "#93c5fd")
               : STATUS_COLOR[it.status];
             return <Cell key={i} fill={color} />;
           })}
@@ -118,6 +125,15 @@ export function BarChartH({
             connectNulls
           />
         )}
+        {isVertical && groupBoundaries && groupBoundaries.map((label) => (
+          <ReferenceLine
+            key={`grp-${label}`}
+            x={label}
+            stroke="#cbd2dc"
+            strokeWidth={1.5}
+            strokeDasharray="2 3"
+          />
+        ))}
         {showAverage && items.length > 0 && (
           <ReferenceLine
             {...(isVertical ? { y: avg } : { x: avg })}

@@ -150,9 +150,9 @@ export function ProductivityTrendChart({ siteId, todayValue, endDate, daysWindow
               position="top"
               offset={6}
               fill="#1243a8"
-              fontSize={12}
+              fontSize={14}
               fontFamily="Inter Tight, system-ui, sans-serif"
-              fontWeight={500}
+              fontWeight={700}
             />
           </ReferenceLine>
           <ReferenceDot

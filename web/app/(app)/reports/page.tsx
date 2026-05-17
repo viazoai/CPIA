@@ -93,7 +93,7 @@ export default function ReportPage() {
 
           <div className="col-span-12 flex flex-col gap-10 md:col-span-9">
 
-            <Section eyebrow="/ 01 — 결론" title="KPI 요약" subtitle="아래에서 도출된 결과">
+            <Section eyebrow="/ 01 — 결론" title="KPI 요약">
               <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
                 <SingleKpi item={kpiRest[0]} />
                 <GapKpiCard
@@ -106,21 +106,21 @@ export default function ReportPage() {
               </div>
             </Section>
 
-            <Section eyebrow="/ 02 — 현재 상태" title="업체 · 공종 생산성" subtitle="KPI #1·#2 의 근거 · 박스 내 토글로 전환, 평균선 표시">
+            <Section eyebrow="/ 02 — 현재 상태" title="업체 · 공종 생산성">
               <ProductivityBarToggle
                 contractorBars={detail.contractor_bars}
                 tradeBars={detail.trade_bars}
               />
             </Section>
 
-            <Section eyebrow="/ 03 — Forecasting" title="현 추세 + 신뢰 밴드" subtitle="KPI #3 의 근거 · § 4 클릭 시 만회 곡선 추가">
+            <Section eyebrow="/ 03 — Forecasting" title="현 추세 + 신뢰 밴드">
               <ForecastChart
                 diagnosis={diagnosis}
                 recoveryActive={selectedWpId !== null}
               />
             </Section>
 
-            <Section eyebrow="/ 04 — 이슈 + 권고" title="4분면 + Optimizer" subtitle="Forecasting → Optimizer 브릿지 · KPI #4 의 근거">
+            <Section eyebrow="/ 04 — 이슈 + 권고" title="4분면 + Optimizer">
               <div className="grid grid-cols-12 gap-4">
                 <div className="col-span-12 md:col-span-6 flex flex-col gap-3">
                   <QuadrantCountKpi points={detail.quadrant} filter={filter} onFilterChange={setFilter} />
@@ -154,7 +154,7 @@ export default function ReportPage() {
               </div>
             </Section>
 
-            <Section eyebrow="/ 05 — 원본 데이터" title="WP 요약 + 작업일보 상세" subtitle="근거 자료 (기본 접힘)">
+            <Section eyebrow="/ 05 — 원본 데이터" title="WP 요약 + 작업일보 상세">
               <button
                 type="button"
                 onClick={() => setRawOpen((v) => !v)}

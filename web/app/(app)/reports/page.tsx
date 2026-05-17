@@ -130,12 +130,13 @@ export default function ReportPage() {
               />
             </Section>
 
-            <Section eyebrow="/ 02 — 리스크 및 대안 검토" title="4분면 + Optimizer">
+            <Section eyebrow="/ 02 — 4분면 산점도" title="리스크 및 대안 검토">
               <div className="grid grid-cols-12 gap-4">
+                {/* 좌측: 산점도 + 테이블 (세로 stack) */}
                 <div className="col-span-12 md:col-span-6 flex flex-col gap-3">
                   <QuadrantCountKpi points={detail.quadrant} filter={filter} onFilterChange={setFilter} />
                   <div className="rounded-card border border-border-soft bg-card p-4 shadow-xs">
-                    <div className="mb-2 font-display text-h6 text-ink">Impact × Productivity 산점도</div>
+                    <div className="mb-2 font-display text-h6 text-ink">WV × Productivity 분포도</div>
                     <QuadrantScatter
                       points={detail.quadrant}
                       selectedWpId={selectedWpId}
@@ -143,13 +144,19 @@ export default function ReportPage() {
                       filter={filter}
                     />
                     <div className="mt-3 text-center text-xs text-ink-light">
-                      점 크기 = 잔여 물량. 좌상 = 고 Impact · 저 Productivity (위험군).
+                      점 크기 = 잔여 물량. 우상 = 고 WV · 저 Productivity (위험군).
                     </div>
                   </div>
+                  <WPSummaryTable
+                    rows={filteredWpRows}
+                    selectedWpId={selectedWpId}
+                    onSelect={setSelectedWpId}
+                  />
                 </div>
 
+                {/* 우측: 진단 결과 (단일 박스, 항목별 구분선) */}
                 <div className="col-span-12 md:col-span-6 flex flex-col gap-3">
-                  <div className="rounded-card border border-border-soft bg-card p-4 shadow-xs">
+                  <div className="rounded-card border border-border-soft bg-card px-4 py-3 shadow-xs">
                     <div className="text-body-sm text-ink-mid">
                       {selectedWp ? (
                         <>선택된 WP: <span className="font-semibold text-ink">{selectedWp.wp_name}</span> <span className="text-ink-light">({selectedWp.trade})</span></>
@@ -160,14 +167,6 @@ export default function ReportPage() {
                   </div>
                   <OptimizerResult output={detail.optimizer} />
                 </div>
-              </div>
-
-              <div className="mt-4">
-                <WPSummaryTable
-                  rows={filteredWpRows}
-                  selectedWpId={selectedWpId}
-                  onSelect={setSelectedWpId}
-                />
               </div>
             </Section>
 

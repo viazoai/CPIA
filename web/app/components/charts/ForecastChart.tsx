@@ -9,6 +9,8 @@ import {
   YAxis,
   Tooltip,
   ReferenceDot,
+  ReferenceLine,
+  Label,
   CartesianGrid,
 } from "recharts";
 import { cn } from "@/lib/utils";
@@ -53,6 +55,18 @@ export function ForecastChart({ diagnosis, recoveryActive = false, delayDays, re
   const lastIdx = firstUndef === -1 ? data.length - 1 : firstUndef - 1;
   const lastPoint = lastIdx >= 0 ? data[lastIdx] : null;
 
+  // 100% 도달 시점 찾기 — 각 시나리오가 어디서 끝나는지 시각화
+  const completionDate = (key: "planned" | "base" | "optimistic"): string | null => {
+    for (const d of data) {
+      const v = d[key] as number | null | undefined;
+      if (typeof v === "number" && v >= 100) return d.date;
+    }
+    return null;
+  };
+  const planEnd = completionDate("planned");
+  const baseEnd = completionDate("base");
+  const optEnd  = completionDate("optimistic");
+
   return (
     <div className="rounded-card border border-border-soft bg-card p-5 shadow-xs">
       <div className="mb-3 flex items-start justify-between gap-4">
@@ -81,7 +95,7 @@ export function ForecastChart({ diagnosis, recoveryActive = false, delayDays, re
               {recoveryDays > 0 ? "-" : ""}{recoveryDays}
             </span>
             <span className="text-base text-ink-mid">
-              일 {recoveryDays > 0 ? "추가 단축 가능" : "추가 단축 불가"}
+              일 {recoveryDays > 0 ? "단축 가능" : "단축 불가"}
             </span>
           </div>
         </div>
@@ -103,8 +117,8 @@ export function ForecastChart({ diagnosis, recoveryActive = false, delayDays, re
         />
       </div>
 
-      <ResponsiveContainer width="100%" height={320}>
-        <ComposedChart data={data} margin={{ top: 12, right: 16, left: 0, bottom: 0 }}>
+      <ResponsiveContainer width="100%" height={340}>
+        <ComposedChart data={data} margin={{ top: 28, right: 24, left: 0, bottom: 0 }}>
           <CartesianGrid stroke="#eef0f4" vertical={false} />
           <XAxis
             dataKey="date"
@@ -150,6 +164,44 @@ export function ForecastChart({ diagnosis, recoveryActive = false, delayDays, re
               stroke="#1a56db"
               strokeWidth={2}
             />
+          )}
+
+          {/* 100% 완료선 (가로 점선) */}
+          <ReferenceLine y={100} stroke="#cbd5e1" strokeDasharray="3 3" />
+
+          {/* 계획 완공 시점 */}
+          {planEnd && (
+            <ReferenceDot x={planEnd} y={100} r={5} fill="#94a3b8" stroke="#ffffff" strokeWidth={2}>
+              <Label value="계획 완공" position="top" offset={10} fill="#475569" fontSize={11} fontWeight={600} />
+            </ReferenceDot>
+          )}
+
+          {/* 현 추세 도달 시점 — D+14 */}
+          {baseEnd && (
+            <ReferenceDot x={baseEnd} y={100} r={5} fill="#1a56db" stroke="#ffffff" strokeWidth={2}>
+              <Label
+                value={`현 추세 ${delayDays > 0 ? `D+${delayDays}` : delayDays < 0 ? `D−${Math.abs(delayDays)}` : "동일"}`}
+                position="top"
+                offset={10}
+                fill="#1a56db"
+                fontSize={11}
+                fontWeight={700}
+              />
+            </ReferenceDot>
+          )}
+
+          {/* 최적화 도달 시점 — -9일 */}
+          {showOptimistic && optEnd && (
+            <ReferenceDot x={optEnd} y={100} r={5} fill="#0ea76a" stroke="#ffffff" strokeWidth={2}>
+              <Label
+                value={recoveryDays > 0 ? `최적화 -${recoveryDays}일` : "최적화"}
+                position="top"
+                offset={10}
+                fill="#0ea76a"
+                fontSize={11}
+                fontWeight={700}
+              />
+            </ReferenceDot>
           )}
         </ComposedChart>
       </ResponsiveContainer>

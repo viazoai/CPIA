@@ -403,8 +403,8 @@ EOF
 ```
 Task 0  환경 점검 + 회귀 baseline (dev)
         ├ pipeline/.venv/bin/python3 -m pytest pipeline/ → 197 passed + 1 xfailed 재확인
-        ├ A_LOCAL ↔ PROD schema diff dump (본 cycle 검증 완료)
-        └ cloudflared tunnel (PG + Chroma) 활성 확인
+        ├ A_LOCAL ↔ PROD schema diff dump 재확인 (2026-05-17 16:30 본인 검증 완료, plan 시점 재확인 권장)
+        └ cloudflared tunnel 활성 확인 (PG cpia-pg.zoai.uk:5532 + Chroma cpia-chroma.zoai.uk Hard Gate)
 
 Task 1  init.sql 갱신 + migration sql 신규
         ├ infra/postgres/init.sql 의 sites 블록 +4 컬럼
@@ -426,9 +426,9 @@ Task 3  docs/architecture/api-contract.md 신규
         └ commit: docs(architecture): api-contract.md 신규 (PG↔types.ts + 8 endpoint)
 
 Task 4  scripts/seed_sites.sql 신규
-        ├ data/mock_sites.json 5건 → INSERT ... ON CONFLICT DO UPDATE
-        ├ dev 적용 + SELECT 검증 (5 rows)
-        └ commit: feat(seed): sites 5 mock (4 mock + 1 real, fixture types.ts 정합)
+        ├ data/mock_sites.json 6건 (실측, 5 mock + 1 real) → INSERT ... ON CONFLICT DO UPDATE
+        ├ dev 적용 + SELECT 검증 (count=6, is_mock=FALSE 1행=m15x-ph3-ibl)
+        └ commit: feat(seed): sites 6 seed (5 mock + 1 real, data/mock_sites.json 정합)
 
 Task 5  prod schema sync (의존: Task 1 commit. 옵션 B 추가 의존: 조형준 측 git pull + docker)
         ├ 옵션 B 권고: prod 머신에서 git pull A_Track (또는 본 cycle branch) + docker compose down -v && up -d (조형준 실행)
@@ -440,8 +440,8 @@ Task 5  prod schema sync (의존: Task 1 commit. 옵션 B 추가 의존: 조형�
         └ (코드 commit 없음 — prod 머신 작업, 옵션 B 또는 본인 tunnel)
 
 Task 6  prod activity_master + Chroma wbs_master 적재
-        ├ scripts/load_master_list.py 호출 (POSTGRES_URL/CHROMA_HOST=prod)
-        ├ 검증: PROD activity_master row=189 + Chroma wbs_master doc=189
+        ├ scripts/load_master_list.py --filter-companies 남웅건설 세보엠이씨 창원기전 (POSTGRES_URL/CHROMA_HOST=prod)
+        ├ 검증: PROD activity_master row=1059 + Chroma wbs_master group=30 (A_LOCAL 실측 정합)
         └ (코드 commit 없음 — 데이터 적재만)
 
 Task 7  prod Chroma synthetic_v2 적재
@@ -449,14 +449,14 @@ Task 7  prod Chroma synthetic_v2 적재
         ├ 검증: PROD Chroma synthetic_v2 doc count > 0
         └ (코드 commit 없음 — 데이터 적재만)
 
-Task 8  prod sites 5 mock seed
+Task 8  prod sites 6 seed (5 mock + 1 real)
         ├ psql 로 scripts/seed_sites.sql 실행 (POSTGRES_URL=prod)
-        ├ 검증: PROD sites row=5
+        ├ 검증: PROD sites row=6, is_mock=FALSE 1행=m15x-ph3-ibl
         └ (코드 commit 없음 — 데이터 적재만)
 
 Task 9  prod 시뮬 1건 end-to-end 검증 (= Done)
-        ├ synthetic_daily_report --site m15x-ph3-ibl --date 2025-09-25 --bp-name 남웅건설 (POSTGRES_URL/CHROMA_HOST=prod)
-        ├ 검증: PROD pipeline_runs/forecasts/optimizer_advice/daily_reports/checkpoints 각 row ≥ 1
+        ├ python -m pipeline.agents.optimizer.synthetic_daily_report --site-id m15x-ph3-ibl --site-name "M15X Ph-3 IBL" --date 2025-09-25 (POSTGRES_URL/CHROMA_HOST=prod, CPIA_CHECKPOINTER=postgres)
+        ├ 검증: PROD pipeline_runs/forecasts/optimizer_advice/daily_reports/checkpoints 각 row ≥ 1, mapping_corrections=0 (HIL 1 우회)
         ├ Azure 비용 ~$0.1 (시뮬 1건)
         └ commit: chore(verify): prod 시뮬 1건 end-to-end 통과 (raw 검증 결과 docs/audit/raw/)
 

@@ -19,6 +19,8 @@ interface Props {
   siteId: string;
   /** 금일 생산성 (KPI #1 productivity_today). 차트 마지막 점에 강제 매핑. */
   todayValue: number;
+  /** 차트의 끝 날짜 (ISO "YYYY-MM-DD"). 가로축 라벨을 절대 날짜로 표현. */
+  endDate: string;
   /** 표현 일수 (default 90). */
   daysWindow?: number;
 }
@@ -43,18 +45,24 @@ function mulberry32(seed: number): () => number {
 }
 
 /* 90일 일별 생산성 시계열 — base 92 random walk + 후반 30일 감소 trend.
- *  결과의 마지막 값을 todayValue 로 강제. 같은 siteId+todayValue → 같은 시계열. */
-function generateTrend(siteId: string, days: number, todayValue: number) {
+ *  결과의 마지막 값을 todayValue 로 강제, 가로축 라벨은 endDate 기준
+ *  절대 날짜 "MM-DD". 같은 siteId+endDate+todayValue → 같은 시계열. */
+function generateTrend(siteId: string, days: number, todayValue: number, endDate: string) {
   const rand = mulberry32(hashString(siteId));
+  const endMs = new Date(endDate).getTime();
   const data: { idx: number; label: string; value: number }[] = [];
   let v = 92;
   for (let i = 0; i < days; i++) {
     const drift = (rand() - 0.5) * 4;
     const trend = i > days - 30 ? -(i - (days - 30)) * 0.2 : 0;
     v = Math.max(70, Math.min(105, v + drift + trend));
+    const ms = endMs - (days - 1 - i) * 86400000;
+    const d = new Date(ms);
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
     data.push({
       idx: i,
-      label: i === days - 1 ? "Today" : `D-${days - 1 - i}`,
+      label: `${mm}-${dd}`,
       value: Math.round(v * 10) / 10,
     });
   }
@@ -64,10 +72,10 @@ function generateTrend(siteId: string, days: number, todayValue: number) {
   return data;
 }
 
-export function ProductivityTrendChart({ siteId, todayValue, daysWindow = 90 }: Props) {
+export function ProductivityTrendChart({ siteId, todayValue, endDate, daysWindow = 90 }: Props) {
   const data = useMemo(
-    () => generateTrend(siteId, daysWindow, todayValue),
-    [siteId, daysWindow, todayValue],
+    () => generateTrend(siteId, daysWindow, todayValue, endDate),
+    [siteId, daysWindow, todayValue, endDate],
   );
   const avg = useMemo(
     () => data.reduce((s, p) => s + p.value, 0) / data.length,
@@ -85,7 +93,7 @@ export function ProductivityTrendChart({ siteId, todayValue, daysWindow = 90 }: 
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
           <div className="font-display text-h6 text-ink">
-            공사 전 기간 생산성 트렌드
+            현장 생산성 Trend
           </div>
           <div className="mt-3 flex items-baseline gap-2">
             <span className="font-display text-3xl font-semibold tracking-[-0.015em] text-ink">

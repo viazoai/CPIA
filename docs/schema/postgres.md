@@ -176,7 +176,8 @@ CREATE TABLE daily_reports (
     created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_daily_reports_run ON daily_reports (run_id);
+CREATE INDEX idx_daily_reports_run  ON daily_reports (run_id);
+CREATE INDEX idx_daily_reports_date ON daily_reports (report_date DESC);
 ```
 
 - `history_csv_row` 컬럼명은 CSV 누적 의도 그 자체. reporter.py 내부 변수명 `summary` 와 별개 — DB 컬럼명은 `history_csv_row`.

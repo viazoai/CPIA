@@ -62,23 +62,29 @@ export function ForecastChart({ diagnosis, recoveryActive = false, delayDays, re
         <ConfidenceBadge sampleSize={diagnosis.sample_size} />
       </div>
 
-      <div className="mb-4 grid grid-cols-2 gap-3">
-        <ForecastKpi
-          label="예상 공기"
-          value={Math.abs(delayDays)}
-          unit="일"
-          caption={delayDays > 0 ? "지연 예상" : delayDays < 0 ? "단축 예상" : "계획 동일"}
-          prefix={delayDays > 0 ? "D+" : delayDays < 0 ? "D−" : ""}
-          tone={delayDays > 0 ? "rose" : delayDays < 0 ? "mint" : "ink"}
-        />
-        <ForecastKpi
-          label="최적화 공기"
-          value={recoveryDays}
-          unit="일"
-          caption={recoveryDays > 0 ? "추가 단축 가능" : "추가 단축 불가"}
-          prefix={recoveryDays > 0 ? "-" : ""}
-          tone="mint"
-        />
+      <div className="mb-4 grid grid-cols-2 gap-x-8">
+        <div>
+          <div className="text-sm text-ink-mid">예상 공기</div>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="font-display text-h3 font-semibold tracking-[-0.015em] text-ink">
+              {delayDays > 0 ? "D+" : delayDays < 0 ? "D−" : ""}{Math.abs(delayDays)}
+            </span>
+            <span className="text-base text-ink-mid">
+              일 {delayDays > 0 ? "지연 예상" : delayDays < 0 ? "단축 예상" : "계획 동일"}
+            </span>
+          </div>
+        </div>
+        <div>
+          <div className="text-sm text-ink-mid">최적화 공기</div>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="font-display text-h3 font-semibold tracking-[-0.015em] text-ink">
+              {recoveryDays > 0 ? "-" : ""}{recoveryDays}
+            </span>
+            <span className="text-base text-ink-mid">
+              일 {recoveryDays > 0 ? "추가 단축 가능" : "추가 단축 불가"}
+            </span>
+          </div>
+        </div>
       </div>
 
       <div className="mb-3 flex flex-wrap gap-1.5">
@@ -190,35 +196,6 @@ function outlookNarrative(
     return `AI 권고 적용 시 ${recoveryDays}일 단축으로 계획 공기 회복이 가능합니다.`;
   }
   return `AI 권고 적용 시 ${recoveryDays}일 단축으로 계획 공기를 ${Math.abs(remaining)}일 앞당길 수 있습니다.`;
-}
-
-interface ForecastKpiProps {
-  label: string;
-  value: number;
-  unit: string;
-  caption: string;
-  prefix?: string;
-  tone: "rose" | "mint" | "ink";
-}
-
-function ForecastKpi({ label, value, unit, caption, prefix = "", tone }: ForecastKpiProps) {
-  const valueTone = {
-    rose: "text-rose-text",
-    mint: "text-mint-text",
-    ink:  "text-ink",
-  }[tone];
-  return (
-    <div className="rounded-card border border-border-soft bg-surface-soft/40 px-4 py-3">
-      <div className="text-sm text-ink-mid">{label}</div>
-      <div className="mt-1 flex items-baseline gap-2">
-        <span className={cn("font-display text-h3 font-semibold tracking-[-0.015em]", valueTone)}>
-          {prefix}{value}
-        </span>
-        <span className="text-base text-ink-light">{unit}</span>
-        <span className="ml-1 text-sm text-ink-mid">{caption}</span>
-      </div>
-    </div>
-  );
 }
 
 interface ToggleChipProps {

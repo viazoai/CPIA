@@ -209,40 +209,39 @@ export function ForecastChart({ diagnosis, recoveryActive = false, delayDays, re
   );
 }
 
-/** 현재 상황 분석 — 이력 평균 대비 위치 + 추세 + 현 공기 지연/단축 결론. */
+/** 현재 상황 — 경영진 친화적 자연어 (통계 용어 회피). */
 function situationNarrative(d: ProductivityDiagnosis, delayDays: number): string {
-  const absZ = Math.abs(d.z_score).toFixed(1);
-  const direction = d.z_score >= 0 ? "위" : "아래";
   const within = Math.abs(d.z_score) < 1.5;
+  const direction = d.z_score >= 0 ? "높은" : "낮은";
   const rangeText = within
-    ? `이력 평균보다 ${absZ}σ ${direction}쪽 정상 변동 범위 안에 머물고 있지만`
-    : `이력 평균보다 ${absZ}σ ${direction}쪽 정상 범위를 벗어난 구간이며`;
+    ? `현재 생산성은 예년 평균과 비슷한 수준입니다.`
+    : `현재 생산성이 예년 평균을 크게 벗어난 ${direction} 상태입니다.`;
   const trendText =
     delayDays > 0
-      ? `최근 30일 동안 생산성이 우하향해 현 추세 유지 시 계획 대비 ${delayDays}일 지연이 예상됩니다.`
+      ? `다만 최근 한 달간 생산성이 점차 떨어지는 추세로, 지금 흐름이 이어지면 당초 계획보다 ${delayDays}일 늦게 완공될 것으로 보입니다.`
       : delayDays < 0
-        ? `최근 추세가 우상향해 현 추세 유지 시 계획 대비 ${Math.abs(delayDays)}일 단축이 가능합니다.`
-        : `현재 추세는 계획선과 거의 일치합니다.`;
-  return `${rangeText}, ${trendText}`;
+        ? `최근 흐름이 좋아지고 있어, 이대로 유지된다면 당초 계획보다 ${Math.abs(delayDays)}일 빨리 완공할 수 있습니다.`
+        : `현재 추세는 당초 계획과 거의 일치합니다.`;
+  return `${rangeText} ${trendText}`;
 }
 
-/** 만회 전망 — AI 권고 적용 시 단축 효과 + 최종 공기 결론. */
+/** 만회 전망 — AI 권고 효과를 경영진 의사결정 언어로. */
 function outlookNarrative(
-  d: ProductivityDiagnosis,
+  _d: ProductivityDiagnosis,
   delayDays: number,
   recoveryDays: number,
 ): string {
   if (recoveryDays <= 0) {
-    return `자연 회귀만으로는 추가 회복이 어렵고, AI 권고로도 의미 있는 단축은 어려운 상태입니다.`;
+    return `현재로서는 AI 가 제안할 수 있는 만회 방안이 제한적이며, 일정 회복은 어려운 상황입니다.`;
   }
   const remaining = delayDays - recoveryDays;
   if (remaining > 0) {
-    return `AI 권고 적용 시 ${recoveryDays}일 단축이 가능하며, 만회 시나리오를 따르면 계획 공기 대비 ${remaining}일 차이까지 좁힐 수 있습니다.`;
+    return `AI 가 제안하는 조치를 시행하면 ${recoveryDays}일을 만회할 수 있어, 최종 공기는 당초 계획보다 ${remaining}일 늦어지는 선에서 마무리할 수 있습니다.`;
   }
   if (remaining === 0) {
-    return `AI 권고 적용 시 ${recoveryDays}일 단축으로 계획 공기 회복이 가능합니다.`;
+    return `AI 가 제안하는 조치를 시행하면 ${recoveryDays}일을 만회할 수 있어, 당초 계획대로 공기를 회복할 수 있습니다.`;
   }
-  return `AI 권고 적용 시 ${recoveryDays}일 단축으로 계획 공기를 ${Math.abs(remaining)}일 앞당길 수 있습니다.`;
+  return `AI 가 제안하는 조치를 시행하면 ${recoveryDays}일을 만회할 수 있어, 당초 계획보다 ${Math.abs(remaining)}일 빨리 완공할 수 있습니다.`;
 }
 
 interface ToggleChipProps {

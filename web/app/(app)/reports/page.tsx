@@ -8,7 +8,8 @@ import { RecoveryEtaCard } from "@/app/components/reports/RecoveryEtaCard";
 import { OptimizerResult } from "@/app/components/reports/OptimizerResult";
 import { QuadrantCountKpi } from "@/app/components/reports/QuadrantCountKpi";
 import { RawDataTab } from "@/app/components/reports/RawDataTab";
-import { SpiBandChart } from "@/app/components/charts/SpiBandChart";
+import { WPSummaryTable } from "@/app/components/reports/WPSummaryTable";
+import { ForecastChart } from "@/app/components/charts/ForecastChart";
 import { BarChartH } from "@/app/components/charts/BarChartH";
 import { QuadrantScatter } from "@/app/components/charts/QuadrantScatter";
 import { diagnose } from "@/lib/diagnosis";
@@ -47,6 +48,11 @@ export default function ReportPage() {
     return diagnose(toDiagnosisInput(detail.kpi, detail.s_curve, REPORT_SITE_ID));
   }, [detail]);
 
+  const wpNameById = useMemo(() => {
+    if (!detail) return {};
+    return Object.fromEntries(detail.wp_summary.map((w) => [w.wp_id, w.wp_name]));
+  }, [detail]);
+
   if (!detail || !diagnosis) {
     return <div className="px-6 py-10 text-ink-light">Loading...</div>;
   }
@@ -54,7 +60,7 @@ export default function ReportPage() {
   const kpiRest: KpiItem[] = [
     { label: "현재 생산성", value: `${detail.kpi.productivity_today}`, unit: "%", sub: `이력 ${detail.kpi.productivity_history_diff > 0 ? "+" : ""}${detail.kpi.productivity_history_diff}%`, tone: detail.kpi.productivity_today < 90 ? "risk" : "normal" },
     { label: "현 추세 공기", value: `D+${detail.kpi.delay_days}`, unit: "일 지연", sub: detail.kpi.expected_completion, tone: "risk" },
-    { label: "최적화 후 공기", value: `-${detail.kpi.recovery_days}`, unit: "일 회복", sub: detail.kpi.recovered_completion, tone: "normal" },
+    { label: "회복 후 공기", value: `-${detail.kpi.recovery_days}`, unit: "일 회복", sub: detail.kpi.recovered_completion, tone: "normal" },
   ];
 
   const selectedWp = detail.quadrant.find((p) => p.wp_id === selectedWpId) ?? null;
@@ -69,7 +75,7 @@ export default function ReportPage() {
           현장 일일 진단 보고서
         </h1>
         <p className="mt-2 text-body-sm text-ink-mid">
-          진단 · 시나리오 · 최적화 대상 · 원본 데이터를 한 흐름에서 확인합니다.
+          결론 → 현재 상태 → 추세 → 이슈+권고 → 원본의 인과 흐름으로 확인합니다.
         </p>
       </div>
 
@@ -82,7 +88,8 @@ export default function ReportPage() {
           </div>
 
           <div className="col-span-12 flex flex-col gap-10 md:col-span-9">
-            <Section eyebrow="/ 01 — 현재 상태" title="KPI 스냅샷">
+
+            <Section eyebrow="/ 01 — 결론" title="KPI 요약" subtitle="아래에서 도출된 결과">
               <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
                 <SingleKpi item={kpiRest[0]} />
                 <GapKpiCard
@@ -95,37 +102,26 @@ export default function ReportPage() {
               </div>
             </Section>
 
-            <Section eyebrow="/ 02 — 진단" title="이력 평균 대비 추세">
-              <SpiBandChart diagnosis={diagnosis} />
-            </Section>
-
-            <Section eyebrow="/ 03 — 회복 시나리오 · 권고" title="시나리오 ETA + Optimizer">
-              <div className="grid gap-4 md:grid-cols-2">
-                <RecoveryEtaCard scenarios={diagnosis.scenarios} />
-                <div>
-                  <div className="mb-2 text-body-sm text-ink-mid">
-                    {selectedWp ? (
-                      <>선택된 WP: <span className="font-semibold text-ink">{selectedWp.wp_name}</span> <span className="text-ink-light">({selectedWp.trade})</span></>
-                    ) : (
-                      <>WP 미선택 — 아래 산점도에서 점을 클릭하세요</>
-                    )}
-                  </div>
-                  <OptimizerResult output={detail.optimizer} />
-                </div>
-              </div>
-            </Section>
-
-            <Section eyebrow="/ 04 — 공정 분해" title="업체 · 공종 생산성">
+            <Section eyebrow="/ 02 — 현재 상태" title="업체 · 공종 생산성" subtitle="KPI #1·#2 의 근거">
               <div className="grid gap-4 md:grid-cols-2">
                 <BarChartH items={detail.contractor_bars} title="업체별 생산성 (오늘 평균)" />
                 <BarChartH items={detail.trade_bars} title="공종별 생산성 (오늘 평균)" />
               </div>
             </Section>
 
-            <Section eyebrow="/ 05 — 최적화 대상" title="Impact × Productivity 산점도">
+            <Section eyebrow="/ 03 — Forecasting" title="현 추세 + 신뢰 밴드" subtitle="KPI #3 의 근거 · § 4 클릭 시 만회 곡선 추가">
+              <ForecastChart
+                diagnosis={diagnosis}
+                recoveryActive={selectedWpId !== null}
+              />
+            </Section>
+
+            <Section eyebrow="/ 04 — 이슈 + 권고" title="4분면 + Optimizer" subtitle="Forecasting → Optimizer 브릿지 · KPI #4 의 근거">
               <div className="grid grid-cols-12 gap-4">
-                <div className="col-span-12 md:col-span-6">
+                <div className="col-span-12 md:col-span-6 flex flex-col gap-3">
+                  <QuadrantCountKpi points={detail.quadrant} filter={filter} onFilterChange={setFilter} />
                   <div className="rounded-card border border-border-soft bg-card p-4 shadow-xs">
+                    <div className="mb-2 font-display text-h6 text-ink">Impact × Productivity 산점도</div>
                     <QuadrantScatter
                       points={detail.quadrant}
                       selectedWpId={selectedWpId}
@@ -137,13 +133,24 @@ export default function ReportPage() {
                     </div>
                   </div>
                 </div>
-                <div className="col-span-12 md:col-span-6">
-                  <QuadrantCountKpi points={detail.quadrant} filter={filter} onFilterChange={setFilter} />
+
+                <div className="col-span-12 md:col-span-6 flex flex-col gap-3">
+                  <div className="rounded-card border border-border-soft bg-card p-4 shadow-xs">
+                    <div className="text-body-sm text-ink-mid">
+                      {selectedWp ? (
+                        <>선택된 WP: <span className="font-semibold text-ink">{selectedWp.wp_name}</span> <span className="text-ink-light">({selectedWp.trade})</span></>
+                      ) : (
+                        <>WP 미선택 — 산점도에서 점을 클릭하세요</>
+                      )}
+                    </div>
+                  </div>
+                  <OptimizerResult output={detail.optimizer} />
+                  <RecoveryEtaCard scenarios={diagnosis.scenarios} />
                 </div>
               </div>
             </Section>
 
-            <Section eyebrow="/ 06 — 원본 데이터" title="작업일보 매핑 결과">
+            <Section eyebrow="/ 05 — 원본 데이터" title="WP 요약 + 작업일보 상세" subtitle="근거 자료 (기본 접힘)">
               <button
                 type="button"
                 onClick={() => setRawOpen((v) => !v)}
@@ -151,18 +158,28 @@ export default function ReportPage() {
                 aria-expanded={rawOpen}
               >
                 <span className="text-body-sm text-ink">
-                  {rawOpen ? "원본 데이터 접기" : `원본 데이터 펼치기 · ${detail.raw_data.length} rows`}
+                  {rawOpen ? "원본 데이터 접기" : `원본 데이터 펼치기 · WP ${detail.wp_summary.length}개 · 작업일보 ${detail.raw_data.length} rows`}
                 </span>
                 <ChevronDown
                   className={`h-4 w-4 text-ink-mid transition-transform ${rawOpen ? "rotate-180" : ""}`}
                 />
               </button>
               {rawOpen && (
-                <div className="mt-3">
-                  <RawDataTab rows={detail.raw_data} />
+                <div className="mt-3 flex flex-col gap-4">
+                  <WPSummaryTable
+                    rows={detail.wp_summary}
+                    selectedWpId={selectedWpId}
+                    onSelect={setSelectedWpId}
+                  />
+                  <RawDataTab
+                    rows={detail.raw_data}
+                    filterWpId={selectedWpId}
+                    wpNameById={wpNameById}
+                  />
                 </div>
               )}
             </Section>
+
           </div>
         </div>
       </section>
@@ -173,10 +190,12 @@ export default function ReportPage() {
 function Section({
   eyebrow,
   title,
+  subtitle,
   children,
 }: {
   eyebrow: string;
   title: string;
+  subtitle?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -186,6 +205,9 @@ function Section({
           {eyebrow}
         </span>
         <h2 className="mt-1 font-display text-h5 text-ink">{title}</h2>
+        {subtitle && (
+          <p className="mt-0.5 text-body-sm text-ink-mid">{subtitle}</p>
+        )}
       </div>
       {children}
     </section>

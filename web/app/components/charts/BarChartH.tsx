@@ -103,11 +103,12 @@ export function BarChartH({
             dataKey="baseline"
             type="monotone"
             stroke="#1a56db"
-            strokeWidth={2}
-            strokeDasharray="4 3"
-            dot={{ fill: "#1a56db", stroke: "#ffffff", strokeWidth: 1.5, r: 4 }}
-            activeDot={{ r: 6 }}
+            strokeWidth={2.5}
+            strokeDasharray="5 4"
+            dot={{ fill: "#0d1117", stroke: "#1a56db", strokeWidth: 2, r: 5 }}
+            activeDot={{ r: 7 }}
             isAnimationActive={false}
+            connectNulls
           />
         )}
         {showAverage && items.length > 0 && (

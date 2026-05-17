@@ -120,17 +120,54 @@
 
 ## 2. 컨셉 v1→v2 cross-cutting
 
-(Task 3 Step 3.2 에서 작성 — 6 변경 매트릭스)
+PM 원안 §0 표의 6 변경이 현 구현에 반영됐는지.
 
-### 2.7 Synthetic 변동/회복 패턴 매트릭스
+| # | v1→v2 변경 | 검증 명령 + 결과 | 일치도 |
+|---|------------|------------------|--------|
+| 1 | 품셈 → 현장 실적 누적 | `$ grep -rn "품셈\|pumssem" pipeline/` → **0 hits** | 일치 (완전 제거) |
+| 2 | Forecaster 판단: 실측÷품셈 → 오늘 vs 유사 과거 비교 | `pipeline/agents/forecaster/agent.py:16 from pipeline.chroma_client import ChromaClient`<br>+ `agent.py:23 fetch_chroma_actual`<br>+ `agent.py:113 similar_cases_raw = _format_chroma_result(rag_result)` | 일치 (RAG path 동작) |
+| 3 | Optimizer: 인원 재배치 수치 → 맥락 조언 | `pipeline/agents/optimizer/prompt.py:39` 시스템 프롬프트: `"수치 계산 (인원 재배치 명령 등) 금지. 맥락 기반 조언만."` | 일치 (prompt level 명시 금지) |
+| 4 | Atomizer 추가 (Vector DB 적재) | `pipeline/agents/atomizer.py` 118 lines, `atomize` 함수 (line 62) + ChromaClient (line 110) | 일치 |
+| 5 | ChromaDB + 임베딩 추가 | `pipeline/chroma_client.py` HttpClient (line 21), Azure `text-embedding-3-small` 1536d (의도된 변경 §3) | 일치 (인프라만 Azure 로 변경 = §3 marked) |
+| 6 | Synthetic history 30일 (v1 = 불필요) | Task 1 Step 1.2 결과: `synthetic_v2 row 수: 2430` (90일 × 27 그룹 — 의도된 확장 §3) | 의도된 변경 (확대) |
 
-(Task 3 Step 3.3 — drift 후보 #7 + #8)
+→ 컨셉 v1→v2 6 변경 모두 일치 또는 의도된 확대. v1→v2 본 의도 = "품셈 → Vector RAG" 전환 = 완전 발현.
+
+### 2.7 Synthetic 변동/회복 패턴 매트릭스 (drift 후보 #7 + #8)
+
+`pipeline/agents/optimizer/synthetic_v2.py:108~140` 의 룰 vs PM 원안 §3.B 4 변동 + 2 회복 패턴.
+
+| 원안 패턴 (§3.B) | synthetic_v2.py 룰 | 일치도 |
+|------------------|--------------------|--------|
+| 우천일 -15~25% | line 115: `delta -= rng.uniform(0.15, 0.25)` | **일치** ✓ |
+| 야간 연장 50% 초과 시 익일 -10% | 룰 6 (line 91~): `last_incident="야간연장"` → 익일 fatigue_factor ×0.90 | 일치 (피로 +10% 적용, 50% 임계값은 미구현 — PoC 단순화) |
+| 장비 대기 -20~35% | 룰 1 (line 116~117): `delta -= rng.uniform(0.20, 0.35)` | **일치** ✓ |
+| 병행작업 겹침 -10~20% | `$ grep "병행\|parallel\|동시" synthetic_v2.py` → **0 hits** | **드리프트** (룰 부재) |
+| 정상일 ±5% | line 121: `delta += rng.uniform(-0.05, 0.05)` | **일치** ✓ |
+| 장비 대기 → 다음날 80% 정상 복귀 | 룰 2 (line 76~78): `if rng.random() < 0.8: incident="정상"` | **일치** ✓ |
+| 우천 연속 2일 → 3일차 +10% 만회 | 룰 4 (line 110): `rain_streak_compensation = 1.10 if state["rain_streak"] >= 2` | **일치** ✓ |
+
+**원안 부재 / synthetic_v2 추가 룰 (의도된 확장 가능성):**
+- 자재미입고 -10~20% + 익일 50% 복귀 (룰 5)
+- 돌관 -10~20% + workers ×1.3 (룰 7)
+- 장비 대기 2일차 → 익일 30% 만회 (룰 3)
+
+→ 원안 4 변동 패턴 중 **3 일치 + 1 드리프트 (병행작업)**, 2 회복 패턴 모두 일치, 추가 룰 3 건. drift 후보 #7 #8 검증 결과 = 거의 일치 + 병행작업 1건 누락.
 
 ---
 
 ## 3. 의도된 변경 (drift 제외, marked)
 
-(Task 3 Step 3.4 — Azure / Next.js / PG+Chroma / Synthetic 90일 4 marked)
+본 audit 에서 다음 4 항목은 의도된 변경으로 marked, 매트릭스 일치도 컬럼에 "의도된 변경" 표기, drift backlog 에 포함 X.
+
+| # | 변경 | 원안 | 현 구현 | 의도 |
+|---|------|------|---------|------|
+| 1 | LLM 인프라 | Claude Sonnet 4.6 + Opus 4.7 | Azure OpenAI `gpt-5.1-chat-ai-board-test` + `gpt-5-mini` | 사용자/회사 Azure 계정 제약 |
+| 2 | Dashboard 스택 | Streamlit | Next.js + TypeScript (`web/` = B_Track 트랙) | 디자인 시스템 / UI 정밀도 |
+| 3 | Persistence | JSON 파일 (corrections / history / forecast / optimizer / mock_sites) | PostgreSQL 16 + Chroma (port 8000) | 확장성 / 동시성 / 운영 안정성 |
+| 4 | Synthetic 스케일 | 30일치 (180~270 row) | 90일 × 27 그룹 = 2,430 row | baseline 통계 의미 확보 (n ≥ 30 per 그룹) |
+
+→ 의도된 변경 4 건 marked 완료. drift backlog 에 포함 X.
 
 ---
 

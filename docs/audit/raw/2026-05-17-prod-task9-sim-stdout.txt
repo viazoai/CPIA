@@ -1,0 +1,20 @@
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+[OK] generate_fake_daily_report: 5 Activity rows (scenarios=1)
+[OK] run_id=b826e4d9-5b36-41fd-99fa-f989817c6122 site_id=m15x-ph3-ibl date=2025-09-25
+
+[HIL-2 INTERRUPT] risky_groups: 1
+  - 남웅건설|철근콘크리트공사: assessment=정상 risk=주의 preview_cases=5
+[AUTO] --auto-select-all → resume keys = ['남웅건설|철근콘크리트공사']
+
+[OPTIMIZER] advice rows: 1
+
+--- 남웅건설|철근콘크리트공사 (forecast_assessment=정상) ---
+diagnosis: 오늘 생산성은 정상 범위로 판단됨. 장비 대기 조건이 있었으나 실제 작업 효율에는 큰 영향이 없었던 것으로 추정됨.
+  - [rank 1] 장비 배치 현황 간단 점검 권장 — 일시적 장비 대기 반복 여부 확인
+  - [rank 2] 과거 패턴상 장비 대기 발생 시에도 정상 생산성 유지 사례 다수 — 별도 대응 필요성 낮을 수 있음
+  - [rank 3] 잔여 물량 기준 현재 생산성 유지 시 공기 영향 미미
+  - [rank 4] 향후 장비 대기가 지속될 경우만 대체 장비 또는 작업 순서 조정 검토 필요
+recovery_distribution: {'d+1': 2, 'd+5': 1, 'd+6': 1, 'not_recovered': 1}

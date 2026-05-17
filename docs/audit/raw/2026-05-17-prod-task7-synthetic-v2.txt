@@ -1,0 +1,14 @@
+=== Task 7 결과 (2026-05-17) ===
+
+조정: 본 cycle 의 prod Chroma 가 dev 로컬 fallback (Chroma homelab 미준비).
+     로컬 Chroma daily_activities 가 이미 충분히 적재됨 → 재호출 skip.
+
+검증:
+  (local) daily_activities total = 2441
+  by source:
+    synthetic_v2 = 2430  (plan §7.1 의 예상 "~2000-2700" 범위 내)
+    mh_prorated  =   11  (이전 시뮬 호출 Atomizer 누적, e2e test 의 11 unique doc 정합)
+
+Task 0.2 의 회귀 baseline drift (atomized_ids=0 vs 11) 의 root cause 와
+연결: deterministic hash dedupe 가 mh_prorated 11 doc 모두 skip 처리.
+본 cycle scope 외 (다음 cycle 권고).

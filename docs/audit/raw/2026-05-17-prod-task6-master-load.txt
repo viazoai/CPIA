@@ -1,0 +1,20 @@
+=== Task 6 적재 결과 (2026-05-17) ===
+
+호출: scripts/load_master_list.py --filter-companies 남웅건설 세보엠이씨 창원기전
+환경: POSTGRES_URL=prod (5532 tunnel), CHROMA_HOST=localhost (dev fallback — Chroma homelab 미준비)
+
+stdout:
+  [load] 전체 (WA, L6) 그룹: 102
+  [load] filter 적용 후 그룹: 30
+  [load] 적재 row: 1059
+  [load] PG activity_master upsert: 1059 rows
+  [load] Chroma wbs_master upsert: 30 groups
+
+검증:
+  PROD activity_master rows = 1059
+  sample = {'wbs_activity_id': 'TNMCB1F6501A03030034', 'wa': 'CUB', 'company': '남웅건설', 'l5_disc': '건축', 'l6_main': '철근콘크리트공사', 'unit': 'm2', 'plan_total_qty': 1500}
+  by_company:
+    남웅건설              179
+    세보엠이씨             561
+    창원기전              319
+  (local) Chroma wbs_master count = 30

@@ -129,8 +129,9 @@ async def upsert_pg(
     rows: list[dict[str, Any]],
     dsn: str,
     source_file: str,
+    site_id: str,
 ) -> int:
-    """PG activity_master row 별 UPSERT."""
+    """PG activity_master row 별 UPSERT — (site_id, wbs_activity_id) 복합 PK."""
     conn = await asyncpg.connect(dsn)
     try:
         inserted = 0
@@ -138,11 +139,11 @@ async def upsert_pg(
             await conn.execute(
                 """
                 INSERT INTO activity_master (
-                    wbs_activity_id, wa, l5_disc, l6_main, l7_sub, l7_5_activity,
+                    site_id, wbs_activity_id, wa, l5_disc, l6_main, l7_sub, l7_5_activity,
                     company, unit, plan_total_qty, plan_mh_rev2,
                     plan_start, plan_finish, actual_start, actual_finish, source_file
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-                ON CONFLICT (wbs_activity_id) DO UPDATE SET
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+                ON CONFLICT (site_id, wbs_activity_id) DO UPDATE SET
                     unit = EXCLUDED.unit,
                     plan_total_qty = EXCLUDED.plan_total_qty,
                     plan_mh_rev2 = EXCLUDED.plan_mh_rev2,
@@ -152,6 +153,7 @@ async def upsert_pg(
                     actual_finish = EXCLUDED.actual_finish,
                     loaded_at = now()
                 """,
+                site_id,
                 r["wbs_activity_id"],
                 r["wa"],
                 r["l5"],
@@ -178,8 +180,12 @@ def upsert_chroma(
     groups: dict[tuple[str, str], list[dict[str, Any]]],
     azure: AzureOpenAI,
     embed_model: str,
+    site_id: str,
 ) -> int:
-    """Chroma wbs_master 에 (WA, L6) 그룹 단위로 임베딩 적재."""
+    """Chroma wbs_master 에 (site_id, WA, L6) 그룹 단위로 임베딩 적재.
+
+    doc id = f"{site_id}|{wa}|{l6}" — 현장별 격리.
+    """
     chroma = ChromaClient(
         host=os.environ["CHROMA_HOST"],
         port=int(os.environ.get("CHROMA_PORT", "8000")),
@@ -191,13 +197,14 @@ def upsert_chroma(
     texts: list[str] = []
     metas: list[dict[str, Any]] = []
     for (wa, l6), rows in sorted(groups.items()):
-        ids.append(f"{wa}|{l6}")
+        ids.append(f"{site_id}|{wa}|{l6}")
         texts.append(make_doc_text(wa, l6, rows))
         companies = sorted({r["company"] for r in rows if r["company"]})
         units = sorted({r["unit"] for r in rows if r["unit"]})
         l5s = sorted({r["l5"] for r in rows if r["l5"]})
         metas.append(
             {
+                "site_id": site_id,
                 "wa": wa,
                 "l6_main": l6,
                 "l5_disc": l5s[0] if l5s else "",
@@ -225,6 +232,11 @@ def main() -> None:
         default=CPIA_ROOT / "docs/sample/WBS공정표_M15X IBL PH-3_CPRS_2025.09.25.xlsx",
     )
     ap.add_argument(
+        "--site-id",
+        default="m15x-ph3-ibl",
+        help="이 WBS 가 속한 현장 ID (activity_master.site_id + Chroma doc id prefix).",
+    )
+    ap.add_argument(
         "--filter-companies",
         nargs="*",
         default=None,
@@ -234,6 +246,7 @@ def main() -> None:
     args = ap.parse_args()
 
     print(f"[load] xlsx: {args.wbs}")
+    print(f"[load] site_id: {args.site_id}")
     groups = parse_master_groups(args.wbs)
     print(f"[load] 전체 (WA, L6) 그룹: {len(groups)}")
 
@@ -254,7 +267,7 @@ def main() -> None:
 
     # PG 적재
     dsn = os.environ["POSTGRES_URL"]
-    n_pg = asyncio.run(upsert_pg(all_rows, dsn, str(args.wbs.name)))
+    n_pg = asyncio.run(upsert_pg(all_rows, dsn, str(args.wbs.name), args.site_id))
     print(f"[load] PG activity_master upsert: {n_pg} rows")
 
     # Chroma 적재 (Azure OpenAI 임베딩)
@@ -263,7 +276,7 @@ def main() -> None:
         api_version=os.environ["AZURE_OPENAI_API_VERSION"],
         azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
     )
-    n_chr = upsert_chroma(groups, azure, os.environ["EMBEDDING_MODEL"])
+    n_chr = upsert_chroma(groups, azure, os.environ["EMBEDDING_MODEL"], args.site_id)
     print(f"[load] Chroma wbs_master upsert: {n_chr} groups")
 
 

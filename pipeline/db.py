@@ -35,64 +35,113 @@ class PGClient:
             await self._pool.close()
             self._pool = None
 
-    async def fetch_bp_candidates(self, company: str) -> list[dict[str, Any]]:
+    async def fetch_bp_candidates(
+        self,
+        company: str,
+        site_id: str | None = None,
+    ) -> list[dict[str, Any]]:
         """BP filter — 그 BP사의 (WA, L6) 후보 풀.
 
         활동 마스터에서 company 가 일치하는 row 의 DISTINCT (wa, l6_main) 반환.
+        site_id 지정 시 해당 현장의 WBS 만 (back-compat: None = 전 현장).
         """
         assert self._pool is not None, "connect() 미호출"
         async with self._pool.acquire() as conn:
-            rows = await conn.fetch(
-                """
-                SELECT DISTINCT wa, l6_main
-                FROM activity_master
-                WHERE company = $1
-                ORDER BY wa, l6_main
-                """,
-                company,
-            )
+            if site_id is not None:
+                rows = await conn.fetch(
+                    """
+                    SELECT DISTINCT wa, l6_main
+                    FROM activity_master
+                    WHERE company = $1 AND site_id = $2
+                    ORDER BY wa, l6_main
+                    """,
+                    company,
+                    site_id,
+                )
+            else:
+                rows = await conn.fetch(
+                    """
+                    SELECT DISTINCT wa, l6_main
+                    FROM activity_master
+                    WHERE company = $1
+                    ORDER BY wa, l6_main
+                    """,
+                    company,
+                )
             return [dict(r) for r in rows]
 
-    async def fetch_activity(self, wbs_activity_id: str) -> dict[str, Any] | None:
-        """ActivityID → Plan 값 + 메타."""
+    async def fetch_activity(
+        self,
+        wbs_activity_id: str,
+        site_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """ActivityID → Plan 값 + 메타. site_id 지정 시 해당 현장만."""
         assert self._pool is not None, "connect() 미호출"
         async with self._pool.acquire() as conn:
-            row = await conn.fetchrow(
-                """
-                SELECT wbs_activity_id, wa, l5_disc, l6_main, l7_sub, l7_5_activity,
-                       sub_work_area, company, unit,
-                       plan_total_qty, plan_mh_rev2, plan_start, plan_finish
-                FROM activity_master
-                WHERE wbs_activity_id = $1
-                """,
-                wbs_activity_id,
-            )
+            if site_id is not None:
+                row = await conn.fetchrow(
+                    """
+                    SELECT wbs_activity_id, wa, l5_disc, l6_main, l7_sub, l7_5_activity,
+                           sub_work_area, company, unit,
+                           plan_total_qty, plan_mh_rev2, plan_start, plan_finish
+                    FROM activity_master
+                    WHERE wbs_activity_id = $1 AND site_id = $2
+                    """,
+                    wbs_activity_id,
+                    site_id,
+                )
+            else:
+                row = await conn.fetchrow(
+                    """
+                    SELECT wbs_activity_id, wa, l5_disc, l6_main, l7_sub, l7_5_activity,
+                           sub_work_area, company, unit,
+                           plan_total_qty, plan_mh_rev2, plan_start, plan_finish
+                    FROM activity_master
+                    WHERE wbs_activity_id = $1
+                    """,
+                    wbs_activity_id,
+                )
             return dict(row) if row else None
 
     async def fetch_l6_plan_mh_map(
         self,
         company: str,
         l6_list: list[str],
+        site_id: str | None = None,
     ) -> dict[str, int]:
         """단일 GROUP BY 쿼리로 (company) 의 여러 l6 plan_mh 합을 한 번에 조회.
 
         Spec 3.2 — _prorate_mh() 의 N+1 회피용.
         빈 l6_list / 미등록 BP사 -> {} 반환.
+        site_id 지정 시 해당 현장만.
         """
         if not l6_list:
             return {}
         assert self._pool is not None, "connect() 미호출"
         async with self._pool.acquire() as conn:
-            rows = await conn.fetch(
-                """
-                SELECT l6_main, sum(plan_mh_rev2) AS s
-                FROM activity_master
-                WHERE company = $1 AND l6_main = ANY($2::text[])
-                GROUP BY l6_main
-                """,
-                company,
-                l6_list,
-            )
+            if site_id is not None:
+                rows = await conn.fetch(
+                    """
+                    SELECT l6_main, sum(plan_mh_rev2) AS s
+                    FROM activity_master
+                    WHERE company = $1 AND l6_main = ANY($2::text[]) AND site_id = $3
+                    GROUP BY l6_main
+                    """,
+                    company,
+                    l6_list,
+                    site_id,
+                )
+            else:
+                rows = await conn.fetch(
+                    """
+                    SELECT l6_main, sum(plan_mh_rev2) AS s
+                    FROM activity_master
+                    WHERE company = $1 AND l6_main = ANY($2::text[])
+                    GROUP BY l6_main
+                    """,
+                    company,
+                    l6_list,
+                )
         return {r["l6_main"]: int(r["s"] or 0) for r in rows}
 
     async def insert_pipeline_run(
@@ -142,36 +191,42 @@ class PGClient:
                 f"pipeline_runs(run_id={run_id}) 미존재 — fixture 설정 확인",
             )
 
-    async def fetch_plan_for_group(self, company: str, l6_main: str) -> dict[str, Any] | None:
+    async def fetch_plan_for_group(
+        self,
+        company: str,
+        l6_main: str,
+        site_id: str | None = None,
+    ) -> dict[str, Any] | None:
         """activity_master 의 (company, l6_main) candidate Σ. 미등록 시 None.
 
         Spec §5.2 — 2 SQL 분리로 jsonb_object_agg duplicate key 회피.
+        site_id 지정 시 해당 현장만.
         """
         assert self._pool is not None, "connect() 미호출"
+        site_filter = " AND site_id = $3" if site_id is not None else ""
+        params_with_site = (company, l6_main, site_id) if site_id is not None else (company, l6_main)
         async with self._pool.acquire() as conn:
             qty_rows = await conn.fetch(
-                """
+                f"""
                 SELECT unit, SUM(plan_total_qty) AS qty
                 FROM activity_master
-                WHERE company = $1 AND l6_main = $2 AND unit IS NOT NULL
+                WHERE company = $1 AND l6_main = $2 AND unit IS NOT NULL{site_filter}
                 GROUP BY unit
                 """,
-                company,
-                l6_main,
+                *params_with_site,
             )
             if not qty_rows:
                 return None
             summary = await conn.fetchrow(
-                """
+                f"""
                 SELECT
                     SUM(plan_mh_rev2) AS plan_mh_sum,
                     MIN(plan_start)   AS plan_start,
                     MAX(plan_finish)  AS plan_finish
                 FROM activity_master
-                WHERE company = $1 AND l6_main = $2
+                WHERE company = $1 AND l6_main = $2{site_filter}
                 """,
-                company,
-                l6_main,
+                *params_with_site,
             )
         return {
             "plan_total_qty_by_unit": {r["unit"]: float(r["qty"] or 0) for r in qty_rows},

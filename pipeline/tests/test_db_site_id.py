@@ -86,3 +86,39 @@ async def test_activity_master_existing_rows_backfilled(pg: PGClient):
         pytest.skip("activity_master 빈 (TRUNCATE 후 재적재 대기)")
     site_ids = {r["site_id"] for r in rows}
     assert "m15x-ph3-ibl" in site_ids, f"backfill 실패 — site_ids = {site_ids}"
+
+
+# ── Task 2 — db.py 4 함수의 site_id 인자 ───────────────────────────
+
+
+async def test_fetch_bp_candidates_with_site_id(pg: PGClient):
+    """site_id='m15x-ph3-ibl' 명시 → 기존 1059 row 와 동일 결과."""
+    rows_all = await pg.fetch_bp_candidates("남웅건설")
+    rows_site = await pg.fetch_bp_candidates("남웅건설", site_id="m15x-ph3-ibl")
+    if not rows_all:
+        pytest.skip("activity_master 적재 안 됨")
+    assert rows_all == rows_site, "현재 유일 적재 site 라서 결과 동일해야 함"
+
+
+async def test_fetch_bp_candidates_with_nonexistent_site_id(pg: PGClient):
+    """존재 안 하는 site_id → 빈 list."""
+    rows = await pg.fetch_bp_candidates("남웅건설", site_id="zzz-nonexistent-site")
+    assert rows == []
+
+
+async def test_fetch_activity_with_site_id(pg: PGClient):
+    """fetch_activity(site_id=...) — 같은 wbs_activity_id 조회 결과 동일."""
+    row_all = await pg.fetch_activity("TNMCB1F6501A03030032")
+    row_site = await pg.fetch_activity("TNMCB1F6501A03030032", site_id="m15x-ph3-ibl")
+    if row_all is None:
+        pytest.skip("TNMCB1F6501A03030032 적재 안 됨")
+    assert row_all == row_site
+
+
+async def test_fetch_l6_plan_mh_map_with_site_id(pg: PGClient):
+    """fetch_l6_plan_mh_map(site_id=...) — 결과 동일."""
+    result_all = await pg.fetch_l6_plan_mh_map("남웅건설", ["철근콘크리트공사"])
+    result_site = await pg.fetch_l6_plan_mh_map("남웅건설", ["철근콘크리트공사"], site_id="m15x-ph3-ibl")
+    if not result_all:
+        pytest.skip("남웅건설 철근콘크리트공사 적재 안 됨")
+    assert result_all == result_site

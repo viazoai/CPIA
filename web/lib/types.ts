@@ -195,6 +195,19 @@ export interface RawDataRow {
   equipment: string;
 }
 
+// ────── /reports § 5 — WP 단위 요약 (작업일보 상세의 컨텍스트) ──────
+export interface WPSummaryRow {
+  wp_id: string;
+  wp_name: string;       // "WP-3-2 거푸집"
+  trade: string;         // "골조"
+  bp_name: string;       // "A건설"
+  start_date: string;    // "2026-05-08"
+  end_date: string;      // "2026-05-22"
+  progress_pct: number;  // 0..100
+  productivity: number;  // 0..100 — Quadrant 의 productivity 와 동일 값
+  status: "normal" | "caution" | "risk";
+}
+
 // ────── Dashboard Impact ──────
 export interface ImpactSiteDistribution {
   site_id: string;
@@ -244,7 +257,7 @@ export interface ScenarioPoint {
   eta_days: number;              // 평균 도달 / 만회 예상 일수 (∞ 허용)
   recovery_pct: number;          // 회복 후 누적 진척률 (%)
   delta_completion_days: number; // 계획 완공일 대비. 음수 = 단축, 양수 = 지연
-  curve: number[];               // 시각화용 시계열 (길이 = s_curve.length)
+  curve: (number | null)[];      // 시각화용 시계열 (길이 = s_curve.length). today 이전은 null — 차트에서 선 안 그리도록
 }
 
 export interface ProductivityDiagnosis {

@@ -3,7 +3,7 @@ import path from "path";
 import type {
   Site, SitesSummary, AgentStatus, DailyRun, AgentProgress, ChatMessage,
   WBSNode, ReviewItem, ReportDaily, ReportKpi, SCurvePoint, BarItem,
-  QuadrantPoint, OptimizerOutput, RawDataRow,
+  QuadrantPoint, OptimizerOutput, RawDataRow, WPSummaryRow,
   ImpactSiteDistribution, ImpactTrendPoint, MiddleOfficeAutomation,
   SimulationSequence,
 } from "./types";
@@ -33,6 +33,7 @@ export interface ReportDetail {
   quadrant: QuadrantPoint[];
   optimizer: OptimizerOutput;
   raw_data: RawDataRow[];
+  wp_summary: WPSummaryRow[];
 }
 
 export interface DashboardFixture {

@@ -15,15 +15,26 @@ const COLUMNS: { key: keyof RawDataRow; label: string }[] = [
   { key: "equipment",    label: "장비" },
 ];
 
-export function RawDataTab({ rows }: { rows: RawDataRow[] }) {
+interface Props {
+  rows: RawDataRow[];
+  filterWpId?: string | null;
+  wpNameById?: Record<string, string>;
+}
+
+export function RawDataTab({ rows, filterWpId, wpNameById }: Props) {
   const [q, setQ] = useState("");
+
+  // WP 자동 필터 — wp_id → wp_name lookup 후 raw_data.wp 매칭
+  const wpName = filterWpId && wpNameById ? wpNameById[filterWpId] : null;
+
   const filtered = useMemo(() => {
-    if (!q.trim()) return rows;
+    let base = wpName ? rows.filter((r) => r.wp === wpName) : rows;
+    if (!q.trim()) return base;
     const needle = q.toLowerCase();
-    return rows.filter((r) =>
+    return base.filter((r) =>
       Object.values(r).some((v) => String(v).toLowerCase().includes(needle))
     );
-  }, [rows, q]);
+  }, [rows, q, wpName]);
 
   const exportCsv = () => {
     const header = COLUMNS.map((c) => c.label).join(",");
@@ -41,7 +52,14 @@ export function RawDataTab({ rows }: { rows: RawDataRow[] }) {
       <div className="flex items-center justify-between p-3 border-b border-border-soft">
         <div className="font-display text-h6 text-ink">
           작업일보 매핑 결과
-          <span className="ml-2 text-body-sm font-normal text-ink-mid">{rows.length} rows</span>
+          <span className="ml-2 text-body-sm font-normal text-ink-mid">
+            {filtered.length}{wpName ? ` / ${rows.length}` : ""} rows
+          </span>
+          {wpName && (
+            <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-brand-light px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-brand-text">
+              WP: {wpName}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <div className="relative">

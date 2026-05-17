@@ -307,3 +307,38 @@ class PGClient:
                 if row.get("recommendations") is not None
                 else None,
             )
+
+    async def insert_mapping_correction(
+        self,
+        run_id: uuid.UUID,
+        report_date: _date,
+        original: dict,
+        corrected: dict,
+    ) -> None:
+        """mapping_corrections 테이블 INSERT 1 row.
+
+        실 schema (infra/postgres/init.sql:127) = id, run_id, report_date, original
+        JSONB, corrected JSONB, created_at — 6 컬럼. postgres.md §8 의 work_content/
+        company/trade/correction_type top-level 컬럼은 실 PG 미반영 (drift backlog
+        별 cycle). 본 cycle 은 code-only scope → original/corrected JSONB 안에
+        합쳐서 박음.
+
+        original 예: {wa, l6_main, mapping_conf, mapping_source, work_content,
+                     company, trade} (Mapper 추천 + 컨텍스트)
+        corrected 예: {wa, l6_main, mapping_source="user_corrected",
+                      correction_type="replace"} (사용자 정정)
+        """
+        import json as _json
+
+        assert self._pool is not None, "connect() 미호출"
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO mapping_corrections (run_id, report_date, original, corrected)
+                VALUES ($1, $2, $3::jsonb, $4::jsonb)
+                """,
+                run_id,
+                report_date,
+                _json.dumps(original, ensure_ascii=False),
+                _json.dumps(corrected, ensure_ascii=False),
+            )

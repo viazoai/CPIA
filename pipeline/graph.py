@@ -54,6 +54,117 @@ async def mapper_node(state: CPIAState, cfg: GraphConfig) -> dict:
     return {"mapped": mapped, "current_node": "mapper"}
 
 
+def _build_review_needed(mapped: list[Activity]) -> list[dict]:
+    """requires_review=True 인 Activity 만 review payload 빌드.
+
+    Spec §5.1 — interrupt payload schema.
+    """
+    return [
+        {
+            "idx": i,
+            "work_content": a["work_content"],
+            "company": a["company"],
+            "trade": a["trade"],
+            "wa": a.get("wa"),
+            "l6_main": a.get("l6_main"),
+            "mapping_conf": a.get("mapping_conf"),
+            "mapping_source": a.get("mapping_source"),
+        }
+        for i, a in enumerate(mapped)
+        if a.get("requires_review")
+    ]
+
+
+def _apply_corrections(
+    mapped: list[Activity],
+    corrections: dict[int, dict],
+) -> list[Activity]:
+    """corrections dict (idx → {wa, l6_main}) 를 mapped 에 적용.
+
+    Spec §5.1 #6:
+    - 답한 row: wa/l6_main 수정 + mapping_source="user_corrected" + requires_review=False
+    - 답 안 한 row (review_needed 였으나 corrections 에 없음): Mapper 추천 수용 +
+      mapping_source="user_corrected" + requires_review=False (재시도 X — PoC 기본)
+    """
+    out: list[Activity] = []
+    for i, a in enumerate(mapped):
+        if a.get("requires_review"):
+            c = corrections.get(i)
+            if c:
+                new_a: Activity = {
+                    **a,
+                    "wa": c["wa"],
+                    "l6_main": c["l6_main"],
+                    "mapping_source": "user_corrected",
+                    "requires_review": False,
+                }
+            else:
+                new_a = {
+                    **a,
+                    "mapping_source": "user_corrected",
+                    "requires_review": False,
+                }
+            out.append(new_a)
+        else:
+            out.append(a)
+    return out
+
+
+async def hil_1_node(state: CPIAState, cfg) -> dict:
+    """Mapper 결과 사람 검토. requires_review=True 가 1건 이상이면 interrupt.
+
+    Spec §5.1. cfg = GraphConfig (PG INSERT 용 postgres_url 추출, cfg=None 이면
+    PG insert skip — unit 테스트 path).
+    """
+    mapped = state["mapped"]
+    review_needed = _build_review_needed(mapped)
+    if not review_needed:
+        return {"hil_1_corrections": {}, "current_node": "hil_1"}
+
+    corrections_raw = interrupt({"review_needed": review_needed})
+    corrections_raw = corrections_raw or {}
+    corrections = {int(k): v for k, v in corrections_raw.items()}
+
+    corrected = _apply_corrections(mapped, corrections)
+
+    if cfg is not None and corrections:
+        pg = PGClient(cfg.mapper.postgres_url)
+        await pg.connect()
+        try:
+            run_id_str = state["run_id"]
+            run_id = uuid.UUID(run_id_str) if isinstance(run_id_str, str) else run_id_str
+            today = _date.fromisoformat(state["date"])
+            for idx, c in corrections.items():
+                original_a = mapped[idx]
+                await pg.insert_mapping_correction(
+                    run_id=run_id,
+                    report_date=today,
+                    original={
+                        "work_content": original_a["work_content"],
+                        "company": original_a.get("company"),
+                        "trade": original_a.get("trade"),
+                        "wa": original_a.get("wa"),
+                        "l6_main": original_a.get("l6_main"),
+                        "mapping_conf": original_a.get("mapping_conf"),
+                        "mapping_source": original_a.get("mapping_source"),
+                    },
+                    corrected={
+                        "wa": c["wa"],
+                        "l6_main": c["l6_main"],
+                        "mapping_source": "user_corrected",
+                        "correction_type": "replace",
+                    },
+                )
+        finally:
+            await pg.close()
+
+    return {
+        "mapped": corrected,
+        "hil_1_corrections": corrections,
+        "current_node": "hil_1",
+    }
+
+
 async def atomizer_node(state: CPIAState, cfg: GraphConfig) -> dict:
     run_id = uuid.UUID(state["run_id"]) if isinstance(state["run_id"], str) else state["run_id"]
     parsed: ParsedDailyReport = state["parsed"]
@@ -242,6 +353,9 @@ def build_graph(cfg: GraphConfig):
     async def _mapper(state: CPIAState) -> dict:
         return await mapper_node(state, cfg)
 
+    async def _hil_1(state: CPIAState) -> dict:
+        return await hil_1_node(state, cfg)
+
     async def _atomizer(state: CPIAState) -> dict:
         return await atomizer_node(state, cfg)
 
@@ -255,12 +369,14 @@ def build_graph(cfg: GraphConfig):
         return await optimizer_node(state, cfg)
 
     graph.add_node("mapper", _mapper)
+    graph.add_node("hil_1", _hil_1)
     graph.add_node("atomizer", _atomizer)
     graph.add_node("forecaster", _forecaster)
     graph.add_node("hil_2", _hil_2)
     graph.add_node("optimizer", _optimizer)
     graph.add_edge(START, "mapper")
-    graph.add_edge("mapper", "atomizer")
+    graph.add_edge("mapper", "hil_1")
+    graph.add_edge("hil_1", "atomizer")
     graph.add_edge("atomizer", "forecaster")
     graph.add_edge("forecaster", "hil_2")
     graph.add_conditional_edges(

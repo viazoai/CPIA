@@ -17,7 +17,7 @@ interface Props {
 
 const MODES: { key: Mode; label: string }[] = [
   { key: "contractor", label: "업체별" },
-  { key: "trade",      label: "공종별" },
+  { key: "trade",      label: "건물·공종별" },
 ];
 
 function avgStatus(avg: number): "normal" | "caution" | "risk" {
@@ -41,7 +41,7 @@ const STATUS_CHIP = {
 export function ProductivityBarToggle({ contractorBars, tradeBars, historyMean, date }: Props) {
   const [mode, setMode] = useState<Mode>("contractor");
   const items = mode === "contractor" ? contractorBars : tradeBars;
-  const modeLabel = mode === "contractor" ? "업체별" : "공종별";
+  const modeLabel = mode === "contractor" ? "업체별" : "건물·공종별";
 
   const avg = items.length
     ? items.reduce((s, it) => s + it.value, 0) / items.length
@@ -57,7 +57,7 @@ export function ProductivityBarToggle({ contractorBars, tradeBars, historyMean, 
   const underCount = items.filter(
     (it) => typeof it.baseline === "number" && it.value < it.baseline,
   ).length;
-  const underUnit = mode === "contractor" ? "개 BP사" : "개 공종";
+  const underUnit = mode === "contractor" ? "BP사" : "건물·공종";
 
   return (
     <div className="rounded-card border border-border-soft bg-card p-4 shadow-xs">
@@ -67,29 +67,34 @@ export function ProductivityBarToggle({ contractorBars, tradeBars, historyMean, 
             {modeLabel} 현장 생산성{" "}
             <span className="text-sm font-normal text-ink-mid">({date} 기준)</span>
           </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="font-display text-h3 font-semibold text-ink">
-              {avg.toFixed(1)}
-            </span>
-            <span className="text-base text-ink-light">%</span>
-            <span
-              className={cn(
-                "ml-1 inline-flex items-center rounded-full px-2.5 py-0.5 font-display text-sm font-medium",
-                gapChipTone,
-              )}
-            >
-              평균 대비 {gapSign}{gap.toFixed(1)}%
-            </span>
-            <span
-              className={cn(
-                "inline-flex items-center rounded-full px-2.5 py-0.5 font-display text-sm font-medium",
-                underCount > 0 ? STATUS_CHIP.risk : STATUS_CHIP.normal,
-              )}
-            >
-              {underCount > 0
-                ? `${underCount}${underUnit} 평균 미만`
-                : "전체 평균 도달"}
-            </span>
+          <div className="mt-3 flex flex-wrap items-baseline gap-x-6 gap-y-2">
+            <div className="flex items-baseline gap-2">
+              <span className="font-display text-h3 font-semibold text-ink">
+                {avg.toFixed(1)}
+              </span>
+              <span className="text-base text-ink-light">%</span>
+              <span
+                className={cn(
+                  "ml-1 inline-flex items-center rounded-full px-2.5 py-0.5 font-display text-sm font-medium",
+                  gapChipTone,
+                )}
+              >
+                평균 대비 {gapSign}{gap.toFixed(1)}%
+              </span>
+            </div>
+            <div className="flex items-baseline gap-2 border-l border-border-soft pl-6">
+              <span
+                className={cn(
+                  "font-display text-h3 font-semibold",
+                  underCount > 0 ? "text-rose-text" : "text-mint-text",
+                )}
+              >
+                {underCount}
+              </span>
+              <span className="text-sm text-ink-mid">
+                {underUnit} 평균 미만
+              </span>
+            </div>
           </div>
         </div>
 

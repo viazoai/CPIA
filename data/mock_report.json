@@ -206,34 +206,94 @@
       ],
       "trade_bars": [
         {
-          "label": "거푸집",
+          "label": "M15X · 거푸집",
           "value": 78,
-          "status": "caution",
+          "status": "risk",
           "baseline": 84
         },
         {
-          "label": "철근",
+          "label": "M15X · 철근",
           "value": 72,
           "status": "risk",
           "baseline": 80
         },
         {
-          "label": "콘크리트",
+          "label": "M15X · 콘크리트",
           "value": 96,
           "status": "normal",
           "baseline": 92
         },
         {
-          "label": "방수",
+          "label": "M15X · 방수",
           "value": 87,
           "status": "caution",
           "baseline": 90
         },
         {
-          "label": "MEP",
+          "label": "M15X · MEP",
           "value": 92,
           "status": "normal",
           "baseline": 91
+        },
+        {
+          "label": "M15Y · 거푸집",
+          "value": 88,
+          "status": "caution",
+          "baseline": 86
+        },
+        {
+          "label": "M15Y · 철근",
+          "value": 84,
+          "status": "caution",
+          "baseline": 82
+        },
+        {
+          "label": "M15Y · 콘크리트",
+          "value": 91,
+          "status": "normal",
+          "baseline": 90
+        },
+        {
+          "label": "M15Y · 방수",
+          "value": 79,
+          "status": "risk",
+          "baseline": 85
+        },
+        {
+          "label": "M15Y · MEP",
+          "value": 95,
+          "status": "normal",
+          "baseline": 93
+        },
+        {
+          "label": "M15Z · 거푸집",
+          "value": 82,
+          "status": "caution",
+          "baseline": 85
+        },
+        {
+          "label": "M15Z · 철근",
+          "value": 89,
+          "status": "caution",
+          "baseline": 88
+        },
+        {
+          "label": "M15Z · 콘크리트",
+          "value": 93,
+          "status": "normal",
+          "baseline": 90
+        },
+        {
+          "label": "M15Z · 방수",
+          "value": 90,
+          "status": "normal",
+          "baseline": 91
+        },
+        {
+          "label": "M15Z · MEP",
+          "value": 86,
+          "status": "caution",
+          "baseline": 89
         }
       ],
       "quadrant": [

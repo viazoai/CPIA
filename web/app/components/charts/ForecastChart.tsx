@@ -38,32 +38,63 @@ export function ForecastChart({ diagnosis, recoveryActive = false, delayDays, re
 
   const showOptimistic = toggles.optimistic || recoveryActive;
 
-  const data = diagnosis.s_curve.map((p, i) => ({
-    date: p.date,
-    planned: p.planned,
-    actual: p.actual,
-    band_low:  diagnosis.band_p25[i],
-    band_high: diagnosis.band_p75[i],
-    base:      diagnosis.scenarios.base.curve[i],
-    optimistic:  diagnosis.scenarios.optimistic.curve[i],
-    pessimistic: diagnosis.scenarios.pessimistic.curve[i],
-  }));
+  /**
+   * 그래프 데이터를 KPI(delayDays, recoveryDays) 기반으로 재구성.
+   *  - planned·actual : diagnosis.s_curve 원본
+   *  - base           : today → (planEnd + delayDays) 선형 보간 후 100% 유지
+   *  - optimistic     : today → (planEnd + delayDays - recoveryDays) 선형 보간 후 100% 유지
+   *  - pessimistic    : today → (planEnd + delayDays + 5) 선형 보간 (시연 더미)
+   *  - 데이터 길이 확장: max(planEnd + delayDays + 3)
+   * 이렇게 하면 base/optimistic 의 100% 도달 시점이 정확히 KPI 와 align.
+   */
+  const src = diagnosis.s_curve;
+  const planEndIdxRaw = src.findIndex((p) => p.planned >= 100);
+  const planEndIdx = planEndIdxRaw >= 0 ? planEndIdxRaw : src.length - 1;
 
-  const firstUndef = data.findIndex((d) => d.actual === undefined);
-  const lastIdx = firstUndef === -1 ? data.length - 1 : firstUndef - 1;
+  const firstUndefSrc = src.findIndex((p) => p.actual === undefined);
+  const todayIdx = firstUndefSrc === -1 ? src.length - 1 : firstUndefSrc - 1;
+  const todayProgress =
+    todayIdx >= 0 ? (src[todayIdx].actual ?? src[todayIdx].planned ?? 0) : 0;
+
+  const baseEndIdx = planEndIdx + Math.max(0, delayDays);
+  const optEndIdx = planEndIdx + Math.max(0, delayDays - recoveryDays);
+  const pessEndIdx = planEndIdx + Math.max(0, delayDays + 5);
+  const dataLen = Math.max(src.length, pessEndIdx + 3);
+
+  const firstDate = src[0]?.date ?? "2026-01-01";
+  const dateAt = (i: number): string => {
+    const d = new Date(firstDate);
+    d.setDate(d.getDate() + i);
+    return d.toISOString().slice(0, 10);
+  };
+  const lerpTo100 = (i: number, endIdx: number): number | null => {
+    if (i < todayIdx) return null;
+    if (i >= endIdx) return 100;
+    if (endIdx <= todayIdx) return 100;
+    const t = (i - todayIdx) / (endIdx - todayIdx);
+    return todayProgress + (100 - todayProgress) * t;
+  };
+
+  const data = Array.from({ length: dataLen }, (_, i) => {
+    const original = i < src.length ? src[i] : null;
+    return {
+      date: original?.date ?? dateAt(i),
+      planned: original?.planned ?? 100,
+      actual: i <= todayIdx ? original?.actual : undefined,
+      band_low: diagnosis.band_p25[i] ?? null,
+      band_high: diagnosis.band_p75[i] ?? null,
+      base: lerpTo100(i, baseEndIdx),
+      optimistic: lerpTo100(i, optEndIdx),
+      pessimistic: lerpTo100(i, pessEndIdx),
+    };
+  });
+
+  const lastIdx = todayIdx;
   const lastPoint = lastIdx >= 0 ? data[lastIdx] : null;
 
-  // 100% 도달 시점 찾기 — 각 시나리오가 어디서 끝나는지 시각화
-  const completionDate = (key: "planned" | "base" | "optimistic"): string | null => {
-    for (const d of data) {
-      const v = d[key] as number | null | undefined;
-      if (typeof v === "number" && v >= 100) return d.date;
-    }
-    return null;
-  };
-  const planEnd = completionDate("planned");
-  const baseEnd = completionDate("base");
-  const optEnd  = completionDate("optimistic");
+  const planEnd = data[planEndIdx]?.date ?? null;
+  const baseEnd = data[baseEndIdx]?.date ?? null;
+  const optEnd  = data[optEndIdx]?.date ?? null;
 
   return (
     <div className="rounded-card border border-border-soft bg-card p-5 shadow-xs">
@@ -128,6 +159,9 @@ export function ForecastChart({ diagnosis, recoveryActive = false, delayDays, re
           <Tooltip
             contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid #e2e6ed" }}
             labelFormatter={(v) => String(v)}
+            formatter={(v) =>
+              typeof v === "number" ? `${v.toFixed(1)}%` : (v as string)
+            }
           />
 
           <Area dataKey="band_high" stroke="none" fill="#e8eeff" fillOpacity={0.4} activeDot={false} isAnimationActive={false} />

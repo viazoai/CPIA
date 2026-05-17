@@ -51,7 +51,7 @@ export function RawDataTab({ rows }: { rows: RawDataRow[] }) {
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="검색..."
-              className="rounded-md border border-border bg-white pl-7 pr-2 py-1 text-xs text-ink placeholder:text-ink-light focus:border-lavender focus:outline-none"
+              className="rounded-md border border-border bg-white pl-7 pr-2 py-1 text-xs text-ink placeholder:text-ink-light focus:border-brand focus:outline-none"
             />
           </div>
           <button

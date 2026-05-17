@@ -91,7 +91,7 @@ export function ReviewCard({ item, wbsRoot, onConfirm, onRemap }: Props) {
           <button
             type="button"
             onClick={() => onConfirm(item.id)}
-            className="inline-flex items-center gap-1 rounded-md bg-lavender px-3 py-1.5 text-xs font-semibold text-white hover:bg-lavender-text transition-colors"
+            className="inline-flex items-center gap-1 rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-text transition-colors"
           >
             <Check className="h-3.5 w-3.5" strokeWidth={2.5} />
             확정

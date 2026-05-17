@@ -28,7 +28,7 @@ export function AsIsToBeSection() {
     >
       <div className="mx-auto max-w-wrap px-6 md:px-10">
         <div className="max-w-3xl">
-          <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-lavender-text">
+          <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-brand-text">
             / 02 — Process
           </span>
           <h2 className="mt-3 font-display text-h3 text-ink">
@@ -70,18 +70,18 @@ export function AsIsToBeSection() {
 
           {/* Arrow */}
           <div className="flex items-center justify-center md:px-2">
-            <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-lavender text-white shadow-md md:h-12 md:w-12">
+            <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-brand text-white shadow-md md:h-12 md:w-12">
               <ArrowRight className="h-5 w-5" />
             </span>
           </div>
 
           {/* TO-BE */}
-          <div className="rounded-card-lg border border-lavender/30 bg-gradient-to-br from-lavender-light/60 via-card to-card p-8 shadow-sm">
+          <div className="rounded-card-lg border border-brand/30 bg-gradient-to-br from-brand-light/60 via-card to-card p-8 shadow-sm">
             <div className="flex items-center gap-2">
-              <span className="inline-flex h-7 items-center rounded-full bg-lavender px-3 text-[11px] font-semibold uppercase tracking-wider text-white">
+              <span className="inline-flex h-7 items-center rounded-full bg-brand px-3 text-[11px] font-semibold uppercase tracking-wider text-white">
                 TO-BE
               </span>
-              <span className="text-body-sm text-lavender-text">
+              <span className="text-body-sm text-brand-text">
                 7 Agent · D+0 당일
               </span>
             </div>
@@ -91,7 +91,7 @@ export function AsIsToBeSection() {
             <ol className="mt-6 flex flex-col gap-3">
               {TO_BE.map((step, i) => (
                 <li key={i} className="flex gap-3 text-body-sm text-ink">
-                  <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-lavender font-mono text-[10px] font-semibold text-white">
+                  <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand font-mono text-[10px] font-semibold text-white">
                     {i + 1}
                   </span>
                   <span>{step}</span>

@@ -47,7 +47,7 @@ const TONE_STYLE: Record<NotifTone, { wrap: string; icon: React.ReactNode }> = {
     icon: <AlertTriangle className="h-3.5 w-3.5" />,
   },
   info: {
-    wrap: "bg-lavender-light text-lavender-text",
+    wrap: "bg-brand-light text-brand-text",
     icon: <FileText className="h-3.5 w-3.5" />,
   },
 };
@@ -96,7 +96,7 @@ export function NotificationBell() {
             <span className="font-mono text-[11px] uppercase tracking-wider text-ink-light">
               Notifications
             </span>
-            <button className="text-xs text-lavender hover:underline" type="button">
+            <button className="text-xs text-brand hover:underline" type="button">
               모두 읽음
             </button>
           </div>
@@ -130,7 +130,7 @@ export function NotificationBell() {
             })}
           </ul>
           <div className="border-t border-border-soft bg-surface-soft px-4 py-2.5 text-center">
-            <button className="text-xs text-lavender hover:underline" type="button">
+            <button className="text-xs text-brand hover:underline" type="button">
               전체 알림 보기
             </button>
           </div>

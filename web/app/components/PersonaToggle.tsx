@@ -24,7 +24,7 @@ export function PersonaToggle({ compact = false }: PersonaToggleProps) {
         className={cn(
           "inline-flex h-10 w-12 items-center justify-center rounded-md border border-border transition-colors",
           isMgr
-            ? "bg-lavender text-white hover:bg-lavender-text"
+            ? "bg-brand text-white hover:bg-brand-text"
             : "bg-white text-ink-mid hover:bg-surface-soft hover:text-ink"
         )}
       >
@@ -41,7 +41,7 @@ export function PersonaToggle({ compact = false }: PersonaToggleProps) {
         className={cn(
           "inline-flex flex-1 items-center justify-center gap-1.5 rounded-[5px] px-3 py-1.5 text-xs font-semibold transition-colors",
           persona === "member"
-            ? "bg-lavender text-white"
+            ? "bg-brand text-white"
             : "text-ink-mid hover:text-ink"
         )}
       >
@@ -54,7 +54,7 @@ export function PersonaToggle({ compact = false }: PersonaToggleProps) {
         className={cn(
           "inline-flex flex-1 items-center justify-center gap-1.5 rounded-[5px] px-3 py-1.5 text-xs font-semibold transition-colors",
           persona === "manager"
-            ? "bg-lavender text-white"
+            ? "bg-brand text-white"
             : "text-ink-mid hover:text-ink"
         )}
       >

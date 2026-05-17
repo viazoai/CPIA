@@ -175,12 +175,12 @@ function AgentRow({ agent }: { agent: AgentStatus }) {
 function HilRow({ spec }: { spec: HilSpec }) {
   const Icon = spec.icon;
   return (
-    <li className="flex items-center gap-4 rounded-card border-2 border-dashed border-lavender/60 bg-lavender-light/40 p-4 md:p-5">
+    <li className="flex items-center gap-4 rounded-card border-2 border-dashed border-brand/60 bg-brand-light/40 p-4 md:p-5">
       <div className="flex items-center gap-3">
-        <span className="inline-flex h-10 w-10 items-center justify-center rounded-md bg-lavender text-white shadow-sm">
+        <span className="inline-flex h-10 w-10 items-center justify-center rounded-md bg-brand text-white shadow-sm">
           <Icon className="h-4 w-4" />
         </span>
-        <div className="hidden font-mono text-[10px] font-semibold uppercase tracking-wider text-lavender-text md:block">
+        <div className="hidden font-mono text-[10px] font-semibold uppercase tracking-wider text-brand-text md:block">
           H-i-L
           <br />
           <span className="text-base">{`0${spec.no}`}</span>
@@ -189,7 +189,7 @@ function HilRow({ spec }: { spec: HilSpec }) {
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className="inline-flex items-center rounded-sm bg-lavender px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wider text-white">
+          <span className="inline-flex items-center rounded-sm bg-brand px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wider text-white">
             HIL
           </span>
           <span className="font-display text-h6 text-ink">{spec.title}</span>
@@ -198,8 +198,8 @@ function HilRow({ spec }: { spec: HilSpec }) {
       </div>
 
       <div className="text-right">
-        <div className="font-mono text-[10px] uppercase tracking-wider text-lavender-text">대기</div>
-        <div className="font-display text-h5 text-lavender-text">{spec.waiting}</div>
+        <div className="font-mono text-[10px] uppercase tracking-wider text-brand-text">대기</div>
+        <div className="font-display text-h5 text-brand-text">{spec.waiting}</div>
       </div>
     </li>
   );

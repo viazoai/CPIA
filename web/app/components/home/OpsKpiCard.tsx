@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 
-type Tone = "lavender" | "mint" | "sun" | "sky";
+type Tone = "brand" | "mint" | "sun" | "sky";
 
 export interface OpsKpiCardProps {
   tone: Tone;
@@ -13,7 +13,7 @@ export interface OpsKpiCardProps {
 }
 
 const CHIP: Record<Tone, string> = {
-  lavender: "bg-lavender-light text-lavender-text",
+  brand: "bg-brand-light text-brand-text",
   mint:     "bg-mint-light text-mint-text",
   sun:      "bg-sun-light text-sun-text",
   sky:      "bg-sky-light text-sky-text",

@@ -45,7 +45,7 @@ export function WPSearchCombobox({ wbsRoot, currentWpId, onSelect }: Props) {
           onFocus={() => setOpen(true)}
           onBlur={() => setTimeout(() => setOpen(false), 150)}
           placeholder="WP 이름 또는 코드로 검색 (예: 철근)"
-          className="w-full rounded-md border border-border bg-white pl-8 pr-2 py-1.5 text-xs text-ink placeholder:text-ink-light focus:border-lavender focus:outline-none"
+          className="w-full rounded-md border border-border bg-white pl-8 pr-2 py-1.5 text-xs text-ink placeholder:text-ink-light focus:border-brand focus:outline-none"
         />
       </div>
       {open && filtered.length > 0 && (
@@ -59,7 +59,7 @@ export function WPSearchCombobox({ wbsRoot, currentWpId, onSelect }: Props) {
                 setOpen(false);
               }}
               className={cn(
-                "cursor-pointer px-3 py-1.5 text-xs hover:bg-lavender-light/40",
+                "cursor-pointer px-3 py-1.5 text-xs hover:bg-brand-light/40",
                 o.id === currentWpId && "bg-mint-light/50 font-semibold"
               )}
             >

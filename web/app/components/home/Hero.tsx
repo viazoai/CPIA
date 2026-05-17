@@ -1,6 +1,6 @@
 import { Clock4, UsersRound, AlarmClock, CalendarClock } from "lucide-react";
 
-type ChipTone = "lavender" | "mint" | "sun" | "sky";
+type ChipTone = "brand" | "mint" | "sun" | "sky";
 
 interface HeroStatProps {
   icon: React.ReactNode;
@@ -13,7 +13,7 @@ interface HeroStatProps {
 
 function HeroStat({ icon, label, value, unit, description, tone }: HeroStatProps) {
   const chipClass = {
-    lavender: "bg-lavender-light text-lavender-text",
+    brand: "bg-brand-light text-brand-text",
     mint:     "bg-mint-light text-mint-text",
     sun:      "bg-sun-light text-sun-text",
     sky:      "bg-sky-light text-sky-text",
@@ -37,7 +37,7 @@ export function Hero() {
   return (
     <section className="mx-auto max-w-wrap px-6 pt-14 pb-2 md:px-10 md:pt-20">
       <div className="flex items-center gap-3">
-        <span className="font-mono text-[11px] font-medium uppercase tracking-[0.2em] text-lavender-text">
+        <span className="font-mono text-[11px] font-medium uppercase tracking-[0.2em] text-brand-text">
           / 01 — Hi-tech Division
         </span>
         <span className="h-px w-8 bg-border" />
@@ -48,7 +48,7 @@ export function Hero() {
 
       <h1 className="mt-6 font-display text-h3 text-ink md:text-h1">
         현장 공정 데이터 자동화 및{" "}
-        <span className="font-semibold text-lavender">
+        <span className="font-semibold text-brand">
           공기 리스크 선행 탐지
         </span>{" "}
         Agent
@@ -59,7 +59,7 @@ export function Hero() {
       </p>
 
       <div className="mt-10 grid grid-cols-2 gap-4 md:grid-cols-4">
-        <HeroStat tone="lavender" icon={<Clock4 className="h-4 w-4" />}        label="월간 절감"  value="2,155" unit="h/월" description="2,506h → 351h (86% 절감)" />
+        <HeroStat tone="brand" icon={<Clock4 className="h-4 w-4" />}        label="월간 절감"  value="2,155" unit="h/월" description="2,506h → 351h (86% 절감)" />
         <HeroStat tone="mint"     icon={<UsersRound className="h-4 w-4" />}    label="대체 규모"  value="15.4"  unit="명"   description="2,155h ÷ 140h/명 기준" />
         <HeroStat tone="sun"      icon={<AlarmClock className="h-4 w-4" />}    label="선행 탐지"  value="D-14"              description="공기 리스크 선행 탐지 목표" />
         <HeroStat tone="sky"      icon={<CalendarClock className="h-4 w-4" />} label="공기 단축"  value="3~7"   unit="일"   description="현장 1개당 공기 단축 추정" />

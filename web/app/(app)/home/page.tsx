@@ -18,7 +18,7 @@ export default async function HomePage() {
       {/* Ops KPI 4 */}
       <section className="mt-8 grid grid-cols-2 gap-4 xl:grid-cols-4">
         <OpsKpiCard
-          tone="lavender"
+          tone="brand"
           icon={<Layers className="h-4 w-4" />}
           label="누적 처리"
           value={summary.total_processed.toLocaleString()}

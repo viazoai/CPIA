@@ -85,7 +85,7 @@ export function Sidebar() {
                   ? "h-10 w-12 justify-center"
                   : "gap-3 px-3 py-2.5",
                 active
-                  ? "bg-lavender-light text-lavender-text font-semibold"
+                  ? "bg-brand-light text-brand-text font-semibold"
                   : "text-ink-mid hover:bg-surface-soft"
               )}
             >

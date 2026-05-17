@@ -18,8 +18,8 @@ export function AgentCard({ agent, simInterval = 8000 }: Props) {
 
   const groupClass = agent.group === "collect"
     ? "border-border-soft bg-card"
-    : "border-lavender/20 bg-lavender-light/40";
-  const stripeClass = "bg-lavender";
+    : "border-brand/20 bg-brand-light/40";
+  const stripeClass = "bg-brand";
   const stateColor =
     agent.state === "processing" ? "bg-mint" :
     agent.state === "waiting"    ? "bg-sun"  :

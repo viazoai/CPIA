@@ -7,7 +7,7 @@ export function TopBar() {
     <header className="sticky top-0 z-50 flex h-16 items-center justify-between border-b border-border bg-white/85 px-6 backdrop-blur-md md:px-10">
       {/* Brand */}
       <div className="flex items-center gap-3">
-        <div className="flex h-8 w-8 items-center justify-center rounded-md bg-gradient-to-br from-lavender to-mint">
+        <div className="flex h-8 w-8 items-center justify-center rounded-md bg-gradient-to-br from-brand to-mint">
           <Sparkles className="h-4 w-4 text-white" strokeWidth={2.5} />
         </div>
         <span className="font-display text-base font-bold tracking-tight text-ink">

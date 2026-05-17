@@ -62,7 +62,7 @@ export function ImpactSection() {
     >
       <div className="mx-auto max-w-wrap px-6 md:px-10">
         <div className="max-w-3xl">
-          <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-lavender-text">
+          <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-brand-text">
             / 03 — Impact
           </span>
           <h2 className="mt-3 font-display text-h3 text-ink">
@@ -83,7 +83,7 @@ export function ImpactSection() {
                 key={k.label}
                 className="group relative overflow-hidden rounded-card-lg border border-border bg-card p-7 transition-shadow hover:shadow-md"
               >
-                <span className="absolute right-5 top-5 inline-flex h-10 w-10 items-center justify-center rounded-md bg-lavender-light text-lavender-text">
+                <span className="absolute right-5 top-5 inline-flex h-10 w-10 items-center justify-center rounded-md bg-brand-light text-brand-text">
                   <Icon className="h-5 w-5" />
                 </span>
                 <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink-light">
@@ -112,7 +112,7 @@ export function ImpactSection() {
                 key={p.no}
                 className="flex gap-4 rounded-card border border-border-soft bg-card p-5"
               >
-                <span className="font-mono text-h5 leading-none text-lavender">
+                <span className="font-mono text-h5 leading-none text-brand">
                   {p.no}
                 </span>
                 <div>

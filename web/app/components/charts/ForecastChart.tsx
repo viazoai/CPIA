@@ -124,8 +124,8 @@ export function ForecastChart({ diagnosis, recoveryActive = false, delayDays, re
           <Area dataKey="band_high" stroke="none" fill="#e8eeff" fillOpacity={0.4} activeDot={false} isAnimationActive={false} />
           <Area dataKey="band_low"  stroke="none" fill="#ffffff" fillOpacity={1}   activeDot={false} isAnimationActive={false} />
 
-          {/* Plan — 가장 강조 (회색 두꺼운 실선) */}
-          <Line dataKey="planned" stroke="#4b5563" strokeWidth={2.5} dot={false} isAnimationActive={false} />
+          {/* Plan — 보조선 (옅은 회색 실선) */}
+          <Line dataKey="planned" stroke="#94a3b8" strokeWidth={2} dot={false} isAnimationActive={false} />
 
           {/* Actual — 가장 강조 (검정 더 두꺼운 실선) */}
           <Line dataKey="actual" stroke="#0d1117" strokeWidth={3} dot={false} isAnimationActive={false} />

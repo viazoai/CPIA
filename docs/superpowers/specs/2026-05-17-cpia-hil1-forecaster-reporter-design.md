@@ -71,6 +71,8 @@ $ grep -n "today_qty\|baseline_q\|assigned_workers" pipeline/agents/optimizer/sy
 
 **→ root cause = baseline_q (1 일치) 가 n_activities 만큼 반복되어 N× 오버산출.**
 
+> **Footnote (RAG 평균 23.25 출처):** audit raw `docs/audit/raw/scenario-3-8ee67861.md` line 38 의 forecaster reasoning 인용 — "유사 4건 평균 23.25 m3/인 대비 +38%". 실 호출 시 재산출되는 동적 값 (synthetic_v2 적재 분포 + Chroma rerank 결과 의존).
+
 ### 2.3 Forecaster assessment 결정 path
 
 ```
@@ -193,7 +195,11 @@ async def hil_1_node(state: CPIAState, cfg: GraphConfig) -> dict:
 5. corrections 적용:
    - 해당 idx 의 Activity 의 wa/l6_main 수정
    - `mapping_source="user_corrected"`, `requires_review=False`
-6. PG `mapping_corrections` INSERT (per correction 1 row)
+6. PG `mapping_corrections` INSERT (per correction 1 row) — 매핑 룰:
+   - `original` JSONB = `{"wa": <mapper 추천>, "l6_main": <mapper 추천>, "mapping_conf": <float>, "mapping_source": <auto_bp_single | auto_l6_single | hil_required>}`
+   - `corrected` JSONB = `{"wa": <사용자 입력>, "l6_main": <사용자 입력>, "mapping_source": "user_corrected"}`
+   - `correction_type` = `"replace"` (PoC 기본; `split` / `reject` 는 후속 cycle)
+   - `work_content` / `company` / `trade` = review_needed payload 의 해당 idx 필드 그대로
 7. `return {"mapped": corrected, "hil_1_corrections": corrections, "current_node": "hil_1"}`
 
 **state 변경 0건** — 모두 이미 정의됨 (state.py:118, 56, 43).

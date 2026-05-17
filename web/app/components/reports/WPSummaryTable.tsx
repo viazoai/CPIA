@@ -24,10 +24,7 @@ export function WPSummaryTable({ rows, selectedWpId, onSelect }: Props) {
   return (
     <div className="rounded-card border border-border-soft bg-card shadow-xs overflow-hidden">
       <div className="border-b border-border-soft px-4 py-3">
-        <div className="font-display text-h6 text-ink">
-          WP 요약
-          <span className="ml-2 text-body-sm font-normal text-ink-mid">{rows.length} 개 · 행 클릭 시 작업일보 필터</span>
-        </div>
+        <div className="font-display text-h6 text-ink">Work Package 목록</div>
       </div>
 
       <div className="overflow-x-auto">
@@ -37,10 +34,8 @@ export function WPSummaryTable({ rows, selectedWpId, onSelect }: Props) {
               <th className="px-3 py-1.5 font-medium">WP명</th>
               <th className="px-3 py-1.5 font-medium">공종</th>
               <th className="px-3 py-1.5 font-medium">BP사</th>
-              <th className="px-3 py-1.5 font-medium">시작</th>
-              <th className="px-3 py-1.5 font-medium">종료</th>
-              <th className="px-3 py-1.5 font-medium">진척</th>
-              <th className="px-3 py-1.5 font-medium">생산성</th>
+              <th className="px-3 py-1.5 font-medium">Impact</th>
+              <th className="px-3 py-1.5 font-medium">Productivity</th>
               <th className="px-3 py-1.5 font-medium">Status</th>
             </tr>
           </thead>
@@ -59,20 +54,12 @@ export function WPSummaryTable({ rows, selectedWpId, onSelect }: Props) {
                   <td className="px-3 py-1 text-[12px] font-semibold text-ink">{row.wp_name}</td>
                   <td className="px-3 py-1 text-[12px] text-ink">{row.trade}</td>
                   <td className="px-3 py-1 text-[12px] text-ink-mid">{row.bp_name}</td>
-                  <td className="px-3 py-1 font-mono text-[11px] text-ink-mid">{row.start_date}</td>
-                  <td className="px-3 py-1 font-mono text-[11px] text-ink-mid">{row.end_date}</td>
-                  <td className="px-3 py-1">
-                    <div className="flex items-center gap-2">
-                      <div className="h-1.5 w-20 rounded-full bg-border">
-                        <div
-                          className="h-full rounded-full bg-brand"
-                          style={{ width: `${Math.min(100, row.progress_pct)}%` }}
-                        />
-                      </div>
-                      <span className="font-mono text-[11px] text-ink-mid">{row.progress_pct}%</span>
-                    </div>
+                  <td className="px-3 py-1 text-[12px] font-semibold text-ink tabular-nums">
+                    {row.impact}%
                   </td>
-                  <td className="px-3 py-1 text-[12px] font-semibold text-ink tabular-nums">{row.productivity}%</td>
+                  <td className="px-3 py-1 text-[12px] font-semibold text-ink tabular-nums">
+                    {row.productivity}%
+                  </td>
                   <td className="px-3 py-1">
                     <span className="inline-flex items-center gap-1.5">
                       <span className={cn("h-1.5 w-1.5 rounded-full", STATUS_DOT[row.status])} />

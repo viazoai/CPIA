@@ -206,6 +206,7 @@ export interface WPSummaryRow {
   end_date: string;      // "2026-05-22"
   progress_pct: number;  // 0..100
   productivity: number;  // 0..100 — Quadrant 의 productivity 와 동일 값
+  impact: number;        // 0..100 — WV (Work Volume), Quadrant 의 impact 와 동일 값
   status: "normal" | "caution" | "risk";
 }
 

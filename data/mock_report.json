@@ -520,7 +520,8 @@
           "end_date": "2026-05-28",
           "progress_pct": 54,
           "productivity": 54,
-          "status": "risk"
+          "status": "risk",
+          "impact": 86
         },
         {
           "wp_id": "wp-3-2",
@@ -531,7 +532,8 @@
           "end_date": "2026-05-22",
           "progress_pct": 68,
           "productivity": 68,
-          "status": "risk"
+          "status": "risk",
+          "impact": 78
         },
         {
           "wp_id": "wp-5-1",
@@ -542,7 +544,8 @@
           "end_date": "2026-06-05",
           "progress_pct": 41,
           "productivity": 82,
-          "status": "caution"
+          "status": "caution",
+          "impact": 62
         },
         {
           "wp_id": "wp-3-4",
@@ -553,7 +556,8 @@
           "end_date": "2026-05-15",
           "progress_pct": 92,
           "productivity": 96,
-          "status": "caution"
+          "status": "caution",
+          "impact": 88
         },
         {
           "wp_id": "wp-7-1",
@@ -564,7 +568,8 @@
           "end_date": "2026-06-20",
           "progress_pct": 22,
           "productivity": 95,
-          "status": "normal"
+          "status": "normal",
+          "impact": 28
         },
         {
           "wp_id": "wp-1-1",
@@ -575,7 +580,8 @@
           "end_date": "2026-05-18",
           "progress_pct": 88,
           "productivity": 92,
-          "status": "normal"
+          "status": "normal",
+          "impact": 18
         }
       ]
     }

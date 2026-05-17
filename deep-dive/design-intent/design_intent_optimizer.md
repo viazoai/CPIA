@@ -293,3 +293,45 @@ Forecaster 가 진단한 risky 공종 중 HIL 2 에서 PM 이 선택한 그룹�
   - D-3 (LLM advice 의미 일치): `SYSTEM_PROMPT` + few-shot 정성화.
 - **결정 #8/#20 핵심**: retrieve 책임 hil_2_node 단일화 + recovery_distribution 코드 deterministic → resume 후 결정론 보장.
 - **gpt-5.1 호환 (결정 #9)**: temperature 미사용, fail-fast (결정 #10).
+
+---
+
+## 2026-05-17 hil1-forecaster-reporter cycle 변경 (Git SHA d57b0c5)
+
+### `generate_fake_daily_report` — drift #3 해소 (line 78 산식 정정)
+
+- **변경**: `pipeline/agents/optimizer/synthetic_daily_report.py:78`
+  - 이전 (bug): `today_qty = round(baseline_q * sc["productivity_ratio"], 1)` — N row 가 모두 같은 group total 값을 가짐 → group total = N × baseline × ratio 오버산출
+  - 신: `today_qty = round(baseline_q * sc["productivity_ratio"] / sc["n_activities"], 1)` — row 당 분배 → group total = baseline × ratio (의도 부합)
+- **영향**: ratio=0.45, n=5 시 today_prod = baseline_prod × 0.45 = 13.98 (이전 = 69.91) → Forecaster `classify_assessment_rag` 가 -55% delta 인식 → assessment="이상" 발현 (이전 = "정상" bias).
+- **drift #2 연관**: classify.py:34 수정 X (PM 원안 v2 정합). #2 root cause = #3 input 의 over-산출 → #3 fix 로 자동 해소.
+- **commit**: `c093631` fix(synthetic_daily_report): n_activities 오버산출 버그 + RAG 정합 가드
+- **테스트**: `tests/optimizer/test_synthetic_daily_report_fixture.py` (재현 + 가드 + RAG 정합 3건). `tests/optimizer/test_synthetic_daily_report.py:90` 기존 unit assertion 정정 (row 당 + group total 양쪽 검증).
+
+### `_parse_scenario` — n_activities ValueError 가드 추가
+
+- **변경**: `pipeline/agents/optimizer/synthetic_daily_report.py:118`
+  - 추가: `n_act = int(parts[2]); if n_act <= 0: raise ValueError("n_activities > 0 필요 — 입력: {n_act} ({raw})")`
+- **이슈**: 산식이 `/ n_activities` 분배로 변경됨 → n=0 시 ZeroDivisionError 회피 fail-fast.
+- **테스트**: `test_fixture_n_activities_zero_raises` 검증.
+
+### T1 신규 함수 1
+
+| Function/Class | File:Line | Signature | One-line role | T2? |
+|---|---|---|---|---|
+| `_build_reporter_config` | synthetic_daily_report.py:285 | `() -> ReporterConfig` | env injection — `build_demo_graph_config` 확장 위해 신규 | — |
+
+`build_demo_graph_config` (synthetic_daily_report.py:303) 에 `reporter=_build_reporter_config()` 추가 — build_demo_graph 가 reporter_node 진입 시 필수.
+
+### 신규 drift
+
+- **#N1**: RAG fixture_prod vs synthetic_v2 분포 ±10% mismatch (delta=10.7%). `tests/optimizer/test_synthetic_daily_report_fixture.py::test_fixture_rag_alignment` xfail strict=False 마킹. synthetic_v2 적재 분포 vs 90일 baseline 정렬은 별 cycle.
+- **#N4**: 시뮬 2 (우천 0.8) + 시뮬 3 (돌관 0.45 ×1.3) + 시뮬 4 (cold_start) 추가 검증 skip. 시뮬 1 + rerun 으로 7 성공 기준 충족, 추가 path 별 cycle.
+- **#N7**: `synthetic_daily_report._main_cli` final 출력에 `final.get("report_md")` print 미추가 — 가독성 개선 별 cycle.
+
+### 시뮬 1 실 검증 결과
+
+- raw: `docs/audit/raw/v2-scenario-1-156657ed.md`
+- 결정성: 시뮬 1 vs rerun 결정론 컬럼 diff 0 (assessment + risk + recovery_distribution 100% 일치)
+- Reporter 영속: PG daily_reports row 1건 (md_len=1481, summary 4 키)
+- Azure 비용 ~$0.20 (시뮬 1 + rerun)

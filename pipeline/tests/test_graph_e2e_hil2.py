@@ -28,6 +28,7 @@ from pipeline.agents.atomizer import AtomizerConfig
 from pipeline.agents.forecaster import ForecasterConfig
 from pipeline.agents.mapper import MapperConfig
 from pipeline.agents.optimizer import OptimizerConfig
+from pipeline.agents.reporter import ReporterConfig
 from pipeline.chroma_client import ChromaClient
 from pipeline.db import PGClient
 from pipeline import graph as graph_module
@@ -99,6 +100,13 @@ def cfg() -> GraphConfig:
             chroma_host=common_chroma_host,
             chroma_port=common_chroma_port,
             chroma_ssl=common_chroma_ssl,
+        ),
+        reporter=ReporterConfig(
+            azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
+            azure_api_key=os.environ["AZURE_OPENAI_API_KEY"],
+            azure_api_version=os.environ["AZURE_OPENAI_API_VERSION"],
+            llm_model=os.environ["LLM_MODEL"],
+            postgres_url=common_pg,
         ),
     )
 
@@ -331,7 +339,8 @@ async def test_graph_e2e_hil2_resume_optimizer(cfg, chroma_ready, run_row, monke
     assert len(row["diagnosis"]) > 0
     # recommendations 1건 이상
     assert len(row["recommendations"]) >= 1
-    assert final.get("current_node") == "optimizer"
+    # 신 graph: optimizer → reporter → END (hil1-forecaster-reporter cycle)
+    assert final.get("current_node") == "reporter"
 
 
 # ---------------------------------------------------------------------------
@@ -362,8 +371,8 @@ async def test_graph_e2e_hil2_skip_no_risky(cfg, run_row, monkeypatch):
     assert final.get("pre_optimizer_cases") == {}
     # optimizer 노드 미실행 → optimizer_advice 빈 list (initial_state 값 그대로)
     assert final.get("optimizer_advice") == []
-    # current_node 마지막 = hil_2 (optimizer 미경유)
-    assert final.get("current_node") == "hil_2"
+    # 신 graph: hil_2 → reporter → END (hil1-forecaster-reporter cycle)
+    assert final.get("current_node") == "reporter"
 
 
 # ---------------------------------------------------------------------------
@@ -396,5 +405,5 @@ async def test_graph_e2e_hil2_resume_empty_selection(cfg, chroma_ready, run_row,
     assert final.get("hil_2_selection") == []
     # optimizer 미실행 → optimizer_advice 빈 list (초기값 그대로)
     assert final.get("optimizer_advice") == []
-    # current_node = hil_2 (conditional_edge 가 optimizer 우회)
-    assert final.get("current_node") == "hil_2"
+    # 신 graph: hil_2 conditional_edge 가 optimizer 우회 시에도 reporter 진입 → END
+    assert final.get("current_node") == "reporter"

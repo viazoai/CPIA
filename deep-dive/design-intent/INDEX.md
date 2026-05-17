@@ -1,27 +1,35 @@
 # CPIA design-intent — Master INDEX
 
-- **Generated**: 2026-05-17
-- **Git SHA**: `f9a695f5315eba97b2686f55a72bc91ef6cae6b2` (A_Track)
-- **Scope**: pipeline 전체 (agents 7개 + graph + state + db) — Web/B_Track 제외
+- **Generated**: 2026-05-17 (hil1-forecaster-reporter cycle 후 갱신)
+- **Git SHA**: `d57b0c5` (A_Track, PR #19 pending — 조형준 main 머지 리뷰 대기)
+- **Scope**: pipeline 전체 (agents 7 active + 신규 reporter + graph + state + db + checkpointer) — Web/B_Track 제외
 - **Pair**: `../architecture_overview.md` (deep-dive 라이트)
 
 코드 변경/추가 작업 진입 시 아래 T1 인덱스에서 **함수 이름 / 키워드 / 파일** grep → 매칭 시 해당 서브시스템 `design_intent_<X>.md` 의 T2 카드 확인 → 기존 핸들러 확장 vs 새 설계 판단.
 
+> **이번 cycle 갱신 요지** (vs 이전 f9a695f):
+> - 신규 서브시스템 `reporter` 추가 (drift #1 해소)
+> - orchestration: `hil_1_node` + `reporter_node` + `_LazyAsyncPostgresSaver` + 2 헬퍼 T2 5건 추가 (drift #4 + O-6 해소)
+> - persistence: `insert_mapping_correction` + `insert_daily_report` T2 2건 추가 (O-2 해소 + schema drift #N2/#N3 신규)
+> - optimizer: `generate_fake_daily_report` fix 반영 (drift #3 해소) + `_build_reporter_config` 신규
+> - 신규 drift 7건 (#N1~#N7) — `../../docs/audit/2026-05-17-cpia-drift-backlog.md` 참조
+
 ---
 
-## 서브시스템 7개
+## 서브시스템 8개
 
 | 서브시스템 | 파일 | T1 | T2 | 핵심 책임 | 미해결 핵심 |
 |---|---|---:|---:|---|---|
-| orchestration | [design_intent_orchestration.md](./design_intent_orchestration.md) | 16 | 9 | LangGraph StateGraph + HIL interrupt/resume + checkpoint | HIL 1 미구현 (필드만), Reporter cycle 시 PostgresSaver 전환 |
-| persistence | [design_intent_persistence.md](./design_intent_persistence.md) | 16 | 9 | PG asyncpg pool (7 테이블) + Chroma HTTP (2 컬렉션) | `mapping_corrections` dead schema, `fetch_activity` 미사용 의심 |
+| orchestration | [design_intent_orchestration.md](./design_intent_orchestration.md) | 21 | 14 | LangGraph StateGraph + HIL 1/2 interrupt/resume + AsyncPostgresSaver checkpoint | drift #N5 LangGraph Command(resume=dict) str key 룰 |
+| persistence | [design_intent_persistence.md](./design_intent_persistence.md) | 18 | 11 | PG asyncpg pool (8 활성 테이블 + checkpoints 4 부속) + Chroma HTTP (2 컬렉션) | drift #N2 + #N3 schema migration (postgres.md vs init.sql), `fetch_activity` 미사용 의심 |
 | parser | [design_intent_parser.md](./design_intent_parser.md) | 12 | 11 | xlsx → 4시트 (BPSummary/JobAllocation/EquipmentAllocation/Activity) | Collector (0 byte) 자리 비어있음 |
-| mapper | [design_intent_mapper.md](./design_intent_mapper.md) | 9 | 9 | 6단계 매핑 (BP filter → Embed → Chroma → LLM → WA 4단계) | HIL 1 자리 비어있음, WA 3단계 (시트1 자연어) TODO |
+| mapper | [design_intent_mapper.md](./design_intent_mapper.md) | 9 | 9 | 6단계 매핑 (BP filter → Embed → Chroma → LLM → WA 4단계) | WA 3단계 (시트1 자연어) TODO |
 | atomizer | [design_intent_atomizer.md](./design_intent_atomizer.md) | 4 | 4 | Chroma daily_activities 적재 + fail-fast PG | `embedding_dim` 필드 미사용 의심 |
-| forecaster | [design_intent_forecaster.md](./design_intent_forecaster.md) | ~17 | 13 | RAG 우선 + Plan fallback 진단 (assessment + risk_level) | **audit drift #2** (assessment bias) — 임계값 회귀 권고 |
-| optimizer | [design_intent_optimizer.md](./design_intent_optimizer.md) | ~22 | 7 | LLM 조언 + 결정론 recovery_distribution + synthetic fixture | **audit drift #3** (synthetic_daily_report productivity_ratio bug), D-1 (병행작업 룰) |
+| forecaster | [design_intent_forecaster.md](./design_intent_forecaster.md) | ~17 | 13 | RAG 우선 + Plan fallback 진단 (assessment + risk_level) | classify.py:34 PM 원안 v2 정합 — drift #2 해소 (#3 root cause) |
+| optimizer | [design_intent_optimizer.md](./design_intent_optimizer.md) | ~23 | 7 | LLM 조언 + 결정론 recovery_distribution + synthetic fixture (fix) | drift #N1 RAG fixture_prod vs synthetic_v2 분포 ±10% mismatch, D-1 (병행작업 룰) |
+| reporter ✦ NEW | [design_intent_reporter.md](./design_intent_reporter.md) | 5 | 4 | Mapper+Forecaster+Optimizer 종합 보고서 1 종 + PG daily_reports.history_csv_row 영속 | drift #N3 daily_reports schema mismatch, 공통 _call_azure_llm 추출 후보 (low) |
 
-**합계**: T1 ≈ 96 public 함수/클래스 / T2 = 62 이슈 카드. T2 ≥ 2 점수 통과 함수는 거의 모든 핵심 로직을 커버 (테스트 + git log + 주석 다중 source).
+**합계**: T1 ≈ 109 public 함수/클래스 / T2 ≈ 73 이슈 카드.
 
 ---
 
@@ -160,6 +168,17 @@
 | `_main_cli` (synthetic_daily_report) | synthetic_daily_report.py:339 | `async () -> int` | Task 11 CLI E2E | — |
 | `generate_synthetic_v2_group` | synthetic_v2.py:35 | `(company, l6_main, ..., days=90, seed=42) -> list[dict]` | state machine 7 룰 90일 | ✅ |
 | `_main_cli` (synthetic_v2) | synthetic_v2.py:169 | `async () -> None` | 27 그룹 × 90일 Chroma upsert | — |
+| `_build_reporter_config` ✦ | synthetic_daily_report.py:285 | `() -> ReporterConfig` | env injection (본 cycle 신규, `build_demo_graph_config` 확장) | — |
+
+### reporter ✦ NEW (`pipeline/agents/reporter.py`)
+
+| Function/Class | File:Line | Signature | One-line role | T2 |
+|---|---|---|---|---|
+| `SYSTEM_PROMPT` | reporter.py:24 | str | 3 부 구조 마크다운 schema (작업 통합 / 진단 / 권고) + 한자 금지 + 들여쓰기 룰 | — |
+| `ReporterConfig` | reporter.py:51 | `@dataclass` | Azure 크레덴셜 + LLM model + PG URL + timeout/retries | ✅ |
+| `_build_llm_input` | reporter.py:62 | `(mapped, forecast_rows, optimizer_advice, today) -> dict[str, Any]` | LLM user message JSON 빌더 (4 키: date + activities + forecast + optimizer_advice) | ✅ |
+| `_build_summary` | reporter.py:88 | `(mapped, forecast_rows, optimizer_advice) -> dict` | history_csv_row JSONB summary (total_workers + total_qty_by_trade + risk_counts + advice_count) | ✅ |
+| `report` | reporter.py:114 | `async (mapped, forecast_rows, optimizer_advice, run_id, today, cfg) -> tuple[str, dict]` | 종합 보고서 생성 + PG INSERT (공개 API) | ✅ |
 
 ---
 
@@ -168,7 +187,7 @@
 | 파일 | 크기 | 상태 | drift backlog 우선순위 |
 |---|---|---|---|
 | `pipeline/agents/collector.py` | 0 byte | 미구현 (interface 자리만) | #5 |
-| `pipeline/agents/reporter.py` | 0 byte | 미구현 | #1 |
+| `pipeline/agents/reporter.py` | ✓ 161 LOC | **구현 완료 (본 cycle)** | drift #1 흡수 → [reporter 카드](./design_intent_reporter.md) |
 | `pipeline/main.py` | 0 byte | CLI entry 미구현 | D-7 |
 | `pipeline/api.py` | 0 byte | FastAPI 미구현 | D-7 |
 
@@ -188,9 +207,18 @@
 - "Plan fetch" / "fetch_l6_plan_mh_map" → persistence + mapper
 - "한자" → 모든 서브시스템 (검수 0건 확인)
 
-**audit drift 매핑**:
-- #1 Reporter 구현 → `pipeline/agents/reporter.py` 0 byte
-- #2 Forecaster assessment bias → `forecaster.classify_assessment` + `classify_assessment_rag/plan` 임계값
-- #3 synthetic productivity_ratio bug → `optimizer.generate_fake_daily_report` + `_load_baseline_inputs`
-- #4 HIL 1 구현 → `state.hil_1_corrections` + `mapper.requires_review` + `graph.build_graph` 노드 추가
-- #5 Collector → `pipeline/agents/collector.py` 0 byte + `pipeline/main.py` + `pipeline/api.py`
+**audit drift 매핑** (이번 cycle 흡수 완료):
+- #1 ✓ Reporter 구현 → `pipeline/agents/reporter.py` 161 LOC ([reporter 카드](./design_intent_reporter.md))
+- #2 ✓ Forecaster assessment bias → root cause = #3 input over-산출 + #3 fix 로 자동 해소 (classify.py:34 PM 원안 v2 정합, 수정 X)
+- #3 ✓ synthetic productivity_ratio bug → `optimizer.generate_fake_daily_report:78` n_activities 분배 정정 ([optimizer 카드 §2026-05-17 변경](./design_intent_optimizer.md))
+- #4 ✓ HIL 1 구현 → `graph.hil_1_node` + `_build_review_needed` + `_apply_corrections` + `db.insert_mapping_correction` ([orchestration 카드 §2026-05-17 변경](./design_intent_orchestration.md))
+- #5 ⚠ Collector → `pipeline/agents/collector.py` 0 byte + `pipeline/main.py` + `pipeline/api.py` (다음 cycle 권고)
+
+**신규 drift 매핑** (본 cycle 발견 — defer):
+- #N1 RAG fixture_prod vs synthetic_v2 분포 ±10% mismatch → `optimizer/test_synthetic_daily_report_fixture.py::test_fixture_rag_alignment` xfail strict=False
+- #N2 mapping_corrections schema migration (postgres.md §8 10 컬럼 vs init.sql 6 컬럼) → `persistence.insert_mapping_correction` JSONB 합쳐 박음
+- #N3 daily_reports schema migration (postgres.md §5 date/summary vs init.sql report_date/history_csv_row + bp_name) → `persistence.insert_daily_report` 실 schema 정합 5 인자
+- #N4 시뮬 2/3/4 추가 검증 → 별 cycle (시뮬 1 + rerun 으로 7 성공 기준 충족)
+- #N5 LangGraph Command(resume=dict) int key TypeError → `orchestration.hil_1_node` 가 int(k) 변환 처리
+- #N6 .env.local 경로 spec 명시 어긋남 → 실 root /.env.local (cosmetic spec 정정 별 cycle)
+- #N7 synthetic_daily_report main_cli final report_md 미 print → 가독성 개선 별 cycle

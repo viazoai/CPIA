@@ -259,3 +259,122 @@ LangGraph StateGraph 조립 + 공유 상태 스키마 + HIL interrupt/resume + c
 - **Suspected related** (2026-05-17 stale):
   - Reporter cycle 진입 시 PostgresSaver 전환. drift backlog #1.
   - `docs/schema/postgres.md:checkpoints` 테이블 — 현재 dead schema (LangGraph PostgresSaver 미활성).
+
+---
+
+## 2026-05-17 hil1-forecaster-reporter cycle 변경 (Git SHA d57b0c5)
+
+### T1 신규 함수 5
+
+| Function/Class | File:Line | Signature | One-line role | T2? |
+|---|---|---|---|---|
+| `_build_review_needed` | graph.py:57 | `(mapped) -> list[dict]` | requires_review=True 인 Activity payload 빌더 (8 키: idx + work_content + company + trade + wa + l6_main + mapping_conf + mapping_source) | ✅ |
+| `_apply_corrections` | graph.py:78 | `(mapped, corrections) -> list[Activity]` | corrections (idx→{wa, l6_main}) 적용 — 답한 row 정정 + 답 안 한 row Mapper 추천 수용 | ✅ |
+| `hil_1_node` | graph.py:113 | `async (state, cfg) -> dict` | Mapper 결과 사람 검토 interrupt + PG mapping_corrections 영속 | ✅ |
+| `reporter_node` | graph.py:311 | `async (state, cfg) -> dict` | Mapper+Forecaster+Optimizer 종합 보고서 생성 + PG daily_reports INSERT | ✅ |
+| `_LazyAsyncPostgresSaver` | checkpointer.py:30 | class (AsyncPostgresSaver 상속) | AsyncConnectionPool lazy open wrapper — 첫 async method 호출 시 await pool.open() | ✅ |
+
+`GraphConfig` 에 `reporter: ReporterConfig` 필드 추가 (graph.py:39). `build_graph` + `build_demo_graph` edges 변경:
+- mapper → hil_1 → atomizer (기존 mapper → atomizer)
+- hil_2 conditional → optimizer | reporter (기존 optimizer | END)
+- optimizer → reporter (기존 optimizer → END)
+- reporter → END (신규)
+
+`build_checkpointer` 기존 InMemorySaver → `_LazyAsyncPostgresSaver` (POSTGRES_URL 있고 CPIA_CHECKPOINTER!="memory" 시). 두 fallback 분기 유지.
+
+---
+
+### T2 신규 카드
+
+#### `hil_1_node` — Mapper 결과 사람 검토 interrupt
+
+- **위치**: `pipeline/graph.py:113-167` (55 LOC, 분기 3)
+- **시그니처**: `async def hil_1_node(state: CPIAState, cfg) -> dict`
+- **이슈**:
+  - git log `1bb78fb` (feat(hil_1): Mapper 결과 사람 검토 + PG mapping_corrections 영속) — 본 cycle 신규.
+  - spec `docs/superpowers/specs/2026-05-17-cpia-hil1-forecaster-reporter-design.md §5.1` — 의도적 drift = CLI 인터랙티브 (PM 원안 v2 Dashboard Modal 회피).
+  - drift backlog: #4 (PoC 성공 기준 #2 직접 미충족 — 본 commit 으로 해소).
+  - 코드 주석 (graph.py:113-117): "Mapper 결과 사람 검토. requires_review=True 가 1건 이상이면 interrupt. Spec §5.1. cfg = GraphConfig (PG INSERT 용 postgres_url 추출, cfg=None 이면 PG insert skip — unit 테스트 path)."
+  - LangGraph 패턴 fact (commit msg `1bb78fb`): "LangGraph multi-resume 검사 fix — Command(resume=dict) 의 key 는 str 필수 (int → TypeError). hil_1_node 가 int(k) 변환 처리." (drift #N5)
+- **설계 의도**:
+  - hil_2_node 패턴 차용 (interrupt + Command(resume=)) — graph.py:hil_2_node 의 risky_groups payload 와 대칭.
+  - review_needed 빈 list → interrupt 미발생 (자동 통과) — 100% confidence row 인 경우 효율.
+  - 답 안 한 row 처리: Mapper 추천 그대로 수용 + `mapping_source="user_corrected"` 박음 → "no decision = approve" 의미 (PoC 기본, 재시도 옵션은 후속 cycle).
+  - PG 영속: 사용자 정정 row 마다 1 INSERT — 다음 run 진입 시 자가 학습 데이터 (postgres.md:311 의도).
+  - cfg=None 분기: unit 테스트가 LangGraph runtime 없이 호출 가능 (review_needed=빈 list path).
+- **대응 패턴**:
+  - 발동: `graph.add_edge("mapper", "hil_1")` 후 mapper_node 종료 시
+  - 입력: state.mapped (Mapper 출력) + cfg (PG URL 용)
+  - 처리: `_build_review_needed` → 빈 list 시 즉시 return / 1+ 시 `interrupt({"review_needed": [...]})` → corrections_raw dict → int(k) 변환 → `_apply_corrections` → cfg.mapper.postgres_url 로 PGClient connect → corrections idx 마다 insert_mapping_correction → close
+  - 출력: `{"mapped": corrected, "hil_1_corrections": corrections, "current_node": "hil_1"}`
+- **관련**:
+  - 내부 헬퍼: `_build_review_needed` + `_apply_corrections`
+  - PG INSERT: `db.py:insert_mapping_correction`
+  - LangGraph: `from langgraph.types import Command, interrupt` (graph.py:15)
+  - 테스트: `tests/test_graph_hil1.py` (unit 3) + `tests/test_graph_e2e_hil1.py` (e2e 2 slow)
+  - 차용 패턴: `hil_2_node` 의 `selected = interrupt({"risky_groups": payload_groups})`
+- **Suspected related** (2026-05-17 stale):
+  - `hil_2_node` — 동일 interrupt/resume 패턴. 향후 _common_interrupt helper 추출 후보 (low priority).
+  - B_Track Dashboard `MappingReviewModal.tsx` — CLI 인터랙티브 의도적 drift. 통합 cycle 진입 시 채널 교체.
+
+#### `reporter_node` — Mapper+Forecaster+Optimizer 종합 보고서 생성
+
+- **위치**: `pipeline/graph.py:311-328` (18 LOC, 분기 1)
+- **시그니처**: `async def reporter_node(state: CPIAState, cfg: GraphConfig) -> dict`
+- **이슈**:
+  - git log `22d44c2` (feat(reporter): Mapper+Forecaster+Optimizer 종합 보고서 + PG daily_reports) — 본 cycle 신규.
+  - spec `§5.3` — 의도적 drift = Optimizer 다음 + 종합 1 종 (PM 원안 v2 = Atomizer 다음 병렬 + 사내/발주처 2 종).
+- **설계 의도**:
+  - 얇은 wrapper — 실 로직은 `reporter.report` (별 파일). graph 노드 = run_id/today 변환 + state 추출 + report() 호출.
+  - hil_2 conditional 의 양 분기 합류 — selection=[] 시에도 진입 (mapped=빈 인 cold_start path 도 fallback MD).
+- **대응 패턴**:
+  - 발동: optimizer → reporter (selection 있음) 또는 hil_2 → reporter (selection 없음) conditional_edge
+  - 입력: state.mapped + state.forecast + state.optimizer_advice + state.run_id + state.date + cfg.reporter
+  - 처리: run_id UUID 변환 → today date 변환 → `reporter.report(...)` 호출 → report_md 반환
+  - 출력: `{"report_md": report_md, "current_node": "reporter"}`
+- **관련**: [reporter 카드](./design_intent_reporter.md) (실 로직 + LLM call + PG INSERT 상세)
+
+#### `_LazyAsyncPostgresSaver` — AsyncPostgresSaver lazy pool open wrapper
+
+- **위치**: `pipeline/checkpointer.py:30-79` (50 LOC, 분기 1 lazy)
+- **시그니처**: `class _LazyAsyncPostgresSaver(AsyncPostgresSaver): def __init__(self, postgres_url: str)`
+- **이슈**:
+  - git log `41908f6` (feat(checkpointer): InMemorySaver → AsyncPostgresSaver 전환 + memory fallback) — 본 cycle 신규.
+  - design-intent O-6 권고: "Reporter cycle 또는 통합 cycle 진입 시 PostgresSaver 전환" — 본 cycle 흡수.
+  - 기술 결정 (commit msg `41908f6`):
+    - "PostgresSaver (sync) 는 graph.ainvoke 의 aget_tuple 등 async method 호출 시 NotImplementedError → AsyncPostgresSaver 사용 필수."
+    - "AsyncConnectionPool 은 sync __init__ 안에서 await pool.open() 호출 불가 → _LazyAsyncPostgresSaver 가 첫 async method 호출 (graph.ainvoke 안) 에서 자동 pool.open() 처리."
+    - "LangGraph 의 isinstance(checkpointer, BaseCheckpointSaver) 검사 통과를 위해 wrapper 가 AsyncPostgresSaver 상속."
+- **설계 의도**:
+  - 3 제약 동시 충족:
+    - LangGraph async graph (ainvoke) → AsyncPostgresSaver
+    - AsyncConnectionPool open=False (sync __init__ 안에서 async open 불가)
+    - LangGraph BaseCheckpointSaver isinstance 검사 통과
+  - 첫 async method 호출 시 lazy open (단 1회) — `self._opened` flag.
+  - 5 method override: aput / aget_tuple / aput_writes / alist / aget (LangGraph 가 호출하는 async method 전부).
+  - `autocommit=True` kwargs — checkpoint INSERT 별 transaction 자동 commit (별 transaction 안 진입).
+- **대응 패턴**:
+  - 발동: `build_checkpointer()` 가 `CPIA_CHECKPOINTER!="memory"` + `POSTGRES_URL` 존재 시 반환
+  - 입력: postgres_url str
+  - 처리: AsyncConnectionPool 생성 (open=False, max_size=10) → super().__init__(pool) → 첫 async method 호출 시 `_ensure_open` → `await self._lazy_pool.open()` → super().aXXX delegate
+  - 출력: AsyncPostgresSaver-compatible 객체
+- **관련**:
+  - 호출자: `build_checkpointer:80` (graph.py:build_graph / build_demo_graph 가 사용)
+  - 의존성: `pyproject.toml` 의 `langgraph-checkpoint-postgres>=2.0.0` + `psycopg[binary]` (uv add 2 패키지)
+  - PG 테이블 4 자동 생성: checkpoints + checkpoint_writes + checkpoint_blobs + checkpoint_migrations
+  - 테스트: `tests/test_checkpointer.py` 3건 (postgres default + memory fallback + no POSTGRES_URL fallback)
+- **Suspected related** (2026-05-17 stale):
+  - 본 wrapper 는 본 cycle 종결 후 production 진입점 (main.py / api.py — 현재 0 byte stub) 에서 lifecycle 관리 권장.
+  - drift backlog #N5 LangGraph Command(resume=dict) int key TypeError — 본 wrapper 와 무관 (interrupt payload 변환 룰, hil_1_node 가 처리).
+
+#### `_build_review_needed` + `_apply_corrections` — hil_1_node 분리 헬퍼
+
+- **위치**: graph.py:57-76 + graph.py:78-111 (각 20/34 LOC, pure functions)
+- **시그니처**:
+  - `def _build_review_needed(mapped: list[Activity]) -> list[dict]`
+  - `def _apply_corrections(mapped: list[Activity], corrections: dict[int, dict]) -> list[Activity]`
+- **이슈**: hil_1_node 분리 헬퍼 — unit 테스트 단순 호출 위해 (state/cfg 무관). spec §5.1 #6 의 "답 안 한 row 는 Mapper 추천 수용" 룰 명시.
+- **설계 의도**:
+  - pure function — unit 테스트 단순 호출, LangGraph runtime 의존 X.
+  - `_apply_corrections` 3 path 분기 — (a) requires_review=False 변경 X, (b) requires_review=True + corrections 있음 → 사용자 정정, (c) requires_review=True + corrections 없음 → Mapper 추천 수용. 모두 `mapping_source="user_corrected"` + `requires_review=False` 마킹.
+- **대응 패턴**: 호출자 = `hil_1_node`. 테스트 = `tests/test_graph_hil1.py::test_hil_1_node_review_needed_filter` + `::test_hil_1_node_apply_corrections`.

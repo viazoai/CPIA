@@ -9,11 +9,11 @@
 | 환경 | 용도 | POSTGRES_URL | CHROMA_HOST |
 |---|---|---|---|
 | dev | A_Track 본인 개발 + 회귀 197 PASS + 빠른 iteration | localhost:5432 (cpia-pg-local) | localhost:8000 |
-| prod | 데모 + 서비스 + B_Track fetch | 127.0.0.1:5532 (cloudflared tunnel cpia-pg.zoai.uk) | cpia-chroma.zoai.uk:443 SSL |
+| prod | 데모 + 서비스 + B_Track fetch | 127.0.0.1:5532 (cloudflared tunnel cpia-pg.zoai.uk) | localhost:8000 (잠시 dev 로컬 fallback — 조형준 측 homelab Chroma 준비 후 cpia-chroma.zoai.uk:443 SSL 로 분리 예정) |
 
 전환 = `.env.local` 한 줄 swap 또는 inline env override. **코드 변경 0** (agents 가 GraphConfig DI).
 
-dev 가 prod 안 가리키는 사유: Azure 비용 매 회귀 (~$0.5×197=$100+), Chroma upsert 오염, cloudflared latency, 동시 작업 충돌.
+dev 가 prod 안 가리키는 사유: Azure 비용 매 회귀 (~$0.5×197=$100+), cloudflared latency, 동시 작업 충돌. (Chroma 는 본 cycle 시점 양 환경 같은 인스턴스 = 데이터 오염 risk 명시. 분리는 homelab Chroma 활성 후 다음 cycle.)
 
 ## §2. PG↔types.ts 매핑
 

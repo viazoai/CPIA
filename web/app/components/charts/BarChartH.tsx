@@ -11,6 +11,7 @@ import {
   ReferenceLine,
   Label,
 } from "recharts";
+import { useId } from "react";
 import type { BarItem } from "@/lib/types";
 
 const STATUS_COLOR = {
@@ -56,18 +57,35 @@ export function BarChartH({
     : 0;
   const isVertical = orientation === "vertical";
   const height = isVertical ? 280 : items.length * 36 + 20;
+  /* 막대 그라데이션 — 랜딩 LandingHero 의 bg-gradient-to-t from-brand-light to-brand 패턴 차용.
+   * SVG <linearGradient> 가 컴포넌트마다 unique id 가 필요해 useId 사용. */
+  const gradId = useId().replace(/:/g, "");
+  const blueId = `barBlue-${gradId}`;
+  const roseId = `barRose-${gradId}`;
 
   const chart = (
     <ResponsiveContainer width="100%" height={height}>
       <ComposedChart
         data={items}
         layout={isVertical ? "horizontal" : "vertical"}
+        barCategoryGap={isVertical ? "35%" : "20%"}
         margin={
           isVertical
             ? { top: 24, right: 16, left: 0, bottom: 12 }
             : { top: 0, right: 30, left: 50, bottom: 0 }
         }
       >
+        <defs>
+          {/* 세로 막대: 위 → 짙은 / 아래 → 옅은 */}
+          <linearGradient id={blueId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%"   stopColor="#3b82f6" />
+            <stop offset="100%" stopColor="#dbeafe" />
+          </linearGradient>
+          <linearGradient id={roseId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%"   stopColor="#f87171" />
+            <stop offset="100%" stopColor="#fee2e2" />
+          </linearGradient>
+        </defs>
         {isVertical ? (
           <>
             <XAxis
@@ -98,18 +116,18 @@ export function BarChartH({
         />
         <Bar
           dataKey="value"
-          radius={isVertical ? [4, 4, 0, 0] : [0, 4, 4, 0]}
-          maxBarSize={isVertical ? 28 : undefined}
+          radius={isVertical ? [8, 8, 0, 0] : [0, 6, 6, 0]}
+          maxBarSize={isVertical ? 22 : undefined}
           isAnimationActive={false}
         >
           {items.map((it, i) => {
-            /* showBaseline 모드: baseline 미만이면 옅은 rose, 이상이면 옅은 blue.
-             * 막대 색이 너무 진하면 baseline 라인·KPI 텍스트에 시선 분산 → 부드러운 톤.
-             * 미설정 모드(다른 사용처): 기존 status 기반 색. */
-            const color = showBaseline
-              ? (typeof it.baseline === "number" && it.value < it.baseline ? "#fca5a5" : "#93c5fd")
+            /* showBaseline 모드: baseline 미만이면 rose 그라데이션, 이상이면 blue.
+             * 세로 막대 → 위 짙음 / 아래 옅음 (랜딩 LandingHero 패턴).
+             * 미설정 모드(다른 사용처): 기존 status 기반 단색. */
+            const fill = showBaseline
+              ? (typeof it.baseline === "number" && it.value < it.baseline ? `url(#${roseId})` : `url(#${blueId})`)
               : STATUS_COLOR[it.status];
-            return <Cell key={i} fill={color} />;
+            return <Cell key={i} fill={fill} />;
           })}
         </Bar>
         {showBaseline && items.some((it) => typeof it.baseline === "number") && (

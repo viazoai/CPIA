@@ -53,6 +53,12 @@ export function ProductivityBarToggle({ contractorBars, tradeBars, historyMean, 
   const gapSign = gap >= 0 ? "+" : "";
   const gapChipTone = gap >= -3 ? STATUS_CHIP.normal : gap >= -8 ? STATUS_CHIP.caution : STATUS_CHIP.risk;
 
+  /* baseline 미만 항목 수 — 자체 기준 도달 못한 항목들 */
+  const underCount = items.filter(
+    (it) => typeof it.baseline === "number" && it.value < it.baseline,
+  ).length;
+  const underUnit = mode === "contractor" ? "개 BP사" : "개 공종";
+
   return (
     <div className="rounded-card border border-border-soft bg-card p-4 shadow-xs">
       <div className="mb-3 flex items-start justify-between gap-3">
@@ -73,6 +79,16 @@ export function ProductivityBarToggle({ contractorBars, tradeBars, historyMean, 
               )}
             >
               평균 대비 {gapSign}{gap.toFixed(1)}%
+            </span>
+            <span
+              className={cn(
+                "inline-flex items-center rounded-full px-2.5 py-0.5 font-display text-sm font-medium",
+                underCount > 0 ? STATUS_CHIP.risk : STATUS_CHIP.normal,
+              )}
+            >
+              {underCount > 0
+                ? `${underCount}${underUnit} 평균 미만`
+                : "전체 평균 도달"}
             </span>
           </div>
         </div>

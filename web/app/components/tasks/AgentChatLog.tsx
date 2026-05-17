@@ -31,7 +31,7 @@ const AGENT_META: Record<
   Reporter:   { icon: FileText,   bg: "bg-brand-light", text: "text-brand-text" },
   Forecaster: { icon: Activity,   bg: "bg-brand-light", text: "text-brand-text" },
   Optimizer:  { icon: Sparkles,   bg: "bg-mint-light",     text: "text-mint-text" },
-  Human:      { icon: User,       bg: "bg-brand",       text: "text-white" },
+  "SKEP Manager": { icon: User,   bg: "bg-brand",       text: "text-white" },
 };
 
 export function AgentChatLog({ messages, intervalMs = 1500 }: Props) {

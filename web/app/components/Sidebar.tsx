@@ -15,12 +15,22 @@ import { useUiStore } from "@/lib/ui-store";
 import { cn } from "@/lib/utils";
 import { PersonaToggle } from "./PersonaToggle";
 
-const MENUS = [
-  { key: "home",      label: "Home",          href: "/home",       icon: Home },
-  { key: "tasks",     label: "Agent Tasks",   href: "/tasks",      icon: Bot },
-  { key: "review",    label: "Human Review",  href: "/review",     icon: ClipboardCheck },
-  { key: "reports",   label: "Report",        href: "/reports",    icon: FileBarChart },
-  { key: "dashboard", label: "Dashboard",     href: "/dashboard",  icon: LayoutDashboard },
+const SECTIONS = [
+  {
+    label: "Main Menu",
+    items: [
+      { key: "home",   label: "Home",         href: "/home",   icon: Home },
+      { key: "tasks",  label: "Agent Tasks",  href: "/tasks",  icon: Bot },
+      { key: "review", label: "Human Review", href: "/review", icon: ClipboardCheck },
+    ],
+  },
+  {
+    label: "Analysis",
+    items: [
+      { key: "reports",   label: "Report",    href: "/reports",   icon: FileBarChart },
+      { key: "dashboard", label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+    ],
+  },
 ] as const;
 
 export function Sidebar() {
@@ -38,18 +48,13 @@ export function Sidebar() {
         collapsed ? "w-16" : "w-60"
       )}
     >
-      {/* Header — label + toggle */}
+      {/* Header — toggle 만 (섹션 라벨은 nav 내부에서 렌더) */}
       <div
         className={cn(
           "flex items-center pt-5 pb-2",
-          collapsed ? "justify-center px-3" : "justify-between px-5"
+          collapsed ? "justify-center px-3" : "justify-end px-5"
         )}
       >
-        {!collapsed && (
-          <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-ink-light opacity-60">
-            Main Menu
-          </span>
-        )}
         <button
           type="button"
           onClick={toggle}
@@ -64,37 +69,55 @@ export function Sidebar() {
         </button>
       </div>
 
-      {/* Nav — 메뉴가 많아지면 내부 스크롤, footer 는 항상 바닥 고정 */}
+      {/* Nav — 섹션별 그룹, footer 는 항상 바닥 고정 */}
       <nav
         className={cn(
-          "flex flex-1 flex-col gap-1 overflow-y-auto",
-          collapsed ? "px-2" : "px-3"
+          "flex flex-1 flex-col overflow-y-auto",
+          collapsed ? "gap-3 px-2" : "gap-5 px-3"
         )}
       >
-        {MENUS.filter((m) => isMenuVisible(persona, m.key)).map((m) => {
-          const active = pathname === m.href || pathname?.startsWith(m.href + "/");
-          const Icon = m.icon;
+        {SECTIONS.map((section) => {
+          const visibleItems = section.items.filter((m) =>
+            isMenuVisible(persona, m.key)
+          );
+          if (visibleItems.length === 0) return null;
           return (
-            <Link
-              key={m.key}
-              href={m.href}
-              title={collapsed ? m.label : undefined}
-              className={cn(
-                "group flex items-center rounded-md text-sm transition-colors",
-                collapsed
-                  ? "h-10 w-12 justify-center"
-                  : "gap-3 px-3 py-2.5",
-                active
-                  ? "bg-brand-light text-brand-text font-semibold"
-                  : "text-ink-mid hover:bg-surface-soft"
+            <div key={section.label} className="flex flex-col gap-1">
+              {!collapsed ? (
+                <span className="px-3 pb-1 text-[11px] font-medium uppercase tracking-[0.08em] text-ink-light opacity-60">
+                  {section.label}
+                </span>
+              ) : (
+                <span aria-hidden className="mx-auto block h-px w-6 bg-border-soft" />
               )}
-            >
-              <Icon
-                className={cn("h-4 w-4 shrink-0")}
-                strokeWidth={active ? 2.5 : 2}
-              />
-              {!collapsed && <span className="truncate">{m.label}</span>}
-            </Link>
+              {visibleItems.map((m) => {
+                const active =
+                  pathname === m.href || pathname?.startsWith(m.href + "/");
+                const Icon = m.icon;
+                return (
+                  <Link
+                    key={m.key}
+                    href={m.href}
+                    title={collapsed ? m.label : undefined}
+                    className={cn(
+                      "group flex items-center rounded-md text-sm transition-colors",
+                      collapsed
+                        ? "h-10 w-12 justify-center"
+                        : "gap-3 px-3 py-2.5",
+                      active
+                        ? "bg-brand-light text-brand-text font-semibold"
+                        : "text-ink-mid hover:bg-surface-soft"
+                    )}
+                  >
+                    <Icon
+                      className={cn("h-4 w-4 shrink-0")}
+                      strokeWidth={active ? 2.5 : 2}
+                    />
+                    {!collapsed && <span className="truncate">{m.label}</span>}
+                  </Link>
+                );
+              })}
+            </div>
           );
         })}
       </nav>

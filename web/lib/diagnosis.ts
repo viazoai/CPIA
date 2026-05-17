@@ -70,12 +70,14 @@ function buildScenarioCurve(
   perStepRate: number,
   rand: () => number,
   noise: number,
-): number[] {
-  const out: number[] = [];
+): (number | null)[] {
+  const out: (number | null)[] = [];
   let cum = lastActual;
   for (let i = 0; i < s_curve.length; i++) {
-    if (i <= todayIdx) {
-      out.push(s_curve[i].actual ?? 0);
+    if (i < todayIdx) {
+      out.push(null);                       // 과거 — 선 안 그림
+    } else if (i === todayIdx) {
+      out.push(lastActual);                 // 오늘 — 실적선과 연결되는 시작점
     } else {
       const jitter = (rand() - 0.5) * noise;
       cum = Math.min(100, Math.max(0, cum + perStepRate * (1 + jitter)));

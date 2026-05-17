@@ -99,22 +99,14 @@ const config: Config = {
           foreground: "hsl(var(--card-foreground))",
         },
       },
+      /* fontFamily — next/font 의 CSS variable 의존을 제거.
+       * CSS 의 var(--x) 가 undefined 면 전체 font-family declaration 이
+       * invalid 처리되어 fallback 이 깨지므로, jsdelivr CDN 으로 로드한
+       * 실제 폰트 이름을 직접 chain 으로 둔다. */
       fontFamily: {
-        sans: [
-          "Pretendard",
-          "Noto Sans KR",
-          "var(--font-noto)",
-          "system-ui",
-          "sans-serif",
-        ],
-        display: [
-          "Inter Tight",
-          "var(--font-display)",
-          "Pretendard",
-          "system-ui",
-          "sans-serif",
-        ],
-        mono: ["JetBrains Mono", "var(--font-mono)", "ui-monospace", "monospace"],
+        sans: ["Pretendard", "Noto Sans KR", "system-ui", "sans-serif"],
+        display: ["Inter Tight", "Pretendard", "system-ui", "sans-serif"],
+        mono: ["JetBrains Mono", "ui-monospace", "monospace"],
       },
       /* ──────────────────────────────────────────────────────────────────
        * 타입 스케일 — docs/ui/sample/font.png 단일 출처.

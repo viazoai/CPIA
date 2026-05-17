@@ -195,3 +195,56 @@ export interface SimulationSequence {
   agent_card_status: Record<string, number[]>; // agent name → values array
   chat_log: ChatMessage[];                     // sequenced reveals
 }
+
+// ────── Productivity Diagnosis (Hybrid 모델) ──────
+export type DiagStatus = Exclude<Status, "unknown">;
+
+export interface DiagnosisInput {
+  site_id: string;            // 결정적 mock 산출 시드
+  today_progress: number;     // 오늘 누적 진척률 (%)
+  history_mean: number;       // μ — 이력 평균 일진척률 (%)
+  history_std: number;        // σ
+  sample_size: number;        // N — 유사 과거 케이스 수
+  s_curve: SCurvePoint[];     // 기존 시계열 재사용
+}
+
+export interface RecoveryEstimate {
+  p25: number;
+  p50: number;
+  p75: number;
+}
+
+export interface ScenarioPoint {
+  eta_days: number;              // 평균 도달 / 만회 예상 일수 (∞ 허용)
+  recovery_pct: number;          // 회복 후 누적 진척률 (%)
+  delta_completion_days: number; // 계획 완공일 대비. 음수 = 단축, 양수 = 지연
+  curve: number[];               // 시각화용 시계열 (길이 = s_curve.length)
+}
+
+export interface ProductivityDiagnosis {
+  // 기준선
+  history_mean: number;
+  history_std: number;
+  sample_size: number;
+
+  // 현 상태
+  today_progress: number;
+  productivity_score: number;   // today / μ × 100
+  gap_pct: number;              // productivity − 100
+  z_score: number;              // (today − μ) / σ
+  status: DiagStatus;
+
+  // 시계열
+  s_curve: SCurvePoint[];
+  band_p25: number[];           // 볼린저 하단
+  band_p75: number[];           // 볼린저 상단
+  ewma_trend: number[];         // EWMA
+
+  // 회복·시나리오
+  recovery: { p25_days: number; p50_days: number; p75_days: number };
+  scenarios: {
+    optimistic: ScenarioPoint;
+    base: ScenarioPoint;
+    pessimistic: ScenarioPoint;
+  };
+}

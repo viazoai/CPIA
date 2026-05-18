@@ -251,14 +251,18 @@ export async function deriveBaseline(
 // G22: WBS 4 레벨 트리 (site → wa → l5_disc → l6_main)
 // ──────────────────────────────────────────────
 export async function wbsTreeBuild(siteId: string): Promise<WBSNode> {
+  // ma 와 am 둘 다 l6_main 을 갖고 있고, f 도 l6_main 을 갖고 있어
+  // USING (run_id, l6_main, company) 가 "common column appears more than once" 충돌.
+  // → ON 절로 명시 매핑 (ma 의 l6_main 기준 forecasts join).
   const rows = (await (sql as any)`
     SELECT
       am.site_id, am.wa, am.l5_disc, am.l6_main,
       COUNT(*) FILTER (WHERE ma.requires_review) AS review_count,
       MIN(CASE f.risk_level WHEN '이상' THEN 1 WHEN '주의' THEN 2 ELSE 3 END) AS worst_risk
     FROM activity_master am
-    LEFT JOIN mapper_activities ma USING (wa)
-    LEFT JOIN forecasts f USING (run_id, l6_main, company)
+    LEFT JOIN mapper_activities ma ON ma.wa = am.wa AND ma.l6_main = am.l6_main
+    LEFT JOIN forecasts f
+      ON f.run_id = ma.run_id AND f.l6_main = ma.l6_main AND f.company = ma.company
     WHERE am.site_id = ${siteId}
     GROUP BY am.site_id, am.wa, am.l5_disc, am.l6_main
   `) as Array<{

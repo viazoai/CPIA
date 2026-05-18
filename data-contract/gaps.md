@@ -367,3 +367,58 @@ run 안에 N 개 optimizer_advice 가능 (hil_2_selection 의 selection 수만�
 - frontend_catalog / backend_catalog / crosswalk 갱신 = 본 cycle 후속 (~290 line incremental, 다음 step)
 - 9 brain decisions + 2 feedback memory 저장 완료
 - BE 구현 cycle plan (writing-plans 형식) = 본 cycle 종료 후 작성
+
+---
+
+## §G. 2026-05-19 — tasks scope G-2 정합 검증 cycle
+
+본 cycle 의 사용자 의도: "main pull 최신 FE 기반으로 data contract 업데이트. tasks 부터." 본인 stash 의 `data-contract/db-runtime-catalog.md` (stale FE 기반 진단) 는 보존 + 새 데이터 = A_Track `/api/tasks` (api.py:1022, Phase 4 11/11 GREEN) vs G-2 카탈로그 결정 정합 검증.
+
+### §G.1 검증 결과 — 6 mismatch + 2 정합 + 카탈로그 모르는 사실
+
+| 필드 | 카탈로그 (crosswalk §F.4-F.6) | A_Track 실 구현 | 정합 |
+|---|---|---|---|
+| `DailyTask.date` | `pipeline_runs.report_date` | 동일 | ✓ |
+| `DailyTask.total_count` | `COUNT(DISTINCT (wa,l6_main,company)) FROM mapped_history` | `COUNT(*) FROM pipeline_runs` (= 보통 1) | ❌ 의미 다름 |
+| `DailyTask.progress_percent` | current_node × 12.5% | 동일 (AVG 추가) | ✓ |
+| `DailyTask.status` | waiting_hil_1 → review_pending | failed → review_pending (HIL 누락) | ❌ enum 매핑 오 |
+| `DailyTask.has_anomaly` | EXISTS forecasts risk_level<>정상 | 동일 | ✓ |
+| `AgentStageProgress.received/processed` | LangGraph state checkpoint 단계별 array size | 모든 stage = total_count binary 추산 | ❌ source 다름 |
+| `AgentStageProgress.percent` | processed/received × 100 | binary 0/100 | ❌ |
+| `AgentStageProgress.waiting_hil` | status='waiting_hil_1' AND is_hil | False 하드코드 | ❌ |
+| `AgentTaskItem.id` | `RPT-{date}-{idx:03d}` | 동일 | ✓ |
+| `AgentTaskItem.trade` | state.mapped[i].trade (한글 공종) | mapped_history.l6_main (WBS 매핑 후) | ❌ 의미 위반 |
+| `AgentTaskItem.contractor` | state.mapped[i].company | mapped_history.company | ✓ |
+| `AgentTaskItem.status` | BE 가 3 치 (done/received/hil_pending) state binary + 2 치 BE 협의 | run 단위 status 를 row 단위에 박음 + 모든 row 가 Collector key | ❌ 분배 로직 부재 |
+
+### §G.2 본 cycle 3 신규 결정
+
+| # | 결정 | 사유 | brain slug |
+|---|---|---|---|
+| **D-15** | **AgentStageProgress.received/processed source = 옵션 Y (PG row count)** | ① stash 의 parser_reports/parser_activities/mapper_activities 3 테이블 신설로 옵션 Y 인프라 마련. ② BI / 대시보드 친화적 (외부 SELECT 가능). ③ FastAPI 구현 간단 (checkpoint state query 까다로움 회피). G-2 의 옵션 X → Y evolve | [[decisions/cpia-tasks-stage-source-y-2026-05-19]] |
+| **D-16** | **mapped_history.trade 컬럼 신설** | AgentTaskItem.trade FE 의도 = 한글 공종 (예: "철근공사", Activity.trade str). 현 BE 가 mapped_history.l6_main (예: "철근콘크리트공사", WBS 매핑 후 카테고리) 으로 박음 = 사용자 "억지 매핑 금지" feedback 직접 위반. trade 컬럼 추가 + Atomizer INSERT 변경 | [[decisions/cpia-mapped-history-trade-column-2026-05-19]] |
+| **D-17** | **pipeline_runs.status / current_node UPDATE path 신설** (D-2 구현) | backend_catalog §A drift 명시: status / current_node UPDATE helper 0 개 (atomizer 만 current_node 박음). progress_percent / waiting_hil / DailyTask.status 의 BE 소스가 다 이 컬럼 의존 → helper 신설 필요 | [[decisions/cpia-run-status-update-path-2026-05-19]] |
+
+### §G.3 BE 구현 cycle backlog (BE-T1 ~ BE-T7)
+
+`crosswalk.md §F.4-§F.6` + `backend_catalog.md §G.3` 에 명시. 7 항목, schema 변경 1 + BE 코드 변경 6.
+
+| ID | 작업 | scope |
+|---|---|---|
+| BE-T1 | `_TASKS_SQL.total_count` 산식 정정 | api.py:853-887 |
+| BE-T2 | `current_node` UPDATE path 신설 | db.py + graph.py 모든 노드 (D-17) |
+| BE-T3 | `_TASKS_SQL.status` enum 매핑 fix | api.py:871-875 |
+| BE-T4 | `_build_progress_by_date` 옵션 Y SQL 정정 | api.py:922-960 (D-15) |
+| BE-T5 | `waiting_hil` hard-code 정정 | api.py:956 |
+| BE-T6 | mapped_history.trade migration + atomizer INSERT | `infra/postgres/migrations/2026-05-19_mapped_history_trade.sql` 신규 + atomizer.py:130 (D-16) |
+| BE-T7 | `_build_items_by_date` agent 분배 + status 3 치 산출 | api.py:963-1019 |
+
+### §G.4 본 cycle 산출 = 카탈로그 갱신 + 결정 + migration sql
+
+- `crosswalk.md §F.4-§F.6` 갱신 ✓ (옵션 Y / mapped_history.trade / 6 BE-T 명시)
+- `backend_catalog.md §G` 신설 ✓ (11 endpoint 인지 / stash 인프라 / 3 결정 / 7 BE-T)
+- `gaps.md §G` 신설 (본 섹션)
+- `INDEX.md` 헤드라인 + 결정 누계 갱신
+- `_meta.json` 갱신
+- `infra/postgres/migrations/2026-05-19_mapped_history_trade.sql` 신규 (D-16 의 schema 변경 1)
+- 본 cycle 종료 후: 3 brain decision 페이지 + BE 구현 cycle plan (writing-plans 형식)

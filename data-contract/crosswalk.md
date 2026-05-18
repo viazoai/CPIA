@@ -450,38 +450,45 @@ UI 위치: `/reports § 03 § 05` 의 WPSummaryTable — WP 단위 N row 표.
 | `productivity` | `forecasts.today_productivity` | 직접 (단 forecasts.wa 컬럼 추가 후) [[cpia-wpsummary-grain-2026-05-18]] | high (grain 변경 필요) |
 | `status` | `forecasts.risk_level` 3 치 매핑 | "정상"→"normal", "주의"→"caution", "이상"→"risk" | high |
 
-### §F.4 § 26 DailyTask (PR #20 신규)
+### §F.4 § 26 DailyTask (PR #20 신규) — 2026-05-19 evolve
 
 UI 위치: `/tasks` 좌측 패널 30 일 행 리스트.
+
+> **2026-05-19 갱신**: A_Track Phase 4 11 endpoint GREEN cycle 후 `/api/tasks` (api.py:1022) 와 정합 검증 → 3 개 SQL 산식 정정 + 옵션 Y (PG row count) path 확정.
 
 | FE field | BE source | 산식 | Confidence |
 |---|---|---|---|
 | `date` | `pipeline_runs.report_date` | 직접 | high |
-| `total_count` | mapped_history triplet 카운트 | `COUNT(DISTINCT (wa, l6_main, company)) FROM mapped_history WHERE site_id=:id AND report_date=:d` [[cpia-tasks-page-be-formulas-2026-05-18]] | medium |
-| `progress_percent` | `pipeline_runs.current_node` 기반 | 8 단계 인덱스 × 12.5%. BE 산식 합의 필요 | medium |
-| `status` | `pipeline_runs.status` 매핑 | running → "running" / waiting_hil_1 → "review_pending" / completed → "completed" | high |
+| `total_count` | mapped_history triplet 카운트 | `COUNT(DISTINCT (wa, l6_main, company)) FROM mapped_history WHERE site_id=:id AND report_date=:d`. **A_Track api.py:856 현 구현은 `COUNT(*) FROM pipeline_runs` — site 가 같은 날 1 run 인 일반 케이스에 항상 1. 작업일보 행 의미 매칭 안 됨 → SQL 정정 backlog (BE-T1)** | medium |
+| `progress_percent` | `pipeline_runs.current_node` 기반 | 8 단계 인덱스 × 12.5% (collector=12.5, parser=25, mapper/hil_1=37.5, atomizer=50, reporter=62.5, forecaster=75, optimizer=87.5, completed=100). **현 api.py:858-870 SQL 산식 정합 (AVG 만 추가). 단 pipeline_runs.current_node UPDATE path 가 atomizer 만 박는 drift (backend_catalog §A 다음 단계 P-1) → 다른 노드도 박도록 D-2 helper 신설 backlog (BE-T2)** | medium |
+| `status` | `pipeline_runs.status` 매핑 | running → "running" / **waiting_hil_1/waiting_hil_2 → "review_pending"** / completed → "completed". **A_Track api.py:871-875 현 구현은 `BOOL_OR(failed)→review_pending` 으로 잘못 매핑 (failed 는 HIL 대기 아님). HIL waiting 상태 누락 → SQL 정정 backlog (BE-T3)** | high |
 | `has_anomaly` | forecasts 조회 | `EXISTS (forecasts WHERE risk_level != '정상')` | high |
 
-### §F.5 § 27 AgentStageProgress (PR #20 신규)
+### §F.5 § 27 AgentStageProgress (PR #20 신규) — 2026-05-19 evolve
 
 UI 위치: `/tasks` 중앙 8 단계 워크플로 박스.
 
+> **2026-05-19 갱신**: G-2 의 received/processed source 가 **옵션 X (LangGraph state checkpoint) → 옵션 Y (PG row count, parser_reports/parser_activities/mapper_activities + 기존 atomized_count/forecasts/optimizer_advice)** 로 evolve. 사유: ① BI / 대시보드 친화적, ② FastAPI 구현 간단 (checkpoint state 외부 query 까다로움), ③ stash 가 parser_reports/parser_activities/mapper_activities 3 테이블 신설로 인프라 마련. PoC 단순화 = LangGraph batch 안 % 추적 불가 → percent binary 0 또는 100.
+
 | FE field | BE source | 산식 | Confidence |
 |---|---|---|---|
-| `step` / `agent` / `is_hil` | BE FastAPI hard-code (D-9 정합) | static 8 단계 (Collector=1, Parser=2, Mapper=3, HIL=3.5, Atomizer=4, Reporter=5, Forecaster=6, Optimizer=7) | high |
-| `received` / `processed` | LangGraph state checkpoint snapshot 단계별 array size | Collector 완료 raw_texts size, Parser 완료 parsed size (예: 1193), Mapper 완료 mapped size, HIL mapped[requires_review=True], Atomizer 완료 atomized_ids size, Forecaster 완료 forecasts row count, Optimizer 완료 optimizer_advice row count [[cpia-tasks-page-be-formulas-2026-05-18]] | medium (LangGraph batch — 단계 안 % 추정) |
-| `percent` | `processed / received × 100` | derived | medium |
-| `waiting_hil` | `pipeline_runs.status='waiting_hil_1'` AND `is_hil` | 직접 | high |
+| `step` / `agent` / `is_hil` | BE FastAPI hard-code (D-9 정합) | static 8 단계 (Collector=1, Parser=2, Mapper=3, HIL=3.5, Atomizer=4, Reporter=5, Forecaster=6, Optimizer=7). **api.py:842-851 `_STAGE_META` 정합** | high |
+| `received` / `processed` | **PG row count 단계별 (옵션 Y)** | Collector reached = `EXISTS pipeline_runs WHERE run_id` (run row 생성 = 진입). Parser = `COUNT(parser_activities WHERE run_id) = N` (stash 신설). Mapper = `COUNT(mapper_activities WHERE run_id) = N` (stash 신설). HIL Review received = `COUNT(mapper_activities WHERE requires_review=TRUE)`, processed = `COUNT(mapping_corrections WHERE run_id)`. Atomizer = `pipeline_runs.atomized_count` 또는 `COUNT(mapped_history WHERE run_id)`. Reporter = `EXISTS daily_reports WHERE run_id ? 1 : 0`. Forecaster = `COUNT(forecasts WHERE run_id)`. Optimizer = `COUNT(optimizer_advice WHERE run_id)`. **A_Track api.py:927-958 현 구현은 모든 stage `received=total_count`, `processed=total or 0` binary — PG row count 가 아닌 progress_percent 기반 추산 → SQL 정정 backlog (BE-T4)** | medium |
+| `percent` | derived | `processed / received × 100` (배치라 보통 0 또는 100). PoC 단순화 명시 | medium |
+| `waiting_hil` | `pipeline_runs.status IN ('waiting_hil_1','waiting_hil_2')` AND `is_hil` | 직접. **A_Track api.py:956 현 구현은 `False` 하드코드 → SQL 정정 backlog (BE-T5)** | high |
 
-### §F.6 § 28 AgentTaskItem (PR #20 신규)
+### §F.6 § 28 AgentTaskItem (PR #20 신규) — 2026-05-19 evolve
 
 UI 위치: `/tasks` 우측 패널 N 건 목록 표.
 
+> **2026-05-19 갱신**: `trade` 컬럼 의미 일원화 — FE 의도 = 한글 공종 (예: "철근공사", Activity.trade str), BE 가 현재 mapped_history.l6_main (예: "철근콘크리트공사", WBS 매핑 후 카테고리) 으로 박음. 사용자 "억지 매핑 금지" feedback 직접 위반. → **schema 변경: mapped_history.trade 컬럼 추가 + atomizer.py:130 의 mh_rows 생성 시 trade 박기** (cpia-mapped-history-trade-column-2026-05-19 결정).
+
 | FE field | BE source | 산식 | Confidence |
 |---|---|---|---|
-| `id` | derive | `f"RPT-{date_yyyymmdd}-{idx:03d}"` (mock 정합) | medium |
-| `trade` / `contractor` | `state.mapped[i].trade` / `state.mapped[i].company` | 직접 | high |
-| `status` (5 치) | BE 5 치 다 산출 | done / received / hil_pending = LangGraph state binary. **processing / blocked = BE 협의 사항** [[cpia-tasks-item-status-2026-05-18]] | low (협의 사항) |
+| `id` | derive | `f"RPT-{date_yyyymmdd}-{idx:03d}"`. **api.py:1006 정합** | high |
+| `trade` | `mapped_history.trade` (신규 컬럼) | 직접. Atomizer 가 `Activity.trade` (Parser 가 채운 한글 공종) 박음. **현재 컬럼 미존재 → migration sql 신규 backlog (BE-T6)** | medium (schema 변경 필요) |
+| `contractor` | `mapped_history.company` | 직접. **api.py:894 정합** | high |
+| `status` (5 치) | BE 가 3 치 산출 (PoC) + 2 치 mock (BE 협의) | done = run.completed / received = mapped_history row 생성 안 됨 / hil_pending = run.status IN waiting_hil_*. **processing / blocked = BE 협의 사항 — LangGraph batch 안에서 단일 row 의 in-flight 상태 추적 불가** [[cpia-tasks-item-status-2026-05-18]]. **A_Track api.py:978-984 현 구현은 run 단위 status 를 row 단위에 그대로 박음 + 모든 row 를 itemsByDate[date]["Collector"] 에 배치 (다른 agent key 비어있음) → SQL + 분배 로직 정정 backlog (BE-T7). current_node 별 agent key 라우팅 필요** | low (협의 사항) |
 
 ### §F.7 §1 Site 신규 매핑 추가 — fleet_kpi (G-5)
 

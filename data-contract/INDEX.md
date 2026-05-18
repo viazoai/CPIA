@@ -2,22 +2,24 @@
 
 > 생성: 2026-05-17 (cycle: fe-be-bridge brainstorming).
 > **2026-05-18 갱신** (cycle: fe-be-bridge-delta-and-decisions) — PR #19/#20/#22 흡수 + 10 gap 명시 + 9 신규 결정 (D-3 EWMA 드랍 / WPSummary grain / mapped_history / wp_id / tasks BE 정합 / item status / optimizer 배열 / hil_1 resume / 6 gap 일괄).
-> git SHA: d9eb603 (A_Track HEAD).
+> **2026-05-19 갱신** (cycle: tasks-scope-G2-verification) — A_Track Phase 4 11/11 endpoint GREEN 후 `/api/tasks` (api.py:1022) vs G-2 결정 정합 검증. 6 mismatch + 7 BE-T backlog + 3 신규 결정 (옵션 Y evolve / mapped_history.trade / pipeline_runs UPDATE path).
+> git SHA: a83ec7d (A_Track HEAD, Phase 4 11/11 GREEN).
 
 본 data-contract/ 디렉토리는 CPIA 의 **FE (web/) ↔ BE (pipeline/) 데이터 계약** 산출. 4 카탈로그 + 결정 사항 + 연결 계획.
 
 ---
 
-## 헤드라인 (2026-05-18 갱신)
+## 헤드라인 (2026-05-19 갱신)
 
 | 분류 | 통계 |
 |---|---|
 | **FE catalog** | 33 type (PR #22 신규 5 흡수) / ~190 field / 10 mock fixture / 8 page × N component / 5 lib utility (diagnosis-adapter.ts 신규) |
-| **BE catalog** | 7 사용자 테이블 (105 col) + 4 LangGraph 자동 / 33 JSONB key / 17 state attr (PR #19 흡수) / ~90 agent output field / 16 db.py helper (+2 PR #19) |
-| **Crosswalk** | 26 type 매핑 / ~190 FE field × BE source |
-| **Confidence** | high 80 / medium 50 / low 25 / TBD 35 |
-| **Gaps** | §A FE-only 10 / §B BE-only 6 / §C Mismatch 9 |
-| **사용자 결정 누계** | 14 (카탈로그 D-1~D-14) + 9 신규 (2026-05-18) = **23 확정** |
+| **BE catalog** | 7 사용자 테이블 (105 col) + 4 LangGraph 자동 + **stash 신설 3 (parser_reports/parser_activities/mapper_activities, 40 col)** + **mapped_history.trade 신설 1 col** = ~146 col / 33 JSONB key / 17 state attr / ~90 agent output field / 16 db.py helper + 5 신규 (PR #19 의 2 + stash 의 3 + D-17 의 2) = 21 |
+| **FastAPI endpoint** | **11 GREEN (a83ec7d Phase 4 11/11)** — 본 cycle 검증 = `/api/tasks` 1 개. 나머지 10 = 별 cycle |
+| **Crosswalk** | 26 type 매핑 / ~190 FE field × BE source. tasks 3 type (DailyTask/AgentStageProgress/AgentTaskItem) 본 cycle 정합 검증 |
+| **Confidence** | high 80 / medium 50 / low 25 / TBD 35 (변동 없음 — 본 cycle 은 결정 → backlog 명시화) |
+| **Gaps** | §A FE-only 10 / §B BE-only 6 / §C Mismatch 9 / **§G 본 cycle 6 mismatch + 7 BE-T backlog** |
+| **사용자 결정 누계** | 14 (카탈로그 D-1~D-14) + 9 (2026-05-18) + 3 (2026-05-19 D-15/D-16/D-17) = **26 확정** |
 
 ---
 
@@ -57,6 +59,20 @@
 | D-12 | ReportDetail.optimizer N rows | ~~FE type 변경 `optimizer: OptimizerOutput[]`~~ → **2026-05-18 실 구현 확정**: [[decisions/cpia-optimizer-array-grain-2026-05-18]] |
 | D-13 | SCurvePoint time-series source | plan-only derive |
 | D-14 | forecasts assessment vs risk_level | endpoint 응답에 risk_level 만 노출 |
+
+---
+
+## 2026-05-19 신규 결정 (3 건) — tasks scope G-2 정합 검증
+
+본 cycle 의 사용자 의도 = "main pull 최신 FE 기반 data contract 갱신 / tasks 부터 / FE 시각화 수정 X / 연동을 위한 schema 수정 OK".
+
+| # | 결정 | 사유 요약 | brain slug |
+|---|---|---|---|
+| **D-15** | AgentStageProgress.received/processed source = **옵션 Y (PG row count)** | G-2 옵션 X (LangGraph state checkpoint) → 옵션 Y evolve. stash 가 parser_reports/parser_activities/mapper_activities 3 테이블 신설로 인프라 마련. BI / 대시보드 친화 + FastAPI 구현 간단 + checkpoint state query 회피 | [[decisions/cpia-tasks-stage-source-y-2026-05-19]] |
+| **D-16** | mapped_history.trade TEXT 컬럼 신설 | AgentTaskItem.trade 의 FE 의도 (한글 공종) vs BE 현 구현 (l6_main 매핑 후 카테고리) 의미 다름. 사용자 "억지 매핑 금지" feedback 직접 위반. migration sql + atomizer INSERT 변경 | [[decisions/cpia-mapped-history-trade-column-2026-05-19]] |
+| **D-17** | pipeline_runs.status / current_node UPDATE path 신설 (D-2 구현) | backend_catalog drift 명시: UPDATE helper 0 개 (atomizer 만 current_node 박음). progress_percent / waiting_hil / status 의 BE 산식이 다 이 컬럼 의존. db.update_run_status + update_run_current_node 2 helper + graph.py 모든 노드 호출 | [[decisions/cpia-run-status-update-path-2026-05-19]] |
+
+본 cycle 으로 만들어진 backlog: **BE-T1 ~ BE-T7** (`crosswalk.md §F.4-F.6` + `backend_catalog.md §G.3` + `gaps.md §G.3` 명시) — 별 BE 구현 cycle 의 plan 항목.
 
 ---
 

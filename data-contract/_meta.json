@@ -1,11 +1,13 @@
 {
-  "generated_at": "2026-05-18T15:00:00Z",
-  "cycle_name": "fe-be-bridge-delta-and-decisions",
+  "generated_at": "2026-05-19T00:00:00Z",
+  "cycle_name": "tasks-scope-G2-verification",
   "skill_first_use": "data-contract-mapping",
-  "git_sha_fe": "d9eb603",
-  "git_sha_be": "d9eb603",
-  "git_branch": "A_Track",
-  "scope": "FE web/ (B_Track 산출) + BE pipeline/ (A_Track 산출) 데이터 계약. 2026-05-18 갱신: PR #19/#20/#22 흡수 + 10 gap 명시 + 9 신규 결정 (D-3 EWMA 드랍 / WPSummary grain triplet / mapped_history / wp_id 산식 / tasks BE 정합 / item status 5 치 BE / optimizer 배열 / hil_1 resume / G-3~G-9 일괄).",
+  "git_sha_fe": "a8d5c8c",
+  "git_sha_be": "a83ec7d",
+  "git_branch_be": "A_Track",
+  "git_branch_fe": "main",
+  "scope": "tasks scope (G-2) 정합 검증 cycle. A_Track Phase 4 11/11 endpoint GREEN 후 `/api/tasks` (api.py:1022) vs G-2 카탈로그 결정 line-by-line 검증. 6 mismatch + 7 BE-T backlog + 3 신규 결정 (옵션 Y evolve, mapped_history.trade 신설, pipeline_runs UPDATE path D-17). main pull (#23 DB migration + API contract spec, #24 /reports v3, #25 /dashboard fleet) 후 baseline.",
+  "previous_cycle_2026_05_18": "fe-be-bridge-delta-and-decisions — PR #19/#20/#22 흡수 + 10 gap 명시 + 9 신규 결정 (D-3 EWMA 드랍 / WPSummary grain triplet / mapped_history / wp_id 산식 / tasks BE 정합 / item status 5 치 BE / optimizer 배열 / hil_1 resume / G-3~G-9 일괄). git SHA d9eb603.",
   "fe_catalog": {
     "types_total": 33,
     "types_scoped": 26,
@@ -21,11 +23,16 @@
     "db_columns_user": 105,
     "db_tables_langgraph_auto": 4,
     "db_columns_langgraph_auto": 12,
+    "db_tables_stash_2026_05_19": 3,
+    "db_columns_stash_2026_05_19": 40,
+    "db_columns_schema_changes_2026_05_19": 1,
     "jsonb_keys": 33,
     "state_attrs": 17,
     "agent_output_fields": 90,
-    "db_py_helpers": 16,
-    "be_catalog_changes_2026_05_18": "PR #19 흡수 — Reporter agent 신규 (161 lines) + checkpointer.py _LazyAsyncPostgresSaver + db.py helpers 2 (insert_mapping_correction / insert_daily_report). api-contract.md 신규 source 인지 (PG↔types.ts 매핑 + 8 endpoint 명세)."
+    "db_py_helpers": 21,
+    "fastapi_endpoints_green": 11,
+    "be_catalog_changes_2026_05_18": "PR #19 흡수 — Reporter agent 신규 (161 lines) + checkpointer.py _LazyAsyncPostgresSaver + db.py helpers 2 (insert_mapping_correction / insert_daily_report). api-contract.md 신규 source 인지 (PG↔types.ts 매핑 + 8 endpoint 명세).",
+    "be_catalog_changes_2026_05_19": "A_Track Phase 4 11/11 endpoint GREEN — FastAPI 11 endpoint 구현 (api.py 1050 lines, hil_1_resume + sites + runs/optimizer + runs/wp_summary + sites/reports + dashboard/performance + dashboard/impact + agents/status + sites/wbs_tree + tasks). stash 신설 인프라 3 테이블 (parser_reports/parser_activities/mapper_activities, 옵션 Y path). mapped_history.trade 신설 (D-16). pipeline_runs UPDATE helper 2 신설 (D-17)."
   },
   "crosswalk": {
     "fe_fields_mapped": 190,
@@ -98,6 +105,20 @@
     "FE↔BE 공식 차이 일원화 의무 — 억지 매핑 금지. 한 쪽으로 공식 통일. 5단계 분석 의무",
     "사용자 의도 — FE 시각화/디자인 요소 절대 X. BE 가 FE 기획 따라가야 함"
   ],
+  "decisions_resolved_2026_05_19": [
+    {"slug": "decisions/cpia-tasks-stage-source-y-2026-05-19", "topic": "G-2 AgentStageProgress source evolve (옵션 X → Y)", "decision": "received/processed source = PG row count (parser_reports/parser_activities/mapper_activities + atomized_count/forecasts/optimizer_advice). 기존 옵션 X (LangGraph state checkpoint) 폐기. PoC 단순화: LangGraph batch 안 % 추적 불가 → percent binary 0/100"},
+    {"slug": "decisions/cpia-mapped-history-trade-column-2026-05-19", "topic": "D-16 mapped_history.trade TEXT 컬럼 신설", "decision": "AgentTaskItem.trade FE 의도 (한글 공종 Activity.trade str) 와 BE 현 구현 (mapped_history.l6_main, WBS 매핑 후 카테고리) 의미 다름. migration sql `2026-05-19_mapped_history_trade.sql` 신규 + atomizer.py:130 mh_rows 생성 시 trade 박기"},
+    {"slug": "decisions/cpia-run-status-update-path-2026-05-19", "topic": "D-17 pipeline_runs UPDATE path 신설 (D-2 구현)", "decision": "db.py 에 update_run_status(run_id, status) + update_run_current_node(run_id, node) 2 helper 추가. graph.py 의 mapper_node / hil_1_node / atomizer_node / reporter_node / forecaster_node / hil_2_node / optimizer_node 진입 시 호출. progress_percent / waiting_hil / DailyTask.status BE 산식의 source 확정"}
+  ],
+  "be_implementation_backlog_2026_05_19": [
+    {"id": "BE-T1", "scope": "api.py:853-887 _TASKS_SQL.total_count", "change": "COUNT(*) FROM pipeline_runs → COUNT(DISTINCT (wa,l6_main,company)) FROM mapped_history"},
+    {"id": "BE-T2", "scope": "db.py + graph.py 모든 노드", "change": "current_node UPDATE path 신설 (D-17 helper 호출)"},
+    {"id": "BE-T3", "scope": "api.py:871-875 status 매핑", "change": "waiting_hil_1/waiting_hil_2 → review_pending 추가, failed 잘못 매핑 제거"},
+    {"id": "BE-T4", "scope": "api.py:922-960 _build_progress_by_date", "change": "received/processed = 옵션 Y SQL (단계별 PG row count) 로 정정"},
+    {"id": "BE-T5", "scope": "api.py:956 waiting_hil 하드코드", "change": "(pipeline_runs.status IN waiting_hil_*) AND is_hil 로 fix"},
+    {"id": "BE-T6", "scope": "infra/postgres/migrations/2026-05-19_mapped_history_trade.sql 신규 + atomizer.py:130", "change": "mapped_history.trade TEXT 컬럼 + Atomizer INSERT 시 박기 (D-16)"},
+    {"id": "BE-T7", "scope": "api.py:963-1019 _build_items_by_date", "change": "itemsByDate[date][agent_name] 분배 로직 — current_node 라우팅 + status 3 치 BE 산출"}
+  ],
   "outputs": {
     "catalog_files": [
       "data-contract/INDEX.md",
@@ -105,10 +126,14 @@
       "data-contract/backend_catalog.md",
       "data-contract/crosswalk.md",
       "data-contract/gaps.md",
-      "data-contract/_meta.json"
+      "data-contract/_meta.json",
+      "data-contract/db-runtime-catalog.md (untracked, 2026-05-18 stash pop)"
     ],
     "design_spec": "docs/superpowers/specs/2026-05-17-cpia-fe-be-bridge-design.md",
-    "implementation_plan": "(다음 cycle — writing-plans skill 산출)"
+    "schema_migrations_2026_05_19": [
+      "infra/postgres/migrations/2026-05-19_mapped_history_trade.sql (D-16 신설)"
+    ],
+    "implementation_plan": "(다음 BE 구현 cycle — writing-plans skill 산출, BE-T1~BE-T7)"
   },
-  "last_checked_at": "2026-05-18T15:00:00Z"
+  "last_checked_at": "2026-05-19T00:00:00Z"
 }

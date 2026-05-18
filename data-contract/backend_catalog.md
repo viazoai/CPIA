@@ -446,3 +446,70 @@
 - §C `state.raw_texts` 와 `collector.py` 가 dead — 본 cycle 에 미해결. drift backlog #1 그대로
 - §D 단계별 timestamp 부재 — `AgentStageProgress.received/processed` 의 "현재 단계 50% animated bar" 시각화 = `pipeline_runs.started_at` 만으로 시간 elapsed 휴리스틱 (state 구조 변경 없이)
 - §F.2 의 6 신규 endpoint 는 본 cycle 미구현 — 다음 BE 구현 cycle 의 plan 산출물
+
+---
+
+## §G. 2026-05-19 갱신 — Phase 4 11 endpoint GREEN 후 tasks scope 검증
+
+### §G.1 A_Track delta (카탈로그가 모르던 사실)
+
+본인이 d9eb603 시점 (2026-05-18) 카탈로그 갱신 후 24 commit 진행 — Phase 4 11 endpoint GREEN (`a83ec7d`). 카탈로그 §F.2 가 "FastAPI 구현 다음 cycle" 로 박았던 8 endpoint 가 실제로는 11 개 구현됨 (다음 cycle 추정이 본 cycle 안에 들어옴).
+
+| Method | Path | 위치 | 본 cycle 영향 |
+|---|---|---|---|
+| POST | `/api/runs/{run_id}/hil_1/resume` | api.py:200 | G-10 결정 정합 ✓ |
+| GET | `/api/sites` | api.py:314 | Site shape 정합 검증 backlog |
+| GET | `/api/runs/{run_id}/optimizer` | api.py:378 | G-8 (OptimizerOutput[]) 정합 ✓ |
+| GET | `/api/runs/{run_id}/wp_summary` | api.py:458 | G-1 (WPSummaryRow triplet) 정합 검증 backlog |
+| GET | `/api/sites/{site_id}/reports` | api.py:519 | G-4 정합 검증 backlog |
+| GET | `/api/dashboard/performance` | api.py:560 | G-5 정합 검증 backlog |
+| GET | `/api/dashboard/impact` | api.py:620 | G-6 정합 검증 backlog |
+| GET | `/api/agents/status` | api.py:706 | G-7 정합 검증 backlog |
+| GET | `/api/sites/{site_id}/wbs_tree` | api.py:809 | G-3 정합 검증 backlog |
+| **GET** | **`/api/tasks?site_id=...&days=30`** | **api.py:1022** | **G-2 본 cycle scope — 6 mismatch 발견 → §G.3 backlog** |
+
+본 cycle scope = `/api/tasks` 1 endpoint 만 정합 검증 (사용자 명시: "tasks 쪽부터 진행"). 나머지 10 endpoint 는 별 cycle 검증.
+
+### §G.2 stash 신설 인프라 (옵션 Y path 의 PG 인프라)
+
+`infra/postgres/migrations/2026-05-18_parser_mapper_outputs.sql` (untracked, 본인 stash) — Parser / Mapper 단계 결과 PG 영속 인프라:
+
+| 테이블 | grain | 컬럼 수 | INSERT path |
+|---|---|---|---|
+| `parser_reports` | 1 run = 1 row (UNIQUE run_id) | 7 + id + created_at = 9 | `pg.insert_parser_report` (db.py 새 helper, stash) — mapper_node 가 mapping 후 호출 |
+| `parser_activities` | 1 run × N activities (UNIQUE run_id, idx) | 10 + id + created_at = 12 | `pg.insert_parser_activities_batch` (stash) — 동일 |
+| `mapper_activities` | parser_activities 와 1:1 idx 매칭 (UNIQUE run_id, idx) | 17 + id + created_at = 19 | `pg.insert_mapper_activities_batch` (stash) — 동일 |
+
+stash 동반 변경:
+- `pipeline/graph.py:mapper_node` (graph.py:40~) 가 mapping 후 3 INSERT 호출 + Mapper LLM rerank 병렬화 (Semaphore `CPIA_MAPPER_CONCURRENCY=4`)
+- `pipeline/db.py:PGClient` 에 3 helper 추가 (line +161)
+
+본 cycle 결정 (사용자 confirm) = 이 인프라 정착 채택 — G-2 의 received/processed source 가 **옵션 X (LangGraph state checkpoint) → 옵션 Y (PG row count)** evolve.
+
+### §G.3 본 cycle 결정 (3 신규) + backlog 7
+
+| 결정 | scope | brain slug |
+|---|---|---|
+| **G-2 source evolve** — AgentStageProgress.received/processed = PG row count (옵션 Y) | parser_reports/parser_activities/mapper_activities + 기존 atomized_count/forecasts/optimizer_advice SELECT | [[decisions/cpia-tasks-stage-source-y-2026-05-19]] |
+| **mapped_history.trade 컬럼 신설** | migration sql `2026-05-19_mapped_history_trade.sql` + atomizer.py 의 mh_rows 생성 시 `Activity.trade` 박기 | [[decisions/cpia-mapped-history-trade-column-2026-05-19]] |
+| **pipeline_runs.status / current_node UPDATE path 신설** (D-2 구현) | db.py 에 `update_run_status(run_id, status)` + `update_run_current_node(run_id, node)` 2 helper + graph.py 의 모든 노드 (mapper/hil_1/atomizer/reporter/forecaster/hil_2/optimizer) 진입 시 호출 | [[decisions/cpia-run-status-update-path-2026-05-19]] |
+
+다음 BE 구현 cycle 의 plan 항목 (BE-T1 ~ BE-T7):
+
+| ID | 위치 | 변경 |
+|---|---|---|
+| **BE-T1** | api.py:853-887 (`_TASKS_SQL`) | `total_count = COUNT(*) FROM pipeline_runs` → `COUNT(DISTINCT (wa, l6_main, company)) FROM mapped_history` |
+| **BE-T2** | api.py:858-870 + graph.py 모든 노드 | `current_node` UPDATE path 신설 (D-2 helper 호출) — 현 progress_percent 산식이 정합하려면 atomizer 외 노드도 박혀야 함 |
+| **BE-T3** | api.py:871-875 | status 매핑 fix: `waiting_hil_1/waiting_hil_2 → "review_pending"` 추가, `failed → "review_pending"` 제거 (또는 별 enum 추가) |
+| **BE-T4** | api.py:922-960 (`_build_progress_by_date`) | received/processed = 옵션 Y SQL (단계별 PG row count) 로 정정. 현 binary 추산 폐기 |
+| **BE-T5** | api.py:956 | `waiting_hil = (pipeline_runs.status IN waiting_hil_*) AND is_hil` 로 fix. 현 `False` 하드코드 정정 |
+| **BE-T6** | infra/postgres/migrations/2026-05-19_mapped_history_trade.sql (신규) + atomizer.py:130 | mapped_history.trade TEXT 컬럼 + Atomizer INSERT 시 박기 |
+| **BE-T7** | api.py:963-1019 (`_build_items_by_date`) | itemsByDate[date][agent_name] 분배 로직 — 현재 모든 row 가 "Collector" key 에만. current_node 기반 라우팅 + AgentTaskItem.status 3 치 (done/received/hil_pending) BE 산출 |
+
+### §G.4 §F.3 summary 영향 (재산정)
+
+| 표 | §F.3 목표 | §G 추가 후 (2026-05-19) |
+|---|---|---|
+| §A DB schema | 115 | 115 + parser_reports 9 + parser_activities 12 + mapper_activities 19 + mapped_history.trade 1 = 156 |
+| §E db.py helper | 20 | 20 + insert_parser_report + insert_parser_activities_batch + insert_mapper_activities_batch + update_run_status + update_run_current_node = 25 |
+| FastAPI endpoint | 0 (planned 8) | 11 구현 (a83ec7d Phase 4 11/11 GREEN). 본 cycle 검증 = `/api/tasks` 1 개, 나머지 10 = 별 cycle |

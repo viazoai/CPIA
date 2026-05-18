@@ -39,7 +39,12 @@ export default function DashboardPage() {
             <TabsTrigger value="impact">Impact</TabsTrigger>
           </TabsList>
           <TabsContent value="performance" className="mt-6">
-            <PerformanceTab sites={sites} fleetKpi={dashboard.performance.fleet_kpi} />
+            <PerformanceTab
+              sites={sites}
+              fleetKpi={dashboard.performance.fleet_kpi}
+              fleetTrend={dashboard.performance.fleet_trend}
+              siteSparklines={dashboard.performance.site_sparklines}
+            />
           </TabsContent>
           <TabsContent value="impact" className="mt-6">
             <ImpactTab

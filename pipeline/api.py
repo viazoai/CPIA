@@ -1,7 +1,7 @@
-"""CPIA Pipeline FastAPI — /health + (4.2 이후) /run, /resume, /status.
+"""CPIA Pipeline FastAPI — /health + /run + /resume + /status.
 
 Phase 4.1: 골격 + lifespan + GET /health 1개.
-Phase 4.2 이후: POST /run, POST /resume, GET /status/{run_id} 추가 예정.
+Phase 4.2: POST /api/runs/:run_id/hil_1/resume + lifespan graph/checkpointer 통합.
 """
 
 from __future__ import annotations
@@ -10,25 +10,148 @@ import os
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from langgraph.types import Command
+from pydantic import BaseModel
 
 from pipeline.db import PGClient
+from pipeline.graph import GraphConfig, build_graph
+
+
+# ---------------------------------------------------------------------------
+# Pydantic 요청/응답 모델
+# ---------------------------------------------------------------------------
+
+
+class CorrectionItem(BaseModel):
+    """HIL 1 단일 보정 항목 — wa + l6_main 둘 다 필수."""
+
+    wa: str
+    l6_main: str
+
+
+class Hil1ResumeRequest(BaseModel):
+    """POST /api/runs/:run_id/hil_1/resume 요청 body.
+
+    corrections key 는 반드시 string (drift #N5 방어 — hil_1_node 에서 int(k) 변환).
+    """
+
+    corrections: dict[str, CorrectionItem]
+
+
+class Hil1ResumeResponse(BaseModel):
+    """resume 후 진행된 노드명."""
+
+    next_node: str
+
+
+# ---------------------------------------------------------------------------
+# lifespan
+# ---------------------------------------------------------------------------
+
+
+def _build_prod_graph_config() -> GraphConfig:
+    """환경변수 기반 prod GraphConfig.
+
+    POSTGRES_URL / AZURE_OPENAI_* / CHROMA_HOST 등에서 각 에이전트 config 를 조립.
+    각 config 의 상세 필드는 pipeline/agents/* 의 dataclass 참조.
+    """
+    from pipeline.agents.atomizer import AtomizerConfig
+    from pipeline.agents.forecaster import ForecasterConfig
+    from pipeline.agents.mapper import MapperConfig
+    from pipeline.agents.optimizer.agent import OptimizerConfig
+    from pipeline.agents.reporter import ReporterConfig
+
+    postgres_url = os.environ["POSTGRES_URL"]
+    azure_endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
+    azure_api_key = os.environ.get("AZURE_OPENAI_API_KEY", "")
+    azure_api_version = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
+    llm_model = os.environ.get("LLM_MODEL", "gpt-5.1-chat-ai-board-test")
+    embedding_model = os.environ.get("EMBEDDING_MODEL", "text-embedding-3-small-ai-board-test")
+    chroma_host = os.environ.get("CHROMA_HOST", "localhost")
+    chroma_port = int(os.environ.get("CHROMA_PORT", "8000"))
+
+    mapper_cfg = MapperConfig(
+        postgres_url=postgres_url,
+        azure_openai_endpoint=azure_endpoint,
+        azure_openai_api_key=azure_api_key,
+        azure_openai_api_version=azure_api_version,
+        llm_model=llm_model,
+        embedding_model=embedding_model,
+        chroma_host=chroma_host,
+        chroma_port=chroma_port,
+    )
+    atomizer_cfg = AtomizerConfig(
+        postgres_url=postgres_url,
+        azure_openai_endpoint=azure_endpoint,
+        azure_openai_api_key=azure_api_key,
+        azure_openai_api_version=azure_api_version,
+        embedding_model=embedding_model,
+        chroma_host=chroma_host,
+        chroma_port=chroma_port,
+    )
+    forecaster_cfg = ForecasterConfig(
+        postgres_url=postgres_url,
+        azure_openai_endpoint=azure_endpoint,
+        azure_openai_api_key=azure_api_key,
+        azure_openai_api_version=azure_api_version,
+        llm_model=llm_model,
+        embedding_model=embedding_model,
+        chroma_host=chroma_host,
+        chroma_port=chroma_port,
+    )
+    optimizer_cfg = OptimizerConfig(
+        postgres_url=postgres_url,
+        azure_openai_endpoint=azure_endpoint,
+        azure_openai_api_key=azure_api_key,
+        azure_openai_api_version=azure_api_version,
+        llm_model=llm_model,
+        chroma_host=chroma_host,
+        chroma_port=chroma_port,
+        chroma_ssl=False,
+    )
+    reporter_cfg = ReporterConfig(
+        postgres_url=postgres_url,
+        azure_openai_endpoint=azure_endpoint,
+        azure_openai_api_key=azure_api_key,
+        azure_openai_api_version=azure_api_version,
+        llm_model=llm_model,
+    )
+    return GraphConfig(
+        mapper=mapper_cfg,
+        atomizer=atomizer_cfg,
+        forecaster=forecaster_cfg,
+        optimizer=optimizer_cfg,
+        reporter=reporter_cfg,
+    )
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """FastAPI lifespan — asyncpg pool 초기화 및 정리.
+    """FastAPI lifespan — PG pool + LangGraph graph/checkpointer 초기화 및 정리.
 
-    app.state.pg 에 PGClient 인스턴스를 보관한다.
-    POSTGRES_URL 환경변수 필수 — 미설정 시 RuntimeError raise (보안 차원).
-    LangGraph build_graph 통합은 Phase 4.2 (Command resume 필요) 에서 진행.
+    app.state.pg     : PGClient
+    app.state.graph  : compiled LangGraph (Command resume 가능)
+    app.state.cfg    : GraphConfig
+
+    POSTGRES_URL 환경변수 필수 — 미설정 시 RuntimeError (보안 차원).
     """
     pg_url = os.getenv("POSTGRES_URL")
     if not pg_url:
         raise RuntimeError("POSTGRES_URL 환경변수 미설정. .env.local 또는 export 로 명시 필요.")
+
+    # PG pool
     pg = PGClient(pg_url)
     await pg.connect()
     app.state.pg = pg
+
+    # LangGraph graph — build_graph 내부에서 build_checkpointer() 호출
+    # (CPIA_CHECKPOINTER 환경변수로 checkpointer 종류 제어)
+    cfg = _build_prod_graph_config()
+    graph = build_graph(cfg)
+    app.state.graph = graph
+    app.state.cfg = cfg
+
     try:
         yield
     finally:
@@ -42,6 +165,11 @@ app = FastAPI(
 )
 
 
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
+
+
 @app.get("/health")
 async def health() -> dict:
     """PG 연결 OK + version 확인."""
@@ -52,3 +180,33 @@ async def health() -> dict:
         "pg": row is not None and row["ok"] == 1,
         "version": app.version,
     }
+
+
+@app.post("/api/runs/{run_id}/hil_1/resume", response_model=Hil1ResumeResponse)
+async def hil_1_resume(run_id: str, body: Hil1ResumeRequest) -> Hil1ResumeResponse:
+    """HIL 1 interrupt 재개 — corrections 적용 후 다음 노드 반환.
+
+    corrections key 는 string 필수 (drift #N5):
+      hil_1_node 가 int(k) 변환 처리 (graph.py:128).
+    mapping_corrections PG INSERT 는 hil_1_node 내부에서 자동 처리
+      (graph.py:132~161) — endpoint 에서 별도 INSERT X.
+
+    Response: {"next_node": "<resumed_node>"}
+    """
+    graph = app.state.graph
+
+    # corrections dict[str, CorrectionItem] → dict[str, dict] (JSON serializable)
+    corrections_payload: dict[str, dict] = {
+        k: {"wa": v.wa, "l6_main": v.l6_main} for k, v in body.corrections.items()
+    }
+
+    try:
+        result = await graph.ainvoke(
+            Command(resume=corrections_payload),
+            config={"configurable": {"thread_id": run_id}},
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"graph resume 실패: {exc}") from exc
+
+    next_node: str = result.get("current_node", "unknown") if isinstance(result, dict) else "unknown"
+    return Hil1ResumeResponse(next_node=next_node)

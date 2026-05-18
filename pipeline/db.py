@@ -438,3 +438,14 @@ class PGClient:
                 run_id,
             )
         return dict(row) if row else None
+
+    async def fetch_one(self, sql: str, *args: Any) -> dict[str, Any] | None:
+        """임의 SELECT 1 row 조회 helper. 외부에서 _pool 직접 접근 대신 사용.
+
+        Returns:
+            첫 번째 row 를 dict 로 반환. row 없으면 None.
+        """
+        assert self._pool is not None, "connect() 미호출"
+        async with self._pool.acquire() as con:
+            row = await con.fetchrow(sql, *args)
+        return dict(row) if row else None

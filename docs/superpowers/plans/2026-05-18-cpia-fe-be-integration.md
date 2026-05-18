@@ -12,6 +12,19 @@
 
 **Demo 마감:** 2026-06-05 (18일 남음)
 
+**Naming 주의:** CLAUDE.md 가 Reporter → Exporter rename 명시 (2026-05-18) 했으나 본 plan 시점 `pipeline/agents/reporter.py` + `pipeline/graph.py:392 reporter_node` 그대로. rename PR 은 본 plan 범위 밖 (별 cycle). 본 plan 의 코드는 `reporter_node` 명칭 유지.
+
+**PGClient 인스턴스화 실 패턴** (`pipeline/graph.py:93` 참고):
+```python
+pg = PGClient(cfg.mapper.postgres_url)
+await pg.connect()
+try:
+    await pg.<method>(...)
+finally:
+    await pg.close()
+```
+`connect_pg(dsn)` 같은 헬퍼 함수는 존재하지 않음 — 위 패턴 그대로 사용.
+
 ---
 
 ## File Structure
@@ -46,6 +59,149 @@
 - `web/app/api/mock/consolidated/route.ts` — 동일
 - `web/app/(app)/home/page.tsx` — `loadFixture()` 호출 → real fetch (3 fixture)
 - `web/lib/fixtures.ts` — Phase 5 후 loadFixture 가 real fetch 호출하도록 swap (또는 폐기)
+
+---
+
+# Phase 0 — Setup (전제 인프라)
+
+## Task 0.1: web 패키지 설치 (postgres + playwright)
+
+**Files:**
+- Modify: `web/package.json`
+
+- [ ] **Step 1: 패키지 설치**
+
+```bash
+cd web && npm install --save postgres && npm install --save-dev @playwright/test vitest @vitest/ui
+```
+
+- [ ] **Step 2: Playwright browser 설치**
+
+```bash
+cd web && npx playwright install --with-deps chromium
+```
+
+- [ ] **Step 3: 검증**
+
+```bash
+cd web && node -e "console.log(require('postgres').name || 'postgres OK')"
+cd web && npx playwright --version
+cd web && npx vitest --version
+```
+
+Expected: `postgres OK` + Playwright + vitest 버전 출력.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add web/package.json web/package-lock.json
+git commit -m "build(web): postgres + playwright + vitest 의존성 추가"
+```
+
+## Task 0.2: vitest + playwright config
+
+**Files:**
+- Create: `web/vitest.config.ts`
+- Create: `web/playwright.config.ts`
+- Create: `web/lib/__tests__/_mocks/pg.ts`
+
+- [ ] **Step 1: vitest.config.ts**
+
+```typescript
+import { defineConfig } from "vitest/config";
+import path from "path";
+
+export default defineConfig({
+  test: { environment: "node", globals: true, setupFiles: ["./vitest.setup.ts"] },
+  resolve: { alias: { "@": path.resolve(__dirname) } },
+});
+```
+
+- [ ] **Step 2: vitest.setup.ts — pg mock**
+
+```typescript
+// web/vitest.setup.ts
+import { vi } from "vitest";
+vi.mock("@/lib/pg", () => ({ default: vi.fn() }));
+```
+
+- [ ] **Step 3: playwright.config.ts**
+
+```typescript
+import { defineConfig } from "@playwright/test";
+export default defineConfig({
+  testDir: "./e2e",
+  use: { baseURL: "http://localhost:5536" },
+  webServer: { command: "npm run dev", port: 5536, reuseExistingServer: true },
+});
+```
+
+- [ ] **Step 4: 검증**
+
+```bash
+cd web && npx vitest run --reporter=default 2>&1 | head -5
+```
+
+Expected: "No test files found" (정상 — 아직 테스트 없음)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add web/vitest.config.ts web/vitest.setup.ts web/playwright.config.ts
+git commit -m "build(web): vitest + playwright 설정"
+```
+
+## Task 0.3: pipeline conftest.py PGClient fixture
+
+**Files:**
+- Modify or Create: `pipeline/tests/conftest.py`
+
+- [ ] **Step 1: PGClient fixture**
+
+```python
+# pipeline/tests/conftest.py
+import os
+import pytest
+from uuid import UUID, uuid4
+from pipeline.db import PGClient
+
+@pytest.fixture
+async def pg_client():
+    """실 PG (cloudflared 5532) connection. 테스트 끝나면 close."""
+    pg = PGClient(os.environ.get("POSTGRES_URL", "postgresql://cpia:K7mP2xQ9nR4v@localhost:5532/cpia"))
+    await pg.connect()
+    yield pg
+    await pg.close()
+
+@pytest.fixture
+async def cleanup_test_rows(pg_client):
+    """테스트 run_id 기반 cleanup. test_run_ids 리스트에 추가하면 끝나고 삭제."""
+    test_run_ids: list[UUID] = []
+    yield test_run_ids
+    for run_id in test_run_ids:
+        for table in ("parser_activities", "mapper_activities", "parser_reports", "parser_job_allocations", "parser_equipment_allocations", "pipeline_runs"):
+            try:
+                await pg_client.execute(f"DELETE FROM {table} WHERE run_id = $1", run_id)
+            except Exception:
+                pass
+    # sites test row cleanup
+    await pg_client.execute("DELETE FROM sites WHERE site_id LIKE 'test-%'")
+```
+
+- [ ] **Step 2: 검증**
+
+```bash
+cd pipeline && .venv/bin/python -m pytest tests/ -k "test_db_get_pipeline_run" -v 2>&1 | tail -5
+```
+
+Expected: 기존 테스트 통과 (fixture 정상 동작).
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add pipeline/tests/conftest.py
+git commit -m "test(pipeline): PGClient fixture + cleanup_test_rows"
+```
 
 ---
 
@@ -169,93 +325,50 @@ git commit -m "feat(infra): G23 mapper_activities.alternatives jsonb 컬럼 추�
 
 # Phase 2 — BE 노드 코드 수정
 
-## Task 2.1: G5 atomizer_node UPDATE atomized_count
+## Task 2.1: G5 atomized_count — 이미 구현됨, 검증 only
+
+> **중요:** Reviewer 발견 — `pipeline/db.py:238 PGClient.update_run_atomized_count()` 메서드 + `pipeline/agents/atomizer.py:137 await pg.update_run_atomized_count(run_id, len(ids))` 호출 이미 존재. PG 검증 시 최근 2 run (3dd88fbb, d648f466) 모두 `atomized_count=41` 정상 적재. 본 task 는 신규 구현 X. **회귀 방지 테스트 + Phase 3 prod cycle 호출 시 적재 확인 only**.
 
 **Files:**
-- Test: `pipeline/tests/test_atomizer_atomized_count.py`
-- Modify: `pipeline/graph.py:249` (atomizer_node)
-- Modify: `pipeline/db.py` 끝 — `update_pipeline_run_atomized_count()` helper
+- Test: `pipeline/tests/test_atomizer_atomized_count.py` (회귀 방지)
 
-- [ ] **Step 1: 실패 테스트 작성**
+- [ ] **Step 1: 회귀 방지 테스트 작성**
 
 ```python
 # pipeline/tests/test_atomizer_atomized_count.py
 import pytest
-import asyncpg
 from uuid import uuid4
 
 @pytest.mark.asyncio
-async def test_atomizer_updates_atomized_count():
-    """G5 — atomizer_node 가 ChromaDB 적재 후 pipeline_runs.atomized_count 를 UPDATE 함."""
-    from pipeline.db import PGClient, update_pipeline_run_atomized_count
-
+async def test_atomizer_update_helper_exists(pg_client, cleanup_test_rows):
+    """G5 회귀 방지 — pg.update_run_atomized_count 가 존재하고 정상 UPDATE."""
     run_id = uuid4()
-    pg = PGClient(...)  # fixture
-    # 사전: pipeline_runs row 1 개 INSERT (atomized_count=NULL)
-    await pg.insert_pipeline_run(run_id=run_id, site_id="m15x-ph3-ibl", report_date="2025-09-25", status="running")
-
-    # 실행: helper 호출
-    await update_pipeline_run_atomized_count(pg, run_id=run_id, atomized_count=42)
-
-    # 검증
-    row = await pg.fetch_one("SELECT atomized_count FROM pipeline_runs WHERE run_id=$1", run_id)
-    assert row["atomized_count"] == 42
-```
-
-- [ ] **Step 2: 테스트 실패 확인**
-
-```bash
-cd pipeline && .venv/bin/python -m pytest tests/test_atomizer_atomized_count.py -v
-```
-
-Expected: FAIL — `ImportError: cannot import name 'update_pipeline_run_atomized_count'`
-
-- [ ] **Step 3: db.py 에 helper 구현**
-
-```python
-# pipeline/db.py 끝부분
-async def update_pipeline_run_atomized_count(
-    pg: PGClient, run_id: UUID, atomized_count: int
-) -> None:
-    """G5 — atomizer 가 ChromaDB 적재한 row 수를 pipeline_runs 에 UPDATE.
-
-    Spec docs/superpowers/specs/2026-05-18-cpia-fe-be-integration-design.md §6 G5.
-    """
-    await pg.execute(
-        "UPDATE pipeline_runs SET atomized_count = $1 WHERE run_id = $2",
-        atomized_count, run_id,
+    cleanup_test_rows.append(run_id)
+    # 사전: pipeline_runs row
+    await pg_client.execute(
+        "INSERT INTO pipeline_runs (run_id, site_id, report_date, status, started_at) VALUES ($1, $2, $3, $4, now())",
+        run_id, "test-atomizer", "2025-09-25", "running",
     )
+    await pg_client.update_run_atomized_count(run_id, 42)
+    row = await pg_client.fetch_all(
+        "SELECT atomized_count FROM pipeline_runs WHERE run_id = $1", run_id,
+    )
+    assert row[0]["atomized_count"] == 42
 ```
 
-- [ ] **Step 4: 테스트 통과 확인**
+- [ ] **Step 2: 테스트 통과 확인 (회귀 방지 — 처음부터 통과 기대)**
 
 ```bash
 cd pipeline && .venv/bin/python -m pytest tests/test_atomizer_atomized_count.py -v
 ```
 
-Expected: PASS (1 passed)
+Expected: PASS (이미 구현된 코드의 회귀 방지)
 
-- [ ] **Step 5: atomizer_node 에서 helper 호출 추가**
-
-`pipeline/graph.py:249` atomizer_node 안 ChromaDB 적재 직후:
-
-```python
-# atomizer_node 안, Chroma 적재 끝부분
-atomized_count = len(atomized_items)  # 또는 chroma 응답에서
-pg = await connect_pg(cfg.pg_dsn)
-try:
-    await update_pipeline_run_atomized_count(pg, run_id=run_id, atomized_count=atomized_count)
-finally:
-    await pg.close()
-
-return {"current_node": "atomizer", "atomized_count": atomized_count, ...}
-```
-
-- [ ] **Step 6: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
-git add pipeline/db.py pipeline/graph.py pipeline/tests/test_atomizer_atomized_count.py
-git commit -m "feat(atomizer): G5 atomized_count 적재"
+git add pipeline/tests/test_atomizer_atomized_count.py
+git commit -m "test(atomizer): G5 atomized_count 회귀 방지 테스트"
 ```
 
 ---
@@ -319,7 +432,8 @@ Expected: PASS
 
 ```python
 # reporter_node 안, daily_reports INSERT 직후
-pg = await connect_pg(cfg.pg_dsn)
+pg = PGClient(cfg.mapper.postgres_url)
+await pg.connect()
 try:
     await update_site_last_run(pg, site_id=state["site_id"], run_id=run_id)
 finally:
@@ -419,12 +533,13 @@ git commit -m "feat(reporter): G2 hours_saved_cum 누적 적재"
 
 ---
 
-## Task 2.4: G19 db.py INSERT 함수 신규 13 컬럼 추가
+## Task 2.4a: G19 — insert_parser_activities_batch 신규 13 컬럼
 
 **Files:**
-- Test: `pipeline/tests/test_db_new_columns_insert.py`
+- Test: `pipeline/tests/test_db_new_columns_insert.py` (parser 부분만)
 - Modify: `pipeline/db.py:540-619` (insert_parser_activities_batch)
-- Modify: `pipeline/db.py:621-720` (insert_mapper_activities_batch)
+
+> Reviewer 권고로 분리. 한 INSERT 함수만 본 task 에서 처리. mapper 는 Task 2.4b.
 
 - [ ] **Step 1: 실패 테스트 작성**
 
@@ -494,23 +609,67 @@ ON CONFLICT (run_id, idx) DO UPDATE SET ...
 
 values 튜플에 신규 13 컬럼을 `activity.get("zone")` 등으로 추가.
 
-- [ ] **Step 4: insert_mapper_activities_batch 동일 수정**
-
-`pipeline/db.py:621-720` 동일 패턴. 신규 13 컬럼 추가.
-
-- [ ] **Step 5: 통과 확인**
+- [ ] **Step 4: parser_activities 통과 확인**
 
 ```bash
-.venv/bin/python -m pytest tests/test_db_new_columns_insert.py -v
+.venv/bin/python -m pytest tests/test_db_new_columns_insert.py::test_insert_parser_activities_persists_new_13_columns -v
 ```
 
 Expected: PASS
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add pipeline/db.py pipeline/tests/test_db_new_columns_insert.py
-git commit -m "feat(db): G19 parser/mapper INSERT 신규 13 컬럼 적재"
+git commit -m "feat(db): G19 insert_parser_activities_batch 신규 13 컬럼"
+```
+
+---
+
+## Task 2.4b: G19 — insert_mapper_activities_batch 신규 13 컬럼
+
+**Files:**
+- Test: `pipeline/tests/test_db_new_columns_insert.py` (mapper 케이스 추가)
+- Modify: `pipeline/db.py:621-720` (insert_mapper_activities_batch)
+
+- [ ] **Step 1: mapper 케이스 테스트 추가 — 동일 13 컬럼 입력 → insert_mapper_activities_batch 호출 → SELECT 검증**
+
+```python
+@pytest.mark.asyncio
+async def test_insert_mapper_activities_persists_new_13_columns(pg_client, cleanup_test_rows):
+    run_id = uuid4()
+    cleanup_test_rows.append(run_id)
+    # pipeline_runs 사전 INSERT 생략 (FK 없을 시)
+    activities = [{
+        "idx": 0, "company": "남웅건설", "trade": "건축", "unit": "m2",
+        "today_qty": 100.0, "wa": "CUB", "l6_main": "철근콘크리트공사",
+        "mapping_conf": 0.85, "mapping_source": "auto", "requires_review": False,
+        "assigned_workers": 8.0, "worker_source": "mh", "plan_total_qty": 1500.0,
+        "plan_mh": 456.0, "conditions": [],
+        # 신규 13 컬럼
+        "zone": "CUB", "bp_code": "PH_X-002", "scope": "F02 1F",
+        "yesterday_cum_qty": 80.0, "today_cum_qty": 180.0,
+        "progress_percent": 12.0, "remaining_qty": 1320.0, "remaining_percent": 88.0,
+        "note": "우천 대응", "work_location_code": "CUB-F02",
+        "wbs_mid_name": "철근콘크리트공사", "wbs_sub_name": "거푸집공사", "wbs_detail_name": "벽체 거푸집",
+    }]
+    await pg_client.insert_mapper_activities_batch(run_id=run_id, report_date="2025-09-25", activities=activities)
+    row = (await pg_client.fetch_all("SELECT * FROM mapper_activities WHERE run_id=$1 LIMIT 1", run_id))[0]
+    assert row["zone"] == "CUB"
+    assert row["progress_percent"] == 12.0
+    assert row["wbs_detail_name"] == "벽체 거푸집"
+```
+
+- [ ] **Step 2: 실패 확인 → 구현 → 통과 확인 → Commit**
+
+```bash
+.venv/bin/python -m pytest tests/test_db_new_columns_insert.py::test_insert_mapper_activities_persists_new_13_columns -v
+# FAIL
+# pipeline/db.py:621-720 INSERT SQL + values 13 컬럼 추가 (Task 2.4a 와 동일 패턴)
+.venv/bin/python -m pytest tests/test_db_new_columns_insert.py -v
+# PASS
+git add pipeline/db.py pipeline/tests/test_db_new_columns_insert.py
+git commit -m "feat(db): G19 insert_mapper_activities_batch 신규 13 컬럼"
 ```
 
 ---
@@ -844,10 +1003,21 @@ const sql = postgres(process.env.POSTGRES_URL!, {
 export default sql;
 ```
 
-- [ ] **Step 3: 환경변수 검증**
+- [ ] **Step 3: 환경변수 검증** (tsx 로 ts 직접 실행)
 
 ```bash
-cd web && node -e "require('dotenv').config({path: '.env.local'}); const sql = require('./lib/pg.ts').default; sql\`SELECT 1 as ok\`.then(r => console.log(r)).finally(() => sql.end());"
+cd web && npx tsx --eval "import sql from './lib/pg'; sql\`SELECT 1 as ok\`.then(r => console.log(r)).finally(() => sql.end());"
+```
+
+또는 임시 .mjs 파일:
+
+```bash
+cd web && cat > /tmp/pg_check.mjs <<'EOF'
+import postgres from "postgres";
+const sql = postgres(process.env.POSTGRES_URL);
+sql`SELECT 1 as ok`.then(r => console.log(r)).finally(() => sql.end());
+EOF
+node /tmp/pg_check.mjs
 ```
 
 Expected: `[{ok: 1}]`
@@ -1195,30 +1365,82 @@ Commit: `feat(web/bff): G6 deriveProductivityTimeseries`
 
 ---
 
-## Task 4.12: G20 derive_s_curve (4 sub-함수 분리)
+## Task 4.12a: G20 — _planned 라인 (활동 마스터 일별 보간)
 
-- [ ] **Step 1: 테스트 + 4 sub-함수 + 통합 함수 + commit**
+**Files:** `web/lib/transforms.ts` (sub-함수 추가) + `web/lib/__tests__/transforms.test.ts`
+
+- [ ] **Step 1: 테스트 + 구현 + commit**
 
 ```typescript
-/** G20 — Reports page S 커브 4 라인. spec §5.4 + §7 G20. */
-async function _planned(siteId: string, end: string): Promise<{date: string; value: number}[]> { /* activity_master.plan_start~finish 일별 보간 */ }
-async function _actual(siteId: string, end: string): Promise<{date: string; value: number}[]> { /* mapped_history.today_qty 누적 */ }
-async function _forecast(siteId: string, end: string): Promise<{date: string; value: number}[]> { /* forecasts.today_productivity 외삽 (선형) */ }
-async function _recovery(siteId: string, wpId: string | null): Promise<{date: string; value: number}[]> { /* optimizer_advice.recovery_pattern */ }
-
-export async function deriveSCurve(
-  siteId: string, endDate: string, wpId: string | null,
-): Promise<SCurvePoint[]> {
-  const [p, a, f, r] = await Promise.all([
-    _planned(siteId, endDate), _actual(siteId, endDate),
-    _forecast(siteId, endDate), _recovery(siteId, wpId),
-  ]);
-  // merge by date → SCurvePoint[]
-  return merged;
+/** G20a — activity_master.plan_start~plan_finish 사이 일별 누적 진척률 보간. */
+export async function _plannedCurve(siteId: string, endDate: string): Promise<{date: string; value: number}[]> {
+  const rows = await sql`
+    SELECT plan_start, plan_finish, plan_total_qty FROM activity_master WHERE site_id = ${siteId}
+  `;
+  // 일별 합산 / 누적 / 정규화 0~100. 일별 grid = plan_start MIN ~ endDate.
+  return /* date 별 누적 % */;
 }
 ```
 
-Commit: `feat(web/bff): G20 deriveSCurve (planned/actual/forecast/recovery 4 sub)`
+Commit: `feat(web/bff): G20a deriveSCurve._plannedCurve`
+
+## Task 4.12b: G20 — _actualCurve (mapped_history 누적)
+
+- [ ] **Step 1: 테스트 + 구현 + commit**
+
+```typescript
+export async function _actualCurve(siteId: string, endDate: string): Promise<{date: string; value: number}[]> {
+  const rows = await sql`
+    SELECT report_date, SUM(today_qty) OVER (ORDER BY report_date) AS cum_qty
+    FROM mapped_history WHERE site_id = ${siteId} AND report_date <= ${endDate}
+    ORDER BY report_date
+  `;
+  return rows.map(r => ({date: r.report_date.toISOString().slice(0,10), value: Number(r.cum_qty)}));
+}
+```
+
+Commit: `feat(web/bff): G20b _actualCurve`
+
+## Task 4.12c: G20 — _forecastCurve (forecasts 외삽 선형)
+
+- [ ] **Step 1: 테스트 + 구현 + commit**
+
+```typescript
+export async function _forecastCurve(siteId: string, endDate: string, actualLast: number, plannedTotal: number): Promise<{date: string; value: number}[]> {
+  // forecasts.today_productivity 평균 → 일일 진척 가정 → endDate 부터 plannedTotal 도달 시점까지 선형 외삽
+  const rows = await sql`SELECT AVG(today_productivity) AS avg_prod FROM forecasts WHERE run_id IN (SELECT last_run_id FROM sites WHERE site_id=${siteId})`;
+  // 선형 외삽 array 반환
+  return /* future dates × value */;
+}
+```
+
+Commit: `feat(web/bff): G20c _forecastCurve (선형 외삽)`
+
+## Task 4.12d: G20 — _recoveryCurve + deriveSCurve 통합
+
+- [ ] **Step 1: 테스트 + 구현 + commit**
+
+```typescript
+export async function _recoveryCurve(siteId: string, wpId: string | null): Promise<{date: string; value: number}[]> {
+  if (!wpId) return [];
+  const rows = await sql`SELECT recovery_pattern FROM optimizer_advice WHERE run_id IN (SELECT last_run_id FROM sites WHERE site_id=${siteId})`;
+  // recovery_pattern jsonb 펼치기
+  return /* date 별 value */;
+}
+
+export async function deriveSCurve(siteId: string, endDate: string, wpId: string | null): Promise<SCurvePoint[]> {
+  const [p, a, f, r] = await Promise.all([
+    _plannedCurve(siteId, endDate),
+    _actualCurve(siteId, endDate),
+    _forecastCurve(siteId, endDate, /* actualLast */ 0, /* plannedTotal */ 0),
+    _recoveryCurve(siteId, wpId),
+  ]);
+  // merge by date → SCurvePoint[]
+  return /* merged array */;
+}
+```
+
+Commit: `feat(web/bff): G20d _recoveryCurve + deriveSCurve 통합`
 
 ---
 
@@ -1294,8 +1516,28 @@ export async function loadReal(name: string): Promise<any> {
       return { ...agg, /* derive */ };
     }
     case "agent_status": {
-      const res = await fetch(`${process.env.FASTAPI_URL}/api/agents/status`);
-      return res.json();
+      // 패턴 통일 — PG 직접 SELECT (FastAPI proxy 의존 제거). pipeline_runs.current_node 별 카운트.
+      const counts = await sql`
+        SELECT current_node, COUNT(*) AS n FROM pipeline_runs
+        WHERE status = 'running' GROUP BY current_node
+      `;
+      const activeMap: Record<string, number> = Object.fromEntries(
+        counts.map((r: any) => [String(r.current_node ?? "").toLowerCase(), Number(r.n)])
+      );
+      const AGENT_META: AgentStatus[] = [
+        { step: 1, name: "Collector",  korean_name: "수집",   description: "작업일보 자동 수집",     model: "규칙 기반",       group: "collect", active_count: 0, state: "idle" },
+        { step: 2, name: "Parser",     korean_name: "파싱",   description: "엑셀 → 구조화 JSON",     model: "gpt-5.1",         group: "collect", active_count: 0, state: "idle" },
+        { step: 3, name: "Mapper",     korean_name: "매핑",   description: "WBS 매핑 + 확신도 산출", model: "gpt-5.1 + RAG",   group: "collect", active_count: 0, state: "idle" },
+        { step: 4, name: "Atomizer",   korean_name: "적재",   description: "Vector DB 적재",          model: "임베딩 모델",     group: "analyze", active_count: 0, state: "idle" },
+        { step: 5, name: "Exporter",   korean_name: "출력",   description: "통합 작업일보 생성",      model: "gpt-5.1",         group: "analyze", active_count: 0, state: "idle" },
+        { step: 6, name: "Forecaster", korean_name: "진단",   description: "생산성 진단",             model: "Sonnet 4.6",      group: "analyze", active_count: 0, state: "idle" },
+        { step: 7, name: "Optimizer",  korean_name: "조언",   description: "회복 조언",               model: "Opus 4.7",        group: "analyze", active_count: 0, state: "idle" },
+      ];
+      return AGENT_META.map(a => ({
+        ...a,
+        active_count: activeMap[a.name.toLowerCase()] ?? 0,
+        state: (activeMap[a.name.toLowerCase()] ?? 0) > 0 ? "processing" : "idle",
+      }));
     }
     case "chat_sequence": {
       const [latest] = await sql`SELECT run_id, report_date FROM pipeline_runs WHERE status='completed' ORDER BY started_at DESC LIMIT 1`;

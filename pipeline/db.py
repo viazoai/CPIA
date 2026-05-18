@@ -427,3 +427,14 @@ class PGClient:
                     for r in rows
                 ],
             )
+
+    async def get_pipeline_run(self, run_id: uuid.UUID) -> dict | None:
+        """pipeline_runs 1 row 조회. 없으면 None."""
+        assert self._pool is not None, "connect() 미호출"
+        async with self._pool.acquire() as con:
+            row = await con.fetchrow(
+                "SELECT run_id, site_id, report_date, status, current_node"
+                " FROM pipeline_runs WHERE run_id=$1",
+                run_id,
+            )
+        return dict(row) if row else None

@@ -191,8 +191,20 @@ def resolve_wa(
     if len(l6_wa) == 1:
         return WAResolution(value=next(iter(l6_wa)), source="auto_l6_single")
 
-    # 3단계 — 시트1 자연어 LLM 추론 (PoC 비활성, GATE 2 활성)
-    # TODO: GATE 2 진입 시 llm_infer_wa() 추가
+    # 3단계 — 시트1 BPSummary.zone 으로 wa 결정 (mapping-layer.md §4 3단계).
+    # 사용자 의도: "1번 시트 내용에 cub인지 fab인지 알 수 있으니 매핑에 써야 함".
+    # 정책: 같은 BP사가 시트1 에 출력한 distinct zone set 과 l6_choice 의 cand_pool
+    # wa set 의 교집합이 정확히 1개일 때만 채택. 교집합 0 또는 2 이상이면 4단계.
+    if parsed_report is not None:
+        zones_in_sheet1 = {
+            s["zone"]
+            for s in parsed_report["bp_summaries"]
+            if s["company"] == activity["company"] and s["zone"]
+        }
+        cand_wa_at_l6 = {wa for wa, l6 in cand_pool if l6 == l6_choice}
+        intersect = zones_in_sheet1 & cand_wa_at_l6
+        if len(intersect) == 1:
+            return WAResolution(value=next(iter(intersect)), source="auto_sheet1_text")
 
     # 4단계 — H-i-L 강제
     return WAResolution(value=None, source="hil_required")

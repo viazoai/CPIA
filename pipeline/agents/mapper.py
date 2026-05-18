@@ -210,6 +210,17 @@ def resolve_wa(
     return WAResolution(value=None, source="hil_required")
 
 
+def _select_top_k_alternatives(candidates: list[dict[str, Any]], k: int = 3) -> list[dict[str, Any]]:
+    """G23 — RAG candidate 중 score 내림차순 top-K 후보 추출.
+
+    candidates 원소는 mapper map_activity() 안에서 만든
+    {"key": (wa, l6_main), "score": float, ...}. 반환은 FE review
+    페이지 dropdown 용 {wa, l6_main, score} 만 추려 jsonb 적재.
+    """
+    ranked = sorted(candidates, key=lambda c: c["score"], reverse=True)[:k]
+    return [{"wa": c["key"][0], "l6_main": c["key"][1], "score": float(c["score"])} for c in ranked]
+
+
 @dataclass
 class MapperConfig:
     """Mapper 6단계 호출에 필요한 환경."""
@@ -276,17 +287,21 @@ async def map_activity(
     chroma_result = coll.query(
         query_embeddings=[inp_vec],
         n_results=cfg.top_k,
-        include=["documents", "metadatas"],
+        include=["documents", "metadatas", "distances"],
     )
     candidates: list[dict[str, Any]] = []
     for i, _doc_id in enumerate(chroma_result["ids"][0]):
         meta = chroma_result["metadatas"][0][i]
         key = (meta["wa"], meta["l6_main"])
+        # G23 — cosine distance → similarity score ∈ [-1, 1] (실용 [0, 1]).
+        # Chroma collection 은 hnsw:space=cosine 으로 생성됨.
+        dist = float(chroma_result["distances"][0][i])
         candidates.append(
             {
                 "key": key,
                 "doc_text": chroma_result["documents"][0][i],
                 "is_bp_registered": key in cand_pool_set,  # Task 4 soft hint
+                "score": 1.0 - dist,
             }
         )
         if len(candidates) >= cfg.max_candidates:
@@ -374,6 +389,8 @@ async def map_activity(
         "mapping_conf": confidence,
         "mapping_source": wa_result.source,
         "requires_review": requires_review,
+        # G23 — FE review dropdown 용 top-K 후보 (K=3).
+        "alternatives": _select_top_k_alternatives(candidates, k=3),
     }
 
 

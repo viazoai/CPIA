@@ -78,7 +78,7 @@ export function ScalabilitySection() {
                     <Icon className="h-4 w-4" />
                   </span>
                   <span
-                    className={`font-mono text-[11px] uppercase tracking-wider ${
+                    className={`text-[11px] font-medium uppercase tracking-[0.12em] ${
                       h.active ? "text-brand-text" : "text-ink-light"
                     }`}
                   >

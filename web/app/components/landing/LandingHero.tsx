@@ -4,8 +4,30 @@ import { Sparkles, ArrowRight, TrendingUp, Clock4 } from "lucide-react";
 
 export function LandingHero() {
   return (
-    <section className="relative mx-auto max-w-wrap px-6 pb-24 pt-20 md:px-10 md:pb-32 md:pt-28">
-      <div className="grid items-center gap-12 md:grid-cols-2 md:gap-16">
+    <section className="relative flex min-h-[calc(100vh-4rem)] items-center overflow-hidden">
+      {/* ── 시작페이지 그라데이션 backdrop — 흰색 → 하늘색 (상단 white, 하단 sky) ── */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-b from-white via-white to-sky-light"
+      />
+      {/* 큰 sky halo — 상단 중앙에서 옅게 확산 */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -top-40 left-1/2 -z-10 h-[640px] w-[1100px] -translate-x-1/2 rounded-full bg-sky/25 blur-3xl"
+      />
+      {/* 우측 상단 보조 톤 — brand-light 살짝 */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -top-24 -right-24 -z-10 h-[460px] w-[460px] rounded-full bg-brand/15 blur-3xl"
+      />
+      {/* 좌측 하단 보조 톤 — sky-light 마무리 (다음 섹션 경계 흐리기) */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -bottom-40 -left-20 -z-10 h-[480px] w-[480px] rounded-full bg-sky-light/80 blur-3xl"
+      />
+
+      <div className="mx-auto max-w-wrap px-6 pb-40 pt-28 md:px-10 md:pb-56 md:pt-36">
+        <div className="grid items-center gap-12 md:grid-cols-2 md:gap-16">
         {/* LEFT — copy */}
         <div className="relative z-10">
           {/* Badge */}
@@ -14,15 +36,14 @@ export function LandingHero() {
             Welcome to CPIA
           </span>
 
-          <h1 className="mt-6 font-display text-h2 text-ink md:text-h1">
-            현장 보고 업무를 줄이는 게 아니라,{" "}
-            <span className="text-brand">현장의 일을 재정의합니다.</span>
+          <h1 className="mt-6 font-display text-h2 text-ink md:text-h2">
+            현장 운영 구조 전환을 위한,{" "}
+            <span className="text-brand">생산성 최적화 AI Agent</span>
           </h1>
 
           <p className="mt-6 max-w-xl text-body text-ink-mid">
-            7개 전문 AI Agent + Vector RAG 기반 현장 실적 이력 판단 체계.
-            Middle Office 보고 업무를 자동화하고, 담당자가 Front Office 본연의
-            공정 판단·리스크 실행에 집중하도록 합니다.
+            Middle Office의 작업일보 집계·검증·보고 업무를 자동화하고, 현장관리자의 공정 분석·리스크 예측을
+            지원하여 현장의 공사기간 단축을 기여합니다.
           </p>
 
           <div className="mt-9 flex flex-wrap items-center gap-3">
@@ -33,20 +54,9 @@ export function LandingHero() {
               Get Started Now
               <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
             </Link>
-            <a
-              href="#impact"
-              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-white px-5 py-3.5 text-body-sm font-medium text-ink-mid transition-colors hover:border-brand hover:text-ink"
-            >
-              임팩트 보기
-            </a>
           </div>
 
           {/* Trust strip */}
-          <div className="mt-10 flex flex-wrap items-center gap-6 text-[12px] text-ink-light">
-            <span className="font-mono uppercase tracking-wider">
-              Hi-tech 6 sites · 321 activities · 월 8,133h
-            </span>
-          </div>
         </div>
 
         {/* RIGHT — floating mockup stack */}
@@ -112,6 +122,7 @@ export function LandingHero() {
             </div>
             <div className="mt-1 text-[11px] text-ink-mid">2,155h ÷ 140h/명</div>
           </div>
+        </div>
         </div>
       </div>
     </section>

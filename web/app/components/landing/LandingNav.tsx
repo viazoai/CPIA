@@ -2,39 +2,24 @@
 import Link from "next/link";
 import { Sparkles, ArrowRight } from "lucide-react";
 
-const ANCHORS = [
-  { label: "Background", href: "#background" },
-  { label: "Process",    href: "#process" },
-  { label: "Impact",     href: "#impact" },
-  { label: "Roadmap",    href: "#roadmap" },
-];
-
 export function LandingNav() {
   return (
     <header className="sticky top-0 z-50 border-b border-border/60 bg-white/80 backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-wrap items-center justify-between px-6 md:px-10">
-        {/* Brand */}
-        <Link href="/" className="flex items-center gap-2.5">
-          <span className="flex h-8 w-8 items-center justify-center rounded-md bg-gradient-to-br from-brand to-brand-text">
+        {/* Brand — TopBar 와 동일 배치 (CPIA + 풀네임 baseline 정렬) */}
+        <Link href="/" className="flex items-center gap-3">
+          <span className="flex h-8 w-8 items-center justify-center rounded-md bg-gradient-to-br from-brand to-mint">
             <Sparkles className="h-4 w-4 text-white" strokeWidth={2.5} />
           </span>
-          <span className="font-display text-base font-bold tracking-tight text-ink">
-            CPIA
-          </span>
+          <div className="flex items-baseline gap-2">
+            <span className="font-display text-base font-bold tracking-tight text-ink">
+              CPIA
+            </span>
+            <span className="hidden text-body-sm text-ink-mid sm:inline">
+              Construction Productivity Intelligence Agent
+            </span>
+          </div>
         </Link>
-
-        {/* Anchor nav */}
-        <nav className="hidden items-center gap-8 md:flex">
-          {ANCHORS.map((a) => (
-            <a
-              key={a.href}
-              href={a.href}
-              className="text-body-sm text-ink-mid transition-colors hover:text-ink"
-            >
-              {a.label}
-            </a>
-          ))}
-        </nav>
 
         {/* CTA */}
         <Link

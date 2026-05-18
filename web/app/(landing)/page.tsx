@@ -2,6 +2,7 @@ import { LandingNav } from "../components/landing/LandingNav";
 import { LandingHero } from "../components/landing/LandingHero";
 import { BackgroundSection } from "../components/landing/BackgroundSection";
 import { AsIsToBeSection } from "../components/landing/AsIsToBeSection";
+import { CoreAiSection } from "../components/landing/CoreAiSection";
 import { ImpactSection } from "../components/landing/ImpactSection";
 import { ScalabilitySection } from "../components/landing/ScalabilitySection";
 import { FinalCtaSection } from "../components/landing/FinalCtaSection";
@@ -15,6 +16,7 @@ export default function LandingPage() {
         <LandingHero />
         <BackgroundSection />
         <AsIsToBeSection />
+        <CoreAiSection />
         <ImpactSection />
         <ScalabilitySection />
         <FinalCtaSection />

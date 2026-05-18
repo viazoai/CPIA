@@ -7,7 +7,8 @@ Spec:
 
 from __future__ import annotations
 
-import asyncio  # noqa: F401 — mapper_node Semaphore(20) 병렬화 용
+import asyncio
+import os
 import uuid
 from dataclasses import dataclass
 from datetime import date as _date
@@ -30,6 +31,9 @@ from pipeline.chroma_client import ChromaClient
 from pipeline.db import PGClient
 from pipeline.state import Activity, CPIAState, ParsedDailyReport
 
+# Mapper LLM rerank 병렬도 — Azure rate-limit 고려해 기본 4. env 로 조정.
+_MAPPER_CONCURRENCY = int(os.environ.get("CPIA_MAPPER_CONCURRENCY", "4"))
+
 
 @dataclass
 class GraphConfig:
@@ -41,13 +45,20 @@ class GraphConfig:
 
 
 async def mapper_node(state: CPIAState, cfg: GraphConfig) -> dict:
-    """Mapper 노드 — 활동을 Semaphore(10) 으로 병렬 LLM call.
+    """Mapper LLM (병렬) + Parser/Mapper 산출 PG 영속.
 
-    BP cand_pool 미리 batch fetch (1 PG connection × N BP) → map_activity 안의 매
-    활동마다 새 PG connection 폭발 회피. asyncio.gather + Semaphore(10) 동시.
-    Azure OpenAI rate limit (gpt-5.1) 회피.
+    각 에이전트 결과가 BI / 대시보드에서 SELECT 가능해야 한다는 요구로
+    Parser 결과 (parser_reports + parser_activities) 와 Mapper 결과
+    (mapper_activities) 를 본 노드에서 함께 INSERT. ON CONFLICT (run_id[, idx])
+    DO UPDATE 라 재실행 멱등.
+
+    BP cand_pool 미리 batch fetch (1 PG connection × N BP) → map_activity 안의
+    매 활동마다 새 PG connection 폭발 회피. asyncio.gather +
+    Semaphore(`CPIA_MAPPER_CONCURRENCY`, 기본 4) 로 묶어 Azure rate-limit 회피.
     """
     parsed: ParsedDailyReport = state["parsed"]
+    run_id = uuid.UUID(state["run_id"]) if isinstance(state["run_id"], str) else state["run_id"]
+    today = _date.fromisoformat(state["date"])
 
     # BP cand_pool 미리 batch fetch — 1 PG connection 으로 모든 company 조회
     pg = PGClient(cfg.mapper.postgres_url)
@@ -61,25 +72,65 @@ async def mapper_node(state: CPIAState, cfg: GraphConfig) -> dict:
     finally:
         await pg.close()
 
-    sem = asyncio.Semaphore(10)
+    sem = asyncio.Semaphore(_MAPPER_CONCURRENCY)
 
-    async def _bounded_map(activity: Activity) -> Activity:
+    async def _map_one(a: Activity) -> Activity:
         async with sem:
             return await map_activity(
-                activity,
+                a,
                 parsed_report=parsed,
                 cfg=cfg.mapper,
                 bp_cand_lookup=bp_cand_lookup,
             )
 
-    mapped: list[Activity] = await asyncio.gather(*[_bounded_map(a) for a in parsed["activities"]])
+    mapped: list[Activity] = list(await asyncio.gather(*[_map_one(a) for a in parsed["activities"]]))
 
+    import sys as _sys
+
+    def _dbg(msg: str) -> None:
+        print(f"[mapper_node:{run_id}] {msg}", file=_sys.stderr, flush=True)
+
+    _dbg(f"mapped len={len(mapped)} BEFORE prorate/INSERT")
     pg = PGClient(cfg.mapper.postgres_url)
     await pg.connect()
+    _dbg(f"PG connected DSN={cfg.mapper.postgres_url[:40]}...")
     try:
         mapped = await _prorate_mh(mapped, parsed, pg)
+        _dbg(f"prorate done, mapped len={len(mapped)}")
+
+        await pg.insert_parser_report(
+            run_id=run_id,
+            report_date=today,
+            project=parsed["project"],
+            bp_summaries=parsed["bp_summaries"],
+            job_allocations=parsed["job_allocations"],
+            equipment_allocations=parsed["equipment_allocations"],
+            activity_count=len(parsed["activities"]),
+        )
+        _dbg("insert_parser_report OK")
+        await pg.insert_parser_activities_batch(
+            run_id=run_id,
+            report_date=today,
+            activities=parsed["activities"],
+        )
+        _dbg(f"insert_parser_activities_batch OK ({len(parsed['activities'])} rows)")
+        await pg.insert_mapper_activities_batch(
+            run_id=run_id,
+            report_date=today,
+            activities=mapped,
+        )
+        _dbg(f"insert_mapper_activities_batch OK ({len(mapped)} rows)")
+
+        # 같은 transaction 안에서 SELECT 로 즉시 검증 (silent fail 진단)
+        n_pr = await pg.fetch_all("SELECT count(*) AS n FROM parser_reports WHERE run_id=$1", run_id)
+        n_pa = await pg.fetch_all("SELECT count(*) AS n FROM parser_activities WHERE run_id=$1", run_id)
+        n_ma = await pg.fetch_all("SELECT count(*) AS n FROM mapper_activities WHERE run_id=$1", run_id)
+        _dbg(
+            f"verify SELECT: parser_reports={n_pr[0]['n']} parser_activities={n_pa[0]['n']} mapper_activities={n_ma[0]['n']}"
+        )
     finally:
         await pg.close()
+        _dbg("PG closed, mapper_node return")
 
     return {"mapped": mapped, "current_node": "mapper"}
 

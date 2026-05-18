@@ -494,6 +494,167 @@ class PGClient:
             )
         return dict(row) if row else None
 
+    async def insert_parser_report(
+        self,
+        run_id: uuid.UUID,
+        report_date: _date,
+        project: str,
+        bp_summaries: list[dict],
+        job_allocations: list[dict],
+        equipment_allocations: list[dict],
+        activity_count: int,
+    ) -> None:
+        """parser_reports 1 row INSERT (run_id 멱등 — ON CONFLICT DO UPDATE).
+
+        시트1~3 (BPSummary / JobAllocation / EquipmentAllocation) 통째 jsonb.
+        시트4 (activities) 는 parser_activities 에 정규화 적재 — count 만 여기 기록.
+        """
+        import json as _json
+
+        assert self._pool is not None, "connect() 미호출"
+        async with self._pool.acquire() as con:
+            await con.execute(
+                """
+                INSERT INTO parser_reports
+                    (run_id, report_date, project,
+                     bp_summaries, job_allocations, equipment_allocations,
+                     activity_count)
+                VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb, $7)
+                ON CONFLICT (run_id) DO UPDATE SET
+                    report_date           = EXCLUDED.report_date,
+                    project               = EXCLUDED.project,
+                    bp_summaries          = EXCLUDED.bp_summaries,
+                    job_allocations       = EXCLUDED.job_allocations,
+                    equipment_allocations = EXCLUDED.equipment_allocations,
+                    activity_count        = EXCLUDED.activity_count
+                """,
+                run_id,
+                report_date,
+                project,
+                _json.dumps(bp_summaries, ensure_ascii=False),
+                _json.dumps(job_allocations, ensure_ascii=False),
+                _json.dumps(equipment_allocations, ensure_ascii=False),
+                activity_count,
+            )
+
+    async def insert_parser_activities_batch(
+        self,
+        run_id: uuid.UUID,
+        report_date: _date,
+        activities: list[dict],
+    ) -> None:
+        """parser_activities batch INSERT — Activity[] (Mapper 호출 전 raw).
+
+        (run_id, idx) 멱등. activities idx = list index (Activity[] 순서).
+        """
+        if not activities:
+            return
+        assert self._pool is not None, "connect() 미호출"
+        async with self._pool.acquire() as con:
+            await con.executemany(
+                """
+                INSERT INTO parser_activities
+                    (run_id, report_date, idx,
+                     l5_disc, trade, company, unit,
+                     today_qty, work_content, plan_total_qty)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                ON CONFLICT (run_id, idx) DO UPDATE SET
+                    l5_disc        = EXCLUDED.l5_disc,
+                    trade          = EXCLUDED.trade,
+                    company        = EXCLUDED.company,
+                    unit           = EXCLUDED.unit,
+                    today_qty      = EXCLUDED.today_qty,
+                    work_content   = EXCLUDED.work_content,
+                    plan_total_qty = EXCLUDED.plan_total_qty
+                """,
+                [
+                    (
+                        run_id,
+                        report_date,
+                        i,
+                        a.get("l5_disc"),
+                        a.get("trade"),
+                        a["company"],
+                        a.get("unit"),
+                        a.get("today_qty"),
+                        a.get("work_content"),
+                        a.get("plan_total_qty"),
+                    )
+                    for i, a in enumerate(activities)
+                ],
+            )
+
+    async def insert_mapper_activities_batch(
+        self,
+        run_id: uuid.UUID,
+        report_date: _date,
+        activities: list[dict],
+    ) -> None:
+        """mapper_activities batch INSERT — Activity[] enriched (wa/l6_main/conf).
+
+        (run_id, idx) 멱등. _prorate_mh 적용 후 호출. conditions 는 jsonb list.
+        """
+        import json as _json
+
+        if not activities:
+            return
+        assert self._pool is not None, "connect() 미호출"
+        async with self._pool.acquire() as con:
+            await con.executemany(
+                """
+                INSERT INTO mapper_activities
+                    (run_id, report_date, idx,
+                     company, trade, unit, today_qty,
+                     wa, l6_main, mapping_conf, mapping_source, requires_review,
+                     assigned_workers, worker_source,
+                     plan_total_qty, plan_mh,
+                     conditions)
+                VALUES ($1, $2, $3,
+                        $4, $5, $6, $7,
+                        $8, $9, $10, $11, $12,
+                        $13, $14,
+                        $15, $16,
+                        $17::jsonb)
+                ON CONFLICT (run_id, idx) DO UPDATE SET
+                    company          = EXCLUDED.company,
+                    trade            = EXCLUDED.trade,
+                    unit             = EXCLUDED.unit,
+                    today_qty        = EXCLUDED.today_qty,
+                    wa               = EXCLUDED.wa,
+                    l6_main          = EXCLUDED.l6_main,
+                    mapping_conf     = EXCLUDED.mapping_conf,
+                    mapping_source   = EXCLUDED.mapping_source,
+                    requires_review  = EXCLUDED.requires_review,
+                    assigned_workers = EXCLUDED.assigned_workers,
+                    worker_source    = EXCLUDED.worker_source,
+                    plan_total_qty   = EXCLUDED.plan_total_qty,
+                    plan_mh          = EXCLUDED.plan_mh,
+                    conditions       = EXCLUDED.conditions
+                """,
+                [
+                    (
+                        run_id,
+                        report_date,
+                        i,
+                        a["company"],
+                        a.get("trade"),
+                        a.get("unit"),
+                        a.get("today_qty"),
+                        a.get("wa"),
+                        a.get("l6_main"),
+                        a.get("mapping_conf"),
+                        a.get("mapping_source"),
+                        bool(a.get("requires_review", False)),
+                        a.get("assigned_workers"),
+                        a.get("worker_source"),
+                        a.get("plan_total_qty"),
+                        a.get("plan_mh"),
+                        _json.dumps(a.get("conditions") or [], ensure_ascii=False),
+                    )
+                    for i, a in enumerate(activities)
+                ],
+            )
+
     async def fetch_one(self, sql: str, *args: Any) -> dict[str, Any] | None:
         """임의 SELECT 1 row 조회 helper. 외부에서 _pool 직접 접근 대신 사용.
 

@@ -211,6 +211,14 @@ export interface WPSummaryRow {
   status: "normal" | "caution" | "risk";
 }
 
+// ────── Dashboard Fleet Performance ──────
+export interface FleetTrendPoint {
+  date: string;   // ISO "YYYY-MM-DD"
+  mean: number;   // 0..100 — 6 현장 평균 생산성
+  min: number;    // 0..100 — 가장 낮은 현장
+  max: number;    // 0..100 — 가장 높은 현장
+}
+
 // ────── Dashboard Impact ──────
 export interface ImpactSiteDistribution {
   site_id: string;
@@ -261,6 +269,88 @@ export interface ScenarioPoint {
   recovery_pct: number;          // 회복 후 누적 진척률 (%)
   delta_completion_days: number; // 계획 완공일 대비. 음수 = 단축, 양수 = 지연
   curve: (number | null)[];      // 시각화용 시계열 (길이 = s_curve.length). today 이전은 null — 차트에서 선 안 그리도록
+}
+
+// ────── /export — 통합 작업일보 (Exporter agent 산출물) ──────
+// 엑셀 4 시트(출력인원 현황 / 직종별 인원현황 / 장비현황 / 물량)를 그대로 매핑.
+// 현 PG 스키마(daily_reports) 는 raw 행을 담지 않으므로 B_Track 은 mock fixture 로 진행.
+// A_Track 이 staging 테이블 + GET 엔드포인트를 추가하면 fetch URL 만 swap.
+export type SheetTab =
+  | "output_manpower"
+  | "occupation_manpower"
+  | "equipment"
+  | "quantity";
+
+export interface ConsolidatedReportSummary {
+  date: string;                                // YYYY-MM-DD
+  pjt: string;                                 // "M15X Ph-3 IBL"
+  status: "ready" | "draft";                   // 엑셀 다운로드 가능 여부
+  sheet_row_counts: Record<SheetTab, number>;
+}
+
+export interface OutputManpowerRow {
+  pjt: string;
+  zone: string;
+  trade: string;
+  bp_code: string;
+  scope: string;
+  main_work: string;
+  prev_work: string;
+  today_work: string;
+  next_work: string;
+  early: number;
+  day: number;
+  overtime: number;
+}
+
+export interface OccupationManpowerRow {
+  trade: string;
+  bp_code: string;
+  manager_code: string;
+  skilled_code: string;
+  occupation: string;
+  prev_cum: number;
+  early: number;
+  day: number;
+  overtime: number;
+  night: number;
+  allnight: number;
+  cum_t: number;
+}
+
+export interface EquipmentRow {
+  trade: string;
+  bp_code: string;
+  eq_major: string;
+  eq_mid: string;
+  eq_spec: string;
+  prev_cum: number;
+  early: number;
+  day: number;
+  overtime: number;
+  night: number;
+  allnight: number;
+  cum_t: number;
+}
+
+export interface QuantityRow {
+  zone: string;
+  trade: string;
+  bp_code: string;
+  bp_name: string;
+  scope: string;
+  rep_work: string;
+  unit: string;
+  total_a: number;       // 총물량 [A]
+  prev_cum_b: number;    // 전일누적 [B]
+  today_c: number;       // 금일실적 [C]
+}
+
+export interface ConsolidatedReport extends ConsolidatedReportSummary {
+  output_manpower: OutputManpowerRow[];
+  occupation_manpower: OccupationManpowerRow[];
+  equipment: EquipmentRow[];
+  quantity: QuantityRow[];
 }
 
 export interface ProductivityDiagnosis {

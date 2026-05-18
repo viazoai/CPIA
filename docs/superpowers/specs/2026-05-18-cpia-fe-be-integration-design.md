@@ -123,7 +123,7 @@ bridge spec (2026-05-17) 작성 시점엔 parser/mapper 가 LangGraph 자체 PG 
 | 평균 공기 격차 (일) — "전사 평균 지연" | `AVG(forecasts.delay_days)` — G8 의존 |
 | 이상 공종 총합 (건) — "전사 합계" | `COUNT(forecasts WHERE risk_level IN ('이상','주의'))` — G8 의존 |
 | 회복 가능 공기 (일) — "Optimizer 평균" | `optimizer_advice.recovery_distribution` jsonb → p50 평균 |
-| 전사 생산성 시계열 (mean/min/max 30일) | **G6 derive** — `mapped_history.today_qty / plan_mh` 일별 GROUP BY 로 산출 |
+| 전사 생산성 시계열 (mean/min/max, 가능한 한 30일) | **G6 derive** — `mapped_history` 는 productivity 컬럼이 없고 `today_qty` 만 갖고 있어서 `mapper_activities` 와 `(run_id, wa, l6_main, company)` LEFT JOIN 후 `today_qty / NULLIF(plan_mh, 0)` 계산. 일별 GROUP BY (`report_date`) 로 site 마다 daily productivity → mean/min/max 산출. **현재 mapped_history 15 row / 1 site / 2025-09 인근 집중이라 30일 분포는 sparse 가능 — fallback: forecasts.similar_cases jsonb 의 productivity 평균** |
 | 현장 카드 grid (sites[]) | sites + forecasts LATERAL JOIN — G8 의존 |
 | 카드 sparkline | G6 와 동일 |
 
@@ -158,7 +158,7 @@ bridge spec (2026-05-17) 작성 시점엔 parser/mapper 가 LangGraph 자체 PG 
 | Parser | Collector processed | `COUNT(parser_activities)` |
 | Mapper | Parser processed | `COUNT(mapper_activities)` |
 | HIL Review | `SUM(mapper_activities.requires_review=true)` | `COUNT(mapping_corrections WHERE report_date)` |
-| Atomizer | Mapper processed − HIL pending | `pipeline_runs.atomized_count` — **G5 의존** |
+| Atomizer | `COUNT(mapper_activities WHERE not requires_review AND run_id 그 일자)` — HIL 1 통과 row 수 | `pipeline_runs.atomized_count` 값 SELECT — **G5 가 이 컬럼을 UPDATE 하므로 적재 의존** |
 | Exporter | Atomizer processed | `COUNT(daily_reports)` |
 | Forecaster | `COUNT(DISTINCT (company, l6_main))` | `COUNT(forecasts)` |
 | Optimizer | `COUNT(forecasts WHERE risk_level<>'정상')` | `COUNT(optimizer_advice)` |
@@ -229,10 +229,10 @@ bridge spec (2026-05-17) 작성 시점엔 parser/mapper 가 LangGraph 자체 PG 
 
 | ID | 작업 | 어디 노드 + 파일 | 영향 페이지 |
 |---|---|---|---|
-| **G2** | `sites.hours_saved_cum` 컬럼 마이그 + 적재 산식 (`(AS_IS_HOURS - TO_BE_HOURS) × atomized_count`. 상수: AS_IS=120min/일보, TO_BE=5min/일보) | `infra/postgres/migrations/2026-05-19_sites_hours_saved_cum.sql` + `pipeline/graph.py` reporter→END edge `update_site_hours_saved_cum()` | home, dashboard |
-| **G5** | `pipeline_runs.atomized_count` 적재 | `pipeline/agents/atomizer.py` 또는 `pipeline/graph.py` atomizer_node 가 `UPDATE pipeline_runs SET atomized_count` 호출 | home, tasks |
+| **G2** | `sites.hours_saved_cum` (NUMERIC, 단위 = **시간 h**) 컬럼 마이그 + 적재. 산식 = `((AS_IS_MIN - TO_BE_MIN) / 60.0) × atomized_count`. 상수: AS_IS_MIN=120 (일보당 사람 수작업 분), TO_BE_MIN=5 (일보당 AI 처리 분). 분→시간 환산을 `/60.0` 명시. atomized_count 가 G5 로 적재된 이후 reporter→END edge 가 계산해 누적 UPDATE. | `infra/postgres/migrations/2026-05-19_sites_hours_saved_cum.sql` + `pipeline/graph.py` reporter→END edge `update_site_hours_saved_cum()` | home, dashboard |
+| **G5** | atomizer 가 그 run 에서 ChromaDB `daily_activities` 에 적재한 row 개수를 `pipeline_runs.atomized_count` 에 `UPDATE` (적재 작업 자체. derive 산식 아님). | `pipeline/agents/atomizer.py` 끝부분 또는 `pipeline/graph.py` atomizer_node 가 `UPDATE pipeline_runs SET atomized_count = <적재 row 수> WHERE run_id = ...` 호출 | home, tasks |
 | **G8** | `sites.last_run_id` 갱신 | reporter→END edge `UPDATE sites SET last_run_id=run_id WHERE site_id=state.site_id` | home, dashboard |
-| **G19** | parser/mapper INSERT 시 신규 13 컬럼 매핑 | `pipeline/db.py` 의 `insert_parser_activities_batch()` + `insert_mapper_activities_batch()` 가 LLM Parser 출력의 zone/bp_code/scope/누적/진척률/잔여/note/work_location_code/wbs_*_name 값을 컬럼 자리에 매핑 | reports, export |
+| **G19** | parser/mapper INSERT 시 신규 13 컬럼 매핑. `parser_llm.py` LLM 출력 스키마는 `db.py` INSERT 컬럼명과 이미 일치 — 함수 본문에 컬럼 자리만 추가하면 됨. 두 INSERT 함수 모두 `pipeline/graph.py` 의 **mapper_node** (parser_node 가 아님) 에서 호출되는 점 주의 | `pipeline/db.py` 의 `insert_parser_activities_batch()` + `insert_mapper_activities_batch()` 본문 + (참고) graph.py mapper_node 호출부 | reports, export |
 | **G23** | `mapper_activities.alternatives` jsonb 마이그 + 적재 | `infra/postgres/migrations/2026-05-19_mapper_alternatives.sql` + `pipeline/agents/mapper.py` 가 RAG top-K (K=3) + score 를 jsonb 으로 적재 | review |
 | **G24** | parser_node 가 db.py 신규 INSERT 호출 (job_allocations / equipment_allocations) | `pipeline/graph.py` parser_node 가 `insert_parser_job_allocations_batch(run_id, parsed.job_allocations)` + `insert_parser_equipment_allocations_batch(run_id, parsed.equipment_allocations)` 호출 | export |
 
@@ -246,8 +246,8 @@ bridge spec (2026-05-17) 작성 시점엔 parser/mapper 가 LangGraph 자체 PG 
 |---|---|---|---|
 | G1 | `derive_yearly_saving(total_fte_saved, total_hours_saved, hourly_rate)` | sites SUM | number (억) — `fte * 1.5 + hours * rate / 1e8` |
 | G4 | `derive_chat_sequence(run_id)` | pipeline_runs + parser/mapper/forecasts/optimizer 통계 | ChatMessage[] — 7~8 발화 (agent 별 1 줄 summary + detail). 템플릿 7개 |
-| G6 | `derive_productivity_timeseries(site_id, days=30)` | mapped_history.today_qty / plan_mh 일별 GROUP BY | FleetTrendPoint[] (date, mean, min, max) + site_sparklines |
-| G10 | `derive_stage_progress(date)` | pipeline_runs + 8 카운트 테이블 | AgentStageProgress[] × 8 |
+| G6 | `derive_productivity_timeseries(site_id, days=30)` | `mapped_history` LEFT JOIN `mapper_activities` ON `(run_id, wa, l6_main, company)` → `today_qty / NULLIF(plan_mh, 0)` 일별 GROUP BY. sparse 시 forecasts.similar_cases fallback | FleetTrendPoint[] (date, mean, min, max) + site_sparklines |
+| G10 | `derive_stage_progress(date)` | pipeline_runs + 다음 8 테이블 카운트: parser_reports, parser_activities, mapper_activities, mapping_corrections, pipeline_runs.atomized_count (G5 적재값), daily_reports, forecasts, optimizer_advice. 각 stage 의 received/processed 산식은 §5.3 표 참고 | AgentStageProgress[] × 8 stage |
 | G11 | `derive_item_status(activity_row, stage)` | mapper_activities row + stage | "done"/"processing"/"received"/"hil_pending"/"blocked" |
 | G12 | `derive_progress_percent(status, current_node)` | pipeline_runs row | 0~100 |
 | G15 | (산식 X — `mapper_activities.l6_main` 직사용) | l6_main 문자열 | UI trade 라벨 |
@@ -282,7 +282,7 @@ bridge spec (2026-05-17) 작성 시점엔 parser/mapper 가 LangGraph 자체 PG 
 | D-4 | G2 (hours_saved_cum) — sites 마이그 + 적재 코드. mock fallback X | §6 G2 |
 | D-5 | G5 (atomized_count) — atomizer_node 적재. KPI "누적 처리" 의 anchor | §6 G5 |
 | D-6 | G4 (chat_sequence) — 자연어 템플릿 derive. 별 cycle 위임 안 함 | §7 G4 |
-| D-7 | tasks / reports / export 일자 윈도우 = **1년** (PoC 데이터 2025-09 반영) | §5.3 / §5.4 / §5.6 |
+| D-7 | tasks / reports / export 일자 윈도우 = **1년**. PoC 데이터는 2025-09 인근에 집중 적재되어 있어 1년 윈도우 켜도 일자 분포 sparse 가능 — 일자 리스트는 `report_date DESC` 정렬 + 데이터 있는 일자만 표시 | §5.3 / §5.4 / §5.6 |
 | D-8 | tasks 의 trade 라벨 = `mapper_activities.l6_main` 그대로 사용. mock 의 15종 세분화 폐기 | §5.3 G15 |
 | D-9 | reports/review 의 wp_id = `<wa>-<l6_main>` derive. PG 마이그 X | §5.4 / §5.5 G17 |
 | D-10 | review 의 alternative_wps = mapper_activities.alternatives jsonb 마이그 + mapper_node 적재 | §6 G23 |

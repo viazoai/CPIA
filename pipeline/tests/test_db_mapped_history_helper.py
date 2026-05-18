@@ -9,6 +9,9 @@
 패턴: PGClient(pg_url) + await pg.connect() + try/finally pg.close()
 cleanup: DELETE FROM mapped_history WHERE run_id=<test_run_id>
 참조: test_db_daily_reports.py / test_db_mapping_corrections.py
+
+fixture site_id = 'm15x-ph3-ibl' — sites 테이블에 실제 존재하는 row 사용.
+mapped_history.site_id FK → sites(site_id) 위반 방지.
 """
 
 from __future__ import annotations
@@ -37,12 +40,12 @@ async def test_insert_mapped_history_empty_returns(pg_url: str) -> None:
     pg = PGClient(pg_url)
     await pg.connect()
     try:
-        await pg.insert_pipeline_run(run_id, "DEMO_SITE", "2025-09-27", "running")
+        await pg.insert_pipeline_run(run_id, "m15x-ph3-ibl", "2025-09-27", "running")
         # 빈 rows — 예외 없이 즉시 반환해야 함
         await pg.insert_mapped_history_batch(
             run_id=run_id,
             report_date=date(2025, 9, 27),
-            site_id="DEMO_SITE",
+            site_id="m15x-ph3-ibl",
             rows=[],
         )
         async with pg._pool.acquire() as conn:
@@ -63,11 +66,11 @@ async def test_insert_mapped_history_single_row(pg_url: str) -> None:
     pg = PGClient(pg_url)
     await pg.connect()
     try:
-        await pg.insert_pipeline_run(run_id, "DEMO_SITE", "2025-09-27", "running")
+        await pg.insert_pipeline_run(run_id, "m15x-ph3-ibl", "2025-09-27", "running")
         await pg.insert_mapped_history_batch(
             run_id=run_id,
             report_date=date(2025, 9, 27),
-            site_id="DEMO_SITE",
+            site_id="m15x-ph3-ibl",
             rows=[
                 {
                     "wa": "CUB",
@@ -107,7 +110,7 @@ async def test_insert_mapped_history_idempotent_on_conflict(pg_url: str) -> None
     pg = PGClient(pg_url)
     await pg.connect()
     try:
-        await pg.insert_pipeline_run(run_id, "DEMO_SITE", "2025-09-27", "running")
+        await pg.insert_pipeline_run(run_id, "m15x-ph3-ibl", "2025-09-27", "running")
         row_first = {
             "wa": "CUB",
             "l6_main": "철근콘크리트공사",
@@ -121,13 +124,13 @@ async def test_insert_mapped_history_idempotent_on_conflict(pg_url: str) -> None
         await pg.insert_mapped_history_batch(
             run_id=run_id,
             report_date=date(2025, 9, 27),
-            site_id="DEMO_SITE",
+            site_id="m15x-ph3-ibl",
             rows=[row_first],
         )
         await pg.insert_mapped_history_batch(
             run_id=run_id,
             report_date=date(2025, 9, 27),
-            site_id="DEMO_SITE",
+            site_id="m15x-ph3-ibl",
             rows=[row_second],
         )
 
@@ -157,7 +160,7 @@ async def test_insert_mapped_history_batch_multiple_triplets(pg_url: str) -> Non
     pg = PGClient(pg_url)
     await pg.connect()
     try:
-        await pg.insert_pipeline_run(run_id, "DEMO_SITE", "2025-09-27", "running")
+        await pg.insert_pipeline_run(run_id, "m15x-ph3-ibl", "2025-09-27", "running")
         rows = [
             {
                 "wa": "CUB",
@@ -187,7 +190,7 @@ async def test_insert_mapped_history_batch_multiple_triplets(pg_url: str) -> Non
         await pg.insert_mapped_history_batch(
             run_id=run_id,
             report_date=date(2025, 9, 27),
-            site_id="DEMO_SITE",
+            site_id="m15x-ph3-ibl",
             rows=rows,
         )
         async with pg._pool.acquire() as conn:

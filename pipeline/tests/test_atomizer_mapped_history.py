@@ -117,7 +117,7 @@ async def test_atomizer_inserts_valid_mapped_to_history(pg_url: str) -> None:
     pg_real = PGClient(pg_url)
     await pg_real.connect()
     try:
-        await pg_real.insert_pipeline_run(run_id, "DEMO_SITE", "2025-09-27", "running")
+        await pg_real.insert_pipeline_run(run_id, "m15x-ph3-ibl", "2025-09-27", "running")
     finally:
         await pg_real.close()
 
@@ -155,7 +155,7 @@ async def test_atomizer_skips_wa_none_activity(pg_url: str) -> None:
     pg_real = PGClient(pg_url)
     await pg_real.connect()
     try:
-        await pg_real.insert_pipeline_run(run_id, "DEMO_SITE", "2025-09-27", "running")
+        await pg_real.insert_pipeline_run(run_id, "m15x-ph3-ibl", "2025-09-27", "running")
     finally:
         await pg_real.close()
 
@@ -195,7 +195,7 @@ async def test_atomizer_skips_l6_none_activity(pg_url: str) -> None:
     pg_real = PGClient(pg_url)
     await pg_real.connect()
     try:
-        await pg_real.insert_pipeline_run(run_id, "DEMO_SITE", "2025-09-27", "running")
+        await pg_real.insert_pipeline_run(run_id, "m15x-ph3-ibl", "2025-09-27", "running")
     finally:
         await pg_real.close()
 
@@ -238,7 +238,7 @@ async def test_atomizer_mapped_history_grouping(pg_url: str) -> None:
     pg_real = PGClient(pg_url)
     await pg_real.connect()
     try:
-        await pg_real.insert_pipeline_run(run_id, "DEMO_SITE", "2025-09-27", "running")
+        await pg_real.insert_pipeline_run(run_id, "m15x-ph3-ibl", "2025-09-27", "running")
     finally:
         await pg_real.close()
 

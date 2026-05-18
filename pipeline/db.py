@@ -381,3 +381,49 @@ class PGClient:
                 report_md,
                 _json.dumps(history_csv_row, ensure_ascii=False) if history_csv_row is not None else None,
             )
+
+    async def insert_mapped_history_batch(
+        self,
+        run_id: uuid.UUID,
+        report_date: _date,
+        site_id: str,
+        rows: list[dict],
+    ) -> None:
+        """mapped_history 테이블 batch INSERT (ON CONFLICT UPDATE 멱등성).
+
+        INSERT 대상 = wa + l6_main 둘 다 not None 인 활동 (Phase 3 결정).
+        동일 (run_id, wa, l6_main, company) 재호출 시 today_qty / today_assigned_workers /
+        unit 을 EXCLUDED 값으로 갱신 (마지막 값 채택 — 합계 vs 마지막 은 Phase 0 에서 합의).
+
+        rows: [{"wa", "l6_main", "company", "today_qty", "today_assigned_workers", "unit"}, ...]
+        """
+        if not rows:
+            return
+        assert self._pool is not None, "connect() 미호출"
+        async with self._pool.acquire() as con:
+            await con.executemany(
+                """
+                INSERT INTO mapped_history
+                    (run_id, report_date, site_id, wa, l6_main, company,
+                     today_qty, today_assigned_workers, unit)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                ON CONFLICT (run_id, wa, l6_main, company) DO UPDATE SET
+                    today_qty              = EXCLUDED.today_qty,
+                    today_assigned_workers = EXCLUDED.today_assigned_workers,
+                    unit                   = EXCLUDED.unit
+                """,
+                [
+                    (
+                        run_id,
+                        report_date,
+                        site_id,
+                        r["wa"],
+                        r["l6_main"],
+                        r["company"],
+                        r["today_qty"],
+                        r["today_assigned_workers"],
+                        r["unit"],
+                    )
+                    for r in rows
+                ],
+            )

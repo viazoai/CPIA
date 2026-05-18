@@ -111,6 +111,38 @@ async def atomize(
         coll = chroma.get_or_create_daily_activities()
         coll.upsert(ids=ids, embeddings=embeddings, documents=documents, metadatas=metadatas)
 
+        # mapped_history INSERT (wa + l6_main 둘 다 not None 활동만 — Phase 3 결정)
+        # Chroma 적재 대상(valid) 은 l6_main is not None 만 — 기존 유지.
+        mh_valid = [a for a in mapped if a["l6_main"] is not None and a["wa"] is not None]
+        if mh_valid:
+            # site_id 는 pipeline_runs 에서 조회 (atomize signature 미변경 방침)
+            async with pg._pool.acquire() as _con:
+                _row = await _con.fetchrow(
+                    "SELECT site_id, report_date FROM pipeline_runs WHERE run_id=$1",
+                    run_id,
+                )
+            _site_id: str = _row["site_id"] if _row else "UNKNOWN"
+            _report_date = _row["report_date"] if _row else None
+            mh_rows = [
+                {
+                    "wa": a["wa"],
+                    "l6_main": a["l6_main"],
+                    "company": a["company"],
+                    "today_qty": a.get("today_qty"),
+                    "today_assigned_workers": a.get("today_assigned_workers"),
+                    "unit": a.get("unit"),
+                }
+                for a in mh_valid
+            ]
+            from datetime import date as _date_type
+
+            _rd = (
+                _report_date
+                if isinstance(_report_date, _date_type)
+                else (_date_type.fromisoformat(date) if _report_date is None else _report_date)
+            )
+            await pg.insert_mapped_history_batch(run_id, _rd, _site_id, mh_rows)
+
         await pg.update_run_atomized_count(run_id, len(ids))
     finally:
         await pg.close()

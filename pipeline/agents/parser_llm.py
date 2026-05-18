@@ -1,0 +1,564 @@
+"""LLM 기반 작업일보 parser — 통합/업체별 일보 모두 지원.
+
+2026-05-19 신규. 기존 정규화 코드 (parser.py) 가 작업일보 양식 비일관 (2-row group +
+시트2/3 다중 row pattern) 에 brittle 한 문제 해결. schema-guided LLM 으로 6 시트 추출.
+
+설계:
+  Phase A: openpyxl 으로 시트별 raw row → list[dict[col, value]]
+  Phase B: row 3-4 헤더 추출 → col 의미 dict
+  Phase C: 시트별 LLM 호출 (6 시트 × 1 호출, asyncio.gather 병렬)
+            JSON mode + 출력 schema 강제 + retry 1회
+            ↓
+          ParsedDailyReport (BPSummary[] / JobAllocation[] / EquipmentAllocation[] /
+                              Activity[] / WorkerOutput[] / ReportMeta)
+
+비용 추정 (Azure gpt-5.1-chat-ai-board-test):
+  통합 일보 1건 ≈ 150K input tokens (시트2/3 noise 필터 후) × 6 호출 ≈ $0.70
+  업체별 일보 1건 ≈ 10K tokens × 6 호출 ≈ $0.05
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import re
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import openpyxl
+from openai import AzureOpenAI
+
+from pipeline.state import ParsedDailyReport
+
+
+@dataclass
+class ParserConfig:
+    """LLM Parser 호출 환경."""
+
+    azure_endpoint: str
+    azure_api_key: str
+    azure_api_version: str
+    llm_model: str
+    sheet_concurrency: int = 3  # 6 시트 LLM 호출 동시 (Azure rate-limit 회피)
+
+
+# ---------------------------------------------------------------------------
+# 메타 추출
+# ---------------------------------------------------------------------------
+
+_DATE_RE = re.compile(r"_(\d{4})(\d{2})(\d{2})\.xlsx$|_(\d{6})\.xlsm?$")
+
+
+def _extract_date_from_filename(p: Path) -> str:
+    m = _DATE_RE.search(p.name)
+    if not m:
+        return ""
+    if m.group(1):
+        return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+    ymd = m.group(4)
+    return f"20{ymd[:2]}-{ymd[2:4]}-{ymd[4:6]}"
+
+
+# ---------------------------------------------------------------------------
+# 시트 raw → JSON
+# ---------------------------------------------------------------------------
+
+
+def _sheet_to_payload(
+    ws,
+    header_rows: tuple[int, ...] = (2, 3),
+    body_start: int = 4,
+    max_body_rows: int | None = None,
+    row_filter=None,
+    ffill_cols: tuple[int, ...] = (1, 2, 3, 4),
+) -> tuple[dict[int, str], list[dict[int, Any]]]:
+    """ws → (header_map, body_rows).
+
+    header_map: {col_idx: "row3 헤더 | row4 sub-header"}
+    body_rows: list[dict[col_idx, value]] — 빈 row skip. row_filter 통과만.
+    ffill_cols: 작업일보 양식의 셀 병합 패턴 — col 1~4 (구분/Zone/공종/BP사) 가 묶여있어
+                다음 row 빈 cell 은 forward-fill. col 5+ 는 ffill 안 함 (Scope/업체명 등 row 마다 다름).
+    """
+    rows = list(ws.iter_rows(values_only=True))
+
+    header_map: dict[int, str] = {}
+    for ri in header_rows:
+        if ri >= len(rows):
+            continue
+        for c, v in enumerate(rows[ri]):
+            if v is None:
+                continue
+            s = str(v).strip()
+            if not s:
+                continue
+            existing = header_map.get(c, "")
+            header_map[c] = f"{existing} | {s}" if existing else s
+
+    body: list[dict[int, Any]] = []
+    last_ffill: dict[int, Any] = dict.fromkeys(ffill_cols, None)
+    for r in rows[body_start:]:
+        d_raw = {c: v for c, v in enumerate(r) if v is not None and str(v).strip() != ""}
+        if not d_raw:
+            continue
+        # forward-fill 메타 컬럼
+        for fc in ffill_cols:
+            if fc in d_raw:
+                last_ffill[fc] = d_raw[fc]
+            elif last_ffill[fc] is not None:
+                d_raw[fc] = last_ffill[fc]
+        if row_filter is not None and not row_filter(d_raw):
+            continue
+        body.append(d_raw)
+        if max_body_rows is not None and len(body) >= max_body_rows:
+            break
+    return header_map, body
+
+
+def _is_job_alloc_signal_row(d: dict[int, Any]) -> bool:
+    """시트2 row 의미있는지 — 관리자 직종 / 0 인원 / 합계 row skip."""
+    job = str(d.get(5, "") or "").strip()
+    if not job or job in {"BP소장", "공사관리자", "안전관리자", "품질관리자", "일반관리자"}:
+        return False
+    for v in d.values():
+        if isinstance(v, str) and "투입 Total" in v:
+            return False
+    cum_t = d.get(23)  # 금일누계 Cum.T
+    try:
+        if cum_t is not None and float(cum_t) <= 0:
+            return False
+    except (TypeError, ValueError):
+        pass
+    return True
+
+
+def _is_equipment_signal_row(d: dict[int, Any]) -> bool:
+    """시트3 row 의미있는지 — 0 대수 / 합계 row skip."""
+    for v in d.values():
+        if isinstance(v, str) and "투입 Total" in v:
+            return False
+    cum_t = d.get(23)
+    try:
+        if cum_t is not None and float(cum_t) <= 0:
+            return False
+    except (TypeError, ValueError):
+        pass
+    big = str(d.get(3, "") or "").strip()
+    mid = str(d.get(4, "") or "").strip()
+    return bool(big and mid)
+
+
+# ---------------------------------------------------------------------------
+# LLM prompt template
+# ---------------------------------------------------------------------------
+
+_TIMESHIFT_SCHEMA = (
+    '{ "morning": int, "daytime": int, "overtime": int, '
+    '"night": int, "all_night": int, "total": int }'
+)
+
+_SYS_BP_SUMMARIES = f"""당신은 건설 작업일보 파서. 시트1 (출력인원 현황) 의 raw row JSON 을 받아 BPSummary 객체 list 로 추출.
+
+# 컬럼 의미
+입력의 header_map 참조 (col_idx → 헤더 의미).
+
+# BPSummary 출력 schema
+{{
+  "bp_code":        BP 코드 (PH_X-... 류) 또는 null,
+  "company":        회사명 (한글) — required,
+  "disc_abbrev":    공종 한글 ("건축"/"설비"/"전기"/"공통가설"/"UT"/"제어"/"토목"/"소방설비"/"소방전기"...).
+                    영문 약자 [TE/AR/CI/ME/EL/UT/IN] 도 받아 한글로 변환,
+  "zone":           "FAB" / "CUB" / "FAB/CUB" 또는 null,
+  "scope":          Scope 컬럼 텍스트 (Zone 별 작업 위치) 또는 null,
+  "work_text_yesterday": 전일 작업사항 자연어 또는 null,
+  "work_text_today":     금일 작업사항 자연어 또는 null,
+  "work_text_tomorrow":  명일 작업사항 자연어 또는 null,
+  "workers_yesterday_incr": {_TIMESHIFT_SCHEMA} 또는 null,
+  "workers_yesterday_cum":  {_TIMESHIFT_SCHEMA} 또는 null,
+  "workers_today_incr":     {_TIMESHIFT_SCHEMA} 또는 null,
+  "workers_today_cum":      {_TIMESHIFT_SCHEMA} 또는 null,
+  "today_incr_total": int,
+  "today_cum_total":  int
+}}
+
+# 핵심 규칙
+1. **2-row group 페어링**: 통합 작업일보 는 한 BP사가 2 row 로 분할 표시 가능.
+   - BP 코드 row: col 4 = "PH_X-..." 류 (영문/숫자/-/_)
+   - 회사명 row: col 4 = 한글 회사명
+   - 인접 row 가 같은 zone/disc 면 페어. 두 row 의 work_text/scope/zone/disc/인원수
+     중 채워진 값을 머지해서 **하나의 BPSummary** 로 출력 (company=한글 회사명, bp_code=BP 코드).
+2. BP 코드 row 만 있고 회사명 row 없는 경우: company=BP 코드 자체 그대로.
+3. 회사명 row 만 있는 경우: bp_code=null.
+4. work_text 와 모든 인원수 0 둘 다 인 row 는 skip.
+5. 시간대 6 필드 (조출/주간/연장/야간/철야/Total) 누락 시 각 0.
+6. **추측 금지** — header_map 에 명시된 col_idx 값만 사용. 다른 시트의 정보 끌어오지 말 것.
+
+# 출력 형식
+{{ "bp_summaries": [BPSummary, ...] }}
+"""
+
+_SYS_JOB_ALLOCATIONS = f"""당신은 건설 작업일보 시트2 (직종별 인원현황) 파서. raw row JSON → JobAllocation list.
+
+# JobAllocation 출력 schema
+{{
+  "bp_code":      PH_X-... 또는 null,
+  "company":      회사명 — required,
+  "disc_abbrev":  공종 한글,
+  "manager_code": "Mm##" (관리자/근로자 코드) 또는 null,
+  "worker_code":  "sk##" (기능공 코드) 또는 null,
+  "job_type":     직종 — required (예: 형틀목수, 철근공, 배관공, ...),
+  "workers_yesterday_cum": {_TIMESHIFT_SCHEMA} 또는 null,
+  "workers_today_incr":    {_TIMESHIFT_SCHEMA} 또는 null,
+  "workers_today_cum":     {_TIMESHIFT_SCHEMA} 또는 null,
+  "final_flag":   "O" 또는 "X" 또는 null,
+  "workers_cum_t": int (금일누계 Total)
+}}
+
+# 규칙
+1. 관리자 직종 (BP소장/공사관리자/안전관리자/품질관리자/일반관리자) 은 입력에서 사전 필터됨. job_type 은 기능공 명만.
+2. row 의 BP사 row 와 직종 row 가 분리돼 있으면 동일 BP사 단위로 페어링.
+3. 시간대 6 필드 누락 시 각 0.
+
+# 출력 형식
+{{ "job_allocations": [JobAllocation, ...] }}
+"""
+
+_SYS_EQUIPMENT_ALLOCATIONS = f"""당신은 건설 작업일보 시트3 (장비현황) 파서. raw row JSON → EquipmentAllocation list.
+
+# EquipmentAllocation 출력 schema
+{{
+  "bp_code":      PH_X-... 또는 null,
+  "company":      회사명 — required,
+  "disc_abbrev":  공종 한글 또는 null,
+  "equipment_big":   장비 대분류 (예: 굴삭운반기계류) — required,
+  "equipment_mid":   장비 중분류 (예: Back Hoe) — required,
+  "equipment_spec":  규격 (예: "2㎥ 미만") 또는 null,
+  "count_yesterday_cum": {_TIMESHIFT_SCHEMA} 또는 null,
+  "count_today_incr":    {_TIMESHIFT_SCHEMA} 또는 null,
+  "count_today_cum":     {_TIMESHIFT_SCHEMA} 또는 null,
+  "final_flag":   "O" / "X" / null,
+  "count_cum_t":  int (금일투입누계 Total)
+}}
+
+# 규칙
+1. 시간대 6 필드 누락 시 각 0.
+2. 0 대수 row 는 사전 필터됨.
+
+# 출력 형식
+{{ "equipment_allocations": [EquipmentAllocation, ...] }}
+"""
+
+_SYS_ACTIVITIES = """건설 작업일보 시트4 (물량) 파서. 입력의 rows 리스트의 **각 row 가 1 Activity** 입니다.
+rows 갯수와 동일한 수의 Activity 를 출력하세요 (절대 빈 list 반환 X).
+
+# 헤더 ↔ schema 매핑 가이드 (header_map 의 string 보고 매칭)
+- header "Zone"                          → activity.zone
+- header "BP사" 또는 "협력업체"          → activity.bp_code (코드면 bp_code, 한글 회사명이면 company)
+- header "업체명"                         → activity.company (한글)
+- header "Scope"                          → activity.scope
+- header "공종" 또는 "Dis"               → activity.trade / l5_disc (영문 약자 → 한글: TE=공통가설, AR=건축, CI=토목, ME=설비, EL=전기, UT=UT, IN=제어)
+- header "대표물량_작업 내용"            → activity.work_content
+- header "단위"                          → activity.unit (소문자: M2→m2, Ton→ton)
+- header "총물량 [A]"                    → activity.plan_total_qty
+- header "전일누적 [B]"                  → activity.yesterday_cum_qty
+- header "금일실적 [C]"                  → activity.today_qty (기본 0)
+- header "금일누적 [D = B+C]"            → activity.today_cum_qty
+- header "F% [D/A]"                      → activity.progress_percent (0~1 float)
+- header "잔여 [E = A-D]"                → activity.remaining_qty
+- header "G% [100% - F]"                 → activity.remaining_percent (0~1 float)
+- header "비고"                          → activity.note
+- header "작업 위치_코드"                → activity.work_location_code
+- header "중공종명" 또는 "공종명 (Line명)" → activity.wbs_mid_name
+- header "소공종명"                      → activity.wbs_sub_name
+- header "세공종명"                      → activity.wbs_detail_name
+
+# 출력 schema (각 Activity)
+{
+  "zone": str|null, "bp_code": str|null, "company": str, "scope": str|null,
+  "trade": str, "l5_disc": str, "work_content": str, "unit": str,
+  "plan_total_qty": float|null, "yesterday_cum_qty": float|null,
+  "today_qty": float, "today_cum_qty": float|null,
+  "progress_percent": float|null, "remaining_qty": float|null, "remaining_percent": float|null,
+  "note": str|null,
+  "work_location_code": str|null, "wbs_mid_name": str|null,
+  "wbs_sub_name": str|null, "wbs_detail_name": str|null
+}
+
+# 핵심 규칙
+1. 입력 rows 의 **모든 row 가 1 Activity** — len(rows) == len(activities).
+2. company 는 한글 회사명 우선 (header "업체명" 또는 한글 row 값). 회사명 없으면 BP 코드 그대로.
+3. trade / l5_disc 동일 값 (둘 다 한글 공종명).
+4. 누락 필드는 null. 추측 X. 0 도 OK (today_qty=0 정상).
+
+# 출력 (JSON 만)
+{ "activities": [Activity, ...] }
+"""
+
+_SYS_WORKER_OUTPUTS = """건설 작업일보 시트6 (출력일보) 파서. 각 row 마다 worker_name (작업자 성함) 가 있으면 무조건 1건 출력.
+
+# 출력 schema (각 WorkerOutput)
+{
+  "worker_name": str, "job_type": str,
+  "wbs_mid_name": str|null, "wbs_sub_name": str|null, "wbs_detail_name": str|null,
+  "work_location_code": str|null, "work_content": str|null,
+  "shift_morning": int, "shift_daytime": int, "shift_overtime": int,
+  "shift_night": int, "shift_all_night": int,
+  "note": str|null
+}
+
+# 규칙
+1. **header_map 의 col 의미만 사용** — col 인덱스는 양식마다 다름.
+2. worker_name (작업자 성함) 가 있는 row 는 무조건 1건 추출.
+3. shift_* — 시간대별 "1" 또는 0. 빈 cell → 0.
+4. 헤더/합계/빈 row skip.
+
+# 출력 (JSON 만, 다른 설명 없음)
+{ "worker_outputs": [WorkerOutput, ...] }
+"""
+
+_SYS_REPORT_META = """당신은 건설 작업일보 Cover 시트 (업체별만) 파서. raw row JSON → ReportMeta 1 객체.
+
+# ReportMeta 출력 schema
+{
+  "project_name":  "M15X PH4" 등 또는 null,
+  "project_code":  "M15X_PH4_041" 등 또는 null,
+  "site_id":       null (Cover 에 site_id 명시 X — Merge 단계가 채움),
+  "bp_name":       협력업체명 ("중원엔지니어링FAB" 등) 또는 null,
+  "writer":        작성자 또는 null,
+  "reviewer":      검토자 또는 null,
+  "approval":      결재자 또는 null,
+  "report_date":   "YYYY-MM-DD" — required,
+  "document_no":   문서 번호 또는 null
+}
+
+# 출력 형식
+{ "report_meta": ReportMeta }
+"""
+
+
+# ---------------------------------------------------------------------------
+# LLM 호출 helper
+# ---------------------------------------------------------------------------
+
+
+def _llm_extract_sync(
+    client: AzureOpenAI,
+    model: str,
+    system_prompt: str,
+    user_payload: dict,
+    response_key: str,
+    retries: int = 1,
+    max_completion_tokens: int = 16000,
+) -> Any:
+    """LLM 1 호출 → JSON 파싱 → response_key 값 반환.
+
+    JSON parse 실패 / truncated 시 retries 회 재시도. 끝까지 실패하면 빈 list 또는 None.
+    truncation 진단 위해 stderr 로 finish_reason + raw 길이 + 첫 200 chars log.
+    """
+    import sys as _sys
+
+    last_err: Exception | None = None
+    for attempt in range(retries + 1):
+        try:
+            resp = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
+                ],
+                response_format={"type": "json_object"},
+                max_completion_tokens=max_completion_tokens,
+            )
+            choice = resp.choices[0]
+            finish_reason = getattr(choice, "finish_reason", None)
+            raw = choice.message.content or "{}"
+            usage = getattr(resp, "usage", None)
+            comp_tokens = getattr(usage, "completion_tokens", None) if usage else None
+            print(
+                f"[parser_llm] key={response_key} attempt={attempt} finish={finish_reason} "
+                f"raw_len={len(raw)} completion_tokens={comp_tokens} preview={raw[:200]!r}",
+                file=_sys.stderr,
+                flush=True,
+            )
+            if finish_reason == "length":
+                last_err = RuntimeError(f"truncated (max_completion_tokens={max_completion_tokens})")
+                continue
+            obj = json.loads(raw)
+            return obj.get(response_key)
+        except Exception as e:  # noqa: BLE001
+            last_err = e
+            print(
+                f"[parser_llm] key={response_key} attempt={attempt} EXCEPTION {type(e).__name__}: {e}",
+                file=_sys.stderr,
+                flush=True,
+            )
+            continue
+    raise RuntimeError(f"LLM extract '{response_key}' 실패 {retries+1}회: {last_err}")
+
+
+def _llm_extract_chunked(
+    client: AzureOpenAI,
+    model: str,
+    system_prompt: str,
+    header_map: dict[int, str],
+    rows: list[dict],
+    response_key: str,
+    chunk_size: int = 30,
+    max_completion_tokens: int = 16000,
+) -> list[dict]:
+    """rows 를 chunk_size 단위로 분할 → 각 chunk LLM 호출 → 합쳐서 반환.
+
+    LLM 이 단일 호출에서 큰 rows 처리 거절하는 케이스 (실측 80 rows 에서 거절) 회피.
+    """
+    if not rows:
+        return []
+    out: list[dict] = []
+    for i in range(0, len(rows), chunk_size):
+        chunk = rows[i : i + chunk_size]
+        payload = {"header_map": header_map, "rows": chunk}
+        partial = _llm_extract_sync(
+            client, model, system_prompt, payload, response_key,
+            retries=1, max_completion_tokens=max_completion_tokens,
+        )
+        if partial:
+            out.extend(partial)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# 공개 API
+# ---------------------------------------------------------------------------
+
+
+async def parse_daily_report_llm(
+    xlsx_path: Path | str,
+    cfg: ParserConfig,
+) -> ParsedDailyReport:
+    """xlsx 1건 → ParsedDailyReport (6 entity).
+
+    통합 / 업체별 자동 판단 (시트6/Cover 존재 여부).
+    시트별 LLM 호출 6 회 (병렬). Azure rate-limit 고려해 Semaphore.
+    """
+    xlsx_path = Path(xlsx_path)
+    report_date = _extract_date_from_filename(xlsx_path)
+
+    wb = openpyxl.load_workbook(xlsx_path, data_only=True, read_only=True)
+    try:
+        sheet_names = wb.sheetnames
+        has_worker_outputs = any("출력일보" in s for s in sheet_names)
+        has_cover = "Cover" in sheet_names
+
+        # Phase A — raw payload 추출
+        payloads: dict[str, dict] = {}
+        sn_sheet1 = next((s for s in sheet_names if s.startswith("1.")), None)
+        sn_sheet2 = next((s for s in sheet_names if s.startswith("2.")), None)
+        sn_sheet3 = next((s for s in sheet_names if s.startswith("3.")), None)
+        sn_sheet4 = next((s for s in sheet_names if s.startswith("4.")), None)
+        sn_sheet6 = next((s for s in sheet_names if "출력일보" in s), None)
+
+        if sn_sheet1:
+            h, b = _sheet_to_payload(wb[sn_sheet1])
+            payloads["bp_summaries"] = {"header_map": h, "rows": b}
+
+        if sn_sheet2:
+            h, b = _sheet_to_payload(
+                wb[sn_sheet2], header_rows=(3, 4), body_start=5,
+                row_filter=_is_job_alloc_signal_row,
+            )
+            payloads["job_allocations"] = {"header_map": h, "rows": b}
+
+        if sn_sheet3:
+            h, b = _sheet_to_payload(
+                wb[sn_sheet3], header_rows=(3, 4), body_start=5,
+                row_filter=_is_equipment_signal_row,
+            )
+            payloads["equipment_allocations"] = {"header_map": h, "rows": b}
+
+        if sn_sheet4:
+            h, b = _sheet_to_payload(wb[sn_sheet4])
+            payloads["activities"] = {"header_map": h, "rows": b}
+
+        if sn_sheet6:
+            # 시트6 (출력일보) 구조: row 1 = 시트명, row 2 = 일자 meta, row 3 = 헤더, row 4+ = 데이터.
+            h, b = _sheet_to_payload(wb[sn_sheet6], header_rows=(2,), body_start=3)
+            payloads["worker_outputs"] = {"header_map": h, "rows": b}
+
+        cover_payload: dict | None = None
+        if has_cover:
+            ws = wb["Cover"]
+            cover_rows = [
+                {c: (str(v) if v is not None else None) for c, v in enumerate(r) if v is not None}
+                for r in ws.iter_rows(values_only=True)
+                if any(c is not None for c in r)
+            ]
+            cover_payload = {"rows": cover_rows, "filename": xlsx_path.name}
+    finally:
+        wb.close()
+
+    # Phase C — LLM 호출 (시트별 1 회씩, 병렬)
+    client = AzureOpenAI(
+        api_key=cfg.azure_api_key,
+        api_version=cfg.azure_api_version,
+        azure_endpoint=cfg.azure_endpoint,
+    )
+    sem = asyncio.Semaphore(cfg.sheet_concurrency)
+
+    async def _call_list(system_prompt: str, payload: dict, response_key: str, chunk_size: int = 30) -> list[dict]:
+        async with sem:
+            return await asyncio.to_thread(
+                _llm_extract_chunked,
+                client, cfg.llm_model, system_prompt,
+                payload["header_map"], payload["rows"], response_key, chunk_size,
+            )
+
+    async def _call_single(system_prompt: str, payload: dict, response_key: str) -> Any:
+        async with sem:
+            return await asyncio.to_thread(
+                _llm_extract_sync, client, cfg.llm_model, system_prompt, payload, response_key,
+            )
+
+    tasks: dict[str, asyncio.Task] = {}
+    if "bp_summaries" in payloads:
+        tasks["bp_summaries"] = asyncio.create_task(
+            _call_list(_SYS_BP_SUMMARIES, payloads["bp_summaries"], "bp_summaries", chunk_size=40)
+        )
+    if "job_allocations" in payloads:
+        tasks["job_allocations"] = asyncio.create_task(
+            _call_list(_SYS_JOB_ALLOCATIONS, payloads["job_allocations"], "job_allocations", chunk_size=40)
+        )
+    if "equipment_allocations" in payloads:
+        tasks["equipment_allocations"] = asyncio.create_task(
+            _call_list(_SYS_EQUIPMENT_ALLOCATIONS, payloads["equipment_allocations"], "equipment_allocations", chunk_size=40)
+        )
+    if "activities" in payloads:
+        tasks["activities"] = asyncio.create_task(
+            _call_list(_SYS_ACTIVITIES, payloads["activities"], "activities", chunk_size=30)
+        )
+    if "worker_outputs" in payloads:
+        tasks["worker_outputs"] = asyncio.create_task(
+            _call_list(_SYS_WORKER_OUTPUTS, payloads["worker_outputs"], "worker_outputs", chunk_size=50)
+        )
+    if cover_payload is not None:
+        tasks["report_meta"] = asyncio.create_task(
+            _call_single(_SYS_REPORT_META, cover_payload, "report_meta")
+        )
+
+    results: dict[str, Any] = {}
+    for k, t in tasks.items():
+        results[k] = await t
+
+    # project 명: Cover.project_name 우선, 그 다음 파일명 stem.
+    rm = results.get("report_meta") or {}
+    project = (rm.get("project_name") if isinstance(rm, dict) else None) or xlsx_path.stem
+
+    parsed: ParsedDailyReport = {
+        "report_date": report_date or (rm.get("report_date") if isinstance(rm, dict) else "") or "",
+        "project": project,
+        "bp_summaries": results.get("bp_summaries") or [],
+        "job_allocations": results.get("job_allocations") or [],
+        "equipment_allocations": results.get("equipment_allocations") or [],
+        "activities": results.get("activities") or [],
+        "worker_outputs": results.get("worker_outputs") or [],
+        "report_meta": rm if isinstance(rm, dict) and rm else None,
+    }
+    return parsed

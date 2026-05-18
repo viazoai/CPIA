@@ -71,7 +71,7 @@
 - 박스: `rounded-card border border-border-soft bg-card p-4 shadow-xs`
 - 헤더: `font-display text-base font-semibold text-ink` "전사 생산성 추세 ({endDate} 기준)"
 - 우측 KPI: `text-h3 font-semibold text-ink` 오늘 전사 평균 % + `text-base text-ink-mid` 보조 ("현장 6개 평균" 등)
-- 차트 (`ResponsiveContainer height={240}`, `ComposedChart`):
+- 차트 (`ResponsiveContainer height={220}`, `ComposedChart` — `/reports` ProductivityTrendChart 와 동일 height):
   - `Area dataKey="max"` → fillOpacity 0.15, stroke none (분포 밴드 상단)
   - `Area dataKey="min"` → fill #ffffff, fillOpacity 1, stroke none (분포 밴드 하단을 흰색으로 덮어 밴드 효과)
   - `Line dataKey="mean"` stroke #1a56db width 2.5, dot=false (전사 평균선)
@@ -95,7 +95,7 @@ interface FleetTrendPoint {
 **기존 `SiteOverviewCard.tsx` 수정:**
 
 1. **클릭 비활성** — 카드의 wrapping `Link`/`button` 제거, `cursor-default`, hover 효과는 그림자 정도만 약하게.
-2. **mini sparkline 추가** — 카드 우측 또는 하단에 `width≈100 height≈32` 단순 line (recharts `LineChart` 또는 SVG path). 90일 데이터, dot 없음, 색은 현장 status tone.
+2. **mini sparkline 추가** — 카드 우측 또는 하단에 `width≈100 height≈32` 단순 line. **recharts `LineChart` 사용** (다른 차트들과 라이브러리 일관성). 90일 데이터, dot 없음, `strokeWidth=1.5`, 색은 현장 status tone (mint / sun / rose).
 3. **카드 헤더에 현장 status dot** (이미 있다면 유지).
 
 **그리드:** `grid-cols-1 md:grid-cols-2 xl:grid-cols-3`, gap-3, 6개 현장 = 2~3행.

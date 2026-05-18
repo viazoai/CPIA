@@ -114,6 +114,25 @@ async def mapper_node(state: CPIAState, cfg: GraphConfig) -> dict:
             activities=parsed["activities"],
         )
         _dbg(f"insert_parser_activities_batch OK ({len(parsed['activities'])} rows)")
+
+        # G24 — 시트2 / 시트3 정규화 row 적재. 이전엔 호출 누락으로 두 테이블
+        # row count 가 항상 0 이었음. ParsedDailyReport TypedDict (state.py) 에
+        # 키는 이미 정의되어 있으나 graph 가 INSERT 함수를 호출하지 않았음.
+        await pg.insert_parser_job_allocations_batch(
+            run_id=run_id,
+            report_date=today,
+            rows=parsed.get("job_allocations") or [],
+        )
+        _dbg(f"insert_parser_job_allocations_batch OK ({len(parsed.get('job_allocations') or [])} rows)")
+        await pg.insert_parser_equipment_allocations_batch(
+            run_id=run_id,
+            report_date=today,
+            rows=parsed.get("equipment_allocations") or [],
+        )
+        _dbg(
+            f"insert_parser_equipment_allocations_batch OK ({len(parsed.get('equipment_allocations') or [])} rows)"
+        )
+
         await pg.insert_mapper_activities_batch(
             run_id=run_id,
             report_date=today,

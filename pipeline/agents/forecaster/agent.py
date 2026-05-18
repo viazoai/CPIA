@@ -88,8 +88,8 @@ async def _forecast_one_group(
         if main_unit and today_assigned_workers > 0
         else 0.0
     )
-    work_content = " / ".join(set(a["work_content"] for a in activities))[:200]
-    conditions_set = sorted(set(c for a in activities for c in a["conditions"]))
+    work_content = " / ".join(set(a["work_content"] for a in activities if a.get("work_content")))[:200]
+    conditions_set = sorted(set(c for a in activities for c in (a.get("conditions") or [])))
 
     # ② Plan
     plan = await pg.fetch_plan_for_group(company, l6_main)
@@ -251,6 +251,8 @@ async def forecast(
         groups: dict[tuple[str | None, str, str], list[Activity]] = {}
         for a in mapped:
             if a["l6_main"] is None:
+                continue
+            if not a.get("work_content"):
                 continue
             key = (a.get("wa"), a["company"], a["l6_main"])
             groups.setdefault(key, []).append(a)

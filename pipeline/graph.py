@@ -427,15 +427,22 @@ async def reporter_node(state: CPIAState, cfg: GraphConfig) -> dict:
 
     # G8 — reporter→END 진입 시 sites.last_run_id 갱신.
     # G2 — atomized_count 기반 사람 수작업 절감 시간(h) 누적.
+    # state 가 site_id 를 propagate 안 한 경우 pipeline_runs 에서 직접 fetch.
     pg = PGClient(cfg.mapper.postgres_url)
     await pg.connect()
     try:
-        await update_site_last_run(pg, site_id=state["site_id"], run_id=run_id)
-        await update_site_hours_saved_cum(
-            pg,
-            site_id=state["site_id"],
-            atomized_count=len(state.get("atomized_ids", []) or []),
-        )
+        site_id = state.get("site_id")
+        if not site_id:
+            async with pg._pool.acquire() as _con:  # type: ignore[attr-defined]
+                _row = await _con.fetchrow("SELECT site_id FROM pipeline_runs WHERE run_id = $1", run_id)
+            site_id = _row["site_id"] if _row else None
+        if site_id:
+            await update_site_last_run(pg, site_id=site_id, run_id=run_id)
+            await update_site_hours_saved_cum(
+                pg,
+                site_id=site_id,
+                atomized_count=len(state.get("atomized_ids", []) or []),
+            )
     finally:
         await pg.close()
 

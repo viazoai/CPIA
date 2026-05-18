@@ -14,17 +14,18 @@ from fastapi import FastAPI
 
 from pipeline.db import PGClient
 
-DEFAULT_PG = "postgresql://cpia:cpia@127.0.0.1:5432/cpia"
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """FastAPI lifespan — asyncpg pool 초기화 및 정리.
 
     app.state.pg 에 PGClient 인스턴스를 보관한다.
+    POSTGRES_URL 환경변수 필수 — 미설정 시 RuntimeError raise (보안 차원).
     LangGraph build_graph 통합은 Phase 4.2 (Command resume 필요) 에서 진행.
     """
-    pg_url = os.getenv("POSTGRES_URL", DEFAULT_PG)
+    pg_url = os.getenv("POSTGRES_URL")
+    if not pg_url:
+        raise RuntimeError("POSTGRES_URL 환경변수 미설정. .env.local 또는 export 로 명시 필요.")
     pg = PGClient(pg_url)
     await pg.connect()
     app.state.pg = pg

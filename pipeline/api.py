@@ -73,9 +73,9 @@ def _build_prod_graph_config() -> GraphConfig:
 
     mapper_cfg = MapperConfig(
         postgres_url=postgres_url,
-        azure_openai_endpoint=azure_endpoint,
-        azure_openai_api_key=azure_api_key,
-        azure_openai_api_version=azure_api_version,
+        azure_endpoint=azure_endpoint,
+        azure_api_key=azure_api_key,
+        azure_api_version=azure_api_version,
         llm_model=llm_model,
         embedding_model=embedding_model,
         chroma_host=chroma_host,
@@ -83,18 +83,18 @@ def _build_prod_graph_config() -> GraphConfig:
     )
     atomizer_cfg = AtomizerConfig(
         postgres_url=postgres_url,
-        azure_openai_endpoint=azure_endpoint,
-        azure_openai_api_key=azure_api_key,
-        azure_openai_api_version=azure_api_version,
+        azure_endpoint=azure_endpoint,
+        azure_api_key=azure_api_key,
+        azure_api_version=azure_api_version,
         embedding_model=embedding_model,
         chroma_host=chroma_host,
         chroma_port=chroma_port,
     )
     forecaster_cfg = ForecasterConfig(
         postgres_url=postgres_url,
-        azure_openai_endpoint=azure_endpoint,
-        azure_openai_api_key=azure_api_key,
-        azure_openai_api_version=azure_api_version,
+        azure_endpoint=azure_endpoint,
+        azure_api_key=azure_api_key,
+        azure_api_version=azure_api_version,
         llm_model=llm_model,
         embedding_model=embedding_model,
         chroma_host=chroma_host,
@@ -102,9 +102,9 @@ def _build_prod_graph_config() -> GraphConfig:
     )
     optimizer_cfg = OptimizerConfig(
         postgres_url=postgres_url,
-        azure_openai_endpoint=azure_endpoint,
-        azure_openai_api_key=azure_api_key,
-        azure_openai_api_version=azure_api_version,
+        azure_endpoint=azure_endpoint,
+        azure_api_key=azure_api_key,
+        azure_api_version=azure_api_version,
         llm_model=llm_model,
         chroma_host=chroma_host,
         chroma_port=chroma_port,
@@ -112,9 +112,9 @@ def _build_prod_graph_config() -> GraphConfig:
     )
     reporter_cfg = ReporterConfig(
         postgres_url=postgres_url,
-        azure_openai_endpoint=azure_endpoint,
-        azure_openai_api_key=azure_api_key,
-        azure_openai_api_version=azure_api_version,
+        azure_endpoint=azure_endpoint,
+        azure_api_key=azure_api_key,
+        azure_api_version=azure_api_version,
         llm_model=llm_model,
     )
     return GraphConfig(

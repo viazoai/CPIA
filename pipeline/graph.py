@@ -28,7 +28,7 @@ from pipeline.agents.optimizer.retrieve import (
 from pipeline.agents.reporter import ReporterConfig, report
 from pipeline.checkpointer import build_checkpointer
 from pipeline.chroma_client import ChromaClient
-from pipeline.db import PGClient
+from pipeline.db import PGClient, update_site_hours_saved_cum, update_site_last_run
 from pipeline.state import Activity, CPIAState, ParsedDailyReport
 
 # Mapper LLM rerank 병렬도 — Azure rate-limit 고려해 기본 4. env 로 조정.
@@ -407,10 +407,16 @@ async def reporter_node(state: CPIAState, cfg: GraphConfig) -> dict:
     )
 
     # G8 — reporter→END 진입 시 sites.last_run_id 갱신.
+    # G2 — atomized_count 기반 사람 수작업 절감 시간(h) 누적.
     pg = PGClient(cfg.mapper.postgres_url)
     await pg.connect()
     try:
         await update_site_last_run(pg, site_id=state["site_id"], run_id=run_id)
+        await update_site_hours_saved_cum(
+            pg,
+            site_id=state["site_id"],
+            atomized_count=len(state.get("atomized_ids", []) or []),
+        )
     finally:
         await pg.close()
 

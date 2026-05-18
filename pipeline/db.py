@@ -1019,3 +1019,27 @@ async def update_site_last_run(pg: PGClient, site_id: str, run_id: uuid.UUID) ->
             run_id,
             site_id,
         )
+
+
+# G2 상수 — Spec §6.
+AS_IS_MIN: int = 120  # 일보당 사람 수작업 분
+TO_BE_MIN: int = 5  # 일보당 AI 처리 분
+
+
+async def update_site_hours_saved_cum(
+    pg: PGClient,
+    site_id: str,
+    atomized_count: int,
+) -> None:
+    """G2 — atomized_count 기반 절감 시간(h) 누적 UPDATE.
+
+    산식: ((AS_IS_MIN - TO_BE_MIN) / 60.0) * atomized_count.
+    """
+    assert pg._pool is not None, "connect() 미호출"
+    delta_h = (AS_IS_MIN - TO_BE_MIN) / 60.0 * atomized_count
+    async with pg._pool.acquire() as con:
+        await con.execute(
+            "UPDATE sites SET hours_saved_cum = hours_saved_cum + $1, updated_at = now() WHERE site_id = $2",
+            delta_h,
+            site_id,
+        )

@@ -22,8 +22,8 @@ export const usePersona = create<PersonaState>()(
 
 // 페르소나별 메뉴 노출 정책
 export const MENU_VISIBILITY: Record<Persona, readonly string[]> = {
-  member: ["home", "tasks", "review", "reports"],
-  manager: ["home", "tasks", "review", "reports", "dashboard"],
+  member: ["home", "tasks", "review", "export", "reports"],
+  manager: ["home", "tasks", "review", "export", "reports", "dashboard"],
 } as const;
 
 export function isMenuVisible(persona: Persona, menu: string): boolean {

@@ -30,6 +30,7 @@ RUN addgroup --system --gid 1001 nodejs \
 # Next.js standalone output
 COPY --from=builder --chown=nextjs:nodejs /app/web/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/web/.next/static ./.next/static
+COPY --from=builder --chown=nextjs:nodejs /app/web/public ./public
 
 USER nextjs
 

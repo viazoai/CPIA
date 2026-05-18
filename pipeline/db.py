@@ -1008,3 +1008,14 @@ class PGClient:
         async with self._pool.acquire() as con:
             rows = await con.fetch(sql, *args)
         return [dict(r) for r in rows]
+
+
+async def update_site_last_run(pg: PGClient, site_id: str, run_id: uuid.UUID) -> None:
+    """G8 — reporter→END 진입 시 sites.last_run_id 갱신."""
+    assert pg._pool is not None, "connect() 미호출"
+    async with pg._pool.acquire() as con:
+        await con.execute(
+            "UPDATE sites SET last_run_id = $1, updated_at = now() WHERE site_id = $2",
+            run_id,
+            site_id,
+        )

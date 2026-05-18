@@ -405,6 +405,15 @@ async def reporter_node(state: CPIAState, cfg: GraphConfig) -> dict:
         today=today,
         cfg=cfg.reporter,
     )
+
+    # G8 — reporter→END 진입 시 sites.last_run_id 갱신.
+    pg = PGClient(cfg.mapper.postgres_url)
+    await pg.connect()
+    try:
+        await update_site_last_run(pg, site_id=state["site_id"], run_id=run_id)
+    finally:
+        await pg.close()
+
     return {"report_md": report_md, "current_node": "reporter"}
 
 

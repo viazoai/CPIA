@@ -1,10 +1,16 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import sql from "@/lib/pg";
 import {
   deriveProgressPercent,
   deriveYearlySaving,
   deriveItemStatus,
   deriveWpIdAndPath,
   deriveImpact,
+  deriveProductivityTimeseries,
+  deriveStageProgress,
+  deriveBaseline,
+  wbsTreeBuild,
+  deriveChatSequence,
 } from "../transforms";
 
 describe("G12 deriveProgressPercent", () => {
@@ -99,5 +105,174 @@ describe("G18 deriveImpact", () => {
   it("null 입력 → 0", () => {
     expect(deriveImpact(null, 100)).toBe(0);
     expect(deriveImpact(100, null)).toBe(0);
+  });
+});
+
+describe("G6 deriveProductivityTimeseries", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+  it("빈 결과 → trend=[] sparklines={}", async () => {
+    (sql as any).mockResolvedValueOnce([]);
+    const r = await deriveProductivityTimeseries("fleet", 30);
+    expect(r.trend).toEqual([]);
+    expect(r.sparklines).toEqual({});
+  });
+  it("mapped_history rows → trend (date 별 mean/min/max) + sparklines (site_id 별)", async () => {
+    (sql as any).mockResolvedValueOnce([
+      { report_date: new Date("2025-09-25"), site_id: "m15x", productivity: 0.85 },
+      { report_date: new Date("2025-09-25"), site_id: "g50", productivity: 0.95 },
+      { report_date: new Date("2025-09-26"), site_id: "m15x", productivity: 0.7 },
+    ]);
+    const r = await deriveProductivityTimeseries("fleet", 30);
+    expect(r.trend).toHaveLength(2);
+    const d25 = r.trend.find((p) => p.date === "2025-09-25")!;
+    expect(d25.mean).toBeCloseTo(0.9, 5);
+    expect(d25.min).toBeCloseTo(0.85, 5);
+    expect(d25.max).toBeCloseTo(0.95, 5);
+    expect(r.sparklines).toHaveProperty("m15x");
+    expect(r.sparklines.m15x).toEqual([0.85, 0.7]);
+    expect(r.sparklines.g50).toEqual([0.95]);
+  });
+});
+
+describe("G10 deriveStageProgress", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+  it("8 단계 배열 + Mapper percent 계산", async () => {
+    (sql as any).mockResolvedValueOnce([
+      {
+        parser_reports: 1,
+        parser_acts: 100,
+        mapper_acts: 80,
+        hil_received: 10,
+        hil_done: 4,
+        atomized: 70,
+        exporter: 1,
+        forecasts_done: 60,
+        opt_received: 5,
+        opt_done: 3,
+      },
+    ]);
+    const r = await deriveStageProgress("2026-05-15");
+    expect(r).toHaveLength(8);
+    expect(r[0].agent).toBe("Collector");
+    expect(r[2].agent).toBe("Mapper");
+    // mapper 80/100 = 80%
+    expect(r[2].percent).toBe(80);
+    // HIL 4/10 = 40%, waiting true
+    expect(r[3].agent).toBe("HIL Review");
+    expect(r[3].percent).toBe(40);
+    expect(r[3].waiting_hil).toBe(true);
+    expect(r[3].is_hil).toBe(true);
+  });
+});
+
+describe("G21 deriveBaseline", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+  it("mapped_history 평균 hit → 그 값 반환", async () => {
+    (sql as any).mockResolvedValueOnce([{ baseline: 0.85 }]);
+    const v = await deriveBaseline("A건설", "철근콘크리트공사");
+    expect(v).toBeCloseTo(0.85, 5);
+  });
+  it("mapped_history null → forecasts similar_cases fallback", async () => {
+    (sql as any).mockResolvedValueOnce([{ baseline: null }]);
+    (sql as any).mockResolvedValueOnce([{ baseline: 0.72 }]);
+    const v = await deriveBaseline("A건설", "철근콘크리트공사");
+    expect(v).toBeCloseTo(0.72, 5);
+  });
+  it("둘 다 없음 → 0", async () => {
+    (sql as any).mockResolvedValueOnce([{ baseline: null }]);
+    (sql as any).mockResolvedValueOnce([{ baseline: null }]);
+    const v = await deriveBaseline("A건설", "철근콘크리트공사");
+    expect(v).toBe(0);
+  });
+});
+
+describe("G22 wbsTreeBuild", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+  it("빈 결과 → root only", async () => {
+    (sql as any).mockResolvedValueOnce([]);
+    const r = await wbsTreeBuild("m15x");
+    expect(r.id).toBe("m15x");
+    expect(r.children).toEqual([]);
+    expect(r.review_count).toBe(0);
+  });
+  it("4 레벨 트리 (site → wa → l5 → l6) + review_count rollup", async () => {
+    (sql as any).mockResolvedValueOnce([
+      { wa: "FAB", l5_disc: "골조", l6_main: "거푸집", review_count: 2, worst_risk: 2 },
+      { wa: "FAB", l5_disc: "골조", l6_main: "철근", review_count: 1, worst_risk: 3 },
+      { wa: "FAB", l5_disc: "마감", l6_main: "도장", review_count: 0, worst_risk: 1 },
+    ]);
+    const r = await wbsTreeBuild("m15x");
+    expect(r.review_count).toBe(3);
+    expect(r.children).toHaveLength(1); // FAB
+    const fab = r.children![0];
+    expect(fab.name).toBe("FAB");
+    expect(fab.review_count).toBe(3);
+    expect(fab.children).toHaveLength(2); // 골조 + 마감
+    const goljo = fab.children!.find((c) => c.name === "골조")!;
+    expect(goljo.review_count).toBe(3);
+    expect(goljo.children).toHaveLength(2); // 거푸집 + 철근
+    const magam = fab.children!.find((c) => c.name === "마감")!;
+    expect(magam.children![0].status).toBe("risk"); // worst_risk=1 → 이상 → risk
+  });
+});
+
+describe("G4 deriveChatSequence", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+  it("run 없음 → []", async () => {
+    (sql as any).mockResolvedValueOnce([]);
+    const r = await deriveChatSequence("nope");
+    expect(r).toEqual([]);
+  });
+  it("정상 run → 8 메시지 + HIL 0 → info 타입", async () => {
+    (sql as any).mockResolvedValueOnce([
+      {
+        started_at: new Date("2026-05-15T09:00:00Z"),
+        status: "completed",
+        parser_count: 100,
+        mapper_count: 100,
+        hil_count: 0,
+        atomized_count: 100,
+        reporter_count: 1,
+        forecast_count: 80,
+        abnormal_count: 0,
+        optimizer_count: 0,
+      },
+    ]);
+    const r = await deriveChatSequence("run-1");
+    expect(r).toHaveLength(8);
+    expect(r[0].agent).toBe("Collector");
+    expect(r[2].agent).toBe("Mapper");
+    expect(r[2].type).toBe("info");
+    expect(r[3].agent).toBe("HIL Review");
+    expect(r[7].agent).toBe("Optimizer");
+  });
+  it("HIL 발생 + 이상 risk → Mapper type=hil_request, Forecaster type=result", async () => {
+    (sql as any).mockResolvedValueOnce([
+      {
+        started_at: new Date("2026-05-15T09:00:00Z"),
+        status: "completed",
+        parser_count: 100,
+        mapper_count: 100,
+        hil_count: 5,
+        atomized_count: 95,
+        reporter_count: 1,
+        forecast_count: 80,
+        abnormal_count: 3,
+        optimizer_count: 3,
+      },
+    ]);
+    const r = await deriveChatSequence("run-2");
+    expect(r[2].type).toBe("hil_request");
+    expect(r[6].type).toBe("result");
   });
 });

@@ -5,6 +5,9 @@ Phase 4.2: POST /api/runs/:run_id/hil_1/resume + lifespan graph/checkpointer 통
 Phase 4.3: GET /api/sites — Site[] 반환.
 Phase 4.4: GET /api/runs/:run_id/optimizer — OptimizerOutput[] 반환.
 Phase 4.5: GET /api/runs/:run_id/wp_summary — WPSummaryRow[] 반환.
+Phase 4.6: GET /api/sites/:site_id/reports — ReportDaily[] 반환.
+Phase 4.7: GET /api/dashboard/performance — fleet_kpi 반환.
+Phase 4.8: GET /api/dashboard/impact — ImpactSiteDistribution[] 반환.
 """
 
 from __future__ import annotations
@@ -462,3 +465,165 @@ async def get_wp_summary(run_id: str) -> list[dict[str, Any]]:
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"wp_summary 조회 실패: {exc}") from exc
     return [_serialize_wp_summary(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Phase 4.6 — GET /api/sites/:site_id/reports?days=30
+# ---------------------------------------------------------------------------
+
+_SITE_REPORTS_SQL = """
+SELECT
+  pr.report_date AS date,
+  CASE
+    WHEN MAX(CASE WHEN f.risk_level = '이상' THEN 1 ELSE 0 END) = 1 THEN 'risk'
+    WHEN MAX(CASE WHEN f.risk_level = '주의' THEN 1 ELSE 0 END) = 1 THEN 'caution'
+    WHEN COUNT(f.id) > 0 THEN 'normal'
+    ELSE 'unknown'
+  END AS status,
+  COALESCE(MAX(f.today_productivity), 0) AS productivity_today,
+  COALESCE(MAX(f.delay_days), 0) AS delay_days,
+  0 AS recovery_days
+FROM pipeline_runs pr
+LEFT JOIN forecasts f ON f.run_id = pr.run_id
+WHERE pr.site_id = $1
+  AND pr.report_date >= CURRENT_DATE - ($2::int)
+GROUP BY pr.report_date
+ORDER BY pr.report_date ASC
+"""
+
+
+def _serialize_report_daily(row: dict[str, Any]) -> dict[str, Any]:
+    """pipeline_runs + forecasts join row -> ReportDaily JSON."""
+
+    def _f(v: Any) -> float:
+        return float(v) if v is not None else 0.0
+
+    date_val = row.get("date")
+    if date_val is not None and hasattr(date_val, "isoformat"):
+        date_val = date_val.isoformat()
+    else:
+        date_val = date_val or ""
+
+    return {
+        "date": date_val,
+        "status": row.get("status") or "unknown",
+        "productivity_today": _f(row.get("productivity_today")),
+        "delay_days": _f(row.get("delay_days")),
+        "recovery_days": 0,
+    }
+
+
+@app.get("/api/sites/{site_id}/reports")
+async def get_site_reports(site_id: str, days: int = 30) -> list[dict[str, Any]]:
+    """site_id 의 날짜별 작업일보 요약 — ReportDaily[].
+
+    days (default 30, max 90) 범위 내 pipeline_runs + forecasts 집계.
+    미존재 site_id 는 빈 배열 반환 (PoC 단순화).
+    """
+    days = min(days, 90)
+    pg: PGClient = app.state.pg
+    try:
+        rows = await pg.fetch_all(_SITE_REPORTS_SQL, site_id, days)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"site reports 조회 실패: {exc}") from exc
+    return [_serialize_report_daily(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Phase 4.7 — GET /api/dashboard/performance
+# ---------------------------------------------------------------------------
+
+_DASHBOARD_PERFORMANCE_SQL = """
+WITH last_runs AS (
+  SELECT last_run_id FROM sites WHERE last_run_id IS NOT NULL
+)
+SELECT
+  COALESCE(AVG(f.today_productivity), 0) AS productivity_today,
+  COALESCE(MAX(f.delay_days), 0) AS delay_days,
+  COALESCE(SUM(
+    COALESCE((oa.recovery_distribution->>'d+1')::int * 1, 0) +
+    COALESCE((oa.recovery_distribution->>'d+2')::int * 2, 0) +
+    COALESCE((oa.recovery_distribution->>'d+3')::int * 3, 0) +
+    COALESCE((oa.recovery_distribution->>'d+5')::int * 5, 0) +
+    COALESCE((oa.recovery_distribution->>'d+7')::int * 7, 0)
+  ), 0) AS recoverable_days,
+  COUNT(f.id) FILTER (WHERE f.risk_level <> '정상') AS abnormal_trades
+FROM last_runs lr
+LEFT JOIN forecasts f ON f.run_id = lr.last_run_id
+LEFT JOIN optimizer_advice oa ON oa.run_id = lr.last_run_id
+"""
+
+
+@app.get("/api/dashboard/performance")
+async def get_dashboard_performance() -> dict[str, Any]:
+    """전 site 통합 KPI 카드 — fleet_kpi.
+
+    last_run_id 기준으로 forecasts + optimizer_advice 집계.
+    DB 조회 결과 없음 -> 0 fallback.
+    """
+    pg: PGClient = app.state.pg
+    try:
+        row = await pg.fetch_one(_DASHBOARD_PERFORMANCE_SQL)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"dashboard/performance 조회 실패: {exc}") from exc
+
+    if row is None:
+        return {
+            "productivity_today": 0.0,
+            "delay_days": 0.0,
+            "recoverable_days": 0,
+            "abnormal_trades": 0,
+        }
+
+    def _f(v: Any) -> float:
+        return float(v) if v is not None else 0.0
+
+    def _i(v: Any) -> int:
+        return int(v) if v is not None else 0
+
+    return {
+        "productivity_today": _f(row.get("productivity_today")),
+        "delay_days": _f(row.get("delay_days")),
+        "recoverable_days": _i(row.get("recoverable_days")),
+        "abnormal_trades": _i(row.get("abnormal_trades")),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Phase 4.8 — GET /api/dashboard/impact
+# ---------------------------------------------------------------------------
+
+_DASHBOARD_IMPACT_SQL = """
+SELECT site_id, name AS site_name, hours_saved, fte_saved
+FROM sites
+ORDER BY hours_saved DESC
+"""
+
+
+def _serialize_impact_site(row: dict[str, Any]) -> dict[str, Any]:
+    """sites row -> ImpactSiteDistribution JSON."""
+
+    def _f(v: Any) -> float:
+        return float(v) if v is not None else 0.0
+
+    return {
+        "site_id": row.get("site_id") or "",
+        "site_name": row.get("site_name") or "",
+        "hours_saved": _f(row.get("hours_saved")),
+        "fte_saved": _f(row.get("fte_saved")),
+    }
+
+
+@app.get("/api/dashboard/impact")
+async def get_dashboard_impact() -> list[dict[str, Any]]:
+    """전 site 의 AI impact 분포 — ImpactSiteDistribution[].
+
+    sites 테이블의 hours_saved / fte_saved 내림차순.
+    빈 테이블이면 빈 배열 반환 (PoC 단순화).
+    """
+    pg: PGClient = app.state.pg
+    try:
+        rows = await pg.fetch_all(_DASHBOARD_IMPACT_SQL)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"dashboard/impact 조회 실패: {exc}") from exc
+    return [_serialize_impact_site(r) for r in rows]

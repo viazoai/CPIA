@@ -24,7 +24,7 @@ const STAGE_DEFS: Array<{ step: number; name: string; is_hil: boolean }> = [
   { step: 3,   name: "Mapper",     is_hil: false },
   { step: 3.5, name: "HIL Review", is_hil: true  },
   { step: 4,   name: "Atomizer",   is_hil: false },
-  { step: 5,   name: "Reporter",   is_hil: false },
+  { step: 5,   name: "Exporter",   is_hil: false },
   { step: 6,   name: "Forecaster", is_hil: false },
   { step: 7,   name: "Optimizer",  is_hil: false },
 ];

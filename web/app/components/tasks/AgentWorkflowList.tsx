@@ -25,7 +25,7 @@ const STEP_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   Mapper: GitBranch,
   "HIL Review": ClipboardCheck,
   Atomizer: Database,
-  Reporter: FileText,
+  Exporter: FileText,
   Forecaster: Activity,
   Optimizer: Sparkles,
 };
@@ -36,7 +36,7 @@ const KOREAN: Record<string, string> = {
   Mapper: "매핑",
   "HIL Review": "사람 검토",
   Atomizer: "DB 적재",
-  Reporter: "보고",
+  Exporter: "출력",
   Forecaster: "진단",
   Optimizer: "최적화",
 };

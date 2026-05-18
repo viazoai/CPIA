@@ -5,7 +5,7 @@ import type {
   WBSNode, ReviewItem, ReportDaily, ReportKpi, SCurvePoint, BarItem,
   QuadrantPoint, OptimizerOutput, RawDataRow, WPSummaryRow,
   ImpactSiteDistribution, ImpactTrendPoint, MiddleOfficeAutomation,
-  SimulationSequence,
+  SimulationSequence, FleetTrendPoint,
 } from "./types";
 
 /**
@@ -44,6 +44,9 @@ export interface DashboardFixture {
       abnormal_total: number;
       recoverable_days: number;
     };
+    /** 시연 안정성: fixture 가 비어있으면 컴포넌트가 mulberry32 로 deterministic 생성. */
+    fleet_trend?: FleetTrendPoint[];
+    site_sparklines?: Record<string, number[]>;
   };
   impact: {
     fleet_kpi: SitesSummary;

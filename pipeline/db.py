@@ -207,6 +207,7 @@ class PGClient:
 
         Spec §5.6 + optimizer cycle Task 1 (v3.1) — 27 컬럼
         (id/created_at auto, main_unit + today_conditions Task 1 추가).
+        Phase 2 — wa 컬럼 추가 (28 컬럼).
         row dict 키 = 컬럼명.
         """
         import json as _json
@@ -224,7 +225,8 @@ class PGClient:
                     rag_n_similar, similar_cases,
                     assessment, reasoning, recovery_likelihood,
                     expected_completion, risk_level,
-                    main_unit, today_conditions
+                    main_unit, today_conditions,
+                    wa
                 ) VALUES (
                     $1, $2, $3,
                     $4::jsonb, $5, $6,
@@ -234,7 +236,8 @@ class PGClient:
                     $19, $20::jsonb,
                     $21, $22, $23,
                     $24, $25,
-                    $26, $27
+                    $26, $27,
+                    $28
                 )
                 """,
                 row["run_id"],
@@ -268,6 +271,7 @@ class PGClient:
                 row.get("risk_level"),
                 row.get("main_unit"),
                 row.get("today_conditions"),
+                row.get("wa"),
             )
 
     async def insert_optimizer_advice(self, row: dict) -> None:

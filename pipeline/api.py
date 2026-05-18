@@ -2,6 +2,9 @@
 
 Phase 4.1: 골격 + lifespan + GET /health 1개.
 Phase 4.2: POST /api/runs/:run_id/hil_1/resume + lifespan graph/checkpointer 통합.
+Phase 4.3: GET /api/sites — Site[] 반환.
+Phase 4.4: GET /api/runs/:run_id/optimizer — OptimizerOutput[] 반환.
+Phase 4.5: GET /api/runs/:run_id/wp_summary — WPSummaryRow[] 반환.
 """
 
 from __future__ import annotations
@@ -238,3 +241,224 @@ async def hil_1_resume(run_id: str, body: Hil1ResumeRequest) -> Hil1ResumeRespon
 
     next_node: str = result["current_node"]
     return Hil1ResumeResponse(next_node=next_node)
+
+
+# ---------------------------------------------------------------------------
+# Phase 4.3 — GET /api/sites
+# ---------------------------------------------------------------------------
+
+_SITES_SQL = """
+SELECT s.site_id, s.name, s.location, s.status,
+       s.plan_progress, s.actual_progress,
+       (s.actual_progress - s.plan_progress) AS gap_percent,
+       CASE WHEN s.plan_progress > 0 THEN s.actual_progress / s.plan_progress ELSE NULL END AS spi,
+       COALESCE(f.today_productivity, 0) AS productivity_today,
+       COALESCE(f.abnormal_trades, 0) AS abnormal_trades,
+       s.fte_saved, s.hours_saved, s.headcount,
+       (s.headcount * 140) AS total_hours,
+       CASE WHEN s.headcount > 0 THEN s.hours_saved / (s.headcount * 140) * 100 ELSE 0 END AS ai_replacement_rate,
+       f.expected_completion, f.delay_days
+FROM sites s
+LEFT JOIN LATERAL (
+  SELECT MAX(today_productivity) AS today_productivity,
+         COUNT(*) FILTER (WHERE risk_level <> '정상') AS abnormal_trades,
+         MAX(expected_completion) AS expected_completion,
+         MAX(delay_days) AS delay_days
+  FROM forecasts WHERE run_id = s.last_run_id
+) f ON TRUE
+"""
+
+
+def _serialize_site(row: dict[str, Any]) -> dict[str, Any]:
+    """PG row → Site JSON (컬럼명 매핑 + NUMERIC float 변환 + date ISO 변환)."""
+    expected_completion = row.get("expected_completion")
+    if expected_completion is not None and hasattr(expected_completion, "isoformat"):
+        expected_completion = expected_completion.isoformat()
+    elif expected_completion is None:
+        expected_completion = ""
+
+    def _f(v: Any) -> float:  # NUMERIC → float
+        return float(v) if v is not None else 0.0
+
+    return {
+        "id": row["site_id"],
+        "name": row["name"],
+        "location": row.get("location") or "",
+        "status": row.get("status") or "unknown",
+        "progress_planned": _f(row.get("plan_progress")),
+        "progress_actual": _f(row.get("actual_progress")),
+        "gap_percent": _f(row.get("gap_percent")),
+        "spi": _f(row.get("spi")),
+        "productivity_today": _f(row.get("productivity_today")),
+        "abnormal_trades": int(row.get("abnormal_trades") or 0),
+        "fte_saved": _f(row.get("fte_saved")),
+        "hours_saved": _f(row.get("hours_saved")),
+        "headcount": int(row.get("headcount") or 0),
+        "total_hours": int(row.get("total_hours") or 0),
+        "ai_replacement_rate": _f(row.get("ai_replacement_rate")),
+        "expected_completion": expected_completion,
+        # PoC: recovered_completion = expected_completion 그대로 (Optimizer recovery 미반영)
+        "recovered_completion": expected_completion,
+        "delay_days": _f(row.get("delay_days")),
+        # PoC: recovery_days = 0 (Optimizer recovery 미반영)
+        "recovery_days": 0,
+    }
+
+
+@app.get("/api/sites")
+async def get_sites() -> list[dict[str, Any]]:
+    """전체 현장 목록 — Site[].
+
+    api-contract §3.1 SQL 그대로 사용. NUMERIC → float, date → ISO string.
+    """
+    pg: PGClient = app.state.pg
+    rows = await pg.fetch_all(_SITES_SQL)
+    return [_serialize_site(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Phase 4.4 — GET /api/runs/:run_id/optimizer
+# ---------------------------------------------------------------------------
+
+_OPTIMIZER_SQL = """
+SELECT
+    l6_main || '-' || COALESCE(company, '') AS wp_id,
+    diagnosis,
+    degradation_cases,
+    recommendations,
+    recovery_distribution
+FROM optimizer_advice
+WHERE run_id = $1
+"""
+
+
+def _serialize_optimizer(row: dict[str, Any]) -> dict[str, Any]:
+    """optimizer_advice row → OptimizerOutput JSON.
+
+    similar_cases = degradation_cases JSONB (list[{date, description, outcome}])
+    recommendations = [{rank, text}, ...] → list[str] (rank 제거)
+    details = recovery_distribution key-value list (PoC 단순화)
+    """
+    similar_cases = row.get("degradation_cases") or []
+    if not isinstance(similar_cases, list):
+        similar_cases = []
+
+    raw_recs = row.get("recommendations") or []
+    if not isinstance(raw_recs, list):
+        raw_recs = []
+    # [{rank, text}, ...] → [str, ...] ; 단순 string 이면 그대로
+    recommendations: list[str] = []
+    for item in raw_recs:
+        if isinstance(item, dict):
+            recommendations.append(str(item.get("text", "")))
+        else:
+            recommendations.append(str(item))
+
+    recovery_dist = row.get("recovery_distribution") or {}
+    if isinstance(recovery_dist, dict):
+        details = [{"label": k, "value": str(v)} for k, v in recovery_dist.items()]
+    else:
+        details = []
+
+    return {
+        "wp_id": row.get("wp_id") or "",
+        "diagnosis": row.get("diagnosis") or "",
+        "similar_cases": similar_cases,
+        "recommendations": recommendations,
+        "details": details,
+    }
+
+
+@app.get("/api/runs/{run_id}/optimizer")
+async def get_optimizer(run_id: str) -> list[dict[str, Any]]:
+    """run_id 의 optimizer_advice 목록 — OptimizerOutput[].
+
+    run_id 미존재 시 빈 배열 반환 (PoC 단순화).
+    """
+    pg: PGClient = app.state.pg
+    try:
+        rows = await pg.fetch_all(_OPTIMIZER_SQL, run_id)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"optimizer 조회 실패: {exc}") from exc
+    return [_serialize_optimizer(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Phase 4.5 — GET /api/runs/:run_id/wp_summary
+# ---------------------------------------------------------------------------
+
+_WP_SUMMARY_SQL = """
+SELECT
+  mh.wa || '-' || mh.l6_main || '-' || mh.company AS wp_id,
+  am.l6_main AS wp_name,
+  am.l5_disc AS trade,
+  mh.company AS bp_name,
+  am.plan_start AS start_date,
+  am.plan_finish AS end_date,
+  CASE WHEN am.plan_total_qty > 0
+    THEN COALESCE(SUM(mh2.today_qty), 0) / am.plan_total_qty * 100
+    ELSE 0
+  END AS progress_pct,
+  COALESCE(f.today_productivity, 0) AS productivity,
+  CASE
+    WHEN f.risk_level = '정상' THEN 'normal'
+    WHEN f.risk_level = '주의' THEN 'caution'
+    WHEN f.risk_level = '이상' THEN 'risk'
+    ELSE 'normal'
+  END AS status
+FROM mapped_history mh
+LEFT JOIN activity_master am
+  ON am.wa = mh.wa AND am.l6_main = mh.l6_main
+LEFT JOIN mapped_history mh2
+  ON mh2.wa = mh.wa AND mh2.l6_main = mh.l6_main AND mh2.company = mh.company
+LEFT JOIN forecasts f
+  ON f.wa = mh.wa AND f.l6_main = mh.l6_main AND f.company = mh.company AND f.run_id = mh.run_id
+WHERE mh.run_id = $1
+GROUP BY mh.wa, mh.l6_main, mh.company, am.l6_main, am.l5_disc, am.plan_start, am.plan_finish, am.plan_total_qty, f.today_productivity, f.risk_level
+"""
+
+
+def _serialize_wp_summary(row: dict[str, Any]) -> dict[str, Any]:
+    """mapped_history + activity_master + forecasts join row → WPSummaryRow JSON."""
+
+    def _f(v: Any) -> float:
+        return float(v) if v is not None else 0.0
+
+    start_date = row.get("start_date")
+    if start_date is not None and hasattr(start_date, "isoformat"):
+        start_date = start_date.isoformat()
+    else:
+        start_date = start_date or ""
+
+    end_date = row.get("end_date")
+    if end_date is not None and hasattr(end_date, "isoformat"):
+        end_date = end_date.isoformat()
+    else:
+        end_date = end_date or ""
+
+    return {
+        "wp_id": row.get("wp_id") or "",
+        "wp_name": row.get("wp_name") or "",
+        "trade": row.get("trade") or "",
+        "bp_name": row.get("bp_name") or "",
+        "start_date": start_date,
+        "end_date": end_date,
+        "progress_pct": _f(row.get("progress_pct")),
+        "productivity": _f(row.get("productivity")),
+        "status": row.get("status") or "normal",
+    }
+
+
+@app.get("/api/runs/{run_id}/wp_summary")
+async def get_wp_summary(run_id: str) -> list[dict[str, Any]]:
+    """run_id 의 WP 단위 요약 — WPSummaryRow[].
+
+    activity_master + mapped_history + forecasts triplet join.
+    run_id 미존재 시 빈 배열 반환 (PoC 단순화).
+    """
+    pg: PGClient = app.state.pg
+    try:
+        rows = await pg.fetch_all(_WP_SUMMARY_SQL, run_id)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"wp_summary 조회 실패: {exc}") from exc
+    return [_serialize_wp_summary(r) for r in rows]

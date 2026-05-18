@@ -449,3 +449,14 @@ class PGClient:
         async with self._pool.acquire() as con:
             row = await con.fetchrow(sql, *args)
         return dict(row) if row else None
+
+    async def fetch_all(self, sql: str, *args: Any) -> list[dict[str, Any]]:
+        """임의 SELECT 다중 row 조회 helper. 외부에서 _pool 직접 접근 대신 사용.
+
+        Returns:
+            전체 row 를 list[dict] 로 반환. row 없으면 [].
+        """
+        assert self._pool is not None, "connect() 미호출"
+        async with self._pool.acquire() as con:
+            rows = await con.fetch(sql, *args)
+        return [dict(r) for r in rows]

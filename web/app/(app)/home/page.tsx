@@ -1,16 +1,16 @@
 export const dynamic = "force-dynamic";
 
 import { Layers, Calendar, Clock4, Activity } from "lucide-react";
-import { loadFixture } from "@/lib/fixtures";
+import { loadReal } from "@/lib/fixtures";
 import { StatusHeader } from "@/app/components/home/StatusHeader";
 import { OpsKpiCard } from "@/app/components/home/OpsKpiCard";
 import { AgentWorkflow } from "@/app/components/home/AgentWorkflow";
 import { AgentChatLog } from "@/app/components/tasks/AgentChatLog";
 
 export default async function HomePage() {
-  const summary = await loadFixture("sites_summary");
-  const agents = await loadFixture("agent_status");
-  const chatByDate = await loadFixture("chat_sequence");
+  const summary = await loadReal("sites_summary");
+  const agents = await loadReal("agent_status");
+  const chatByDate = await loadReal("chat_sequence");
   const latestDate = Object.keys(chatByDate).sort().pop() ?? "";
   const chat = chatByDate[latestDate] ?? [];
 

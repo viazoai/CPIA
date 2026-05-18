@@ -15,6 +15,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from langgraph.errors import EmptyChannelError, InvalidUpdateError
+from langgraph.types import Command
 
 import pipeline.api as api_module
 from pipeline.api import app
@@ -151,3 +153,137 @@ async def test_hil1_resume_passes_thread_id(
     config = call_kwargs.kwargs.get("config") or (call_kwargs.args[1] if len(call_kwargs.args) > 1 else None)
     assert config is not None
     assert config["configurable"]["thread_id"] == run_id
+
+
+# ---------------------------------------------------------------------------
+# 테스트 4 (Q4): drift #N5 — corrections string key 가 Command(resume=) 인자에
+#                그대로 전달. API layer 는 int 변환 X — hil_1_node 책임.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_hil1_resume_preserves_string_key_in_command_resume(
+    mock_pg: MagicMock,
+    mock_graph: MagicMock,
+) -> None:
+    """drift #N5: JSON corrections string key 가 Command(resume=) 의 resume payload
+    에 string 그대로 전달돼야 함. int 변환은 hil_1_node (graph.py:128) 책임.
+    """
+    run_id = str(uuid.uuid4())
+    corrections = {"5": {"wa": "WA-Z", "l6_main": "전기 공사"}}
+
+    with (
+        patch.object(api_module, "PGClient", return_value=mock_pg),
+        patch.object(api_module, "build_graph", return_value=mock_graph),
+        patch.object(api_module, "_build_prod_graph_config", return_value=MagicMock()),
+    ):
+        async with api_module.lifespan(app):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                await client.post(
+                    f"/api/runs/{run_id}/hil_1/resume",
+                    json={"corrections": corrections},
+                )
+
+    # ainvoke 첫 positional 인자 = Command(resume=...)
+    cmd = mock_graph.ainvoke.call_args.args[0]
+    assert isinstance(cmd, Command)
+    # resume payload 의 key 가 string "5" 그대로 (int 5 X)
+    assert "5" in cmd.resume
+    assert 5 not in cmd.resume
+    assert all(isinstance(k, str) for k in cmd.resume.keys())
+
+
+# ---------------------------------------------------------------------------
+# 테스트 5 (Q1): graph.ainvoke 결과에 current_node 누락 시 500 + 상세 detail
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_hil1_resume_500_when_current_node_missing(
+    mock_pg: MagicMock,
+) -> None:
+    """graph 가 current_node 없는 state 반환 시 500 raise (silent "unknown" 금지)."""
+    bad_graph = MagicMock()
+    bad_graph.ainvoke = AsyncMock(return_value={"other_key": "value"})  # current_node 누락
+
+    run_id = str(uuid.uuid4())
+    corrections = {"0": {"wa": "WA-A", "l6_main": "구조"}}
+
+    with (
+        patch.object(api_module, "PGClient", return_value=mock_pg),
+        patch.object(api_module, "build_graph", return_value=bad_graph),
+        patch.object(api_module, "_build_prod_graph_config", return_value=MagicMock()),
+    ):
+        async with api_module.lifespan(app):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                res = await client.post(
+                    f"/api/runs/{run_id}/hil_1/resume",
+                    json={"corrections": corrections},
+                )
+
+    assert res.status_code == 500
+    assert "current_node" in res.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# 테스트 6 (Q2-a): EmptyChannelError → 404 (run_id 없음)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_hil1_resume_404_when_checkpoint_missing(
+    mock_pg: MagicMock,
+) -> None:
+    """존재하지 않는 run_id (checkpoint 없음) → EmptyChannelError → 404."""
+    failing_graph = MagicMock()
+    failing_graph.ainvoke = AsyncMock(side_effect=EmptyChannelError("no checkpoint"))
+
+    run_id = str(uuid.uuid4())
+    corrections = {"0": {"wa": "WA-A", "l6_main": "구조"}}
+
+    with (
+        patch.object(api_module, "PGClient", return_value=mock_pg),
+        patch.object(api_module, "build_graph", return_value=failing_graph),
+        patch.object(api_module, "_build_prod_graph_config", return_value=MagicMock()),
+    ):
+        async with api_module.lifespan(app):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                res = await client.post(
+                    f"/api/runs/{run_id}/hil_1/resume",
+                    json={"corrections": corrections},
+                )
+
+    assert res.status_code == 404
+    assert run_id in res.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# 테스트 7 (Q2-b): InvalidUpdateError → 409 (interrupt 상태 아님)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_hil1_resume_409_when_not_in_interrupt(
+    mock_pg: MagicMock,
+) -> None:
+    """interrupt 대기 상태 아닌 graph 에 Command(resume) → InvalidUpdateError → 409."""
+    failing_graph = MagicMock()
+    failing_graph.ainvoke = AsyncMock(side_effect=InvalidUpdateError("not interrupted"))
+
+    run_id = str(uuid.uuid4())
+    corrections = {"0": {"wa": "WA-A", "l6_main": "구조"}}
+
+    with (
+        patch.object(api_module, "PGClient", return_value=mock_pg),
+        patch.object(api_module, "build_graph", return_value=failing_graph),
+        patch.object(api_module, "_build_prod_graph_config", return_value=MagicMock()),
+    ):
+        async with api_module.lifespan(app):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                res = await client.post(
+                    f"/api/runs/{run_id}/hil_1/resume",
+                    json={"corrections": corrections},
+                )
+
+    assert res.status_code == 409
+    assert "interrupt" in res.json()["detail"]

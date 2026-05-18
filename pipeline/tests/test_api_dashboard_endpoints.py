@@ -145,6 +145,30 @@ async def test_site_reports_empty(
     assert res.json() == []
 
 
+@pytest.mark.asyncio
+async def test_site_reports_clamps_days_over_90(
+    mock_pg: MagicMock,
+    mock_graph: MagicMock,
+) -> None:
+    """days > 90 요청 시 SQL 에 90 으로 클램프 (Phase 4.6 spec 보호 — PoC 충분)."""
+    mock_pg.fetch_all = AsyncMock(return_value=[])
+
+    with (
+        patch.object(api_module, "PGClient", return_value=mock_pg),
+        patch.object(api_module, "build_graph", return_value=mock_graph),
+        patch.object(api_module, "_build_prod_graph_config", return_value=MagicMock()),
+    ):
+        async with api_module.lifespan(app):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                res = await client.get("/api/sites/SITE-ANY/reports?days=365")
+
+    assert res.status_code == 200
+    # fetch_all 호출 인자 검증: (_SITE_REPORTS_SQL, site_id, 90)
+    call_args = mock_pg.fetch_all.call_args
+    assert call_args.args[1] == "SITE-ANY"
+    assert call_args.args[2] == 90  # 365 -> 90 클램프
+
+
 # ---------------------------------------------------------------------------
 # Phase 4.7 — GET /api/dashboard/performance
 # ---------------------------------------------------------------------------

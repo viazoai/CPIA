@@ -100,21 +100,19 @@ NODE_PERCENT = {
 
 **의도**: /dashboard Performance KPI 카드 의 "회복 가능 일수".
 
-**산식**:
+**산식** (2026-05-18 갱신 — 항별 COALESCE 채택, 한 항만 NULL 일 때도 graceful):
 ```sql
 SELECT SUM(
-  COALESCE(
-    (recovery_distribution->>'d+1')::int * 1 +
-    (recovery_distribution->>'d+2')::int * 2 +
-    (recovery_distribution->>'d+3')::int * 3 +
-    (recovery_distribution->>'d+5')::int * 5 +
-    (recovery_distribution->>'d+7')::int * 7
-  , 0)
+    COALESCE((recovery_distribution->>'d+1')::int * 1, 0) +
+    COALESCE((recovery_distribution->>'d+2')::int * 2, 0) +
+    COALESCE((recovery_distribution->>'d+3')::int * 3, 0) +
+    COALESCE((recovery_distribution->>'d+5')::int * 5, 0) +
+    COALESCE((recovery_distribution->>'d+7')::int * 7, 0)
 ) AS recoverable_days
 FROM optimizer_advice WHERE run_id IN (SELECT last_run_id FROM sites);
 ```
 
-**결정 권고**: 위 산식 채택.
+**결정**: 위 항별 COALESCE 산식 채택 (Phase 4.7 implementer 가 spec 보다 null-safe 형태로 박았고, reviewer 권고로 plan 산식 텍스트 갱신).
 
 ### Task 0.6: `mapping_corrections` schema 정합 (drift #N2)
 

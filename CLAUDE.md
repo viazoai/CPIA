@@ -11,7 +11,7 @@
 1. 파일을 읽고 구조화한다 (Collector → Parser)
 2. 공정표(WBS)에 매핑하고 담당자가 검토한다 (Mapper + H-i-L 1)
 3. 오늘 작업 기록을 Vector DB에 적재한다 (Atomizer)
-4. 통합 보고서를 생성한다 (Reporter)
+4. 업체별 작업일보를 통합 작업일보로 출력한다 (Exporter)
 5. 오늘 생산성이 과거 유사 상황 대비 적정한지 진단한다 (Forecaster)
 6. Forecaster 결과의 4분면 중 **고위험군 공종에 자동 라우팅**되어 Optimizer 가 맥락 기반 조언을 생성한다
 7. 경영진 대시보드에서 전체 현황과 결과를 확인한다 (Dashboard)
@@ -69,7 +69,7 @@
 [LangGraph]
    Collector → Parser → Mapper ─[interrupt:hil_1]─ Atomizer
                                                        ↓
-                                        Reporter ‖ Forecaster
+                                        Exporter ‖ Forecaster
                                                        ↓
                                        [auto-route: 4분면 고위험군]
                                                        ↓
@@ -102,7 +102,7 @@
 │   │   ├── parser.py
 │   │   ├── mapper.py
 │   │   ├── atomizer.py
-│   │   ├── reporter.py
+│   │   ├── exporter.py          ← 구 reporter.py (A_Track rename 예정)
 │   │   ├── forecaster.py
 │   │   └── optimizer.py
 │   ├── state.py                ← Phase 0 합의: Agent 간 공유 데이터 구조
@@ -149,7 +149,7 @@
 │   ├── synthetic_history/      ← Vector DB cold start용 가상 이력 (생성 후 Chroma 적재)
 │   ├── mock_sites.json         ← Dashboard Layer 1용 6개 더미 현장
 │   ├── input/YYYYMMDD/         ← 작업일보 드롭 폴더
-│   └── output/reports/YYYYMMDD.md  ← Reporter 출력
+│   └── output/reports/YYYYMMDD.md  ← Exporter 출력 (통합 작업일보)
 │
 ├── docs/
 │   ├── architecture/
@@ -175,7 +175,7 @@
 | Parser | 원문 텍스트 + WBS 공종 목록 | 구조화 JSON | Azure OpenAI gpt-5.1 |
 | Mapper | Parser JSON + `wbs_master` Chroma RAG + `activity_master` PG | WBS 매핑 완료 JSON | Azure OpenAI gpt-5.1 (rerank) |
 | Atomizer | Mapper JSON | ChromaDB `daily_activities` 적재 | Azure OpenAI 임베딩만 |
-| Reporter | Mapper JSON | 통합 Daily Report (MD) + PostgreSQL 저장 | Azure OpenAI gpt-5.1 |
+| Exporter | Mapper JSON | 업체별 → 통합 작업일보 (MD) 출력 + PostgreSQL 저장 | Azure OpenAI gpt-5.1 |
 | Forecaster | Mapper JSON + ChromaDB 유사 이력 | 공종별 생산성 진단 + PostgreSQL 저장 | TBD (후속 plan) |
 | Optimizer | Forecaster 결과 + ChromaDB 과거 패턴 | 맥락 기반 조언 + PostgreSQL 저장 | TBD (후속 plan) |
 
@@ -317,6 +317,7 @@ docs/sample/WBS공정표_M15X IBL PH-3_CPRS_2025.09.25.xlsx
 
 ---
 
-*최종 수정: 2026-05-17 — design-intent + deep-dive 산출물 추가 (`deep-dive/design-intent/INDEX.md` + 서브시스템 카드 7종, `deep-dive/architecture_overview.md`)*
+*최종 수정: 2026-05-18 — Agent rename: Reporter → Exporter (한글 "보고" → "출력"). 기능 재정의: "업체별 작업일보 → 통합 작업일보 출력". 이번 변경은 B_Track (web/, data/mock, CLAUDE.md) 만 반영, pipeline/agents/reporter.py 등 A_Track 파일 rename 은 후속 PR 로 분리.*
+*이전 수정: 2026-05-17 — design-intent + deep-dive 산출물 추가 (`deep-dive/design-intent/INDEX.md` + 서브시스템 카드 7종, `deep-dive/architecture_overview.md`)*
 *이전 수정: 2026-05-16 — A_Track 매핑 레이어 plan 반영 (Azure OpenAI gpt-5.1 + text-embedding-3-small 전환, ChromaDB `wbs_master`+`daily_activities` 두 컬렉션, PG `activity_master` 추가, A 는 로컬 Docker 로 PoC 진행 중 — homelab 은 대기·마이그레이션 예정)*
 *이전 수정: 2026-05-14 — 2인 협업 확정안 (FastAPI 추가, H-i-L Dashboard 통합, 3주 압축 / 마감 2026-06-05, 브랜치 A_Track·B_Track 2개)*

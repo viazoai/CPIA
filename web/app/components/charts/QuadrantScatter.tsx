@@ -15,9 +15,9 @@ export function QuadrantScatter({ points, selectedWpId, onSelect, filter = "all"
   const visible = filter === "all" ? points : points.filter((p) => p.quadrant === filter);
 
   return (
-    <div className="w-full h-96">
+    <div className="w-full h-72">
       <ResponsiveContainer width="100%" height="100%">
-        <ScatterChart margin={{ top: 20, right: 20, bottom: 50, left: 50 }}>
+        <ScatterChart margin={{ top: 12, right: 20, bottom: 40, left: 50 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#eef0f4" />
           <ReferenceArea x1={0}  x2={70} y1={70} y2={100} fill="#ef4444" fillOpacity={0.05} />
           <ReferenceArea x1={70} x2={100} y1={70} y2={100} fill="#d97706" fillOpacity={0.05} />
@@ -25,8 +25,8 @@ export function QuadrantScatter({ points, selectedWpId, onSelect, filter = "all"
           <ReferenceArea x1={70} x2={100} y1={0}  y2={70}  fill="#0ea76a" fillOpacity={0.05} />
           <ReferenceLine x={70} stroke="#cbd5e1" strokeDasharray="4 4" />
           <ReferenceLine y={70} stroke="#cbd5e1" strokeDasharray="4 4" />
-          <XAxis type="number" dataKey="productivity" domain={[0, 100]} name="Productivity"
-            label={{ value: "Productivity →", position: "bottom", offset: 0, style: { fontSize: 11, fill: "#7a8494" } }}
+          <XAxis type="number" dataKey="productivity" domain={[0, 100]} name="Productivity" reversed
+            label={{ value: "← Productivity (저하 →)", position: "bottom", offset: 0, style: { fontSize: 11, fill: "#7a8494" } }}
             tick={{ fontSize: 10, fill: "#7a8494" }} tickFormatter={(v) => `${v}%`} />
           <YAxis type="number" dataKey="impact" domain={[0, 100]} name="Impact"
             label={{ value: "Impact ↑", angle: -90, position: "left", offset: 0, style: { fontSize: 11, fill: "#7a8494" } }}

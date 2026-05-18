@@ -39,8 +39,8 @@
   "details": {
     "2026-05-15": {
       "kpi": {
-        "productivity_today": 88,
-        "productivity_history_diff": -12,
+        "productivity_today": 85,
+        "productivity_history_diff": -10,
         "delay_days": 14,
         "expected_completion": "2026-08-12",
         "recoverable_productivity": 9,
@@ -116,104 +116,214 @@
         {
           "label": "A건설",
           "value": 92,
-          "status": "normal"
+          "status": "normal",
+          "baseline": 95
         },
         {
           "label": "B건설",
           "value": 78,
-          "status": "caution"
+          "status": "caution",
+          "baseline": 82
         },
         {
           "label": "C건설",
           "value": 71,
-          "status": "risk"
+          "status": "risk",
+          "baseline": 80
         },
         {
           "label": "D건설",
           "value": 88,
-          "status": "normal"
+          "status": "normal",
+          "baseline": 92
         },
         {
           "label": "E건설",
           "value": 84,
-          "status": "normal"
+          "status": "normal",
+          "baseline": 88
         },
         {
           "label": "F건설",
           "value": 95,
-          "status": "normal"
+          "status": "normal",
+          "baseline": 93
         },
         {
           "label": "G건설",
           "value": 89,
-          "status": "normal"
+          "status": "normal",
+          "baseline": 90
         },
         {
           "label": "H건설",
           "value": 76,
-          "status": "caution"
+          "status": "caution",
+          "baseline": 85
         },
         {
           "label": "I건설",
           "value": 91,
-          "status": "normal"
+          "status": "normal",
+          "baseline": 92
         },
         {
           "label": "J건설",
           "value": 68,
-          "status": "risk"
+          "status": "risk",
+          "baseline": 78
         },
         {
           "label": "K건설",
           "value": 87,
-          "status": "normal"
+          "status": "normal",
+          "baseline": 88
         },
         {
           "label": "L건설",
           "value": 93,
-          "status": "normal"
+          "status": "normal",
+          "baseline": 92
         },
         {
           "label": "M건설",
           "value": 79,
-          "status": "caution"
+          "status": "caution",
+          "baseline": 86
         },
         {
           "label": "N건설",
           "value": 96,
-          "status": "normal"
+          "status": "normal",
+          "baseline": 94
         },
         {
           "label": "O건설",
           "value": 90,
-          "status": "normal"
+          "status": "normal",
+          "baseline": 91
         }
       ],
       "trade_bars": [
         {
-          "label": "거푸집",
-          "value": 68,
-          "status": "caution"
+          "label": "M15X-FAB · 거푸집",
+          "value": 78,
+          "status": "risk",
+          "baseline": 84
         },
         {
-          "label": "철근",
-          "value": 54,
-          "status": "risk"
+          "label": "M15X-FAB · 철근",
+          "value": 72,
+          "status": "risk",
+          "baseline": 80
         },
         {
-          "label": "콘크리트",
+          "label": "M15X-FAB · 콘크리트",
           "value": 96,
-          "status": "normal"
+          "status": "normal",
+          "baseline": 92
         },
         {
-          "label": "방수",
+          "label": "M15X-FAB · 방수",
+          "value": 87,
+          "status": "caution",
+          "baseline": 90
+        },
+        {
+          "label": "M15X-FAB · MEP",
+          "value": 92,
+          "status": "normal",
+          "baseline": 91
+        },
+        {
+          "label": "M15X-CUB · 거푸집",
           "value": 82,
-          "status": "normal"
+          "status": "caution",
+          "baseline": 86
         },
         {
-          "label": "MEP",
+          "label": "M15X-CUB · 철근",
+          "value": 76,
+          "status": "risk",
+          "baseline": 82
+        },
+        {
+          "label": "M15X-CUB · 콘크리트",
+          "value": 93,
+          "status": "normal",
+          "baseline": 90
+        },
+        {
+          "label": "M15X-CUB · 방수",
           "value": 85,
-          "status": "normal"
+          "status": "caution",
+          "baseline": 88
+        },
+        {
+          "label": "M15X-CUB · MEP",
+          "value": 89,
+          "status": "caution",
+          "baseline": 90
+        },
+        {
+          "label": "M15Y · 거푸집",
+          "value": 88,
+          "status": "caution",
+          "baseline": 86
+        },
+        {
+          "label": "M15Y · 철근",
+          "value": 84,
+          "status": "caution",
+          "baseline": 82
+        },
+        {
+          "label": "M15Y · 콘크리트",
+          "value": 91,
+          "status": "normal",
+          "baseline": 90
+        },
+        {
+          "label": "M15Y · 방수",
+          "value": 79,
+          "status": "risk",
+          "baseline": 85
+        },
+        {
+          "label": "M15Y · MEP",
+          "value": 95,
+          "status": "normal",
+          "baseline": 93
+        },
+        {
+          "label": "M15Z · 거푸집",
+          "value": 82,
+          "status": "caution",
+          "baseline": 85
+        },
+        {
+          "label": "M15Z · 철근",
+          "value": 89,
+          "status": "caution",
+          "baseline": 88
+        },
+        {
+          "label": "M15Z · 콘크리트",
+          "value": 93,
+          "status": "normal",
+          "baseline": 90
+        },
+        {
+          "label": "M15Z · 방수",
+          "value": 90,
+          "status": "normal",
+          "baseline": 91
+        },
+        {
+          "label": "M15Z · MEP",
+          "value": 86,
+          "status": "caution",
+          "baseline": 89
         }
       ],
       "quadrant": [
@@ -410,7 +520,9 @@
           "end_date": "2026-05-28",
           "progress_pct": 54,
           "productivity": 54,
-          "status": "risk"
+          "status": "risk",
+          "impact": 86,
+          "baseline": 80
         },
         {
           "wp_id": "wp-3-2",
@@ -421,7 +533,9 @@
           "end_date": "2026-05-22",
           "progress_pct": 68,
           "productivity": 68,
-          "status": "risk"
+          "status": "risk",
+          "impact": 78,
+          "baseline": 86
         },
         {
           "wp_id": "wp-5-1",
@@ -432,7 +546,9 @@
           "end_date": "2026-06-05",
           "progress_pct": 41,
           "productivity": 82,
-          "status": "caution"
+          "status": "caution",
+          "impact": 62,
+          "baseline": 88
         },
         {
           "wp_id": "wp-3-4",
@@ -443,7 +559,9 @@
           "end_date": "2026-05-15",
           "progress_pct": 92,
           "productivity": 96,
-          "status": "caution"
+          "status": "caution",
+          "impact": 88,
+          "baseline": 92
         },
         {
           "wp_id": "wp-7-1",
@@ -454,7 +572,9 @@
           "end_date": "2026-06-20",
           "progress_pct": 22,
           "productivity": 95,
-          "status": "normal"
+          "status": "normal",
+          "impact": 28,
+          "baseline": 91
         },
         {
           "wp_id": "wp-1-1",
@@ -465,7 +585,9 @@
           "end_date": "2026-05-18",
           "progress_pct": 88,
           "productivity": 92,
-          "status": "normal"
+          "status": "normal",
+          "impact": 18,
+          "baseline": 88
         }
       ]
     }

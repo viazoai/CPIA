@@ -9,16 +9,20 @@ import {
   YAxis,
   Tooltip,
   ReferenceDot,
+  ReferenceLine,
+  Label,
   CartesianGrid,
 } from "recharts";
 import { cn } from "@/lib/utils";
 import type { ProductivityDiagnosis } from "@/lib/types";
-import { ConfidenceBadge } from "../reports/ConfidenceBadge";
-
 interface Props {
   diagnosis: ProductivityDiagnosis;
   /** Optimizer 권고 시나리오를 강조 표시. § 4 에서 WP 선택 시 true. */
   recoveryActive?: boolean;
+  /** 현 추세 공기 차이 (양수 = 지연, 음수 = 앞서감). */
+  delayDays: number;
+  /** 최적화 적용 시 단축 가능 일수 (양수). */
+  recoveryDays: number;
 }
 
 interface ToggleState {
@@ -26,7 +30,7 @@ interface ToggleState {
   pessimistic: boolean;
 }
 
-export function ForecastChart({ diagnosis, recoveryActive = false }: Props) {
+export function ForecastChart({ diagnosis, recoveryActive = false, delayDays, recoveryDays }: Props) {
   const [toggles, setToggles] = useState<ToggleState>({
     optimistic: false,
     pessimistic: false,
@@ -49,21 +53,47 @@ export function ForecastChart({ diagnosis, recoveryActive = false }: Props) {
   const lastIdx = firstUndef === -1 ? data.length - 1 : firstUndef - 1;
   const lastPoint = lastIdx >= 0 ? data[lastIdx] : null;
 
+  // 100% 도달 시점 찾기 — 각 시나리오가 어디서 끝나는지 시각화
+  const completionDate = (key: "planned" | "base" | "optimistic"): string | null => {
+    for (const d of data) {
+      const v = d[key] as number | null | undefined;
+      if (typeof v === "number" && v >= 100) return d.date;
+    }
+    return null;
+  };
+  const planEnd = completionDate("planned");
+  const baseEnd = completionDate("base");
+  const optEnd  = completionDate("optimistic");
+
   return (
     <div className="rounded-card border border-border-soft bg-card p-5 shadow-xs">
-      <div className="mb-3 flex items-start justify-between gap-4">
-        <div>
-          <div className="font-display text-h6 text-ink">Forecast</div>
-          <div className="text-body-sm text-ink-mid">현 추세 + 신뢰 밴드</div>
-        </div>
-        <ConfidenceBadge sampleSize={diagnosis.sample_size} />
+      <div className="mb-3 font-display text-base font-semibold text-ink">
+        공정률 추세 예측
       </div>
 
-      <div className="mb-3 space-y-1 text-body-sm text-ink-mid">
-        <p>📊 {baseNarrative(diagnosis)}</p>
-        {recoveryActive && (
-          <p>⚡ {recoveryNarrative(diagnosis)}</p>
-        )}
+      <div className="mb-4 flex flex-wrap gap-x-10">
+        <div>
+          <div className="text-sm text-ink-mid">예상 공기</div>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="font-display text-h3 font-semibold tracking-[-0.015em] text-ink">
+              {delayDays > 0 ? "D+" : delayDays < 0 ? "D−" : ""}{Math.abs(delayDays)}
+            </span>
+            <span className="text-base text-ink-mid">
+              일 {delayDays > 0 ? "지연 예상" : delayDays < 0 ? "단축 예상" : "계획 동일"}
+            </span>
+          </div>
+        </div>
+        <div>
+          <div className="text-sm text-ink-mid">최적화 공기</div>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="font-display text-h3 font-semibold tracking-[-0.015em] text-ink">
+              {recoveryDays > 0 ? "-" : ""}{recoveryDays}
+            </span>
+            <span className="text-base text-ink-mid">
+              일 {recoveryDays > 0 ? "단축 가능" : "단축 불가"}
+            </span>
+          </div>
+        </div>
       </div>
 
       <div className="mb-3 flex flex-wrap gap-1.5">
@@ -82,8 +112,8 @@ export function ForecastChart({ diagnosis, recoveryActive = false }: Props) {
         />
       </div>
 
-      <ResponsiveContainer width="100%" height={320}>
-        <ComposedChart data={data} margin={{ top: 12, right: 16, left: 0, bottom: 0 }}>
+      <ResponsiveContainer width="100%" height={340}>
+        <ComposedChart data={data} margin={{ top: 28, right: 24, left: 0, bottom: 0 }}>
           <CartesianGrid stroke="#eef0f4" vertical={false} />
           <XAxis
             dataKey="date"
@@ -103,8 +133,8 @@ export function ForecastChart({ diagnosis, recoveryActive = false }: Props) {
           <Area dataKey="band_high" stroke="none" fill="#e8eeff" fillOpacity={0.4} activeDot={false} isAnimationActive={false} />
           <Area dataKey="band_low"  stroke="none" fill="#ffffff" fillOpacity={1}   activeDot={false} isAnimationActive={false} />
 
-          {/* Plan — 가장 강조 (회색 두꺼운 실선) */}
-          <Line dataKey="planned" stroke="#4b5563" strokeWidth={2.5} dot={false} isAnimationActive={false} />
+          {/* Plan — 보조선 (옅은 회색 실선) */}
+          <Line dataKey="planned" stroke="#94a3b8" strokeWidth={2} dot={false} isAnimationActive={false} />
 
           {/* Actual — 가장 강조 (검정 더 두꺼운 실선) */}
           <Line dataKey="actual" stroke="#0d1117" strokeWidth={3} dot={false} isAnimationActive={false} />
@@ -130,33 +160,79 @@ export function ForecastChart({ diagnosis, recoveryActive = false }: Props) {
               strokeWidth={2}
             />
           )}
+
+          {/* 100% 완료선 (가로 점선) */}
+          <ReferenceLine y={100} stroke="#cbd5e1" strokeDasharray="3 3" />
+
+          {/* 계획 완공 시점 — 위쪽 라벨 */}
+          {planEnd && (
+            <ReferenceDot x={planEnd} y={100} r={5} fill="#94a3b8" stroke="#ffffff" strokeWidth={2}>
+              <Label value="계획" position="top" offset={10} fill="#475569" fontSize={11} fontWeight={600} />
+            </ReferenceDot>
+          )}
+
+          {/* 현 추세 도달 시점 — 아래쪽 라벨 (겹침 방지) */}
+          {baseEnd && (
+            <ReferenceDot x={baseEnd} y={100} r={5} fill="#1a56db" stroke="#ffffff" strokeWidth={2}>
+              <Label
+                value={delayDays > 0 ? `D+${delayDays}` : delayDays < 0 ? `D−${Math.abs(delayDays)}` : "동일"}
+                position="bottom"
+                offset={10}
+                fill="#1a56db"
+                fontSize={11}
+                fontWeight={700}
+              />
+            </ReferenceDot>
+          )}
+
+          {/* 최적화 도달 시점 — 위쪽 라벨 */}
+          {showOptimistic && optEnd && (
+            <ReferenceDot x={optEnd} y={100} r={5} fill="#0ea76a" stroke="#ffffff" strokeWidth={2}>
+              <Label
+                value={recoveryDays > 0 ? `−${recoveryDays}일` : "최적화"}
+                position="top"
+                offset={10}
+                fill="#0ea76a"
+                fontSize={11}
+                fontWeight={700}
+              />
+            </ReferenceDot>
+          )}
         </ComposedChart>
       </ResponsiveContainer>
+
+      <div className="mt-4 space-y-1.5 rounded-md bg-surface-soft/50 px-3 py-2.5 text-sm leading-relaxed text-ink-mid">
+        <p>{situationNarrative(delayDays)}</p>
+        <p>{outlookNarrative(delayDays, recoveryDays)}</p>
+      </div>
     </div>
   );
 }
 
-function baseNarrative(d: ProductivityDiagnosis): string {
-  const sign = d.z_score >= 0 ? "+" : "−";
-  const absZ = Math.abs(d.z_score).toFixed(1);
-  const within = Math.abs(d.z_score) < 1.5;
-  const range = within ? "정상 변동 범위 안" : "정상 변동 범위 밖";
-  const eta = d.scenarios.base.eta_days;
-  const etaText = Number.isFinite(eta) ? `자연 회귀 시 ${eta}일 회복` : "자연 회귀 불가";
-  return `이력 평균 ${sign}${absZ}σ — ${range}, ${etaText}.`;
+/** 현재 상황 — S-curve(누적 진척률) 의미에 맞춘 경영진 자연어. */
+function situationNarrative(delayDays: number): string {
+  if (delayDays > 0) {
+    return `지금까지의 진척률이 당초 계획보다 뒤처져 있고, 그 격차도 점점 벌어지고 있습니다. 지금 페이스가 이어지면 당초 계획보다 ${delayDays}일 늦게 완공될 것으로 보입니다.`;
+  }
+  if (delayDays < 0) {
+    return `지금까지의 진척률이 당초 계획보다 앞서 있고, 흐름도 양호하게 유지되고 있습니다. 이대로라면 당초 계획보다 ${Math.abs(delayDays)}일 빨리 완공할 수 있습니다.`;
+  }
+  return `현재 진척률은 당초 계획과 거의 일치하게 진행되고 있습니다.`;
 }
 
-function recoveryNarrative(d: ProductivityDiagnosis): string {
-  const opt = d.scenarios.optimistic;
-  const baseEta = d.scenarios.base.eta_days;
-  if (!Number.isFinite(opt.eta_days)) {
-    return `AI 권고 적용 시에도 회복 불가.`;
+/** 만회 전망 — AI 권고 효과를 경영진 의사결정 언어로. */
+function outlookNarrative(delayDays: number, recoveryDays: number): string {
+  if (recoveryDays <= 0) {
+    return `현재로서는 AI 가 제안할 수 있는 만회 방안이 제한적이며, 일정 회복은 어려운 상황입니다.`;
   }
-  if (!Number.isFinite(baseEta)) {
-    return `AI 권고 적용 시 ${opt.eta_days}일에 회복 가능.`;
+  const remaining = delayDays - recoveryDays;
+  if (remaining > 0) {
+    return `AI 가 제안하는 조치를 시행하면 ${recoveryDays}일을 만회할 수 있어, 최종 공기는 당초 계획보다 ${remaining}일 늦어지는 선에서 마무리할 수 있습니다.`;
   }
-  const cut = baseEta - opt.eta_days;
-  return `AI 권고 적용 시 ${cut}일 단축 (${opt.eta_days}일에 회복).`;
+  if (remaining === 0) {
+    return `AI 가 제안하는 조치를 시행하면 ${recoveryDays}일을 만회할 수 있어, 당초 계획대로 공기를 회복할 수 있습니다.`;
+  }
+  return `AI 가 제안하는 조치를 시행하면 ${recoveryDays}일을 만회할 수 있어, 당초 계획보다 ${Math.abs(remaining)}일 빨리 완공할 수 있습니다.`;
 }
 
 interface ToggleChipProps {
@@ -179,7 +255,7 @@ function ToggleChip({ label, color, active, forced, onClick }: ToggleChipProps) 
       onClick={forced ? undefined : onClick}
       disabled={forced}
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-mono uppercase tracking-wider transition-colors",
+        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition-colors",
         active
           ? "border-brand bg-brand-light text-brand-text"
           : "border-border bg-card text-ink-light hover:border-ink-light/40 hover:text-ink-mid",
@@ -188,7 +264,7 @@ function ToggleChip({ label, color, active, forced, onClick }: ToggleChipProps) 
     >
       <span className={cn("h-1.5 w-1.5 rounded-full", dot)} />
       {label}
-      {forced && <span className="ml-0.5 text-[9px]">●</span>}
+      {forced && <span className="ml-0.5 text-[10px]">●</span>}
     </button>
   );
 }

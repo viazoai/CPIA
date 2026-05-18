@@ -5,6 +5,7 @@ import {
   Home,
   Bot,
   ClipboardCheck,
+  FileSpreadsheet,
   FileBarChart,
   LayoutDashboard,
   ChevronsLeft,
@@ -22,6 +23,7 @@ const SECTIONS = [
       { key: "home",   label: "Home",         href: "/home",   icon: Home },
       { key: "tasks",  label: "Agent Tasks",  href: "/tasks",  icon: Bot },
       { key: "review", label: "Human Review", href: "/review", icon: ClipboardCheck },
+      { key: "export", label: "Export",       href: "/export", icon: FileSpreadsheet },
     ],
   },
   {

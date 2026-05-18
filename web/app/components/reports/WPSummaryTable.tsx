@@ -8,26 +8,35 @@ interface Props {
   onSelect: (wpId: string) => void;
 }
 
-const STATUS_DOT = {
+export const STATUS_DOT = {
   normal:  "bg-mint",
   caution: "bg-sun",
   risk:    "bg-rose",
 } as const;
 
-const STATUS_LABEL = {
+export const STATUS_LABEL = {
   normal:  "정상",
   caution: "주의",
   risk:    "이상",
 } as const;
 
+/**
+ * WP 단위 공기 단축 추정 — baseline 까지 회복했을 때 전체 공기에 주는 영향.
+ *   days = max(0, round((baseline − productivity)/100 × impact × scale))
+ * scale 은 시연 합산이 적절한 폭(약 10~15일)이 되도록 조정한 PoC 상수.
+ * A_Track 의 Optimizer 가 산출하는 실 회복일 수로 대체 예정.
+ */
+export function recoveryDays(productivity: number, baseline: number, impact: number): number {
+  const gap = baseline - productivity;
+  if (gap <= 0) return 0;
+  return Math.max(0, Math.round((gap / 100) * impact * 0.3));
+}
+
 export function WPSummaryTable({ rows, selectedWpId, onSelect }: Props) {
   return (
-    <div className="rounded-card border border-border-soft bg-card shadow-xs overflow-hidden">
+    <div className="h-full rounded-card border border-border-soft bg-card shadow-xs overflow-hidden">
       <div className="border-b border-border-soft px-4 py-3">
-        <div className="font-display text-h6 text-ink">
-          WP 요약
-          <span className="ml-2 text-body-sm font-normal text-ink-mid">{rows.length} 개 · 행 클릭 시 작업일보 필터</span>
-        </div>
+        <div className="font-display text-h6 text-ink">Work Package 목록</div>
       </div>
 
       <div className="overflow-x-auto">
@@ -37,10 +46,9 @@ export function WPSummaryTable({ rows, selectedWpId, onSelect }: Props) {
               <th className="px-3 py-1.5 font-medium">WP명</th>
               <th className="px-3 py-1.5 font-medium">공종</th>
               <th className="px-3 py-1.5 font-medium">BP사</th>
-              <th className="px-3 py-1.5 font-medium">시작</th>
-              <th className="px-3 py-1.5 font-medium">종료</th>
-              <th className="px-3 py-1.5 font-medium">진척</th>
-              <th className="px-3 py-1.5 font-medium">생산성</th>
+              <th className="px-3 py-1.5 font-medium">Impact</th>
+              <th className="px-3 py-1.5 font-medium">Productivity</th>
+              <th className="px-3 py-1.5 font-medium">공기 단축</th>
               <th className="px-3 py-1.5 font-medium">Status</th>
             </tr>
           </thead>
@@ -53,26 +61,34 @@ export function WPSummaryTable({ rows, selectedWpId, onSelect }: Props) {
                   onClick={() => onSelect(row.wp_id)}
                   className={cn(
                     "cursor-pointer border-b border-border-soft transition-colors hover:bg-surface-soft/50",
-                    selected && "bg-brand-light/40",
+                    selected && "bg-brand-light shadow-inner",
                   )}
                 >
-                  <td className="px-3 py-1 text-[12px] font-semibold text-ink">{row.wp_name}</td>
+                  <td
+                    className={cn(
+                      "relative px-3 py-1 text-[12px] font-semibold text-ink",
+                      selected &&
+                        "before:absolute before:inset-y-0 before:left-0 before:w-1 before:bg-brand",
+                    )}
+                  >
+                    {row.wp_name}
+                  </td>
                   <td className="px-3 py-1 text-[12px] text-ink">{row.trade}</td>
                   <td className="px-3 py-1 text-[12px] text-ink-mid">{row.bp_name}</td>
-                  <td className="px-3 py-1 font-mono text-[11px] text-ink-mid">{row.start_date}</td>
-                  <td className="px-3 py-1 font-mono text-[11px] text-ink-mid">{row.end_date}</td>
-                  <td className="px-3 py-1">
-                    <div className="flex items-center gap-2">
-                      <div className="h-1.5 w-20 rounded-full bg-border">
-                        <div
-                          className="h-full rounded-full bg-brand"
-                          style={{ width: `${Math.min(100, row.progress_pct)}%` }}
-                        />
-                      </div>
-                      <span className="font-mono text-[11px] text-ink-mid">{row.progress_pct}%</span>
-                    </div>
+                  <td className="px-3 py-1 text-[12px] font-semibold text-ink tabular-nums">
+                    {row.impact}%
                   </td>
-                  <td className="px-3 py-1 text-[12px] font-semibold text-ink tabular-nums">{row.productivity}%</td>
+                  <td className="px-3 py-1 text-[12px] font-semibold text-ink tabular-nums">
+                    {row.productivity}%
+                  </td>
+                  <td className="px-3 py-1 text-[12px] tabular-nums">
+                    {(() => {
+                      const days = recoveryDays(row.productivity, row.baseline, row.impact);
+                      return days > 0
+                        ? <span className="font-semibold text-mint-text">-{days}일</span>
+                        : <span className="text-ink-light">—</span>;
+                    })()}
+                  </td>
                   <td className="px-3 py-1">
                     <span className="inline-flex items-center gap-1.5">
                       <span className={cn("h-1.5 w-1.5 rounded-full", STATUS_DOT[row.status])} />

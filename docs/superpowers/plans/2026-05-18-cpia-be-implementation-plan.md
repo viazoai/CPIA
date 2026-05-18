@@ -349,15 +349,32 @@ web/app/api/runs/[run_id]/hil_1/resume/route.ts     → POST /api/runs/:id/hil_1
 - [ ] wp_id mock = "FAB-거푸집공사-A건설" 형식 (Q3 정합)
 - [ ] commit: `chore(mock): optimizer 배열 + wp_id triplet 형식`
 
-### Task 6.3: `web/app/(app)/reports/page.tsx:156` 갱신
+### Task 6.3: `web/app/(app)/reports/page.tsx:156` 갱신 (Optimizer grain 흡수)
+
+**배경 (2026-05-18 결정)**:
+Phase 4.4 BE optimizer endpoint 의 wp_id 는 `l6_main-company` 형식 (duplet) — optimizer_advice 테이블이 이전 cycle 의 (l6+company) grain 그대로 유지 중. 단 quadrant / wp_summary 의 wp_id 는 `wa-l6_main-company` 형식 (triplet). FE 에서 grain 흡수 (FE 시각화 변경 X, 의도 유지).
 
 **Files:**
-- Modify: `web/app/(app)/reports/page.tsx:156`
+- Modify: `web/app/(app)/reports/page.tsx:156` + helper 1개 추가
 
 **Steps:**
-- [ ] `<OptimizerResult output={detail.optimizer} />` → `<OptimizerResult output={detail.optimizer.find(o => o.wp_id === selectedWpId) ?? detail.optimizer[0]} />`
-- [ ] FE 시각화 (chip / 색상 / 아이콘) 변경 X 검증
-- [ ] commit: `feat(reports): § 03 Optimizer selectedWpId 기반 1 개 선택`
+- [ ] `dropWa` helper 함수 도입 — `selectedWpId` (triplet) → optimizer wp_id (duplet) 변환:
+```typescript
+// wp_id 의 첫 segment (wa) 만 제거. 예: "WA-FAB-001-거푸집공사-A건설" → "거푸집공사-A건설"
+// wa 가 단일 segment 라는 가정 (Phase 7.2 prod cycle 시 실 데이터로 검증 필요).
+const dropWa = (wpId: string | null): string | null =>
+  wpId ? wpId.split("-").slice(1).join("-") : null;
+```
+- [ ] line 156 변경: `<OptimizerResult output={detail.optimizer} />` → `<OptimizerResult output={detail.optimizer.find(o => o.wp_id === dropWa(selectedWpId)) ?? detail.optimizer[0]} />`
+- [ ] FE 시각화 (chip / 색상 / 아이콘 / 라벨) 변경 X 검증
+- [ ] commit: `feat(reports): § 03 Optimizer dropWa helper + selectedWpId join (Phase 4.4 grain 흡수)`
+
+**다음 cycle backlog (Optimizer 정상화)**:
+- optimizer_advice 에 wa TEXT 컬럼 추가 (schema migration)
+- `pipeline/agents/optimizer/agent.py:138` 의 group key 를 `(wa, company, l6_main)` triplet 으로 재구조
+- `pipeline/db.py:insert_optimizer_advice` 에 wa 인자 추가
+- Phase 4.4 endpoint SQL 의 wp_id 를 triplet 으로 산출
+- → 이후 FE 의 `dropWa` helper 는 dead code, 제거.
 
 ### Task 6.4: `web/app/(app)/review/page.tsx` corrections POST
 

@@ -408,7 +408,7 @@ SELECT
   END AS status
 FROM mapped_history mh
 LEFT JOIN activity_master am
-  ON am.wa = mh.wa AND am.l6_main = mh.l6_main
+  ON am.wa = mh.wa AND am.l6_main = mh.l6_main AND am.company = mh.company
 LEFT JOIN mapped_history mh2
   ON mh2.wa = mh.wa AND mh2.l6_main = mh.l6_main AND mh2.company = mh.company
 LEFT JOIN forecasts f

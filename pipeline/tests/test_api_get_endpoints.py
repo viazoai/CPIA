@@ -187,7 +187,7 @@ async def test_optimizer_returns_list(
     mock_pg.fetch_all = AsyncMock(
         return_value=[
             {
-                "wp_id": "WA-A-거푸집공사-A건설",
+                "wp_id": "거푸집공사-A건설",
                 "diagnosis": "장비 대기로 인한 저하 추정",
                 "degradation_cases": [
                     {"date": "2026-04-10", "description": "크레인 대기 3h", "outcome": "회복 d+2"}
@@ -223,7 +223,7 @@ async def test_optimizer_shape(
     mock_pg.fetch_all = AsyncMock(
         return_value=[
             {
-                "wp_id": "WA-A-거푸집공사-A건설",
+                "wp_id": "거푸집공사-A건설",
                 "diagnosis": "장비 대기로 인한 저하 추정",
                 "degradation_cases": [
                     {"date": "2026-04-10", "description": "크레인 대기", "outcome": "회복"}

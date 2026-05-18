@@ -546,6 +546,7 @@ class PGClient:
         """parser_activities batch INSERT — Activity[] (Mapper 호출 전 raw).
 
         (run_id, idx) 멱등. activities idx = list index (Activity[] 순서).
+        2026-05-19 확장: zone/bp_code/scope/누적/F%/잔여/G%/note/work_location/WBS path.
         """
         if not activities:
             return
@@ -556,16 +557,36 @@ class PGClient:
                 INSERT INTO parser_activities
                     (run_id, report_date, idx,
                      l5_disc, trade, company, unit,
-                     today_qty, work_content, plan_total_qty)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                     today_qty, work_content, plan_total_qty,
+                     zone, bp_code, scope,
+                     yesterday_cum_qty, today_cum_qty,
+                     progress_percent, remaining_qty, remaining_percent,
+                     note, work_location_code,
+                     wbs_mid_name, wbs_sub_name, wbs_detail_name)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                        $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+                        $21, $22, $23)
                 ON CONFLICT (run_id, idx) DO UPDATE SET
-                    l5_disc        = EXCLUDED.l5_disc,
-                    trade          = EXCLUDED.trade,
-                    company        = EXCLUDED.company,
-                    unit           = EXCLUDED.unit,
-                    today_qty      = EXCLUDED.today_qty,
-                    work_content   = EXCLUDED.work_content,
-                    plan_total_qty = EXCLUDED.plan_total_qty
+                    l5_disc            = EXCLUDED.l5_disc,
+                    trade              = EXCLUDED.trade,
+                    company            = EXCLUDED.company,
+                    unit               = EXCLUDED.unit,
+                    today_qty          = EXCLUDED.today_qty,
+                    work_content       = EXCLUDED.work_content,
+                    plan_total_qty     = EXCLUDED.plan_total_qty,
+                    zone               = EXCLUDED.zone,
+                    bp_code            = EXCLUDED.bp_code,
+                    scope              = EXCLUDED.scope,
+                    yesterday_cum_qty  = EXCLUDED.yesterday_cum_qty,
+                    today_cum_qty      = EXCLUDED.today_cum_qty,
+                    progress_percent   = EXCLUDED.progress_percent,
+                    remaining_qty      = EXCLUDED.remaining_qty,
+                    remaining_percent  = EXCLUDED.remaining_percent,
+                    note               = EXCLUDED.note,
+                    work_location_code = EXCLUDED.work_location_code,
+                    wbs_mid_name       = EXCLUDED.wbs_mid_name,
+                    wbs_sub_name       = EXCLUDED.wbs_sub_name,
+                    wbs_detail_name    = EXCLUDED.wbs_detail_name
                 """,
                 [
                     (
@@ -579,6 +600,19 @@ class PGClient:
                         a.get("today_qty"),
                         a.get("work_content"),
                         a.get("plan_total_qty"),
+                        a.get("zone"),
+                        a.get("bp_code"),
+                        a.get("scope"),
+                        a.get("yesterday_cum_qty"),
+                        a.get("today_cum_qty"),
+                        a.get("progress_percent"),
+                        a.get("remaining_qty"),
+                        a.get("remaining_percent"),
+                        a.get("note"),
+                        a.get("work_location_code"),
+                        a.get("wbs_mid_name"),
+                        a.get("wbs_sub_name"),
+                        a.get("wbs_detail_name"),
                     )
                     for i, a in enumerate(activities)
                 ],
@@ -593,6 +627,7 @@ class PGClient:
         """mapper_activities batch INSERT — Activity[] enriched (wa/l6_main/conf).
 
         (run_id, idx) 멱등. _prorate_mh 적용 후 호출. conditions 는 jsonb list.
+        2026-05-19 확장: parser 산출 풀 컬럼 (zone/scope/누적/F%/잔여/note/work_location/WBS) 보존.
         """
         import json as _json
 
@@ -608,28 +643,51 @@ class PGClient:
                      wa, l6_main, mapping_conf, mapping_source, requires_review,
                      assigned_workers, worker_source,
                      plan_total_qty, plan_mh,
-                     conditions)
+                     conditions,
+                     zone, bp_code, scope,
+                     yesterday_cum_qty, today_cum_qty,
+                     progress_percent, remaining_qty, remaining_percent,
+                     note, work_location_code,
+                     wbs_mid_name, wbs_sub_name, wbs_detail_name)
                 VALUES ($1, $2, $3,
                         $4, $5, $6, $7,
                         $8, $9, $10, $11, $12,
                         $13, $14,
                         $15, $16,
-                        $17::jsonb)
+                        $17::jsonb,
+                        $18, $19, $20,
+                        $21, $22,
+                        $23, $24, $25,
+                        $26, $27,
+                        $28, $29, $30)
                 ON CONFLICT (run_id, idx) DO UPDATE SET
-                    company          = EXCLUDED.company,
-                    trade            = EXCLUDED.trade,
-                    unit             = EXCLUDED.unit,
-                    today_qty        = EXCLUDED.today_qty,
-                    wa               = EXCLUDED.wa,
-                    l6_main          = EXCLUDED.l6_main,
-                    mapping_conf     = EXCLUDED.mapping_conf,
-                    mapping_source   = EXCLUDED.mapping_source,
-                    requires_review  = EXCLUDED.requires_review,
-                    assigned_workers = EXCLUDED.assigned_workers,
-                    worker_source    = EXCLUDED.worker_source,
-                    plan_total_qty   = EXCLUDED.plan_total_qty,
-                    plan_mh          = EXCLUDED.plan_mh,
-                    conditions       = EXCLUDED.conditions
+                    company            = EXCLUDED.company,
+                    trade              = EXCLUDED.trade,
+                    unit               = EXCLUDED.unit,
+                    today_qty          = EXCLUDED.today_qty,
+                    wa                 = EXCLUDED.wa,
+                    l6_main            = EXCLUDED.l6_main,
+                    mapping_conf       = EXCLUDED.mapping_conf,
+                    mapping_source     = EXCLUDED.mapping_source,
+                    requires_review    = EXCLUDED.requires_review,
+                    assigned_workers   = EXCLUDED.assigned_workers,
+                    worker_source      = EXCLUDED.worker_source,
+                    plan_total_qty     = EXCLUDED.plan_total_qty,
+                    plan_mh            = EXCLUDED.plan_mh,
+                    conditions         = EXCLUDED.conditions,
+                    zone               = EXCLUDED.zone,
+                    bp_code            = EXCLUDED.bp_code,
+                    scope              = EXCLUDED.scope,
+                    yesterday_cum_qty  = EXCLUDED.yesterday_cum_qty,
+                    today_cum_qty      = EXCLUDED.today_cum_qty,
+                    progress_percent   = EXCLUDED.progress_percent,
+                    remaining_qty      = EXCLUDED.remaining_qty,
+                    remaining_percent  = EXCLUDED.remaining_percent,
+                    note               = EXCLUDED.note,
+                    work_location_code = EXCLUDED.work_location_code,
+                    wbs_mid_name       = EXCLUDED.wbs_mid_name,
+                    wbs_sub_name       = EXCLUDED.wbs_sub_name,
+                    wbs_detail_name    = EXCLUDED.wbs_detail_name
                 """,
                 [
                     (
@@ -650,8 +708,282 @@ class PGClient:
                         a.get("plan_total_qty"),
                         a.get("plan_mh"),
                         _json.dumps(a.get("conditions") or [], ensure_ascii=False),
+                        a.get("zone"),
+                        a.get("bp_code"),
+                        a.get("scope"),
+                        a.get("yesterday_cum_qty"),
+                        a.get("today_cum_qty"),
+                        a.get("progress_percent"),
+                        a.get("remaining_qty"),
+                        a.get("remaining_percent"),
+                        a.get("note"),
+                        a.get("work_location_code"),
+                        a.get("wbs_mid_name"),
+                        a.get("wbs_sub_name"),
+                        a.get("wbs_detail_name"),
                     )
                     for i, a in enumerate(activities)
+                ],
+            )
+
+    # ------------------------------------------------------------------
+    # 2026-05-19 — 신규 entity INSERT (시트2 / 시트3 / 시트6 / Cover)
+    # ------------------------------------------------------------------
+
+    async def insert_parser_job_allocations_batch(
+        self,
+        run_id: uuid.UUID,
+        report_date: _date,
+        rows: list[dict],
+    ) -> None:
+        """parser_job_allocations batch INSERT — 시트2 정규화.
+
+        (run_id, idx) 멱등. 시간대 3 그룹 (전일누계/금일투입/금일누계) 각각 jsonb.
+        rows: [{bp_code, company, disc_abbrev, manager_code, worker_code, job_type,
+                workers_yesterday_cum: TimeShiftCounts, workers_today_incr, workers_today_cum,
+                final_flag, workers_cum_t}, ...]
+        """
+        import json as _json
+
+        if not rows:
+            return
+        assert self._pool is not None, "connect() 미호출"
+        async with self._pool.acquire() as con:
+            await con.executemany(
+                """
+                INSERT INTO parser_job_allocations
+                    (run_id, report_date, idx,
+                     bp_code, company, disc_abbrev,
+                     manager_code, worker_code, job_type,
+                     workers_yesterday_cum, workers_today_incr, workers_today_cum,
+                     final_flag, workers_cum_t)
+                VALUES ($1, $2, $3,
+                        $4, $5, $6,
+                        $7, $8, $9,
+                        $10::jsonb, $11::jsonb, $12::jsonb,
+                        $13, $14)
+                ON CONFLICT (run_id, idx) DO UPDATE SET
+                    bp_code               = EXCLUDED.bp_code,
+                    company               = EXCLUDED.company,
+                    disc_abbrev           = EXCLUDED.disc_abbrev,
+                    manager_code          = EXCLUDED.manager_code,
+                    worker_code           = EXCLUDED.worker_code,
+                    job_type              = EXCLUDED.job_type,
+                    workers_yesterday_cum = EXCLUDED.workers_yesterday_cum,
+                    workers_today_incr    = EXCLUDED.workers_today_incr,
+                    workers_today_cum     = EXCLUDED.workers_today_cum,
+                    final_flag            = EXCLUDED.final_flag,
+                    workers_cum_t         = EXCLUDED.workers_cum_t
+                """,
+                [
+                    (
+                        run_id,
+                        report_date,
+                        i,
+                        r.get("bp_code"),
+                        r["company"],
+                        r.get("disc_abbrev"),
+                        r.get("manager_code"),
+                        r.get("worker_code"),
+                        r["job_type"],
+                        _json.dumps(r["workers_yesterday_cum"], ensure_ascii=False)
+                        if r.get("workers_yesterday_cum") is not None
+                        else None,
+                        _json.dumps(r["workers_today_incr"], ensure_ascii=False)
+                        if r.get("workers_today_incr") is not None
+                        else None,
+                        _json.dumps(r["workers_today_cum"], ensure_ascii=False)
+                        if r.get("workers_today_cum") is not None
+                        else None,
+                        r.get("final_flag"),
+                        int(r.get("workers_cum_t") or 0),
+                    )
+                    for i, r in enumerate(rows)
+                ],
+            )
+
+    async def insert_parser_equipment_allocations_batch(
+        self,
+        run_id: uuid.UUID,
+        report_date: _date,
+        rows: list[dict],
+    ) -> None:
+        """parser_equipment_allocations batch INSERT — 시트3 정규화."""
+        import json as _json
+
+        if not rows:
+            return
+        assert self._pool is not None, "connect() 미호출"
+        async with self._pool.acquire() as con:
+            await con.executemany(
+                """
+                INSERT INTO parser_equipment_allocations
+                    (run_id, report_date, idx,
+                     bp_code, company, disc_abbrev,
+                     equipment_big, equipment_mid, equipment_spec,
+                     count_yesterday_cum, count_today_incr, count_today_cum,
+                     final_flag, count_cum_t)
+                VALUES ($1, $2, $3,
+                        $4, $5, $6,
+                        $7, $8, $9,
+                        $10::jsonb, $11::jsonb, $12::jsonb,
+                        $13, $14)
+                ON CONFLICT (run_id, idx) DO UPDATE SET
+                    bp_code             = EXCLUDED.bp_code,
+                    company             = EXCLUDED.company,
+                    disc_abbrev         = EXCLUDED.disc_abbrev,
+                    equipment_big       = EXCLUDED.equipment_big,
+                    equipment_mid       = EXCLUDED.equipment_mid,
+                    equipment_spec      = EXCLUDED.equipment_spec,
+                    count_yesterday_cum = EXCLUDED.count_yesterday_cum,
+                    count_today_incr    = EXCLUDED.count_today_incr,
+                    count_today_cum     = EXCLUDED.count_today_cum,
+                    final_flag          = EXCLUDED.final_flag,
+                    count_cum_t         = EXCLUDED.count_cum_t
+                """,
+                [
+                    (
+                        run_id,
+                        report_date,
+                        i,
+                        r.get("bp_code"),
+                        r["company"],
+                        r.get("disc_abbrev"),
+                        r["equipment_big"],
+                        r["equipment_mid"],
+                        r.get("equipment_spec"),
+                        _json.dumps(r["count_yesterday_cum"], ensure_ascii=False)
+                        if r.get("count_yesterday_cum") is not None
+                        else None,
+                        _json.dumps(r["count_today_incr"], ensure_ascii=False)
+                        if r.get("count_today_incr") is not None
+                        else None,
+                        _json.dumps(r["count_today_cum"], ensure_ascii=False)
+                        if r.get("count_today_cum") is not None
+                        else None,
+                        r.get("final_flag"),
+                        int(r.get("count_cum_t") or 0),
+                    )
+                    for i, r in enumerate(rows)
+                ],
+            )
+
+    async def insert_parser_worker_outputs_batch(
+        self,
+        run_id: uuid.UUID,
+        report_date: _date,
+        rows: list[dict],
+        bp_name: str | None = None,
+    ) -> None:
+        """parser_worker_outputs batch INSERT — 시트6 (업체별만).
+
+        Merge 단계에서 N 업체 worker_outputs 를 합쳐 하나의 run_id 로 INSERT.
+        bp_name 은 row 자체에 박혀있으면 그쪽 우선 (Merge 가 채워줌).
+        """
+        if not rows:
+            return
+        assert self._pool is not None, "connect() 미호출"
+        async with self._pool.acquire() as con:
+            await con.executemany(
+                """
+                INSERT INTO parser_worker_outputs
+                    (run_id, report_date, idx,
+                     bp_name, worker_name, job_type,
+                     wbs_mid_name, wbs_sub_name, wbs_detail_name,
+                     work_location_code, work_content,
+                     shift_morning, shift_daytime, shift_overtime,
+                     shift_night, shift_all_night, note)
+                VALUES ($1, $2, $3,
+                        $4, $5, $6,
+                        $7, $8, $9,
+                        $10, $11,
+                        $12, $13, $14,
+                        $15, $16, $17)
+                ON CONFLICT (run_id, idx) DO UPDATE SET
+                    bp_name            = EXCLUDED.bp_name,
+                    worker_name        = EXCLUDED.worker_name,
+                    job_type           = EXCLUDED.job_type,
+                    wbs_mid_name       = EXCLUDED.wbs_mid_name,
+                    wbs_sub_name       = EXCLUDED.wbs_sub_name,
+                    wbs_detail_name    = EXCLUDED.wbs_detail_name,
+                    work_location_code = EXCLUDED.work_location_code,
+                    work_content       = EXCLUDED.work_content,
+                    shift_morning      = EXCLUDED.shift_morning,
+                    shift_daytime      = EXCLUDED.shift_daytime,
+                    shift_overtime     = EXCLUDED.shift_overtime,
+                    shift_night        = EXCLUDED.shift_night,
+                    shift_all_night    = EXCLUDED.shift_all_night,
+                    note               = EXCLUDED.note
+                """,
+                [
+                    (
+                        run_id,
+                        report_date,
+                        i,
+                        r.get("bp_name") or bp_name,
+                        r["worker_name"],
+                        r.get("job_type"),
+                        r.get("wbs_mid_name"),
+                        r.get("wbs_sub_name"),
+                        r.get("wbs_detail_name"),
+                        r.get("work_location_code"),
+                        r.get("work_content"),
+                        int(r.get("shift_morning") or 0),
+                        int(r.get("shift_daytime") or 0),
+                        int(r.get("shift_overtime") or 0),
+                        int(r.get("shift_night") or 0),
+                        int(r.get("shift_all_night") or 0),
+                        r.get("note"),
+                    )
+                    for i, r in enumerate(rows)
+                ],
+            )
+
+    async def insert_parser_report_meta_batch(
+        self,
+        run_id: uuid.UUID,
+        report_date: _date,
+        metas: list[dict],
+    ) -> None:
+        """parser_report_meta batch INSERT — Cover (업체별만).
+
+        1 run × N 업체 = N row. UNIQUE (run_id, bp_name) 멱등.
+        Merge 단계가 N 업체별 ReportMeta 를 dict list 로 모아 호출.
+        """
+        if not metas:
+            return
+        assert self._pool is not None, "connect() 미호출"
+        async with self._pool.acquire() as con:
+            await con.executemany(
+                """
+                INSERT INTO parser_report_meta
+                    (run_id, report_date,
+                     bp_name, project_name, project_code, site_id,
+                     writer, reviewer, approval, document_no)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                ON CONFLICT (run_id, bp_name) DO UPDATE SET
+                    project_name = EXCLUDED.project_name,
+                    project_code = EXCLUDED.project_code,
+                    site_id      = EXCLUDED.site_id,
+                    writer       = EXCLUDED.writer,
+                    reviewer     = EXCLUDED.reviewer,
+                    approval     = EXCLUDED.approval,
+                    document_no  = EXCLUDED.document_no
+                """,
+                [
+                    (
+                        run_id,
+                        report_date,
+                        m["bp_name"],
+                        m.get("project_name"),
+                        m.get("project_code"),
+                        m.get("site_id"),
+                        m.get("writer"),
+                        m.get("reviewer"),
+                        m.get("approval"),
+                        m.get("document_no"),
+                    )
+                    for m in metas
                 ],
             )
 

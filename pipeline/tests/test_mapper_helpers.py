@@ -112,3 +112,49 @@ def test_resolve_wa_hil_required(activity_namwung):
     )
     assert result.value is None
     assert result.source == "hil_required"
+
+
+def test_resolve_wa_chroma_top1_fallback_when_pool_empty(activity_namwung):
+    """Task 4 — cand_pool 빈 시 (BP master 미등록) → Chroma 선택 결과 그대로.
+
+    사용자 명시: "work_area와 l6에 주로 매칭하고 bp는 추가로 도와주는 메타데이터.
+    필터링으로 안됐으면 스킵이 된다 이러면 절대 안돼."
+    """
+    result = resolve_wa(
+        activity_namwung,
+        l6_choice="철근콘크리트공사",
+        cand_pool=[],
+        parsed_report=None,
+        chosen_wa="FAB",
+    )
+    assert result.value == "FAB"
+    assert result.source == "auto_chroma_top1"
+
+
+def test_resolve_wa_chroma_top1_with_cub(activity_namwung):
+    """Task 4 — fallback 에서 chosen_wa='CUB' 도 그대로 채택."""
+    result = resolve_wa(
+        activity_namwung,
+        l6_choice="ACID배기설비공사",
+        cand_pool=[],
+        parsed_report=None,
+        chosen_wa="CUB",
+    )
+    assert result.value == "CUB"
+    assert result.source == "auto_chroma_top1"
+
+
+def test_resolve_wa_backcompat_chosen_wa_default_none(activity_namwung):
+    """Back-compat — chosen_wa 인자 미전달 (default None) 시 기존 동작 유지.
+
+    기존 호출자가 chosen_wa 안 줘도 cand_pool 있으면 정상 동작.
+    """
+    cand_pool = [("FAB", "ACID배기설비공사"), ("FAB", "ALKALI배기설비공사")]
+    result = resolve_wa(
+        activity_namwung,
+        l6_choice="ACID배기설비공사",
+        cand_pool=cand_pool,
+        parsed_report=None,
+    )
+    assert result.value == "FAB"
+    assert result.source == "auto_bp_single"

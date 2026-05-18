@@ -232,7 +232,7 @@ async def forecast(
     today: date,
     cfg: ForecasterConfig,
 ) -> list[dict[str, Any]]:
-    """Forecaster entry. (company, l6_main) group 별 1 row 생성 + PG INSERT."""
+    """Forecaster entry. (wa, company, l6_main) group 별 1 row 생성 + PG INSERT."""
     pg = PGClient(cfg.postgres_url)
     await pg.connect()
     chroma = ChromaClient(host=cfg.chroma_host, port=cfg.chroma_port, ssl=cfg.chroma_ssl)
@@ -248,15 +248,15 @@ async def forecast(
     try:
         await pg.assert_pipeline_run_exists(run_id)
 
-        groups: dict[tuple[str, str], list[Activity]] = {}
+        groups: dict[tuple[str | None, str, str], list[Activity]] = {}
         for a in mapped:
             if a["l6_main"] is None:
                 continue
-            key = (a["company"], a["l6_main"])
+            key = (a.get("wa"), a["company"], a["l6_main"])
             groups.setdefault(key, []).append(a)
 
         forecast_rows: list[dict[str, Any]] = []
-        for (company, l6_main), activities in groups.items():
+        for (wa, company, l6_main), activities in groups.items():
             row = await _forecast_one_group(
                 company,
                 l6_main,
@@ -268,6 +268,7 @@ async def forecast(
                 azure,
                 cfg,
             )
+            row["wa"] = wa
             await pg.insert_forecast(row)
             forecast_rows.append(row)
 

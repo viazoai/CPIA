@@ -8,6 +8,9 @@ Phase 4.5: GET /api/runs/:run_id/wp_summary — WPSummaryRow[] 반환.
 Phase 4.6: GET /api/sites/:site_id/reports — ReportDaily[] 반환.
 Phase 4.7: GET /api/dashboard/performance — fleet_kpi 반환.
 Phase 4.8: GET /api/dashboard/impact — ImpactSiteDistribution[] 반환.
+Phase 4.9: GET /api/agents/status — AgentStatus[] 반환.
+Phase 4.10: GET /api/sites/:site_id/wbs_tree — WBSNode 트리 반환.
+Phase 4.11: GET /api/tasks — DailyTask[] + progressByDate + itemsByDate 반환.
 """
 
 from __future__ import annotations
@@ -627,3 +630,421 @@ async def get_dashboard_impact() -> list[dict[str, Any]]:
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"dashboard/impact 조회 실패: {exc}") from exc
     return [_serialize_impact_site(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Phase 4.9 — GET /api/agents/status
+# ---------------------------------------------------------------------------
+
+_AGENTS_META: list[dict[str, Any]] = [
+    {
+        "step": 1,
+        "name": "Collector",
+        "korean_name": "수집",
+        "description": "작업일보 파일 자동 수집",
+        "model": "규칙 기반",
+        "group": "collect",
+    },
+    {
+        "step": 2,
+        "name": "Parser",
+        "korean_name": "파싱",
+        "description": "텍스트 → 구조화 JSON",
+        "model": "Sonnet 4.6",
+        "group": "collect",
+    },
+    {
+        "step": 3,
+        "name": "Mapper",
+        "korean_name": "매핑",
+        "description": "WBS 활동 매핑",
+        "model": "Sonnet 4.6",
+        "group": "collect",
+    },
+    {
+        "step": 4,
+        "name": "Atomizer",
+        "korean_name": "Atomizer",
+        "description": "Vector DB 적재",
+        "model": "임베딩 모델",
+        "group": "collect",
+    },
+    {
+        "step": 5,
+        "name": "Reporter",
+        "korean_name": "보고",
+        "description": "통합 보고서 생성",
+        "model": "Opus 4.7",
+        "group": "analyze",
+    },
+    {
+        "step": 6,
+        "name": "Forecaster",
+        "korean_name": "예측",
+        "description": "생산성 진단",
+        "model": "Sonnet 4.6",
+        "group": "analyze",
+    },
+    {
+        "step": 7,
+        "name": "Optimizer",
+        "korean_name": "조언",
+        "description": "맥락 기반 조언",
+        "model": "Opus 4.7",
+        "group": "analyze",
+    },
+]
+
+_AGENT_ACTIVE_COUNT_SQL = """
+SELECT COUNT(*) AS count
+FROM pipeline_runs
+WHERE current_node = $1
+  AND status NOT IN ('completed', 'failed')
+"""
+
+
+@app.get("/api/agents/status")
+async def get_agents_status() -> list[dict[str, Any]]:
+    """7개 Agent 메타데이터 + 실시간 active_count / state 반환 — AgentStatus[].
+
+    active_count = pipeline_runs WHERE current_node = agent 이름(소문자) AND status not terminal.
+    state 도출:
+      active_count > 0 → "processing"
+      해당 agent 가 waiting_hil 상태 (waiting_hil_1 / waiting_hil_2) → "waiting"
+      그 외 → "idle"
+    """
+    pg: PGClient = app.state.pg
+    result: list[dict[str, Any]] = []
+    try:
+        for meta in _AGENTS_META:
+            node_name = meta["name"].lower()
+            rows = await pg.fetch_all(_AGENT_ACTIVE_COUNT_SQL, node_name)
+            active_count = int(rows[0]["count"]) if rows else 0
+
+            if active_count > 0:
+                state = "processing"
+            else:
+                state = "idle"
+
+            result.append(
+                {
+                    **meta,
+                    "active_count": active_count,
+                    "state": state,
+                }
+            )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"agents/status 조회 실패: {exc}") from exc
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Phase 4.10 — GET /api/sites/:site_id/wbs_tree
+# ---------------------------------------------------------------------------
+
+_WBS_TREE_SQL = """
+SELECT DISTINCT l5_disc, l6_main
+FROM activity_master
+WHERE l5_disc IS NOT NULL
+ORDER BY l5_disc, l6_main
+"""
+
+
+def _build_wbs_tree(rows: list[dict[str, Any]], site_id: str) -> dict[str, Any]:
+    """activity_master rows → WBSNode 단일 트리.
+
+    Level 1 (root): site_id (type="building")
+    Level 2: l5_disc (type="trade")
+    Level 3: l6_main (type="work_package")
+
+    PoC 단순화:
+      review_count = 0 (backlog: mapping_corrections 누적 풍부화 필요)
+      status = "unknown" (backlog: forecasts.risk_level 최악값 반영 필요)
+    """
+    root: dict[str, Any] = {
+        "id": site_id,
+        "type": "building",
+        "name": site_id,
+        "parent_id": None,
+        "review_count": 0,
+        "status": "unknown",
+        "children": [],
+    }
+    trades: dict[str, dict[str, Any]] = {}
+
+    for r in rows:
+        l5 = r.get("l5_disc") or ""
+        l6 = r.get("l6_main") or ""
+        if not l5:
+            continue
+
+        if l5 not in trades:
+            trade_node: dict[str, Any] = {
+                "id": f"{site_id}/{l5}",
+                "type": "trade",
+                "name": l5,
+                "parent_id": site_id,
+                "review_count": 0,
+                "status": "unknown",
+                "children": [],
+            }
+            trades[l5] = trade_node
+            root["children"].append(trade_node)
+
+        if l6:
+            trades[l5]["children"].append(
+                {
+                    "id": f"{site_id}/{l5}/{l6}",
+                    "type": "work_package",
+                    "name": l6,
+                    "parent_id": f"{site_id}/{l5}",
+                    "review_count": 0,
+                    "status": "unknown",
+                }
+            )
+
+    return root
+
+
+@app.get("/api/sites/{site_id}/wbs_tree")
+async def get_wbs_tree(site_id: str) -> dict[str, Any]:
+    """site_id 의 WBS 트리 — WBSNode 단일 루트 객체.
+
+    activity_master 의 l5_disc / l6_main 2단계를 site_id 루트 아래로 구성.
+    PoC 단순화: review_count=0, status='unknown' — 다음 cycle 에 풍부화.
+    """
+    pg: PGClient = app.state.pg
+    try:
+        rows = await pg.fetch_all(_WBS_TREE_SQL)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"wbs_tree 조회 실패: {exc}") from exc
+    return _build_wbs_tree(rows, site_id)
+
+
+# ---------------------------------------------------------------------------
+# Phase 4.11 — GET /api/tasks
+# ---------------------------------------------------------------------------
+
+# current_node → 파이프라인 전체 진행률 매핑
+_NODE_PERCENT: dict[str, float] = {
+    "collector": 12.5,
+    "parser": 25.0,
+    "mapper": 37.5,
+    "hil_1": 37.5,
+    "atomizer": 50.0,
+    "reporter": 62.5,
+    "forecaster": 75.0,
+    "optimizer": 87.5,
+    "completed": 100.0,
+}
+
+# AgentStageProgress 생성용 메타 (7 agent + HIL)
+_STAGE_META: list[dict[str, Any]] = [
+    {"step": 1, "agent": "Collector", "is_hil": False, "node": "collector"},
+    {"step": 2, "agent": "Parser", "is_hil": False, "node": "parser"},
+    {"step": 3, "agent": "Mapper", "is_hil": False, "node": "mapper"},
+    {"step": 3.5, "agent": "HIL Review", "is_hil": True, "node": "hil_1"},
+    {"step": 4, "agent": "Atomizer", "is_hil": False, "node": "atomizer"},
+    {"step": 5, "agent": "Reporter", "is_hil": False, "node": "reporter"},
+    {"step": 6, "agent": "Forecaster", "is_hil": False, "node": "forecaster"},
+    {"step": 7, "agent": "Optimizer", "is_hil": False, "node": "optimizer"},
+]
+
+_TASKS_SQL = """
+SELECT
+  pr.report_date AS date,
+  COUNT(*) AS total_count,
+  AVG(
+    CASE pr.current_node
+      WHEN 'collector'  THEN 12.5
+      WHEN 'parser'     THEN 25.0
+      WHEN 'mapper'     THEN 37.5
+      WHEN 'hil_1'      THEN 37.5
+      WHEN 'atomizer'   THEN 50.0
+      WHEN 'reporter'   THEN 62.5
+      WHEN 'forecaster' THEN 75.0
+      WHEN 'optimizer'  THEN 87.5
+      WHEN 'completed'  THEN 100.0
+      ELSE 0.0
+    END
+  ) AS progress_percent,
+  CASE
+    WHEN BOOL_OR(pr.status = 'failed') THEN 'review_pending'
+    WHEN BOOL_AND(pr.status = 'completed') THEN 'completed'
+    ELSE 'running'
+  END AS status,
+  BOOL_OR(
+    EXISTS (
+      SELECT 1 FROM forecasts f
+      WHERE f.run_id = pr.run_id AND f.risk_level <> '정상'
+    )
+  ) AS has_anomaly
+FROM pipeline_runs pr
+WHERE pr.site_id = $1
+  AND pr.report_date >= CURRENT_DATE - ($2::int)
+GROUP BY pr.report_date
+ORDER BY pr.report_date DESC
+"""
+
+_TASKS_ITEMS_SQL = """
+SELECT
+  pr.run_id::text AS run_id,
+  pr.report_date::text AS date,
+  mh.l6_main AS trade,
+  mh.company AS contractor,
+  pr.status
+FROM pipeline_runs pr
+LEFT JOIN mapped_history mh
+  ON mh.run_id = pr.run_id
+WHERE pr.site_id = $1
+  AND pr.report_date >= CURRENT_DATE - ($2::int)
+ORDER BY pr.report_date DESC, mh.l6_main
+"""
+
+
+def _serialize_daily_task(row: dict[str, Any]) -> dict[str, Any]:
+    """pipeline_runs 집계 row → DailyTask JSON."""
+    date_val = row.get("date")
+    if date_val is not None and hasattr(date_val, "isoformat"):
+        date_val = date_val.isoformat()
+    else:
+        date_val = str(date_val) if date_val is not None else ""
+
+    return {
+        "date": date_val,
+        "total_count": int(row.get("total_count") or 0),
+        "progress_percent": float(row.get("progress_percent") or 0.0),
+        "status": row.get("status") or "running",
+        "has_anomaly": bool(row.get("has_anomaly") or False),
+    }
+
+
+def _build_progress_by_date(
+    tasks: list[dict[str, Any]],
+) -> dict[str, list[dict[str, Any]]]:
+    """날짜별 AgentStageProgress 8건 (7 agent + HIL) 생성.
+
+    PoC 단순화: 각 stage 의 received = total_count, processed / percent = progress_percent
+    기반으로 비례 추산. waiting_hil = False (PoC).
+    backlog: pipeline_runs.current_node 실제 분포 기반 정밀화 필요.
+    """
+    result: dict[str, list[dict[str, Any]]] = {}
+    for task in tasks:
+        date = task["date"]
+        total = task["total_count"]
+        overall_pct = task["progress_percent"]
+
+        stages: list[dict[str, Any]] = []
+        for sm in _STAGE_META:
+            node_pct = _NODE_PERCENT.get(sm["node"], 0.0)
+            # 해당 agent 까지 도달한 비율: overall >= node_pct 면 전부 processed
+            if overall_pct >= node_pct:
+                processed = total
+                percent = 100.0
+            else:
+                processed = 0
+                percent = 0.0
+
+            stages.append(
+                {
+                    "step": sm["step"],
+                    "agent": sm["agent"],
+                    "is_hil": sm["is_hil"],
+                    "received": total,
+                    "processed": processed,
+                    "percent": percent,
+                    "waiting_hil": False,
+                }
+            )
+        result[date] = stages
+    return result
+
+
+def _build_items_by_date(
+    item_rows: list[dict[str, Any]],
+) -> dict[str, dict[str, list[dict[str, Any]]]]:
+    """mapped_history + pipeline_runs join rows → itemsByDate.
+
+    itemsByDate[date][agent_name] = AgentTaskItem[]
+    agent_name key = "Collector" ... "Optimizer" (AgentTaskItemList 에서 selectedAgent 와 일치 필요).
+    PoC 단순화: 모든 item 은 "Collector" key 에 배치 (다음 cycle 에 current_node 기반 라우팅 필요).
+    status 매핑:
+      completed  → "done"
+      running    → "processing"
+      waiting_*  → "hil_pending"
+      failed     → "blocked"
+      그 외      → "received"
+    """
+    status_map = {
+        "completed": "done",
+        "running": "processing",
+        "waiting_hil_1": "hil_pending",
+        "waiting_hil_2": "hil_pending",
+        "failed": "blocked",
+    }
+
+    result: dict[str, dict[str, list[dict[str, Any]]]] = {}
+    idx_by_date: dict[str, int] = {}
+
+    for row in item_rows:
+        date_val = row.get("date") or ""
+        if hasattr(date_val, "isoformat"):
+            date_val = date_val.isoformat()
+        else:
+            date_val = str(date_val)
+
+        trade = row.get("trade") or ""
+        contractor = row.get("contractor") or ""
+        run_id_str = row.get("run_id") or ""
+        raw_status = row.get("status") or "running"
+        item_status = status_map.get(raw_status, "received")
+
+        if date_val not in result:
+            result[date_val] = {"Collector": []}
+            idx_by_date[date_val] = 1
+
+        # 고유 ID: RPT-<date>-<순번>
+        item_id = f"RPT-{date_val.replace('-', '')}-{idx_by_date[date_val]:03d}"
+        idx_by_date[date_val] += 1
+
+        result[date_val]["Collector"].append(
+            {
+                "id": item_id,
+                "trade": trade,
+                "contractor": contractor,
+                "status": item_status,
+            }
+        )
+
+    return result
+
+
+@app.get("/api/tasks")
+async def get_tasks(site_id: str, days: int = 30) -> dict[str, Any]:
+    """날짜별 작업일보 처리 현황 — DailyTask[] + progressByDate + itemsByDate.
+
+    tasks:           날짜별 pipeline_runs 집계 (DailyTask[])
+    progressByDate:  날짜 → 8단계 AgentStageProgress[] (7 agent + HIL)
+    itemsByDate:     날짜 → agent → AgentTaskItem[]
+
+    PoC 단순화:
+      progressByDate 는 overall progress_percent 에서 비례 추산.
+      itemsByDate 는 "Collector" key 에 전부 배치 (current_node 기반 분류는 backlog).
+    """
+    days = min(days, 90)
+    pg: PGClient = app.state.pg
+    try:
+        task_rows = await pg.fetch_all(_TASKS_SQL, site_id, days)
+        item_rows = await pg.fetch_all(_TASKS_ITEMS_SQL, site_id, days)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"tasks 조회 실패: {exc}") from exc
+
+    tasks = [_serialize_daily_task(r) for r in task_rows]
+    progress_by_date = _build_progress_by_date(tasks)
+    items_by_date = _build_items_by_date(item_rows)
+
+    return {
+        "tasks": tasks,
+        "progressByDate": progress_by_date,
+        "itemsByDate": items_by_date,
+    }

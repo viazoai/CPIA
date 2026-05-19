@@ -345,3 +345,57 @@ def test_sheet1_bp_code_extracted(sample_tong_path: Path):
     rows = _parse_sheet1_bp_summaries(ws)
     with_bp = sum(1 for r in rows if r.get("bp_code"))
     assert with_bp >= len(rows) * 0.5, f"bp_code 추출률 낮음: {with_bp}/{len(rows)}"
+
+
+# ---------------------------------------------------------------------------
+# 2026-05-20 refactor: 시트2 신규 case (spec §2.3)
+# ---------------------------------------------------------------------------
+
+
+def _load_sheet2(sample_tong_path: Path):
+    wb = openpyxl.load_workbook(sample_tong_path, data_only=True)
+    return wb["2.직종별 인원현황"]
+
+
+def test_sheet2_extracts_at_least_800_rows(sample_tong_path: Path):
+    """spec §2.3 — admin filter 적용 후 직종 row 충분 (보수)."""
+    ws = _load_sheet2(sample_tong_path)
+    rows = _parse_sheet2_job_allocations(ws)
+    assert len(rows) >= 800, f"expected >=800 직종 row, got {len(rows)}"
+
+
+def test_sheet2_bp_code_extracted(sample_tong_path: Path):
+    """신 logic: bp_code 가 채워짐 (기존 None → PH_X-NNN)."""
+    ws = _load_sheet2(sample_tong_path)
+    rows = _parse_sheet2_job_allocations(ws)
+    with_bp = sum(1 for r in rows if r.get("bp_code"))
+    assert with_bp >= len(rows) * 0.95, f"bp_code 추출률 낮음: {with_bp}/{len(rows)}"
+
+
+def test_sheet2_includes_ut_jeo_disciplines(sample_tong_path: Path):
+    """col 2 keyword 무한정 — UT / 제어 group 도 추출 (whitelist X)."""
+    ws = _load_sheet2(sample_tong_path)
+    rows = _parse_sheet2_job_allocations(ws)
+    disc_set = {r.get("disc_abbrev") for r in rows if r.get("disc_abbrev")}
+    has_ut_or_eng = "UT" in disc_set
+    has_control = "제어" in disc_set or "IN" in disc_set
+    assert has_ut_or_eng or has_control, f"UT/제어 그룹 누락: disciplines={sorted(disc_set)}"
+
+
+def test_sheet2_shift_dict_filled(sample_tong_path: Path):
+    """TimeShiftCounts 4 그룹 채워짐 (workers_today_cum.total 합 > 0)."""
+    ws = _load_sheet2(sample_tong_path)
+    rows = _parse_sheet2_job_allocations(ws)
+    sample = rows[:20]
+    total_sum = sum(r["workers_today_cum"]["total"] for r in sample if r.get("workers_today_cum"))
+    assert total_sum > 0, f"workers_today_cum.total 모두 0: {sample[:3]}"
+
+
+def test_sheet2_manager_worker_code_split(sample_tong_path: Path):
+    """manager_code (Mm##) vs worker_code (sk## / Wk##) 분리."""
+    ws = _load_sheet2(sample_tong_path)
+    rows = _parse_sheet2_job_allocations(ws)
+    has_manager = any(r.get("manager_code") for r in rows)
+    # admin filter 적용 시 manager 0 일 수도 있음 — 그땐 worker 만 검증
+    has_worker = any(r.get("worker_code") for r in rows)
+    assert has_manager or has_worker, "manager_code / worker_code 둘 다 None"

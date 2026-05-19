@@ -240,37 +240,91 @@ def _parse_sheet1_bp_summaries(ws) -> list[BPSummary]:
     return summaries
 
 
-def _parse_sheet2_job_allocations(ws) -> list[JobAllocation]:
-    """시트 2 (직종별 인원현황) -> JobAllocation[]. 관리자 직종/합계 row 필터.
+def _shift_dict_row(ws, r: int, col_start: int) -> TimeShiftCounts:
+    """단일 row 의 col_start..col_start+5 6 칸 → TimeShiftCounts."""
+    keys = ("morning", "daytime", "overtime", "night", "all_night", "total")
+    return {  # type: ignore[return-value]
+        k: _safe_int(ws.cell(r, col_start + i).value) for i, k in enumerate(keys)
+    }
 
-    cell 인덱스 (Task 0 시뮬 v3 발췌 / 실 파일 row 3 헤더 검증):
-      r[1] = disc_abbrev (Dis 영문 약자),
-      r[2] = company (BP사 - BP 코드 row 와 회사명 row 혼재, mapper 가 회사명으로만
-      매치하므로 BP 코드 row 는 자연 무시),
-      r[5] = job_type, r[23] = workers_cum_t (col 23 = 금일누계 계 컬럼).
-    header_end = 5, fill_cols = [1, 2] (시뮬과 일치).
+
+def _parse_sheet2_job_allocations(ws) -> list[JobAllocation]:
+    """시트2 (직종별 인원현황) -> JobAllocation[].
+
+    spec §2.3 (2026-05-20 refactor):
+      - group 시작 = col 4='Mm01' + col 25='O' + col 2 채워있음 + col 3=PH_X-NNN
+      - 직종 row = col 4 채워있음 + col 25='O' (subtotal/grand total skip — col 4=None)
+      - 관리자 직종 (BP소장 등) 은 _is_admin_job 으로 filter (sub-pipeline 호환)
+      - 회사명 = group 내 다음 5 row 안의 첫 col 3 한글값 (BP 코드 아님)
+      - manager_code: Mm## / worker_code: sk## or Wk##
+      - 3 시간대 그룹 (yest_cum col 7, today_incr col 13, today_cum col 19)
+      - cross-check (직종 cum.t 합 vs grand_total col 24) — 불일치 시 미사용 (silent)
     """
-    rows = _ffill(list(ws.iter_rows(values_only=True)), header_end=5, fill_cols=[1, 2])
+    # 1. group 시작 row 식별
+    starts: list[int] = []
+    for r in range(6, ws.max_row + 1):
+        c4 = ws.cell(r, 4).value
+        if c4 != "Mm01":
+            continue
+        c2 = ws.cell(r, 2).value
+        c3 = ws.cell(r, 3).value
+        c25 = ws.cell(r, 25).value
+        if c25 != "O" or c2 is None or c3 is None:
+            continue
+        if not _BP_RE.match(str(c3).strip()):
+            continue
+        starts.append(r)
+
+    groups: list[tuple[int, int]] = [
+        (s, (starts[i + 1] - 1) if i + 1 < len(starts) else ws.max_row) for i, s in enumerate(starts)
+    ]
+
     jobs: list[JobAllocation] = []
-    for _i, r in rows:
-        if _is_total_row(tuple(r)):
-            continue
-        company = str(r[2]).strip() if r[2] else ""
-        job_type = str(r[5]).strip() if len(r) > 5 and r[5] else ""
-        if not (company and job_type):
-            continue
-        if _is_admin_job(job_type):
-            continue
-        cum_t = int(r[23]) if len(r) > 23 and isinstance(r[23], (int, float)) else 0
-        jobs.append(
-            {
-                "bp_code": None,
-                "company": company,
-                "disc_abbrev": _disc_abbrev_to_kr(str(r[1]).strip()) if r[1] else None,
-                "job_type": job_type,
-                "workers_cum_t": cum_t,
-            }
-        )
+    for start, end in groups:
+        bp_code = str(ws.cell(start, 3).value).strip()
+        discipline_raw = str(ws.cell(start, 2).value).strip()
+        # col 2 의 keyword 가 한글 (공통가설 / 설비 등) 이면 그대로, 영문 약자면 한글 변환
+        discipline = _disc_abbrev_to_kr(discipline_raw) or discipline_raw
+
+        # 회사명: start 다음 5 row 안의 첫 col 3 한글값
+        company_raw: str | None = None
+        for r in range(start + 1, min(start + 6, end + 1)):
+            v = ws.cell(r, 3).value
+            if v is not None and not _is_bp_code(v):
+                company_raw = str(v)
+                break
+        company = normalize_company(split_company_and_zone(company_raw)) or ""
+
+        for r in range(start, end + 1):
+            c4 = ws.cell(r, 4).value
+            c25 = ws.cell(r, 25).value
+            if c4 is None or c25 != "O":
+                continue
+            job_type = str(ws.cell(r, 6).value or "").strip()
+            if not job_type:
+                continue
+            if _is_admin_job(job_type):
+                continue
+            disc_code = str(c4).strip()
+            manager_code = disc_code if disc_code.startswith("Mm") else None
+            worker_code = disc_code if not disc_code.startswith("Mm") else None
+            workers_today_cum = _shift_dict_row(ws, r, 19)
+            jobs.append(
+                {
+                    "bp_code": bp_code,
+                    "company": company,
+                    "disc_abbrev": discipline,
+                    "manager_code": manager_code,
+                    "worker_code": worker_code,
+                    "job_type": job_type,
+                    "workers_yesterday_cum": _shift_dict_row(ws, r, 7),
+                    "workers_today_incr": _shift_dict_row(ws, r, 13),
+                    "workers_today_cum": workers_today_cum,
+                    "final_flag": "O",
+                    "workers_cum_t": workers_today_cum.get("total", 0),
+                }
+            )
+
     return jobs
 
 

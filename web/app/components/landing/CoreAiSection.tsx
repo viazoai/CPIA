@@ -16,6 +16,8 @@ interface CoreFeature {
   Icon: LucideIcon;
   headline: string;
   lead: string;
+  /** 사람 작업 (AS-IS) → AI 작업 (TO-BE) 정량 비교 */
+  shift: { from: string; to: string };
   aiDoes: string;
   humanDoes: string;
 }
@@ -25,34 +27,31 @@ const FEATURES: CoreFeature[] = [
     index: "01",
     agent: "Mapper",
     Icon: Network,
-    headline: "비정형 일보를 공정표 언어로 — 의미 기반 자동 매핑",
-    lead: "협력사가 자유 텍스트로 적은 작업 내용을 LLM 이 의미 단위로 해석해, 공정표 WBS Activity 에 정확히 연결합니다. 키워드 일치가 아닌 도메인 맥락 이해 기반.",
-    aiDoes:
-      "건설 도메인 RAG 로 후보 Activity 를 추리고, LLM 이 문맥·물량·BP사 조합을 종합해 최적 매핑을 rerank.",
-    humanDoes:
-      "확신도 낮은 매핑만 H-i-L Modal 에서 검토·수정. 100건 중 평균 5~8건만 사람 손이 필요.",
+    headline: "비정형 일보 → WBS 자동 매핑",
+    lead: "협력사 자유 텍스트를 도메인 의미 기반으로 공정표 Activity 에 자동 연결.",
+    shift: { from: "사람 1~3h / 일", to: "AI 10 분 / 일" },
+    aiDoes: "100건 매핑 · 평균 정확도 92%",
+    humanDoes: "확신도 낮은 5~8건만 검토",
   },
   {
     index: "02",
     agent: "Forecaster",
     Icon: TrendingUp,
-    headline: "오늘 생산성이 정상인가 — 현장 이력 기반 진단",
-    lead: "절대 기준(품셈) 이 아닌, 같은 현장의 과거 유사 상황과 비교해 오늘이 정상·주의·위험·이상 중 어디인지 판단합니다.",
-    aiDoes:
-      "Vector DB 에 축적된 과거 작업 기록을 임베딩 유사도로 검색하고, LLM 이 4분면 진단과 근거를 함께 산출.",
-    humanDoes:
-      "PM 은 위험·이상 분면으로 자동 라우팅된 항목만 본다. 정상 분면은 굳이 검토하지 않아도 됨.",
+    headline: "오늘 생산성, AI 가 진단",
+    lead: "같은 현장 과거 이력과 비교해 공종별 4분면 (정상·주의·관찰·위험) 으로 자동 분류.",
+    shift: { from: "D+2~3 일 사후 인지", to: "D+0 당일 진단" },
+    aiDoes: "전 공종 4분면 분류 · 위험 자동 라우팅",
+    humanDoes: "위험 분면 2건만 검토 — 정상 9건 미열람",
   },
   {
     index: "03",
     agent: "Optimizer",
     Icon: Lightbulb,
-    headline: "막힌 곳은 AI 가 먼저 — 맥락 기반 만회 시나리오 제안",
-    lead: "위험 표지된 공종에 대해, 과거에 비슷한 지연을 어떻게 만회했는지를 학습한 LLM 이 현재 맥락에 맞춘 catch-up 시나리오를 제시합니다.",
-    aiDoes:
-      "유사 과거 패턴을 검색해 인력 재배치·공정 순서 변경·야간 작업 등 옵션을 비용·일수 추정과 함께 자동 생성.",
-    humanDoes:
-      "PM 은 제안 시나리오 중 실행 가능한 것을 채택·조합해 발주처 협상에 활용. 의사결정은 사람이.",
+    headline: "만회 시나리오, AI 가 먼저",
+    lead: "위험 공종에 대해 과거 유사 만회 사례를 학습한 LLM 이 catch-up 옵션을 사전 제시.",
+    shift: { from: "사후 임시 대책", to: "사전 3 옵션 (-1 ~ -3 일)" },
+    aiDoes: "과거 12 사례 학습 · 비용·일수 자동 추정",
+    humanDoes: "PM 은 채택·발주처 협상만",
   },
 ];
 
@@ -117,6 +116,19 @@ function FeatureRow({ feature, flip }: { feature: CoreFeature; flip: boolean }) 
           <span className="font-display text-h5 font-semibold text-brand-text">{feature.agent}</span>
         </div>
         <h3 className="mt-3 font-display text-h4 text-ink">{feature.headline}</h3>
+
+        {/* 정량 대치 — 사람 → AI 한 줄 칩 */}
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center rounded-full bg-rose-light px-3 py-1 text-body-sm font-medium text-rose-text line-through decoration-rose decoration-1">
+            {feature.shift.from}
+          </span>
+          <ArrowRight className="h-4 w-4 text-ink-light" />
+          <span className="inline-flex items-center gap-1 rounded-full bg-brand px-3 py-1 text-body-sm font-semibold text-white shadow-sm">
+            <Sparkles className="h-3 w-3" />
+            {feature.shift.to}
+          </span>
+        </div>
+
         <p className="mt-4 text-body text-ink-mid">{feature.lead}</p>
 
         {/* AI / Human 역할 비교 */}

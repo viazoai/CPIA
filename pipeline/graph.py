@@ -61,6 +61,12 @@ async def mapper_node(state: CPIAState, cfg: GraphConfig) -> dict:
     run_id = uuid.UUID(state["run_id"]) if isinstance(state["run_id"], str) else state["run_id"]
     today = _date.fromisoformat(state["date"])
 
+    # 정규화 타이밍 fix — fetch_bp_candidates 는 정확 일치 SQL (db.py:55).
+    # ㈜/(주) prefix 가 LLM 응답에 섞이면 마스터와 mismatch 로 cand_pool 빔.
+    # mapper 진입 직전 일괄 정규화 (line 138 의 mapper 후 정규화와 일관).
+    for a in parsed["activities"]:
+        a["company"] = normalize_company(a.get("company"))
+
     # BP cand_pool 미리 batch fetch — 1 PG connection 으로 모든 company 조회
     pg = PGClient(cfg.mapper.postgres_url)
     await pg.connect()

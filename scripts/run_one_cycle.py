@@ -77,7 +77,7 @@ async def main():
 
     # POC 3사 필터 (tmp/run_prod_cycle.py 패턴) — 회사명 비어있는 BP row 제거 →
     # mapper_activities.company NOT NULL constraint 위반 방지.
-    POC_KEYWORDS = ("남웅", "세보", "창원기전", "에스티엠")
+    POC_KEYWORDS = ("남웅", "세보", "창원기전")
 
     def _pass(c):
         return bool(c) and any(k in c for k in POC_KEYWORDS)

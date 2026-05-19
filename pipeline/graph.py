@@ -226,10 +226,23 @@ async def hil_1_node(state: CPIAState, cfg) -> dict:
 
     Spec §5.1. cfg = GraphConfig (PG INSERT 용 postgres_url 추출, cfg=None 이면
     PG insert skip — unit 테스트 path).
+
+    env CPIA_HIL_AUTO_BYPASS={1|true|on} → review_needed 가 있어도 interrupt 건너뛰고
+    빈 corrections 로 통과 (dev/검증 모드 — atomizer/forecaster 진행 위해).
     """
     mapped = state["mapped"]
     review_needed = _build_review_needed(mapped)
     if not review_needed:
+        return {"hil_1_corrections": {}, "current_node": "hil_1"}
+
+    if os.environ.get("CPIA_HIL_AUTO_BYPASS", "").lower() in ("1", "true", "on", "yes"):
+        import sys as _sys_local
+
+        print(
+            f"[hil_1] AUTO_BYPASS — review_needed={len(review_needed)} 무시, interrupt 우회",
+            file=_sys_local.stderr,
+            flush=True,
+        )
         return {"hil_1_corrections": {}, "current_node": "hil_1"}
 
     corrections_raw = interrupt({"review_needed": review_needed})

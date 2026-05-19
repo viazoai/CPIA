@@ -110,19 +110,67 @@ async def main():
     }
 
     config = {"configurable": {"thread_id": run_id}}
+
+    # pipeline_runs row 사전 INSERT — atomizer.assert_pipeline_run_exists 통과 위해
+    # (spec §4.4: atomizer 는 INSERT 책임 X, 호출부가 사전 보장)
+    from pipeline.db import PGClient
+
+    _pg = PGClient(os.environ["POSTGRES_URL"])
+    await _pg.connect()
+    try:
+        try:
+            await _pg.insert_pipeline_run(uuid.UUID(run_id), site_id, report_date)
+            _log(f"pipeline_runs INSERT OK run_id={run_id}")
+        except Exception as e:  # noqa: BLE001  # 이미 존재 시 conflict — skip
+            _log(f"pipeline_runs INSERT skip ({type(e).__name__}: {e})")
+    finally:
+        await _pg.close()
+
     _log(f"graph.ainvoke start run_id={run_id}")
     first = await graph.ainvoke(state, config=config)
     _log(f"first done keys={sorted(k for k in first.keys() if not k.startswith('_'))}")
 
-    if "__interrupt__" in first:
-        interrupts = first["__interrupt__"]
-        rn = (interrupts[0].value or {}).get("review_needed", [])
-        _log(f"HIL 1 interrupt — review_needed={len(rn)} (auto-resume with {{}})")
-        final = await graph.ainvoke(Command(resume={}), config=config)
-    else:
-        final = first
-
+    # 다단 interrupt 처리 — HIL 1 + HIL 2 둘 다 자동 resume
+    state_after = first
+    for round_idx in range(1, 5):
+        if "__interrupt__" not in state_after:
+            break
+        interrupts = state_after["__interrupt__"]
+        intr_val = interrupts[0].value or {}
+        rn = intr_val.get("review_needed", [])
+        rg = intr_val.get("risky_groups", [])
+        # HIL 1 resume = {} (corrections 없음 — AUTO_BYPASS path)
+        # HIL 2 resume = risky_groups 의 모든 key (optimizer 가 전부 실행 — UI 검증용)
+        if rn:
+            resume_value: object = {}
+            _log(
+                f"interrupt round {round_idx}: HIL 1 review_needed={len(rn)} "
+                f"(auto-resume with {{}})"
+            )
+        elif rg:
+            resume_value = [g.get("key") for g in rg if g.get("key")]
+            _log(
+                f"interrupt round {round_idx}: HIL 2 risky_groups={len(rg)} "
+                f"(auto-resume with {len(resume_value)} keys → optimizer 전체 실행)"
+            )
+        else:
+            resume_value = []
+            _log(f"interrupt round {round_idx}: unknown payload — resume=[]")
+        state_after = await graph.ainvoke(Command(resume=resume_value), config=config)
+        _log(
+            f"  after resume {round_idx}: keys="
+            f"{sorted(k for k in state_after.keys() if not k.startswith('_'))} "
+            f"status={state_after.get('status')} current_node={state_after.get('current_node')} "
+            f"atomized_ids={len(state_after.get('atomized_ids') or [])} "
+            f"forecast={len(state_after.get('forecast') or [])} "
+            f"opt={len(state_after.get('optimizer_advice') or [])} "
+            f"report_md_len={len(state_after.get('report_md') or '')}"
+        )
+    final = state_after
     _log(f"final status={final.get('status')} current_node={final.get('current_node')}")
+    _log(
+        f"atomized_ids={len(final.get('atomized_ids') or [])} forecast={len(final.get('forecast') or [])} opt={len(final.get('optimizer_advice') or [])}"
+    )
     _log(f"run_id={run_id}")
 
 

@@ -176,16 +176,24 @@ def build_bp_context(
         return "  · (parsed_report 미제공 — BP 컨텍스트 없이 진행)"
 
     summaries: list[BPSummary] = [s for s in parsed_report["bp_summaries"] if s["company"] == company]
-    work_texts = [s["work_text_today"] for s in summaries if s["work_text_today"]]
-    today_incr = sum(s["today_incr_total"] for s in summaries)
-    today_cum = sum(s["today_cum_total"] for s in summaries)
-    work_text_str = " / ".join(t for t in work_texts[:2] if t)[:200] if work_texts else "미기재"
 
-    sheet1_block = (
-        f"  · [시트1] 주요작업 텍스트 (BP사 기재): {work_text_str}\n"
-        f"  · [시트1] 금일 신규 투입 인원 (Incr.): {today_incr:,}명\n"
-        f"  · [시트1] 금일 누적 인원 (Cum.): {today_cum:,}명-일"
-    )
+    # fix B (2026-05-20) — BP 코드별 분리 + zone 명시. 한 회사가 여러 BP site (FAB+CUB)
+    # 운영 시 LLM 가 work_content 의 BP 와 zone 매칭 가능. 옵션 A 의 정확성 강화.
+    if summaries:
+        bp_lines = []
+        for s in summaries:
+            bp = s.get("bp_code") or "(BP 없음)"
+            zone = s.get("zone") or "(미상)"
+            wt = (s.get("work_text_today") or "").strip()
+            wt_short = (wt[:120] + "...") if len(wt) > 120 else (wt or "(작업 미기재)")
+            incr = s.get("today_incr_total") or 0
+            cum = s.get("today_cum_total") or 0
+            bp_lines.append(f"      - {bp} (zone={zone}): {wt_short} [Incr {incr:,}명, Cum {cum:,}명-일]")
+        sheet1_block = "  · [시트1] BP 사이트별 작업 (작업 내용 보고 어느 BP 코드인지 판단):\n" + "\n".join(
+            bp_lines
+        )
+    else:
+        sheet1_block = "  · [시트1] BP 사이트 데이터 없음"
 
     # 시트2 — 기능공만, noise 제거
     jobs: dict[str, int] = {}
@@ -226,8 +234,9 @@ def build_llm_input(
     bp_ctx = build_bp_context(activity["company"], parsed_report)
     today_str = activity["today_qty"] if activity["today_qty"] not in (None, 0) else "-"
     plan_str = activity["plan_total_qty"] if activity["plan_total_qty"] not in (None, 0) else "-"
+    bp_code = activity.get("bp_code") or "(미상)"
     return (
-        f"회사: {activity['company']} (공종 {activity['trade']})\n"
+        f"회사: {activity['company']} / BP: {bp_code} (공종 {activity['trade']})\n"
         f"작업: {activity['work_content']}\n"
         f"단위: {activity['unit']}  |  금일실적: {today_str}  |  계획 총수량: {plan_str}\n"
         f"[BP사 단위 컨텍스트]\n{bp_ctx}"
@@ -250,6 +259,24 @@ def resolve_wa(
     # Task 4 — cand_pool 빈 시 (BP master 미등록) — Chroma 선택 결과 그대로
     if not cand_pool:
         return WAResolution(value=chosen_wa, source="auto_chroma_top1")
+
+    # 0단계 (fix C, 2026-05-20) — BP-zone deterministic 매칭.
+    # activity.bp_code 와 일치하는 BPSummary 가 있고 그 zone 이 cand_pool 의 wa set 안에
+    # 있으면 채택. LLM 의 우연 결정보다 우선. 사용자 본인 옛 POC 회상 ("시트1 에서 FAB/CUB
+    # 알 수 있음") 와 정합. 예: 남웅건설 PH_X-001 (BPSummary.zone=FAB) →
+    # cand_pool={(FAB, 철근콘크리트공사), (CUB, 철근콘크리트공사)} 의 FAB 채택.
+    if parsed_report and activity.get("bp_code"):
+        cand_wa_set = {wa for wa, _ in cand_pool}
+        for s in parsed_report["bp_summaries"]:
+            if s.get("bp_code") == activity["bp_code"] and s.get("zone"):
+                if s["zone"] in cand_wa_set:
+                    return WAResolution(value=s["zone"], source="auto_bp_zone_match")
+
+    # 1단계 (옵션 A, 2026-05-20) — LLM rerank 의 (wa, l6) 가 cand_pool 안에 있으면 채택.
+    # 사용자 push back ("scope ≠ wa, 오른쪽 작업으로 wa 판단") 정합. LLM 의 work_text + bp_ctx
+    # 기반 판단을 신뢰. BP-zone 매칭이 없을 때 fallback.
+    if chosen_wa and (chosen_wa, l6_choice) in cand_pool:
+        return WAResolution(value=chosen_wa, source="auto_llm_rerank")
 
     # 1단계 — BP scope WA 단일
     bp_wa = {wa for wa, _ in cand_pool}

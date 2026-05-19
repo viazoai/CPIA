@@ -442,3 +442,68 @@ def test_sheet3_disc_abbrev_filled(sample_tong_path: Path):
     rows = _parse_sheet3_equipment_allocations(ws)
     has_disc = sum(1 for r in rows if r.get("disc_abbrev"))
     assert has_disc >= len(rows) * 0.95, f"disc_abbrev 누락: {has_disc}/{len(rows)}"
+
+
+# ---------------------------------------------------------------------------
+# 2026-05-20 refactor: 시트4 신규 case (spec §2.5)
+# ---------------------------------------------------------------------------
+
+
+def _load_sheet4(sample_tong_path: Path):
+    wb = openpyxl.load_workbook(sample_tong_path, data_only=True)
+    return wb["4.물량"]
+
+
+def test_sheet4_extracts_around_1193_activities(sample_tong_path: Path):
+    """spec §2.5 — Activity row (col 8 채워있음) ≈ 1,193."""
+    ws = _load_sheet4(sample_tong_path)
+    rows = _parse_sheet4_activities(ws)
+    assert 1100 <= len(rows) <= 1300, f"expected ~1193, got {len(rows)}"
+
+
+def test_sheet4_ffill_namwoong_bp(sample_tong_path: Path):
+    """ffill 정상 — 남웅건설 PH_X-001 의 activity 다수."""
+    ws = _load_sheet4(sample_tong_path)
+    rows = _parse_sheet4_activities(ws)
+    namwoong_ph1 = [r for r in rows if r.get("company") == "남웅건설" and r.get("bp_code") == "PH_X-001"]
+    assert len(namwoong_ph1) >= 5, f"ffill broken — only {len(namwoong_ph1)} rows for 남웅 PH_X-001"
+
+
+def test_sheet4_zone_option2_conservative(sample_tong_path: Path):
+    """zone — col 7 (Scope) 명시 토큰만, 모호 시 None (옵션 2 보수)."""
+    ws = _load_sheet4(sample_tong_path)
+    rows = _parse_sheet4_activities(ws)
+    zone_none = sum(1 for r in rows if r.get("zone") is None)
+    # prototype 측정: 76% None
+    assert zone_none >= len(rows) * 0.5, f"zone 보수성 부족: {zone_none}/{len(rows)} None"
+
+
+def test_sheet4_cross_check_BC_eq_D(sample_tong_path: Path):
+    """B+C=D 산술 정합 — mismatch row 극소수."""
+    ws = _load_sheet4(sample_tong_path)
+    rows = _parse_sheet4_activities(ws)
+    mismatch = 0
+    for r in rows:
+        b = r.get("yesterday_cum_qty") or 0
+        c = r.get("today_qty") or 0
+        d = r.get("today_cum_qty")
+        if d is None:
+            continue
+        if abs((b + c) - d) > 0.001:
+            mismatch += 1
+    assert mismatch <= 10, f"too many B+C != D: {mismatch}"
+
+
+def test_sheet4_required_new_fields(sample_tong_path: Path):
+    """state.py Activity 의 신규 필드 (zone / bp_code / scope / yesterday_cum_qty / today_cum_qty) 존재."""
+    ws = _load_sheet4(sample_tong_path)
+    rows = _parse_sheet4_activities(ws)
+    required = {
+        "zone",
+        "bp_code",
+        "scope",
+        "yesterday_cum_qty",
+        "today_cum_qty",
+    }
+    for r in rows[:5]:
+        assert required <= set(r.keys()), f"누락 키: {required - set(r.keys())}"

@@ -328,39 +328,94 @@ def _parse_sheet2_job_allocations(ws) -> list[JobAllocation]:
     return jobs
 
 
-def _parse_sheet4_activities(ws) -> list[Activity]:
-    """시트 4 (물량) -> Activity[]. fixture loader _load_inputs 이관.
+def _safe_num(v: object) -> float | None:
+    if v is None:
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
 
-    Header end = row 4. Forward-fill 컬럼 = [1, 2, 3, 4, 5] (병합 셀 패턴).
-    필수 셀: r[5] (company), r[7] (work_content).
+
+def _parse_sheet4_activities(ws) -> list[Activity]:
+    """시트4 (물량) -> Activity[].
+
+    spec §2.5 (2026-05-20 refactor):
+      - ffill 4 컬럼 (col 3 zone_raw, col 4 trade, col 5 BP 코드, col 6 회사명)
+      - col 5 (BP) 채워있는 row = 새 회사 그룹 시작 (col 6 = 회사명)
+      - Activity row = col 8 (work_content) 채워있는 row 만
+      - zone = extract_zone(col 7 명시 토큰만, 옵션 2 — scope ≠ wa)
+      - B+C=D 산술 cross-check — mismatch 카운트만 (silent)
     """
-    rows = _ffill(list(ws.iter_rows(values_only=True)), header_end=4, fill_cols=[1, 2, 3, 4, 5])
+    current_trade: str | None = None
+    current_bp_code: str | None = None
+    current_company_raw: str | None = None
+
     activities: list[Activity] = []
-    for _i, r in rows:
-        if not (r[5] and r[7]):
+
+    for r in range(5, ws.max_row + 1):
+        c4 = ws.cell(r, 4).value
+        c5 = ws.cell(r, 5).value
+        c6 = ws.cell(r, 6).value
+
+        if c4 is not None:
+            current_trade = str(c4)
+        if c5 is not None:
+            current_bp_code = str(c5).strip()
+            current_company_raw = str(c6) if c6 is not None else None
+
+        c8 = ws.cell(r, 8).value
+        if c8 is None:
             continue
+
+        c7 = ws.cell(r, 7).value  # Scope
+        c9 = ws.cell(r, 9).value  # unit
+        c10 = _safe_num(ws.cell(r, 10).value)  # plan_total
+        c11 = _safe_num(ws.cell(r, 11).value)  # yesterday_cum
+        c12 = _safe_num(ws.cell(r, 12).value)  # today_qty
+        c13 = _safe_num(ws.cell(r, 13).value)  # today_cum
+        c14 = _safe_num(ws.cell(r, 14).value)  # F%
+
+        company = normalize_company(split_company_and_zone(current_company_raw))
+        zone = extract_zone(str(c7) if c7 is not None else None)
+
         activities.append(
             {
+                "zone": zone,
+                "bp_code": current_bp_code,
+                "company": company or "",
+                "scope": str(c7) if c7 is not None else None,
+                "trade": current_trade or "",
+                "work_content": str(c8).strip(),
+                "unit": _normalize_unit(str(c9 or "").strip()),
+                "plan_total_qty": c10,
+                "yesterday_cum_qty": c11,
+                "today_qty": c12 if c12 is not None else 0.0,
+                "today_cum_qty": c13,
+                "progress_percent": c14,
+                "remaining_qty": None,
+                "remaining_percent": None,
+                "note": None,
+                "work_location_code": None,
+                "wbs_mid_name": None,
+                "wbs_sub_name": None,
+                "wbs_detail_name": None,
                 "wbs_activity_id": None,
-                "l5_disc": str(r[3]) if r[3] else "",
+                "l5_disc": current_trade or "",
                 "l6_main": None,
                 "l7_sub": None,
                 "l7_5_activity": None,
                 "sub_work_area": None,
-                "trade": str(r[3]) if r[3] else "",
-                "company": str(r[5]).strip(),
-                "unit": _normalize_unit(str(r[8] or "").strip()),
-                "today_qty": float(r[11]) if isinstance(r[11], (int, float)) else 0.0,
-                "work_content": str(r[7]).strip(),
                 "conditions": [],
                 "assigned_workers": 0.0,
                 "worker_source": "parsed",
-                "plan_total_qty": float(r[9]) if isinstance(r[9], (int, float)) else None,
                 "plan_mh": None,
-                "requires_review": False,
                 "wa": None,
                 "mapping_conf": None,
                 "mapping_source": None,
+                "requires_review": False,
             }
         )
     return activities

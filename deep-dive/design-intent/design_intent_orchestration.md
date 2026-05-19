@@ -378,3 +378,101 @@ LangGraph StateGraph 조립 + 공유 상태 스키마 + HIL interrupt/resume + c
   - pure function — unit 테스트 단순 호출, LangGraph runtime 의존 X.
   - `_apply_corrections` 3 path 분기 — (a) requires_review=False 변경 X, (b) requires_review=True + corrections 있음 → 사용자 정정, (c) requires_review=True + corrections 없음 → Mapper 추천 수용. 모두 `mapping_source="user_corrected"` + `requires_review=False` 마킹.
 - **대응 패턴**: 호출자 = `hil_1_node`. 테스트 = `tests/test_graph_hil1.py::test_hil_1_node_review_needed_filter` + `::test_hil_1_node_apply_corrections`.
+
+---
+
+## 2026-05-19 FE↔BE 연결 + 6 BE 적재 보완 cycle (Git SHA cf3c143, PR #28)
+
+### T1 갱신 (기존 mapper_node / reporter_node 행 노트 추가)
+
+| Function/Class | File:Line (변경 후) | 본 cycle 노트 |
+|---|---|---|
+| `mapper_node` | graph.py:47 | G24 parser_job_allocations / parser_equipment_allocations INSERT 호출 추가 (graph.py:121 + graph.py:127). G23 alternatives 는 map_activity 안에서 채워져 mapper_activities INSERT 시 jsonb 컬럼에 흘러감 (mapper.py:393). |
+| `reporter_node` | graph.py:411 | G8 sites.last_run_id UPDATE (graph.py:440) + G2 sites.hours_saved_cum UPDATE (graph.py:441-445). state.site_id 누락 시 pipeline_runs 에서 fallback fetch (graph.py:434-438). |
+
+### T2 신규 카드
+
+#### O-G24 — mapper_node 안 parser_job/equipment_allocations INSERT 호출 위치
+
+- **위치**: `pipeline/graph.py:121-134` (insert_parser_activities_batch 직후, insert_mapper_activities_batch 직전)
+- **이슈**:
+  - 본 cycle 직전까지 `ParsedDailyReport` TypedDict (`pipeline/state.py:74-94`) 의 `job_allocations` / `equipment_allocations` 키는 정의되어 있고 parser_node 가 채워 state 에 넣었으나, graph 가 PG INSERT 함수를 호출하지 않아 `parser_job_allocations` / `parser_equipment_allocations` 두 테이블의 row count 가 항상 0 이었음.
+  - 본 cycle 검증 (run_id=627e2c4d): parser_job_allocations=15 rows, parser_equipment_allocations=0 rows (남웅 일보 시트3 비어있음 — 정상).
+- **설계 의도**:
+  - 시트2 (BP × 직종) + 시트3 (BP × 장비) 정규화 row 의 BI / Dashboard SELECT 가능성 확보.
+  - 호출 위치 = `insert_parser_activities_batch` (시트1·4 통합 row) 직후 = parser 결과 묶음 단위로 PG 1 transaction 안에서 처리.
+- **대응 패턴**:
+  - 발동: mapper_node 가 parsed activities INSERT 끝낸 직후
+  - 입력: `parsed.get("job_allocations") or []` / `parsed.get("equipment_allocations") or []` (None-safe, 빈 list 면 0 row INSERT)
+  - 처리: `insert_parser_job_allocations_batch` / `insert_parser_equipment_allocations_batch` (db.py 시그니처 `rows=` 키워드 — plan 초안의 `job_allocations=` 시그니처 아님, 본 cycle 통일)
+  - 출력: 두 테이블 row count 증가
+- **관련**:
+  - PG helper: `pipeline/db.py:insert_parser_job_allocations_batch` / `insert_parser_equipment_allocations_batch`
+  - 상위 데이터 소스: parser_node 가 채운 `state.parsed.job_allocations` / `state.parsed.equipment_allocations` (state.py:74-94)
+- **Suspected related** (2026-05-19 stale):
+  - 시트2 의 `_is_trade_job` 필터 (mapper.py:64) 와 동일 데이터지만 정규화 row 는 필터 전 raw — 직종 noise 포함. BI SELECT 시 후처리 필요.
+
+#### O-G8 — reporter_node 의 sites.last_run_id UPDATE 시점
+
+- **위치**: `pipeline/graph.py:440` (`update_site_last_run` 호출)
+- **이슈**:
+  - FE dashboard 의 "최근 cycle" / "마지막 실행" 표시 데이터 소스. 본 cycle 직전엔 sites.last_run_id 가 항상 NULL.
+  - 본 cycle 검증 (run_id=627e2c4d): sites.last_run_id 가 cycle run_id 와 일치.
+- **설계 의도**:
+  - reporter_node 가 END 진입 직전의 마지막 PG write — 본 노드가 cycle 완주 신호 (실패 시 last_run_id 안 갱신, 이전 cycle 가시).
+  - 호출 위치 = `report()` 의 daily_reports INSERT 호출 직후 (graph.py:419 → graph.py:440), END edge 직전.
+- **대응 패턴**:
+  - 발동: reporter_node 가 report() 호출 후, return 직전
+  - 입력: site_id (state 또는 pipeline_runs fallback) + run_id
+  - 처리: `UPDATE sites SET last_run_id = $1, updated_at = now() WHERE site_id = $2` (db.py:1017-1025)
+  - 출력: sites 1 row UPDATE
+- **관련**:
+  - helper: `pipeline/db.py:update_site_last_run:1017`
+  - 페어 카드: `design_intent_reporter.md` R-G8
+  - FE 소비처: `web/app/page.tsx` (B_Track) — sites.last_run_id SELECT 후 cycle 시각 표시
+
+#### O-G2 — reporter_node 의 sites.hours_saved_cum 누적 UPDATE
+
+- **위치**: `pipeline/graph.py:441-445` (`update_site_hours_saved_cum` 호출)
+- **이슈**:
+  - Spec §6 의 "사람 수작업 절감 시간" 누적 지표. 본 cycle 직전엔 컬럼 자체가 없었음 (마이그 `2026-05-19_sites_hours_saved_cum.sql`).
+  - 산식: `((AS_IS_MIN - TO_BE_MIN) / 60.0) * atomized_count` — `AS_IS_MIN=120`, `TO_BE_MIN=5` (db.py:1029-1030 상수).
+  - 본 cycle 검증 (run_id=627e2c4d): atomized_count=4 → delta = ((120-5)/60)*4 = 7.667h. sites.hours_saved_cum=7.67h 확인.
+- **설계 의도**:
+  - cycle 별 누적 — UPDATE 가 `hours_saved_cum + $1` 형태, 같은 site 의 매 cycle 마다 더해짐 (멱등 X — re-run 시 중복 누적, drift backlog).
+  - `atomized_count` source = `len(state.get("atomized_ids", []) or [])` — atomizer_node 가 return 한 `atomized_ids` 길이 (graph.py:272). dedup 후 atom 수.
+- **대응 패턴**:
+  - 발동: reporter_node 가 G8 직후 (graph.py:441-445)
+  - 입력: site_id + atomized_count
+  - 처리: delta_h 계산 → `UPDATE sites SET hours_saved_cum = hours_saved_cum + $1 WHERE site_id = $2` (db.py:1043-1049)
+  - 출력: sites.hours_saved_cum 누적
+- **관련**:
+  - helper: `pipeline/db.py:update_site_hours_saved_cum:1033`
+  - 페어 카드: `design_intent_reporter.md` R-G2
+  - source data: atomizer_node return `atomized_ids` (graph.py:272)
+- **Suspected related** (2026-05-19 stale):
+  - re-run 중복 누적 — 동일 run_id 재실행 시 hours_saved_cum 이 추가로 더해짐. 멱등 보장 필요 (UPDATE WHERE last_run_id != run_id 등 가드, drift backlog).
+  - cycle 부분 실패 시점 (reporter 직전 노드 fail) 에는 atomized_ids 가 state 에 있어도 G2 호출 안 됨 — atomized 만 되고 절감 시간 누락 가능성 (drift backlog).
+
+#### O-N6 — state.site_id propagate 누락 대비 pipeline_runs fallback fetch
+
+- **위치**: `pipeline/graph.py:434-438` (reporter_node 안)
+- **이슈**:
+  - LangGraph state reducer 가 일부 cycle path (HIL 2 resume 직후 등) 에서 `site_id` 키를 누락 → G8 / G2 호출에서 UPDATE 대상 None 으로 실패 가능.
+  - 본 cycle 실 재현 (run_id=627e2c4d 직전 dev run): `state.get("site_id")` 가 None 인 path 1건 발견 → fallback 으로 pipeline_runs SELECT.
+- **설계 의도**:
+  - hotfix — 본 cycle 안에서 root cause (LangGraph state propagation drift) 추적 보류. reporter_node 가 자체 보호.
+  - `pipeline_runs.site_id` 는 cycle 시작 시 collector / api 가 INSERT — 항상 존재 (PK = run_id).
+  - fallback: `SELECT site_id FROM pipeline_runs WHERE run_id = $1` (graph.py:437).
+  - site_id 가 여전히 None (PG row 자체 부재) 이면 G8/G2 skip — fail-loud 회피.
+- **대응 패턴**:
+  - 발동: `state.get("site_id")` falsy
+  - 입력: run_id
+  - 처리: PG fetchrow → site_id 추출
+  - 출력: site_id str 또는 None (None 시 G8/G2 skip)
+- **관련**:
+  - 같은 PGClient 인스턴스 재사용 (graph.py:431 의 PGClient 가 G8/G2 호출에도 그대로)
+  - state schema: `pipeline/state.py` `CPIAState` (site_id 키 정의 확인 필요 — drift backlog)
+- **Suspected related** (2026-05-19 stale):
+  - LangGraph state propagation drift — collector_node 가 site_id 를 set 하는 시점과 LangGraph reducer merge 패턴 검증 필요 (별 cycle).
+  - PGClient `_pool.acquire()` 직접 사용 — db.py 의 공식 helper 없이 reporter_node 가 inline SQL. 향후 `pg.fetch_run_site_id(run_id)` helper 추출 후보.

@@ -136,3 +136,60 @@ Mapper 출력 Activity → Azure 임베딩 → Chroma `daily_activities` 적재.
 - **테스트 커버리지**: 11 케이스 (unit 6 + integration 5), 결정성 + idempotency + fail-fast 모두 검증.
 - **임베딩 텍스트 = work_content 단독**: documents 는 work_content (atomizer.py:101), metadata 는 별개. 도메인 의미 유사도 중심 설계.
 - **`embedding_dim` 의심**: AtomizerConfig 필드만 있고 코드 내 사용처 grep 결과 미발견. cold start 참고용 또는 dead field.
+
+---
+
+## 2026-05-19 FE↔BE 연결 + 6 BE 적재 보완 cycle 변경 (Git SHA cf3c143)
+
+### T1 갱신
+
+- `_build_metadata` (atomizer.py:45) — "conditions get default [] 안전 처리": `",".join(a.get("conditions") or [])` (atomizer.py:58). 이전 `a["conditions"]` → KeyError 회피.
+- `atomize` (atomizer.py:62) — "valid 필터: l6_main 외 work_content truthy 추가": `valid = [a for a in mapped if a["l6_main"] is not None and a.get("work_content")]` (atomizer.py:69). 빈 work_content 인 mapper 산출 row 를 Azure embedding 호출 전 제거.
+
+### T2 신규 카드
+
+#### A-N1: work_content 빈 activity skip
+
+- **위치**: `pipeline/agents/atomizer.py:69` (valid 필터 라인 1줄, 단 atomize 의 전제 조건 변경)
+- **변경 라인**: `valid = [a for a in mapped if a["l6_main"] is not None and a.get("work_content")]`
+- **이슈**:
+  - 본 cycle 신규 (PR #28, 2026-05-19) — 이전 cycle 까지는 `l6_main is not None` 만 검사, work_content=None 인 mapper 출력 row 가 valid 에 포함됐음.
+  - 실 prod cycle 에서 mapper 출력 일부에 work_content=None 발생 (parser LLM 의 누락 케이스). Azure embedding API 가 input 의 빈 string / None 에 HTTP 400.
+- **설계 의도**:
+  - Azure embedding pre-call guard — 빈 input list 가 들어가지 않도록 valid 단계에서 제거.
+  - mapped_history INSERT 의 `mh_valid = [...l6_main is not None and wa is not None]` 필터 (atomizer.py:116) 와 동일 패턴 → 둘 다 fail-fast 책임을 atomizer 가 가짐.
+  - parser/mapper 의 work_content 누락 책임은 별 cycle (mapper drift) — atomizer 는 일단 통과만 시킴.
+- **대응 패턴**:
+  - 발동: `atomize` 진입 시 즉시.
+  - 입력: mapped Activity list.
+  - 처리: l6_main not None AND work_content truthy 검사.
+  - 출력: valid Activity list (이후 fail-fast / dedup / embedding 모두 이 위에서 수행).
+- **관련**:
+  - mapped_history 의 wa/l6_main 필터 (atomizer.py:116) — 자매 필터.
+  - 실 검증: run_id=627e2c4d (2026-05-19) 에서 mapped row 일부가 work_content=None → valid 통과 4/N, atomized_count=4.
+- **Suspected related** (2026-05-19 stale):
+  - 본 cycle 은 atomizer-only 회피. parser LLM 단의 work_content 누락 자체는 mapper drift backlog 별도.
+  - Forecaster 의 동일 가드 (F-N1) — 같은 None 입력에 양쪽 모두 방어 (이중 안전망).
+
+#### A-N2: conditions None 안전 처리
+
+- **위치**: `pipeline/agents/atomizer.py:58`
+- **변경 라인**: `"conditions": ",".join(a.get("conditions") or []),`
+- **이슈**:
+  - 본 cycle 신규 (PR #28, 2026-05-19) — 이전 코드는 `",".join(a["conditions"])` → mapper 가 conditions 키를 set 안 한 경우 KeyError.
+  - state.py 의 Activity TypedDict 정의에는 conditions 키 있으나 mapper 의 일부 path 에서 누락 (특히 default fallback).
+- **설계 의도**:
+  - 방어적 dict 접근: `a.get("conditions") or []` — None / 누락 모두 빈 list 로 fallback.
+  - Chroma metadata 의 conditions 컬럼은 CSV 평탄화 — 빈 list → 빈 str. 검색 단 (forecaster `_normalize_chroma_metadata`) 는 빈 str 도 list[] 로 역변환 가능.
+  - 책임 분리: 본 함수는 conditions 누락 책임을 mapper 에 묻지 않고 그냥 빈 값으로 처리 (atomizer 가 mapper drift 의 buffer 역할).
+- **대응 패턴**:
+  - 발동: `_build_metadata` 내부 (atomize 의 각 valid row 마다).
+  - 입력: Activity dict.
+  - 처리: `.get("conditions") or []` 로 빈 list fallback → `",".join(...)`.
+  - 출력: 빈 str 또는 CSV str.
+- **관련**:
+  - state.py Activity TypedDict — conditions 키 정의 위치.
+  - mapper.py — conditions 누락 path (drift, 별 cycle).
+  - Forecaster F-N2 — 동일 패턴 (atomizer 와 forecaster 양쪽에 같은 가드).
+- **Suspected related** (2026-05-19 stale):
+  - mapper 의 conditions 누락 자체는 별 cycle — mapper drift backlog 에 등록 필요.

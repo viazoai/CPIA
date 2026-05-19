@@ -1,5 +1,7 @@
 import { promises as fs } from "fs";
 import path from "path";
+import sql from "./pg";
+import { deriveChatSequence } from "./transforms";
 import type {
   Site, SitesSummary, AgentStatus, DailyRun, AgentProgress, ChatMessage,
   WBSNode, ReviewItem, ReportDaily, ReportKpi, SCurvePoint, BarItem,
@@ -62,4 +64,138 @@ export async function loadFixture<K extends keyof FixtureMap>(name: K): Promise<
   const file = path.join(DATA_DIR, `mock_${name}.json`);
   const raw = await fs.readFile(file, "utf-8");
   return JSON.parse(raw) as FixtureMap[K];
+}
+
+/**
+ * Home 페이지용 PG 실 데이터 로더 (Task 5.1).
+ * loadFixture 와 동일한 시그니처를 따르되, mock JSON 대신 PG SELECT 결과를 반환.
+ * 다른 페이지는 loadFixture 를 계속 사용.
+ */
+export async function loadReal(name: "sites_summary"): Promise<SitesSummary>;
+export async function loadReal(name: "agent_status"): Promise<AgentStatus[]>;
+export async function loadReal(name: "chat_sequence"): Promise<Record<string, ChatMessage[]>>;
+export async function loadReal(name: string): Promise<unknown> {
+  switch (name) {
+    case "sites_summary": {
+      const [agg] = (await (sql as any)`
+        SELECT
+          COALESCE(SUM(atomized_count), 0) AS total_processed,
+          MAX(started_at) AS last_started
+        FROM pipeline_runs
+      `) as Array<{ total_processed: string | number; last_started: Date | string | null }>;
+
+      const [today] = (await (sql as any)`
+        SELECT COALESCE(atomized_count, 0) AS today_count
+        FROM pipeline_runs
+        WHERE status = 'completed'
+        ORDER BY started_at DESC
+        LIMIT 1
+      `) as Array<{ today_count: string | number }>;
+
+      const [siteAgg] = (await (sql as any)`
+        SELECT
+          COALESCE(SUM(hours_saved), 0) AS total_hours_saved,
+          COALESCE(SUM(fte_saved), 0) AS total_fte_saved,
+          COALESCE(SUM(hours_saved_cum), 0) AS total_hours_saved_cum,
+          COALESCE(SUM(headcount), 0) AS total_headcount
+        FROM sites
+      `) as Array<Record<string, string | number>>;
+
+      const [review] = (await (sql as any)`
+        SELECT COUNT(*) AS review_pending
+        FROM mapper_activities
+        WHERE requires_review = true
+      `) as Array<{ review_pending: string | number }>;
+
+      const [abnormal] = (await (sql as any)`
+        SELECT COUNT(*) AS abnormal_count
+        FROM forecasts
+        WHERE risk_level <> '정상'
+      `) as Array<{ abnormal_count: string | number }>;
+
+      const lastStarted = agg?.last_started ?? null;
+      const lastUpdated = lastStarted
+        ? (lastStarted instanceof Date ? lastStarted : new Date(lastStarted))
+            .toISOString()
+            .slice(11, 16)
+        : "—";
+
+      const totalHours = Number(siteAgg?.total_headcount ?? 0) * 140;
+      const hoursSaved = Number(siteAgg?.total_hours_saved ?? 0);
+      const aiRate = totalHours > 0 ? Math.round((hoursSaved / totalHours) * 10000) / 100 : 0;
+
+      return {
+        today_count: Number(today?.today_count ?? 0),
+        review_pending: Number(review?.review_pending ?? 0),
+        abnormal_count: Number(abnormal?.abnormal_count ?? 0),
+        last_updated: lastUpdated,
+        total_hours_saved: hoursSaved,
+        total_fte_saved: Number(siteAgg?.total_fte_saved ?? 0),
+        total_headcount: Number(siteAgg?.total_headcount ?? 0),
+        total_hours: totalHours,
+        ai_replacement_rate: aiRate,
+        yearly_saving: 0,
+        total_processed: Number(agg?.total_processed ?? 0),
+        total_hours_saved_cum: Number(siteAgg?.total_hours_saved_cum ?? 0),
+      } as SitesSummary;
+    }
+
+    case "agent_status": {
+      const AGENT_META: Array<Omit<AgentStatus, "active_count" | "state">> = [
+        { step: 1, name: "Collector",  korean_name: "수집", description: "작업일보 자동 수집",      model: "규칙 기반",     group: "collect" },
+        { step: 2, name: "Parser",     korean_name: "파싱", description: "엑셀 → 구조화 JSON",       model: "gpt-5.1",       group: "collect" },
+        { step: 3, name: "Mapper",     korean_name: "매핑", description: "WBS 매핑 + 확신도 산출",   model: "gpt-5.1 + RAG", group: "collect" },
+        { step: 4, name: "Atomizer",   korean_name: "적재", description: "Vector DB 적재",           model: "임베딩 모델",   group: "analyze" },
+        { step: 5, name: "Exporter",   korean_name: "출력", description: "통합 작업일보 생성",       model: "gpt-5.1",       group: "analyze" },
+        { step: 6, name: "Forecaster", korean_name: "진단", description: "생산성 진단",              model: "Sonnet 4.6",    group: "analyze" },
+        { step: 7, name: "Optimizer",  korean_name: "조언", description: "회복 조언",                model: "Opus 4.7",      group: "analyze" },
+      ];
+
+      const counts = (await (sql as any)`
+        SELECT current_node, COUNT(*) AS n
+        FROM pipeline_runs
+        WHERE status = 'running'
+        GROUP BY current_node
+      `) as Array<{ current_node: string | null; n: string | number }>;
+
+      const activeMap: Record<string, number> = {};
+      for (const r of counts) {
+        if (r.current_node) activeMap[String(r.current_node).toLowerCase()] = Number(r.n);
+      }
+      // pipeline_runs.current_node 의 'reporter' 는 web 의 Exporter agent 와 동일.
+      if (activeMap.reporter !== undefined) {
+        activeMap.exporter = (activeMap.exporter ?? 0) + activeMap.reporter;
+      }
+
+      return AGENT_META.map((a) => {
+        const n = activeMap[a.name.toLowerCase()] ?? 0;
+        return {
+          ...a,
+          active_count: n,
+          state: n > 0 ? "processing" : "idle",
+        } as AgentStatus;
+      });
+    }
+
+    case "chat_sequence": {
+      const [latest] = (await (sql as any)`
+        SELECT run_id, report_date
+        FROM pipeline_runs
+        WHERE status = 'completed'
+        ORDER BY started_at DESC
+        LIMIT 1
+      `) as Array<{ run_id: string; report_date: Date | string }>;
+
+      if (!latest) return {} as Record<string, ChatMessage[]>;
+
+      const messages = await deriveChatSequence(latest.run_id);
+      const dStr = typeof latest.report_date === "string"
+        ? latest.report_date.slice(0, 10)
+        : latest.report_date.toISOString().slice(0, 10);
+      return { [dStr]: messages };
+    }
+
+    default:
+      throw new Error(`loadReal: unknown name ${name}`);
+  }
 }

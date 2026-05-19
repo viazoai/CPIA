@@ -16,6 +16,7 @@ Spec: docs/superpowers/specs/2026-05-16-cpia-optimizer-hil2-design.md §7
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from collections import Counter
 from dataclasses import dataclass
@@ -28,7 +29,19 @@ from pipeline.agents.optimizer.prompt import (
     SYSTEM_PROMPT,
     build_llm_user_input,
 )
+from pipeline.agents.optimizer.view_builder import (
+    _build_contractor_bars,
+    _build_kpi,
+    _build_optimizer_view,
+    _build_productivity_views,
+    _build_quadrant,
+    _build_s_curve,
+    _build_trade_bars,
+    _build_wp_summary,
+)
 from pipeline.db import PGClient
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -110,6 +123,8 @@ async def optimize(
     run_id: uuid.UUID,
     today: date,
     cfg: OptimizerConfig,
+    site_id: Optional[str] = None,
+    mapped: Optional[list] = None,
 ) -> list[dict]:
     """선택된 그룹 별 advice row 생성 + PG insert. fail-fast (LLM crash = 전체 fail).
 
@@ -122,10 +137,13 @@ async def optimize(
         run_id: pipeline_runs run_id.
         today: 보고 일자.
         cfg: OptimizerConfig.
+        site_id: 현장 식별자 (sites.site_id) — view builder UPSERT 용.
+        mapped: Mapper 산출 Activity list — view builder 에 전달.
 
     Returns:
         advice row list (state["optimizer_advice"] 에 박힘).
     """
+    mapped = mapped or []
     advice_rows: list[dict] = []
     azure = AzureOpenAI(
         api_key=cfg.azure_api_key,
@@ -151,6 +169,29 @@ async def optimize(
     try:
         for row in advice_rows:
             await pg.insert_optimizer_advice(row)
+
+        # view builder 8 jsonb 산출 + daily_reports partial UPSERT
+        if site_id:
+            try:
+                productivity = await _build_productivity_views(pg, run_id, site_id, today, forecast, mapped)
+                quadrant = await _build_quadrant(pg, site_id, today, productivity)
+                view_jsonbs = {
+                    "productivity_jsonb": productivity,
+                    "kpi_jsonb": await _build_kpi(pg, site_id, today, productivity),
+                    "contractor_bars_jsonb": _build_contractor_bars(productivity),
+                    "trade_bars_jsonb": _build_trade_bars(productivity),
+                    "quadrant_jsonb": quadrant,
+                    "wp_summary_jsonb": await _build_wp_summary(pg, site_id, today, productivity, quadrant),
+                    "s_curve_jsonb": await _build_s_curve(pg, site_id, today),
+                    "optimizer_view_jsonb": _build_optimizer_view(advice_rows, forecast, mapped),
+                }
+                for col, val in view_jsonbs.items():
+                    try:
+                        await pg.upsert_daily_report_view_col(run_id, site_id, today, col, val)
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning("upsert %s fail: %s. partial write 유지.", col, e)
+            except Exception as e:  # noqa: BLE001
+                logger.error("build_optimizer_views fail: %s. backfill 으로 fallback.", e)
     finally:
         await pg.close()
     return advice_rows

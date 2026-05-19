@@ -29,6 +29,7 @@ from typing import Any
 import openpyxl
 from openai import AzureOpenAI
 
+from pipeline.agents import parser_post
 from pipeline.state import ParsedDailyReport
 
 
@@ -132,8 +133,26 @@ def _is_job_alloc_signal_row(d: dict[int, Any]) -> bool:
     return True
 
 
+_MARKER_PATTERNS = {"M15 PH-X", "FAB", "CUB", "M15X", "M15 X"}
+_BP_CODE_RE = re.compile(r"^PH_X-\d+$")
+
+
+def _is_real_bp(value: str | None) -> bool:
+    """진짜 BP사 식별 — BP 코드 ('PH_X-123') 또는 한글 회사명."""
+    if not value:
+        return False
+    s = str(value).strip()
+    if s in _MARKER_PATTERNS:
+        return False
+    if _BP_CODE_RE.match(s):
+        return True
+    if any("가" <= c <= "힣" for c in s):  # 한글 검사
+        return True
+    return False
+
+
 def _is_equipment_signal_row(d: dict[int, Any]) -> bool:
-    """시트3 row 의미있는지 — 0 대수 / 합계 row skip."""
+    """시트3 row 의미있는지 — 0 대수 / marker row / 합계 row skip."""
     for v in d.values():
         if isinstance(v, str) and "투입 Total" in v:
             return False
@@ -145,7 +164,8 @@ def _is_equipment_signal_row(d: dict[int, Any]) -> bool:
         pass
     big = str(d.get(3, "") or "").strip()
     mid = str(d.get(4, "") or "").strip()
-    return bool(big and mid)
+    bp = d.get(2)
+    return bool(big and mid and _is_real_bp(bp))
 
 
 # ---------------------------------------------------------------------------
@@ -157,95 +177,101 @@ _TIMESHIFT_SCHEMA = (
     '"night": int, "all_night": int, "total": int }'
 )
 
-_SYS_BP_SUMMARIES = f"""당신은 건설 작업일보 파서. 시트1 (출력인원 현황) 의 raw row JSON 을 받아 BPSummary 객체 list 로 추출.
+_SYS_BP_SUMMARIES = f"""당신은 건설 작업일보 시트1 (출력인원 현황) 파서. raw row JSON → BPSummaryRaw list (1 row = 1 출력).
 
-# 컬럼 의미
-입력의 header_map 참조 (col_idx → 헤더 의미).
+# 입력
+header_map = col_idx → 헤더 의미.
+rows = list[dict[col_idx, value]] — 각 row 가 1 BP 단위 row.
 
-# BPSummary 출력 schema
+# BPSummaryRaw 출력 schema (각 row 1개)
 {{
-  "bp_code":        BP 코드 (PH_X-... 류) 또는 null,
-  "company":        회사명 (한글) — required,
-  "disc_abbrev":    공종 한글 ("건축"/"설비"/"전기"/"공통가설"/"UT"/"제어"/"토목"/"소방설비"/"소방전기"...).
-                    영문 약자 [TE/AR/CI/ME/EL/UT/IN] 도 받아 한글로 변환,
-  "zone":           "FAB" / "CUB" / "FAB/CUB" 또는 null,
-  "scope":          Scope 컬럼 텍스트 (Zone 별 작업 위치) 또는 null,
-  "work_text_yesterday": 전일 작업사항 자연어 또는 null,
-  "work_text_today":     금일 작업사항 자연어 또는 null,
-  "work_text_tomorrow":  명일 작업사항 자연어 또는 null,
-  "workers_yesterday_incr": {_TIMESHIFT_SCHEMA} 또는 null,
-  "workers_yesterday_cum":  {_TIMESHIFT_SCHEMA} 또는 null,
-  "workers_today_incr":     {_TIMESHIFT_SCHEMA} 또는 null,
-  "workers_today_cum":      {_TIMESHIFT_SCHEMA} 또는 null,
-  "today_incr_total": int,
-  "today_cum_total":  int
+  "row_idx": int,
+  "col_4_value": str|null,
+  "is_bp_code": bool,
+  "is_korean_company": bool,
+  "bp_code": str|null,
+  "company": str|null,
+  "disc_abbrev": str|null,
+  "zone": str|null,
+  "scope": str|null,
+  "work_text_today": str|null,
+  "workers_today_cum": {_TIMESHIFT_SCHEMA}|null,
+  "today_cum_total": int|null
 }}
 
 # 핵심 규칙
-1. **2-row group 페어링**: 통합 작업일보 는 한 BP사가 2 row 로 분할 표시 가능.
-   - BP 코드 row: col 4 = "PH_X-..." 류 (영문/숫자/-/_)
-   - 회사명 row: col 4 = 한글 회사명
-   - 인접 row 가 같은 zone/disc 면 페어. 두 row 의 work_text/scope/zone/disc/인원수
-     중 채워진 값을 머지해서 **하나의 BPSummary** 로 출력 (company=한글 회사명, bp_code=BP 코드).
-2. BP 코드 row 만 있고 회사명 row 없는 경우: company=BP 코드 자체 그대로.
-3. 회사명 row 만 있는 경우: bp_code=null.
-4. work_text 와 모든 인원수 0 둘 다 인 row 는 skip.
-5. 시간대 6 필드 (조출/주간/연장/야간/철야/Total) 누락 시 각 0.
-6. **추측 금지** — header_map 에 명시된 col_idx 값만 사용. 다른 시트의 정보 끌어오지 말 것.
-
-# 출력 형식
-{{ "bp_summaries": [BPSummary, ...] }}
-"""
-
-_SYS_JOB_ALLOCATIONS = f"""당신은 건설 작업일보 시트2 (직종별 인원현황) 파서. raw row JSON → JobAllocation list.
-
-# JobAllocation 출력 schema
-{{
-  "bp_code":      PH_X-... 또는 null,
-  "company":      회사명 — required,
-  "disc_abbrev":  공종 한글,
-  "manager_code": "Mm##" (관리자/근로자 코드) 또는 null,
-  "worker_code":  "sk##" (기능공 코드) 또는 null,
-  "job_type":     직종 — required (예: 형틀목수, 철근공, 배관공, ...),
-  "workers_yesterday_cum": {_TIMESHIFT_SCHEMA} 또는 null,
-  "workers_today_incr":    {_TIMESHIFT_SCHEMA} 또는 null,
-  "workers_today_cum":     {_TIMESHIFT_SCHEMA} 또는 null,
-  "final_flag":   "O" 또는 "X" 또는 null,
-  "workers_cum_t": int (금일누계 Total)
-}}
-
-# 규칙
-1. 관리자 직종 (BP소장/공사관리자/안전관리자/품질관리자/일반관리자) 은 입력에서 사전 필터됨. job_type 은 기능공 명만.
-2. row 의 BP사 row 와 직종 row 가 분리돼 있으면 동일 BP사 단위로 페어링.
+1. **각 input row = 1 BPSummaryRaw**. len(rows) == len(bp_summaries_raw). 페어링 X (post-processing 책임).
+2. col 4 = "PH_X-..." 면 is_bp_code=true, bp_code=col4 값. 한글이면 is_korean_company=true, company=col4 값.
 3. 시간대 6 필드 누락 시 각 0.
+4. **추측 X** — header_map 명시된 col 값만. 모르면 null.
 
-# 출력 형식
-{{ "job_allocations": [JobAllocation, ...] }}
+# 출력
+{{ "bp_summaries_raw": [BPSummaryRaw, ...] }}
 """
 
-_SYS_EQUIPMENT_ALLOCATIONS = f"""당신은 건설 작업일보 시트3 (장비현황) 파서. raw row JSON → EquipmentAllocation list.
+_SYS_JOB_ALLOCATIONS = f"""당신은 건설 작업일보 시트2 (직종별 인원현황) 파서. raw row JSON → JobAllocationRaw list (1 row = 1 출력).
 
-# EquipmentAllocation 출력 schema
+# 입력 col 의미
+- col 1 = 공종 (한글), col 2 = BP사 (BP 코드 또는 한글 회사명)
+- col 3 = 직종 코드 (Mm##=관리자, Wk##=기능공 둘 다 가능)
+- col 4 = 근로자 코드 (sk##)
+- col 5 = 직종명 (한글)
+- col 6~22 = 시간대별 인원 (header_map 명시된 col 의미만 사용)
+- col 23 = 금일누계 Cum.T
+
+# JobAllocationRaw 출력 schema (각 input row 1개)
 {{
-  "bp_code":      PH_X-... 또는 null,
-  "company":      회사명 — required,
-  "disc_abbrev":  공종 한글 또는 null,
-  "equipment_big":   장비 대분류 (예: 굴삭운반기계류) — required,
-  "equipment_mid":   장비 중분류 (예: Back Hoe) — required,
-  "equipment_spec":  규격 (예: "2㎥ 미만") 또는 null,
-  "count_yesterday_cum": {_TIMESHIFT_SCHEMA} 또는 null,
-  "count_today_incr":    {_TIMESHIFT_SCHEMA} 또는 null,
-  "count_today_cum":     {_TIMESHIFT_SCHEMA} 또는 null,
-  "final_flag":   "O" / "X" / null,
-  "count_cum_t":  int (금일투입누계 Total)
+  "row_idx": int,
+  "company_or_bp": str|null,
+  "disc_code": str|null,
+  "worker_code": str|null,
+  "job_type": str|null,
+  "disc_abbrev": str|null,
+  "workers_today_cum": {_TIMESHIFT_SCHEMA}|null,
+  "workers_cum_t": int|null,
+  "final_flag": "O"|"X"|null
 }}
 
-# 규칙
-1. 시간대 6 필드 누락 시 각 0.
-2. 0 대수 row 는 사전 필터됨.
+# 핵심 규칙
+1. **각 input row = 1 JobAllocationRaw**. len(rows) == len(items).
+2. disc_code 는 raw 그대로 (Mm## 또는 Wk##). 의미 해석 X.
+3. 모르는 필드 null. 시간대 6 필드 누락 시 각 0.
 
-# 출력 형식
-{{ "equipment_allocations": [EquipmentAllocation, ...] }}
+# 출력
+{{ "job_allocations_raw": [JobAllocationRaw, ...] }}
+"""
+
+_SYS_EQUIPMENT_ALLOCATIONS = f"""당신은 건설 작업일보 시트3 (장비현황) 파서. raw row JSON → EquipmentAllocationRaw list (1 row = 1 출력).
+
+# 입력 col 의미
+- col 1 = 공종 한글
+- col 2 = BP사 (BP 코드 "PH_X-..." 또는 한글 회사명)
+- col 3 = 장비 대분류 (필수)
+- col 4 = 장비 중분류 (필수)
+- col 5 = 규격
+- col 6~ 시간대별 (header_map 명시)
+- col 23 = 금일투입누계 Total
+
+# EquipmentAllocationRaw schema
+{{
+  "row_idx": int,
+  "company_or_bp": str|null,
+  "disc_abbrev": str|null,
+  "equipment_big": str|null,
+  "equipment_mid": str|null,
+  "equipment_spec": str|null,
+  "count_today_cum": {_TIMESHIFT_SCHEMA}|null,
+  "count_cum_t": int|null,
+  "final_flag": "O"|"X"|null
+}}
+
+# 핵심 규칙
+1. 각 row = 1 EquipmentAllocationRaw.
+2. **marker row 사전 filter 됨** — input rows 에 'M15 PH-X' / 'FAB' / 'CUB' 같은 marker 없음. 정상 BP사 row 만.
+3. company_or_bp 는 col 2 raw 그대로.
+
+# 출력
+{{ "equipment_allocations_raw": [EquipmentAllocationRaw, ...] }}
 """
 
 _SYS_ACTIVITIES = """건설 작업일보 시트4 (물량) 파서. 입력의 rows 리스트의 **각 row 가 1 Activity** 입니다.
@@ -286,9 +312,10 @@ rows 갯수와 동일한 수의 Activity 를 출력하세요 (절대 빈 list �
 
 # 핵심 규칙
 1. 입력 rows 의 **모든 row 가 1 Activity** — len(rows) == len(activities).
-2. company 는 한글 회사명 우선 (header "업체명" 또는 한글 row 값). 회사명 없으면 BP 코드 그대로.
-3. trade / l5_disc 동일 값 (둘 다 한글 공종명).
-4. 누락 필드는 null. 추측 X. 0 도 OK (today_qty=0 정상).
+2. **list 안에는 반드시 object (dict) 만**. 문자열 / 숫자 직접 배치 X.
+3. company 는 한글 회사명 우선 (header "업체명" 또는 한글 row 값). 회사명 없으면 BP 코드 그대로.
+4. trade / l5_disc 동일 값 (둘 다 한글 공종명).
+5. 누락 필드는 null. 추측 X. 0 도 OK (today_qty=0 정상).
 
 # 출력 (JSON 만)
 { "activities": [Activity, ...] }
@@ -347,17 +374,23 @@ def _llm_extract_sync(
     system_prompt: str,
     user_payload: dict,
     response_key: str,
-    retries: int = 1,
+    retries: int = 2,
     max_completion_tokens: int = 16000,
 ) -> Any:
     """LLM 1 호출 → JSON 파싱 → response_key 값 반환.
 
-    JSON parse 실패 / truncated 시 retries 회 재시도. 끝까지 실패하면 빈 list 또는 None.
-    truncation 진단 위해 stderr 로 finish_reason + raw 길이 + 첫 200 chars log.
+    Retry trigger:
+      - JSON parse 실패
+      - truncated (finish_reason='length')
+      - content_filter (finish_reason='content_filter')
+      - 빈 list 응답 (input rows > 0 인데 결과 [])
     """
     import sys as _sys
 
+    input_rows_count = len(user_payload.get("rows", [])) if isinstance(user_payload, dict) else 0
+
     last_err: Exception | None = None
+    last_result: Any = None
     for attempt in range(retries + 1):
         try:
             resp = client.chat.completions.create(
@@ -383,8 +416,18 @@ def _llm_extract_sync(
             if finish_reason == "length":
                 last_err = RuntimeError(f"truncated (max_completion_tokens={max_completion_tokens})")
                 continue
+            if finish_reason == "content_filter":
+                last_err = RuntimeError("content_filter blocked")
+                if last_result is None:
+                    last_result = []  # content_filter block → 빈 리스트로 폴백, raise 방지
+                continue
             obj = json.loads(raw)
-            return obj.get(response_key)
+            result = obj.get(response_key)
+            if input_rows_count > 0 and isinstance(result, list) and len(result) == 0:
+                last_err = RuntimeError(f"empty list returned (input rows={input_rows_count})")
+                last_result = result
+                continue
+            return result
         except Exception as e:  # noqa: BLE001
             last_err = e
             print(
@@ -393,6 +436,9 @@ def _llm_extract_sync(
                 flush=True,
             )
             continue
+    if last_result is not None:
+        print(f"[parser_llm] key={response_key} all retries failed, returning last_result", file=_sys.stderr, flush=True)
+        return last_result
     raise RuntimeError(f"LLM extract '{response_key}' 실패 {retries+1}회: {last_err}")
 
 
@@ -519,20 +565,20 @@ async def parse_daily_report_llm(
 
     tasks: dict[str, asyncio.Task] = {}
     if "bp_summaries" in payloads:
-        tasks["bp_summaries"] = asyncio.create_task(
-            _call_list(_SYS_BP_SUMMARIES, payloads["bp_summaries"], "bp_summaries", chunk_size=40)
+        tasks["bp_summaries_raw"] = asyncio.create_task(
+            _call_list(_SYS_BP_SUMMARIES, payloads["bp_summaries"], "bp_summaries_raw", chunk_size=15)
         )
     if "job_allocations" in payloads:
-        tasks["job_allocations"] = asyncio.create_task(
-            _call_list(_SYS_JOB_ALLOCATIONS, payloads["job_allocations"], "job_allocations", chunk_size=40)
+        tasks["job_allocations_raw"] = asyncio.create_task(
+            _call_list(_SYS_JOB_ALLOCATIONS, payloads["job_allocations"], "job_allocations_raw", chunk_size=15)
         )
     if "equipment_allocations" in payloads:
-        tasks["equipment_allocations"] = asyncio.create_task(
-            _call_list(_SYS_EQUIPMENT_ALLOCATIONS, payloads["equipment_allocations"], "equipment_allocations", chunk_size=40)
+        tasks["equipment_allocations_raw"] = asyncio.create_task(
+            _call_list(_SYS_EQUIPMENT_ALLOCATIONS, payloads["equipment_allocations"], "equipment_allocations_raw", chunk_size=15)
         )
     if "activities" in payloads:
         tasks["activities"] = asyncio.create_task(
-            _call_list(_SYS_ACTIVITIES, payloads["activities"], "activities", chunk_size=30)
+            _call_list(_SYS_ACTIVITIES, payloads["activities"], "activities", chunk_size=15)
         )
     if "worker_outputs" in payloads:
         tasks["worker_outputs"] = asyncio.create_task(
@@ -547,6 +593,14 @@ async def parse_daily_report_llm(
     for k, t in tasks.items():
         results[k] = await t
 
+    # post-processing: raw → 정제된 entity
+    bp_summaries = parser_post.transform_bp_summaries(results.get("bp_summaries_raw") or [])
+    job_allocations = parser_post.transform_job_allocations(results.get("job_allocations_raw") or [])
+    equipment_allocations = parser_post.transform_equipment_allocations(
+        results.get("equipment_allocations_raw") or []
+    )
+    activities = results.get("activities") or []  # 이미 final shape (raw 변환 X)
+
     # project 명: Cover.project_name 우선, 그 다음 파일명 stem.
     rm = results.get("report_meta") or {}
     project = (rm.get("project_name") if isinstance(rm, dict) else None) or xlsx_path.stem
@@ -554,10 +608,10 @@ async def parse_daily_report_llm(
     parsed: ParsedDailyReport = {
         "report_date": report_date or (rm.get("report_date") if isinstance(rm, dict) else "") or "",
         "project": project,
-        "bp_summaries": results.get("bp_summaries") or [],
-        "job_allocations": results.get("job_allocations") or [],
-        "equipment_allocations": results.get("equipment_allocations") or [],
-        "activities": results.get("activities") or [],
+        "bp_summaries": bp_summaries,
+        "job_allocations": job_allocations,
+        "equipment_allocations": equipment_allocations,
+        "activities": activities,
         "worker_outputs": results.get("worker_outputs") or [],
         "report_meta": rm if isinstance(rm, dict) and rm else None,
     }

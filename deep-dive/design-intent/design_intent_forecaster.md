@@ -376,3 +376,62 @@ Mapper 출력 + Chroma 유사 과거 일일 활동 retrieval → 공종별 생�
 - **한자 사용 0건**: prompt.py SYSTEM_PROMPT + few-shot 모두 한글만.
 - **TODO/NotImplementedError 0건**.
 - **테스트 커버리지**: 72 케이스 (classify 21 + aggregate 10 + rerank 13 + synthetic 6 + prompt 2 + agent 1 + e2e + integration).
+
+---
+
+## 2026-05-19 FE↔BE 연결 + 6 BE 적재 보완 cycle 변경 (Git SHA cf3c143)
+
+### T1 갱신
+
+- `forecast` (agent.py:229) — group 빌드 단계에서 "work_content 빈 activity skip": `if not a.get("work_content"): continue` (agent.py:255). 빈 work_content 만 모인 group 의 빈 embedding 호출 회피.
+- `_forecast_one_group` (agent.py:67) — "work_content / conditions None 안전 처리":
+  - agent.py:91 `work_content = " / ".join(set(a["work_content"] for a in activities if a.get("work_content")))[:200]` (빈 활동 필터 + 200 자 cut).
+  - agent.py:92 `conditions_set = sorted(set(c for a in activities for c in (a.get("conditions") or [])))` (None 빈 list fallback).
+
+### T2 신규 카드
+
+#### F-N1: work_content 빈 activity / group skip
+
+- **위치**: `pipeline/agents/forecaster/agent.py:255` (forecast group 빌드 라인) + agent.py:91 (group 안 work_content 합치기 단계)
+- **변경 라인**:
+  - `forecast` (agent.py:251-258): group key 산출 직전 `if not a.get("work_content"): continue`.
+  - `_forecast_one_group` (agent.py:91): `" / ".join(set(... if a.get("work_content")))`.
+- **이슈**:
+  - 본 cycle 신규 (PR #28, 2026-05-19) — 이전 코드는 a["work_content"] 가 None / "" 인 activity 도 group 에 포함. work_content 가 모두 None 인 group → 합쳐진 work_content="" → `azure.embeddings.create(input=[""])` HTTP 400.
+  - atomizer A-N1 과 동일한 빈 입력 문제. 이중 안전망 (atomizer 에서 1차 제거 + forecaster 에서 2차 제거).
+- **설계 의도**:
+  - Azure embedding pre-call guard — 빈 input 회피.
+  - 2 단계 필터: ① group 빌드 시 빈 work_content activity 자체 제외 (`forecast` 안), ② group 안에서 합치기 시 truthy 만 join (`_forecast_one_group` 안). ② 가 ① 의 안전망 (방어적).
+  - work_content="" 인 group 이 entirely empty → group dict 에 key 추가 안 됨 → embedding 호출 자체 안 일어남.
+- **대응 패턴**:
+  - 발동: `forecast` 의 mapped iterate 단계 (agent.py:252).
+  - 입력: mapped Activity list.
+  - 처리: l6_main not None + work_content truthy 모두 통과한 row 만 group 진입.
+  - 출력: 빈 work_content group 0 개 (downstream 안전).
+- **관련**:
+  - atomizer A-N1 (atomizer.py:69) — 자매 가드 (이중 안전망).
+  - 실 검증: run_id=627e2c4d (2026-05-19) 에서 forecasts=4 정상 생성.
+- **Suspected related** (2026-05-19 stale):
+  - parser LLM 의 work_content 누락 자체는 mapper drift — 별 cycle.
+
+#### F-N2: conditions None 안전 처리
+
+- **위치**: `pipeline/agents/forecaster/agent.py:92`
+- **변경 라인**: `conditions_set = sorted(set(c for a in activities for c in (a.get("conditions") or [])))`
+- **이슈**:
+  - 본 cycle 신규 (PR #28, 2026-05-19) — 이전 코드는 `a["conditions"]` 직접 접근 → mapper 가 conditions 키 누락한 경우 KeyError. atomizer A-N2 와 정확히 동일 패턴.
+- **설계 의도**:
+  - 방어적 dict 접근: `.get("conditions") or []` — None / 누락 모두 빈 list fallback.
+  - atomizer A-N2 와 정합 — 동일한 mapper drift 에 대해 atomizer / forecaster 양쪽에 같은 가드 (방어적 일관성).
+  - 결과 `conditions_set` 는 sorted set → forecast row 의 `today_conditions` CSV 필드 (agent.py:225) source.
+- **대응 패턴**:
+  - 발동: `_forecast_one_group` ① 집계 단계 (agent.py:92).
+  - 입력: group 의 activities list.
+  - 처리: 각 activity 의 conditions (없으면 [])  → flatten → set → sorted list.
+  - 출력: conditions_set (이후 today_conditions / similar_cases conditions 비교에 사용).
+- **관련**:
+  - atomizer A-N2 (atomizer.py:58) — 동일 패턴.
+  - forecast row 27 컬럼의 today_conditions (db.py:insert_forecast 의 main_unit + today_conditions 쌍).
+  - mapper.py — conditions 누락 path (drift, 별 cycle).
+- **Suspected related** (2026-05-19 stale):
+  - mapper 의 conditions 누락 자체는 mapper drift backlog 별도 cycle.

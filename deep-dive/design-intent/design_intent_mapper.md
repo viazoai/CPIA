@@ -256,3 +256,84 @@ Parser 출력 Activity 를 WBS 매핑. 6단계 흐름 (BP filter → 임베딩 �
 - **LLM prompt 순수 한글**: SYSTEM/USER 메시지 모두 한국어, 한자 0건 (mapper.py:283-299).
 - **PoC 정확도 (v3 시뮬)**: 자동 98.7% (79/79), confidence 0.55 1건 → HIL 1 발동 → 운영 정확도 100%. WA 결정 1단계 30% (세보) + 2단계 9% (창원) + 4단계 61% (남웅).
 - **dead code 후보**: `WAResolution.source="auto_sheet1_text"` 라벨은 정의만 있고 GATE 2 활성화 전까지 반환되지 않음 (의도된 미활성).
+
+---
+
+## 2026-05-19 FE↔BE 연결 + 6 BE 적재 보완 cycle (Git SHA cf3c143, PR #28)
+
+### T1 신규 / 변경
+
+| Function/Class | File:Line | Signature | One-line role | T2? |
+|---|---|---|---|---|
+| `_select_top_k_alternatives` | `pipeline/agents/mapper.py:213-221` | `(candidates: list[dict[str, Any]], k: int = 3) -> list[dict[str, Any]]` | G23 — RAG candidate 중 score 내림차순 top-K 추출, FE review dropdown 용 `{wa, l6_main, score}` jsonb payload | ✅ |
+
+T1 변경 (기존 함수):
+
+| Function/Class | File:Line | 본 cycle 노트 |
+|---|---|---|
+| `map_activity` | `pipeline/agents/mapper.py:242-394` | Chroma `coll.query(...)` 의 `include` 에 `"distances"` 추가 (mapper.py:290). candidates 원소에 `score = 1.0 - dist` 채움 (mapper.py:298-305). 정상 return path 에 `"alternatives": _select_top_k_alternatives(candidates, k=3)` 추가 (mapper.py:393). HIL 3 경로 (Chroma empty mapper.py:311 / JSON parse fail mapper.py:351 / choice out-of-range mapper.py:362) 는 alternatives 키 안 set — DB DEFAULT '[]' 적용. |
+
+### T2 신규 카드
+
+#### M-G23-1 — RAG top-K alternatives jsonb 적재
+
+- **위치**: `pipeline/agents/mapper.py:213-221` (helper) + `pipeline/agents/mapper.py:393` (호출).
+- **이슈**:
+  - 마이그: `infra/postgres/migrations/2026-05-19_mapper_alternatives.sql` — `mapper_activities` 에 `alternatives jsonb NOT NULL DEFAULT '[]'` 컬럼 추가.
+  - FE review 페이지의 "대안 WP 후보" dropdown 데이터 소스. 본 cycle 직전엔 dropdown 이 비어있었음.
+  - 본 cycle 검증 (run_id=627e2c4d): mapper_activities 6/6 row 의 alternatives jsonb 가 `[{"wa":..., "l6_main":..., "score":...}, ...]` 3건씩 채워짐 (alt_ok=6/6).
+- **설계 의도**:
+  - top_k=15 Chroma 결과 (cfg 기본값, mapper.py:237) 중 score 내림차순 정렬 → 상위 K=3 만 dropdown 노출. 너무 많은 후보가 PM 의 review UI 를 흐리지 않도록 hard cap.
+  - score 정의 = `1.0 - cosine_distance` — Chroma collection 이 `hnsw:space=cosine` 으로 생성된 가정 (mapper.py:296-297 주석).
+  - 반환 dict 키 = `{wa, l6_main, score}` 만 — `doc_text` 등 raw 는 제외 (FE 가 별도 SELECT 시 join).
+  - 정렬 안정성: Python `sorted` 는 stable — 동일 score 시 candidates 순서 유지 (Chroma 검색 순서 = 기본 distance 오름차순).
+- **대응 패턴**:
+  - 발동: `map_activity` 의 ⑥ 단계 (정상 LLM choice 통과 후)
+  - 입력: 누적 candidates list (Chroma top_k 까지 + max_candidates 컷오프)
+  - 처리: `sorted(candidates, key=lambda c: c["score"], reverse=True)[:k]` → `{wa, l6_main, score}` map
+  - 출력: `list[dict]` (≤ K 길이, 비어있을 수 있음)
+- **관련**:
+  - 호출자: `map_activity:393`
+  - PG INSERT 경로: `mapper_activities.alternatives` 컬럼 (db.py:652 / 693 / 727 부근)
+  - 마이그: `infra/postgres/migrations/2026-05-19_mapper_alternatives.sql`
+  - FE 소비처: `web/app/sites/[id]/review` (B_Track) — alternatives jsonb 를 `<select>` options 로 렌더
+
+#### M-G23-2 — HIL 경로의 alternatives 미적용
+
+- **위치**: `pipeline/agents/mapper.py:311-319` (Chroma empty) + `pipeline/agents/mapper.py:351-358` (LLM JSON parse fail) + `pipeline/agents/mapper.py:362-369` (choice out-of-range) 3 군데.
+- **이슈**:
+  - 본 cycle 의도적 설계 — `requires_review=True` 로 빠지는 3 HIL 경로는 `alternatives` 키를 return dict 에 안 채움.
+  - PG INSERT 시 컬럼이 빠지면 DB DEFAULT '[]' (마이그) 적용 → FE 가 "후보 0개" 로 정상 표시.
+- **설계 의도**:
+  - HIL 경로 = 자동 매핑 실패 = candidates 자체가 의미 없는 상태 (빈 / LLM 거절 / 범위 밖). 그 candidates 의 top-K 를 보여주는 건 사용자 혼란.
+  - FE 가 후보 0개일 때 자유 입력 필드만 노출 (B_Track 의 design 의도).
+  - 의도된 silent — assertion 안 함, DB DEFAULT 가 안전망.
+- **대응 패턴**:
+  - 발동: HIL 3 경로 진입
+  - 입력: 동일
+  - 처리: return dict 에 alternatives 키 생략
+  - 출력: PG row 의 alternatives = '[]'::jsonb
+- **관련**:
+  - 페어 카드: M-G23-1 (정상 path)
+  - DB DEFAULT: `infra/postgres/migrations/2026-05-19_mapper_alternatives.sql`
+- **Suspected related** (2026-05-19 stale):
+  - LLM JSON parse fail 경로 (mapper.py:351) 에서도 일부 candidates 는 의미 있을 수 있음 — 후속 cycle 에서 "LLM fail 이지만 top-K score 자체는 노출" 옵션 검토 가능 (drift backlog, low).
+
+#### M-G23-3 — score 음수 가능성
+
+- **위치**: `pipeline/agents/mapper.py:304` (`"score": 1.0 - dist`).
+- **이슈**:
+  - Chroma cosine distance ∈ [0, 2] (벡터가 반대 방향이면 dist=2 → score=-1). 실제로는 임베딩 모델 (text-embedding-3-small) 출력의 코사인 유사도가 음수 영역에 들어가는 케이스가 드물지만 이론상 가능.
+  - 본 cycle 검증 (run_id=627e2c4d) 의 6 row 에서는 score ∈ [0.32, 0.78] 관측 — 음수 미발생.
+- **설계 의도**:
+  - cosine 정의 그대로 노출 (clamp 없음) — 본 cycle 의도. clamping 은 FE 책임으로 위임 (`max(0, score)` 또는 progress bar 음수 처리).
+  - score 가 음수면 사용자에게도 "매우 부적합" 신호로 의미 있음 — backend 에서 0 으로 깎으면 정보 손실.
+- **대응 패턴**:
+  - 발동: `map_activity` ③ 단계
+  - 입력: Chroma distance float
+  - 처리: `1.0 - dist` 직역
+  - 출력: float (음수 가능)
+- **관련**:
+  - FE clamping: `web/app/sites/[id]/review` (B_Track) 의 progress bar / 색상 매핑 검토 필요 (drift backlog #FE-score-clamp).
+- **Suspected related** (2026-05-19 stale, Drift backlog):
+  - Chroma collection `hnsw:space` 확인 — `cosine` 이 아니라 `l2` 인 경우 distance range 가 [0, ∞) → score 가 매우 큰 음수. `pipeline/chroma_client.py` 의 collection 생성 시 metadata 검증 후 cycle. low priority.

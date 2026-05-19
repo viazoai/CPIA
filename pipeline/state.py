@@ -230,6 +230,7 @@ class CPIAState(TypedDict):
     run_id: str
     date: str
     input_files: list[str]
+    site_id: str | None  # 현장 식별자 (sites.site_id) — Optimizer view builder UPSERT 용
 
     # 파이프라인 누적
     raw_texts: dict[str, str]
@@ -255,3 +256,48 @@ class CPIAState(TypedDict):
         "completed",
         "failed",
     ]
+
+
+class BPSummaryRaw(TypedDict, total=False):
+    """시트 1 의 row 단위 1:1 LLM 출력. parser_post.pair_bp_summaries (A.6) 가 페어링."""
+
+    row_idx: int
+    col_4_value: str | None
+    is_bp_code: bool
+    is_korean_company: bool
+    bp_code: str | None
+    company: str | None
+    disc_abbrev: str | None
+    zone: str | None
+    scope: str | None
+    work_text_today: str | None
+    workers_today_cum: dict | None
+    today_cum_total: int | None
+
+
+class JobAllocationRaw(TypedDict, total=False):
+    """시트 2 의 row 단위 1:1 LLM 출력. parser_post (A.6) 가 페어링."""
+
+    row_idx: int
+    company_or_bp: str | None
+    disc_code: str | None  # Mm## 또는 Wk## (raw)
+    worker_code: str | None  # sk##
+    job_type: str | None
+    disc_abbrev: str | None
+    workers_today_cum: dict | None
+    workers_cum_t: int | None
+    final_flag: str | None
+
+
+class EquipmentAllocationRaw(TypedDict, total=False):
+    """시트 3 의 row 단위 1:1 LLM 출력."""
+
+    row_idx: int
+    company_or_bp: str | None
+    disc_abbrev: str | None
+    equipment_big: str | None
+    equipment_mid: str | None
+    equipment_spec: str | None
+    count_today_cum: dict | None
+    count_cum_t: int | None
+    final_flag: str | None

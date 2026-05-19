@@ -31,25 +31,6 @@ export function meanReversionRecovery(
   };
 }
 
-/* ───── 결정적 PRNG ───── */
-function hashString(s: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
-}
-
-function mulberry32(seed: number): () => number {
-  return () => {
-    let t = (seed += 0x6d2b79f5);
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
 /* ───── EWMA ───── */
 function ewma(values: (number | undefined)[], lambda: number): number[] {
   const out: number[] = [];
@@ -62,14 +43,12 @@ function ewma(values: (number | undefined)[], lambda: number): number[] {
   return out;
 }
 
-/* ───── 시나리오 곡선 생성 ───── */
+/* ───── 시나리오 곡선 생성 (deterministic linear) ───── */
 function buildScenarioCurve(
   s_curve: SCurvePoint[],
   todayIdx: number,
   lastActual: number,
   perStepRate: number,
-  rand: () => number,
-  noise: number,
 ): (number | null)[] {
   const out: (number | null)[] = [];
   let cum = lastActual;
@@ -79,8 +58,7 @@ function buildScenarioCurve(
     } else if (i === todayIdx) {
       out.push(lastActual);                 // 오늘 — 실적선과 연결되는 시작점
     } else {
-      const jitter = (rand() - 0.5) * noise;
-      cum = Math.min(100, Math.max(0, cum + perStepRate * (1 + jitter)));
+      cum = Math.min(100, Math.max(0, cum + perStepRate));
       out.push(cum);
     }
   }
@@ -89,8 +67,7 @@ function buildScenarioCurve(
 
 /* ───── 진단 메인 ───── */
 export function diagnose(input: DiagnosisInput): ProductivityDiagnosis {
-  const { site_id, today_progress, history_mean, history_std, sample_size, s_curve } = input;
-  const rand = mulberry32(hashString(site_id));
+  const { today_progress, history_mean, history_std, sample_size, s_curve } = input;
 
   const productivity_score = (today_progress / history_mean) * 100;
   const gap_pct = productivity_score - 100;
@@ -117,9 +94,9 @@ export function diagnose(input: DiagnosisInput): ProductivityDiagnosis {
   const optimisticStep = baseStep * 1.18;
   const pessimisticStep = today_progress / 4;
 
-  const baseCurve = buildScenarioCurve(s_curve, todayIdx, lastActual, baseStep, rand, 0.05);
-  const optCurve  = buildScenarioCurve(s_curve, todayIdx, lastActual, optimisticStep, rand, 0.08);
-  const pessCurve = buildScenarioCurve(s_curve, todayIdx, lastActual, pessimisticStep, rand, 0.05);
+  const baseCurve = buildScenarioCurve(s_curve, todayIdx, lastActual, baseStep);
+  const optCurve  = buildScenarioCurve(s_curve, todayIdx, lastActual, optimisticStep);
+  const pessCurve = buildScenarioCurve(s_curve, todayIdx, lastActual, pessimisticStep);
 
   const base: ScenarioPoint = {
     eta_days: finite ? Math.round(recovery.p50) : Infinity,

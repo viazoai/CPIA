@@ -648,7 +648,9 @@ class PGClient:
                      yesterday_cum_qty, today_cum_qty,
                      progress_percent, remaining_qty, remaining_percent,
                      note, work_location_code,
-                     wbs_mid_name, wbs_sub_name, wbs_detail_name)
+                     wbs_mid_name, wbs_sub_name, wbs_detail_name,
+                     alternatives,
+                     cum_workers_today, cum_actual_mh_today)
                 VALUES ($1, $2, $3,
                         $4, $5, $6, $7,
                         $8, $9, $10, $11, $12,
@@ -659,7 +661,9 @@ class PGClient:
                         $21, $22,
                         $23, $24, $25,
                         $26, $27,
-                        $28, $29, $30)
+                        $28, $29, $30,
+                        $31::jsonb,
+                        $32, $33)
                 ON CONFLICT (run_id, idx) DO UPDATE SET
                     company            = EXCLUDED.company,
                     trade              = EXCLUDED.trade,
@@ -687,7 +691,10 @@ class PGClient:
                     work_location_code = EXCLUDED.work_location_code,
                     wbs_mid_name       = EXCLUDED.wbs_mid_name,
                     wbs_sub_name       = EXCLUDED.wbs_sub_name,
-                    wbs_detail_name    = EXCLUDED.wbs_detail_name
+                    wbs_detail_name    = EXCLUDED.wbs_detail_name,
+                    alternatives       = EXCLUDED.alternatives,
+                    cum_workers_today  = EXCLUDED.cum_workers_today,
+                    cum_actual_mh_today = EXCLUDED.cum_actual_mh_today
                 """,
                 [
                     (
@@ -721,6 +728,9 @@ class PGClient:
                         a.get("wbs_mid_name"),
                         a.get("wbs_sub_name"),
                         a.get("wbs_detail_name"),
+                        _json.dumps(a.get("alternatives") or [], ensure_ascii=False),
+                        a.get("cum_workers_today"),
+                        a.get("cum_actual_mh_today"),
                     )
                     for i, a in enumerate(activities)
                 ],
@@ -1008,3 +1018,80 @@ class PGClient:
         async with self._pool.acquire() as con:
             rows = await con.fetch(sql, *args)
         return [dict(r) for r in rows]
+
+    _VIEW_JSONB_COLS: tuple[str, ...] = (
+        "kpi_jsonb",
+        "contractor_bars_jsonb",
+        "trade_bars_jsonb",
+        "quadrant_jsonb",
+        "wp_summary_jsonb",
+        "s_curve_jsonb",
+        "optimizer_view_jsonb",
+        "productivity_jsonb",
+    )
+
+    async def upsert_daily_report_view_col(
+        self,
+        run_id: uuid.UUID,
+        site_id: str,
+        report_date: _date,
+        col: str,
+        value: dict | list,
+    ) -> None:
+        """daily_reports 의 jsonb 컬럼 1개 UPSERT — partial write 가드.
+
+        col 은 _VIEW_JSONB_COLS 화이트리스트 중 하나여야 함 (SQL injection 가드).
+        """
+        import json as _json
+
+        if col not in self._VIEW_JSONB_COLS:
+            raise ValueError(f"col '{col}' not in whitelist {self._VIEW_JSONB_COLS}")
+        assert self._pool is not None, "connect() 미호출"
+        async with self._pool.acquire() as con:
+            await con.execute(
+                f"""
+                INSERT INTO daily_reports (run_id, site_id, report_date, {col})
+                VALUES ($1, $2, $3, $4::jsonb)
+                ON CONFLICT (run_id, site_id, report_date)
+                DO UPDATE SET {col} = EXCLUDED.{col}
+                """,
+                run_id,
+                site_id,
+                report_date,
+                _json.dumps(value, ensure_ascii=False, default=str),
+            )
+
+
+async def update_site_last_run(pg: PGClient, site_id: str, run_id: uuid.UUID) -> None:
+    """G8 — reporter→END 진입 시 sites.last_run_id 갱신."""
+    assert pg._pool is not None, "connect() 미호출"
+    async with pg._pool.acquire() as con:
+        await con.execute(
+            "UPDATE sites SET last_run_id = $1, updated_at = now() WHERE site_id = $2",
+            run_id,
+            site_id,
+        )
+
+
+# G2 상수 — Spec §6.
+AS_IS_MIN: int = 120  # 일보당 사람 수작업 분
+TO_BE_MIN: int = 5  # 일보당 AI 처리 분
+
+
+async def update_site_hours_saved_cum(
+    pg: PGClient,
+    site_id: str,
+    atomized_count: int,
+) -> None:
+    """G2 — atomized_count 기반 절감 시간(h) 누적 UPDATE.
+
+    산식: ((AS_IS_MIN - TO_BE_MIN) / 60.0) * atomized_count.
+    """
+    assert pg._pool is not None, "connect() 미호출"
+    delta_h = (AS_IS_MIN - TO_BE_MIN) / 60.0 * atomized_count
+    async with pg._pool.acquire() as con:
+        await con.execute(
+            "UPDATE sites SET hours_saved_cum = hours_saved_cum + $1, updated_at = now() WHERE site_id = $2",
+            delta_h,
+            site_id,
+        )

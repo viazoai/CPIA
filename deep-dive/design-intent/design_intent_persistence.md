@@ -326,3 +326,125 @@ PostgreSQL asyncpg pool 래퍼 + ChromaDB HTTP 클라이언트. 7 테이블 중 
 - **Suspected related** (2026-05-17 stale):
   - reporter 카드 `_build_summary` — history_csv_row 의 4 키 (total_workers / total_qty_by_trade / risk_counts / advice_count) 생산자.
   - B_Track Dashboard 의 daily_reports SELECT — 향후 history_csv_row 활용 (drift #5 통합 cycle).
+
+---
+
+## 2026-05-19 FE↔BE 연결 + 6 BE 적재 보완 cycle 변경 (Git SHA cf3c143)
+
+### T1 신규 함수 2 (module-level helpers, not PGClient method)
+
+| Function/Class | File:Line | Signature | One-line role | T2? |
+|---|---|---|---|---|
+| `update_site_last_run` | db.py:1017 | `async (pg: PGClient, site_id: str, run_id: uuid.UUID) -> None` | G8 — reporter→END 진입 시 `sites.last_run_id` UPDATE (module-level) | ✅ G8-1 |
+| `update_site_hours_saved_cum` | db.py:1033 | `async (pg: PGClient, site_id: str, atomized_count: int) -> None` | G2 — `((AS_IS_MIN - TO_BE_MIN) / 60.0) * atomized_count` 시간(h) 누적 UPDATE | ✅ G2-1 |
+| `AS_IS_MIN` 상수 | db.py:1029 | `int = 120` | 일보당 사람 수작업 분 (G2 산식 입력) | — |
+| `TO_BE_MIN` 상수 | db.py:1030 | `int = 5` | 일보당 AI 처리 분 (G2 산식 입력) | — |
+
+### T1 갱신
+
+- `insert_mapper_activities_batch` (db.py:621) — alternatives jsonb 컬럼 추가 적재 (31번째 컬럼 + ON CONFLICT DO UPDATE SET 포함). 본 cycle 신규.
+
+---
+
+### T2 신규 카드
+
+#### G2-1: `sites.hours_saved_cum` 누적 UPDATE 산식
+
+- **위치**: `pipeline/db.py:1033-1049` (17 LOC, 분기 0)
+- **시그니처**: `async def update_site_hours_saved_cum(pg: PGClient, site_id: str, atomized_count: int) -> None`
+- **이슈**:
+  - 본 cycle 신규 (PR #28, 2026-05-19) — `infra/postgres/migrations/2026-05-19_sites_hours_saved_cum.sql` 으로 `sites.hours_saved_cum NUMERIC DEFAULT 0 NOT NULL` 컬럼 추가 동반.
+  - G2 (절감 시간) signal 의 영속 path. 이전 cycle 까지는 dashboard 가 분 단위 가공 매번 재계산 → 본 cycle 부터 sites row 1개에 누적 보존.
+- **설계 의도**:
+  - 산식 `delta_h = (AS_IS_MIN - TO_BE_MIN) / 60.0 * atomized_count` — AS-IS = 사람 수작업 일보당 분(120), TO-BE = AI 일보당 분(5), 단위 = 시간(h).
+  - 사람이 1 일보를 수작업으로 처리 → 120 분, AI 가 처리 → 5 분. atomized_count = 본 cycle 의 Chroma upsert 성공 row 수.
+  - cycle 마다 누적 UPDATE (`hours_saved_cum = hours_saved_cum + $1`) — race 회피 위해 read-modify-write 가 아닌 SQL 표현식으로 atomic.
+  - `AS_IS_MIN` / `TO_BE_MIN` 모듈 상수로 노출 → 정책 변경 시 한 곳만 수정. 추후 사이트별 다른 AS-IS 가 필요해지면 sites 테이블 컬럼화 후보.
+- **대응 패턴**:
+  - 발동: `pipeline/graph.py:441` `reporter_node` 의 `daily_reports` INSERT 직후, `update_site_last_run` 다음 호출.
+  - 입력: site_id + atomized_count (state.get("atomized_ids") 길이).
+  - 처리: `async with pg._pool.acquire()` 블록 안에서 `UPDATE sites SET hours_saved_cum = hours_saved_cum + $1, updated_at = now() WHERE site_id = $2`.
+  - 출력: None.
+- **관련**:
+  - 호출자: `pipeline/graph.py:441` (reporter_node 끝부분, END 직전).
+  - 마이그: `infra/postgres/migrations/2026-05-19_sites_hours_saved_cum.sql`.
+  - 테스트: `pipeline/tests/test_db_hours_saved_cum.py` — 산식 검증 회귀 방지.
+  - 실 검증: run_id=627e2c4d-130e-47cd-b597-c999d4017702 (2026-05-19) 에서 atomized=4 → delta=7.67h (= 115/60 × 4).
+- **Suspected related** (2026-05-19 stale):
+  - 단위 모호 (분 vs 시간) 경계: 컬럼 COMMENT 미부착. dashboard 가 `Math.round(hours_saved_cum)` 로 표시 가정 — FE drift 모니터링.
+  - 다중 site 운영 진입 시 AS_IS_MIN 사이트별 분기 필요 — 현재 글로벌 상수.
+
+#### G8-1: `sites.last_run_id` 갱신 시점
+
+- **위치**: `pipeline/db.py:1017-1025` (9 LOC, 분기 0)
+- **시그니처**: `async def update_site_last_run(pg: PGClient, site_id: str, run_id: uuid.UUID) -> None`
+- **이슈**:
+  - 본 cycle 신규 (PR #28, 2026-05-19) — sites 테이블에 이미 `last_run_id UUID NULL` 컬럼 존재 (이전 cycle 정의), UPDATE 함수만 본 cycle 추가.
+  - 이전까지 FE dashboard 가 `last_run_id` NULL → "cycle 데이터 없음" 표시. 본 cycle 부터 cycle 종료 시 자동 갱신.
+- **설계 의도**:
+  - reporter_node 의 `insert_daily_report` 직후, graph END 전 마지막 PG UPDATE — 시점 명시 (성공한 cycle 만 last_run_id 갱신).
+  - PK conflict 없음 (PK=site_id, UPDATE only) — INSERT 분기 책임은 별 cycle.
+  - FE dashboard 의 "최근 cycle / latest run" 표시 + 현장 카드의 forecast/optimizer/daily_report join key 로 사용.
+  - module-level 함수 (PGClient 메소드 아님) — 동일 site_id 를 cycle 마다 외부에서 명시 전달하는 패턴, 메소드보다 호출자가 site_id 책임 일관성 표현.
+- **대응 패턴**:
+  - 발동: `pipeline/graph.py:440` reporter_node 끝, `insert_daily_report` 다음 호출.
+  - 입력: site_id (state.site_id 또는 pipeline_runs 에서 fetch fallback) + run_id.
+  - 처리: `async with pg._pool.acquire()` 블록 안에서 `UPDATE sites SET last_run_id = $1, updated_at = now() WHERE site_id = $2`.
+  - 출력: None.
+- **관련**:
+  - 호출자: `pipeline/graph.py:440` (reporter_node).
+  - 테스트: `pipeline/tests/test_db_update_site_last_run.py` — UPDATE 실행 + 회귀 방지.
+  - 실 검증: run_id=627e2c4d (2026-05-19) 에서 sites.last_run_id 매치 확인.
+- **Suspected related** (2026-05-19 stale):
+  - state.site_id propagation 누락 시 fallback (pipeline_runs SELECT) — graph.py:434-438. 정상 cycle 에서는 state 우선.
+  - 실패한 cycle (raise) 은 last_run_id 갱신 안 됨 — 의도된 동작 (성공 표시).
+
+#### G23-1: `mapper_activities.alternatives` jsonb 컬럼
+
+- **위치**: `pipeline/db.py:621-731` (`insert_mapper_activities_batch` 안 31번째 컬럼)
+- **변경 라인**: db.py:652 (INSERT 컬럼명) + db.py:664 (placeholder `$31::jsonb`) + db.py:693 (ON CONFLICT DO UPDATE SET) + db.py:727 (값 직렬화 `_json.dumps(a.get("alternatives") or [], ensure_ascii=False)`)
+- **이슈**:
+  - 본 cycle 신규 (PR #28, 2026-05-19) — `infra/postgres/migrations/2026-05-19_mapper_alternatives.sql` 으로 `mapper_activities.alternatives JSONB DEFAULT '[]' NOT NULL` 컬럼 + `mapper_activities_alternatives_gin` GIN index 추가.
+  - FE review 페이지 (web/app/review) 의 dropdown 후보 데이터 source.
+- **설계 의도**:
+  - Mapper RAG top-K (K=3) 후보 그대로 영속 — `[{wa, l6_main, score}, ...]` JSON 배열. score = (1.0 - Chroma cosine distance), 1.0 에 가까울수록 유사.
+  - FE 가 review modal 에서 alternative 클릭 → mapping_corrections 에 사용자 정정 row 저장 가능. retrospective 분석 시 "왜 LLM 이 X 가 아닌 Y 를 골랐나" 추적 가능.
+  - DEFAULT `'[]'` NOT NULL — 빈 배열 보장 (None 분기 코드 회피).
+  - ON CONFLICT DO UPDATE SET 에 포함 → re-run 시 후보 갱신.
+- **대응 패턴**:
+  - 발동: `insert_mapper_activities_batch` 가 mapper 출력 row 마다 호출.
+  - 입력: a.get("alternatives") (mapper 가 RAG top-K 직후 set).
+  - 처리: `_json.dumps(or [], ensure_ascii=False)` → `$31::jsonb` cast.
+  - 출력: None (mapper_activities row 의 alternatives 컬럼).
+- **관련**:
+  - 생산자: `pipeline/agents/mapper.py` 의 RAG top-K 결과 (alternatives 키).
+  - 소비자: `web/app/review` (B_Track) 의 dropdown.
+  - 마이그: `infra/postgres/migrations/2026-05-19_mapper_alternatives.sql`.
+  - 테스트: `pipeline/tests/test_mapper_alternatives.py` — jsonb 적재 + roundtrip 검증.
+  - 실 검증: run_id=627e2c4d (2026-05-19) 에서 alt_ok=6/6.
+- **Suspected related** (2026-05-19 stale):
+  - score 음수 가능성 (Chroma cosine distance > 1 인 케이스) — FE 가 `max(0, score)` clamping 필요. backlog: BE 산출 단계에서 clamp 할지 FE 가 할지 결정 미정.
+  - GIN index 사용 path 미확인 (검색 query 본 cycle 시점 없음) — 추후 retrospective 검색 도구 추가 시 활용 예정.
+
+#### G19-1: 신규 13 컬럼 적재 회귀 방지
+
+- **위치**: `pipeline/db.py:621-731` (`insert_mapper_activities_batch`) + parser INSERT helpers (해당 컬럼 적재는 commit `69665ff` 에서 도입).
+- **컬럼 목록**: zone / bp_code / scope / yesterday_cum_qty / today_cum_qty / progress_percent / remaining_qty / remaining_percent / note / work_location_code / wbs_mid_name / wbs_sub_name / wbs_detail_name (총 13).
+- **이슈**:
+  - 13 컬럼 자체의 INSERT 코드는 이전 cycle commit `69665ff` 에서 이미 도입. 본 cycle (PR #28) 은 회귀 방지 테스트 `pipeline/tests/test_db_new_columns_insert.py` 만 추가.
+  - parser_activities + mapper_activities 양쪽에 동일 시트 출처 컬럼 → mapper 가 parser 산출 그대로 passthrough.
+- **설계 의도**:
+  - 시트1 (출력인원) + 시트4 (물량) + WBS 매핑 정보 풀 보존 — 대시보드/리포트가 후속 분석 시 누락 없도록.
+  - mapper 가 LLM-aware enrichment (wa/l6_main/conf) 만 추가하고 parser 산출 13 컬럼은 그대로 통과시킴 → 데이터 손실 없음.
+  - 본 cycle 은 code-only scope (test) → 컬럼 자체 회귀 방어막 추가.
+- **대응 패턴**:
+  - 발동: parser_activities / mapper_activities INSERT 흐름 회귀 발생 시 본 테스트가 fail.
+  - 입력: 13 컬럼 sample dict.
+  - 처리: PG INSERT + SELECT roundtrip.
+  - 출력: 13 컬럼 값 모두 일치.
+- **관련**:
+  - 적재 origin: commit `69665ff`.
+  - 테스트: `pipeline/tests/test_db_new_columns_insert.py`.
+  - 실 검증: run_id=627e2c4d (2026-05-19) 에서 zone_ok=6/6.
+- **Suspected related** (2026-05-19 stale):
+  - 13 컬럼 중 일부 (progress_percent, remaining_percent) 가 FE chart 입력으로 사용 — drift 추적 backlog.

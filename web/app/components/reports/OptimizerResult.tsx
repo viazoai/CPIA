@@ -9,37 +9,51 @@ export function OptimizerResult({ output }: { output: OptimizerOutput }) {
   return (
     <div className="h-full overflow-hidden rounded-card border border-border-soft bg-card shadow-xs">
       <Row icon={<Brain className="h-4 w-4" />} tone="brand" title="진단">
-        <p className="text-sm text-ink-mid leading-relaxed">{output.diagnosis}</p>
+        <p className="text-sm text-ink-mid leading-relaxed">
+          {output.diagnosis || "진단 데이터 없음 (Optimizer 미실행 또는 cold_start)"}
+        </p>
       </Row>
       <Row icon={<History className="h-4 w-4" />} tone="brand" title="유사 과거 사례" topBorder>
-        <ul className="space-y-1.5">
-          {output.similar_cases.map((c, i) => (
-            <li key={i} className="text-sm text-ink-mid leading-relaxed">
-              <span className="font-semibold text-ink">{c.date}</span>{" "}
-              · {c.description}
-              <div className="mt-0.5 ml-1 text-sm text-mint-text leading-relaxed">
-                → {c.outcome}
-              </div>
-            </li>
-          ))}
-        </ul>
+        {output.similar_cases?.length ? (
+          <ul className="space-y-1.5">
+            {output.similar_cases.map((c, i) => (
+              <li key={i} className="text-sm text-ink-mid leading-relaxed">
+                <span className="font-semibold text-ink">{c.date}</span>{" "}
+                · {c.description}
+                <div className="mt-0.5 ml-1 text-sm text-mint-text leading-relaxed">
+                  → {c.outcome}
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-ink-light leading-relaxed">유사 사례 없음 — 데이터 누적 후 갱신</p>
+        )}
       </Row>
       <Row icon={<Lightbulb className="h-4 w-4" />} tone="sun" title="권고사항" topBorder>
-        <ul className="space-y-1.5 list-decimal list-inside marker:text-sun-text marker:font-semibold">
-          {output.recommendations.map((r, i) => (
-            <li key={i} className="text-sm text-ink-mid leading-relaxed">{r}</li>
-          ))}
-        </ul>
+        {output.recommendations?.length ? (
+          <ul className="space-y-1.5 list-decimal list-inside marker:text-sun-text marker:font-semibold">
+            {output.recommendations.map((r, i) => (
+              <li key={i} className="text-sm text-ink-mid leading-relaxed">{r}</li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-ink-light leading-relaxed">권고 미산출 — cold_start</p>
+        )}
       </Row>
       <Row icon={<Database className="h-4 w-4" />} tone="mint" title="상세 현황" topBorder>
-        <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-sm leading-relaxed">
-          {output.details.map((d, i) => (
-            <div key={i} className="contents">
-              <dt className="text-ink-light">{d.label}</dt>
-              <dd className="font-semibold text-ink">{d.value}</dd>
-            </div>
-          ))}
-        </dl>
+        {output.details?.length ? (
+          <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-sm leading-relaxed">
+            {output.details.map((d, i) => (
+              <div key={i} className="contents">
+                <dt className="text-ink-light">{d.label}</dt>
+                <dd className="font-semibold text-ink">{d.value || "—"}</dd>
+              </div>
+            ))}
+          </dl>
+        ) : (
+          <p className="text-sm text-ink-light leading-relaxed">상세 데이터 없음</p>
+        )}
       </Row>
     </div>
   );

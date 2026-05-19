@@ -55,7 +55,7 @@ def _build_metadata(a: Activity, date: str, run_id: str) -> dict[str, Any]:
         "assigned_workers": float(a["assigned_workers"]),
         "worker_source": a["worker_source"],
         "mapping_conf": float(a["mapping_conf"] or 0.0),
-        "conditions": ",".join(a["conditions"]),
+        "conditions": ",".join(a.get("conditions") or []),
     }
 
 
@@ -66,7 +66,7 @@ async def atomize(
     cfg: AtomizerConfig,
 ) -> list[str]:
     """mapped → Chroma daily_activities 적재. atomized_ids 반환. Spec §4.5."""
-    valid = [a for a in mapped if a["l6_main"] is not None]
+    valid = [a for a in mapped if a["l6_main"] is not None and a.get("work_content")]
     if not valid:
         return []
 

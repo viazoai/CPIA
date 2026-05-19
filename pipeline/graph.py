@@ -28,7 +28,7 @@ from pipeline.agents.optimizer.retrieve import (
 from pipeline.agents.reporter import ReporterConfig, report
 from pipeline.checkpointer import build_checkpointer
 from pipeline.chroma_client import ChromaClient
-from pipeline.db import PGClient
+from pipeline.db import PGClient, update_site_hours_saved_cum, update_site_last_run
 from pipeline.state import Activity, CPIAState, ParsedDailyReport
 
 # Mapper LLM rerank 병렬도 — Azure rate-limit 고려해 기본 4. env 로 조정.
@@ -114,6 +114,29 @@ async def mapper_node(state: CPIAState, cfg: GraphConfig) -> dict:
             activities=parsed["activities"],
         )
         _dbg(f"insert_parser_activities_batch OK ({len(parsed['activities'])} rows)")
+
+        # G24 — 시트2 / 시트3 정규화 row 적재. 이전엔 호출 누락으로 두 테이블
+        # row count 가 항상 0 이었음. ParsedDailyReport TypedDict (state.py) 에
+        # 키는 이미 정의되어 있으나 graph 가 INSERT 함수를 호출하지 않았음.
+        await pg.insert_parser_job_allocations_batch(
+            run_id=run_id,
+            report_date=today,
+            rows=parsed.get("job_allocations") or [],
+        )
+        _dbg(f"insert_parser_job_allocations_batch OK ({len(parsed.get('job_allocations') or [])} rows)")
+        await pg.insert_parser_equipment_allocations_batch(
+            run_id=run_id,
+            report_date=today,
+            rows=parsed.get("equipment_allocations") or [],
+        )
+        _dbg(
+            f"insert_parser_equipment_allocations_batch OK ({len(parsed.get('equipment_allocations') or [])} rows)"
+        )
+
+        # company 정규화 (㈜ prefix / 괄호 sub-context 제거) — A.6 와 일관
+        for a in mapped:
+            a["company"] = normalize_company(a.get("company"))
+
         await pg.insert_mapper_activities_batch(
             run_id=run_id,
             report_date=today,
@@ -405,6 +428,28 @@ async def reporter_node(state: CPIAState, cfg: GraphConfig) -> dict:
         today=today,
         cfg=cfg.reporter,
     )
+
+    # G8 — reporter→END 진입 시 sites.last_run_id 갱신.
+    # G2 — atomized_count 기반 사람 수작업 절감 시간(h) 누적.
+    # state 가 site_id 를 propagate 안 한 경우 pipeline_runs 에서 직접 fetch.
+    pg = PGClient(cfg.mapper.postgres_url)
+    await pg.connect()
+    try:
+        site_id = state.get("site_id")
+        if not site_id:
+            async with pg._pool.acquire() as _con:  # type: ignore[attr-defined]
+                _row = await _con.fetchrow("SELECT site_id FROM pipeline_runs WHERE run_id = $1", run_id)
+            site_id = _row["site_id"] if _row else None
+        if site_id:
+            await update_site_last_run(pg, site_id=site_id, run_id=run_id)
+            await update_site_hours_saved_cum(
+                pg,
+                site_id=site_id,
+                atomized_count=len(state.get("atomized_ids", []) or []),
+            )
+    finally:
+        await pg.close()
+
     return {"report_md": report_md, "current_node": "reporter"}
 
 

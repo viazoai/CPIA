@@ -98,14 +98,14 @@ export function ForecastChart({ diagnosis, recoveryActive = false, delayDays, re
 
       <div className="mb-3 flex flex-wrap gap-1.5">
         <ToggleChip
-          label="만회 시나리오"
+          label="만회 시나리오 (AI)"
           color="mint"
           active={showOptimistic}
           forced={recoveryActive}
           onClick={() => setToggles((s) => ({ ...s, optimistic: !s.optimistic }))}
         />
         <ToggleChip
-          label="현 추세 유지"
+          label="현 추세 연장"
           color="rose"
           active={toggles.pessimistic}
           onClick={() => setToggles((s) => ({ ...s, pessimistic: !s.pessimistic }))}

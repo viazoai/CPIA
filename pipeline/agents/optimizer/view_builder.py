@@ -617,3 +617,120 @@ def _build_optimizer_view(
 
     default_wp_id = next(iter(by_wp.keys()), None)
     return {"by_wp": by_wp, "default_wp_id": default_wp_id}
+
+
+# ============================================================
+# 공기단축 시나리오 (spec 2026-05-19 §5)
+# ============================================================
+
+from datetime import timedelta
+
+
+def _expand_recovery_to_days(dist: dict | None) -> list[int]:
+    """recovery_distribution → percentile 산출 가능한 list.
+
+    spec §5.2 Step 1. not_recovered 는 +30 일 캡.
+    """
+    out: list[int] = []
+    for key, count in (dist or {}).items():
+        if key == "not_recovered":
+            out.extend([30] * int(count))
+        elif key.startswith("d+"):
+            try:
+                d = int(key[2:])
+                out.extend([d] * int(count))
+            except ValueError:
+                continue
+    return out
+
+
+def _percentile(days: list[int], q: float) -> int:
+    """q in [0, 1]. 빈 list → 0. spec §5.2 Step 2."""
+    if not days:
+        return 0
+    sorted_days = sorted(days)
+    if len(sorted_days) < 4:
+        idx = min(len(sorted_days) - 1, int(q * len(sorted_days)))
+        return sorted_days[idx]
+    cuts = statistics.quantiles(sorted_days, n=100, method="inclusive")
+    return int(round(cuts[max(0, min(98, int(q * 100) - 1))]))
+
+
+def _match_forecast_by_company_l6(advice: dict, forecast: list[dict]) -> dict | None:
+    """(company, l6_main) 매칭. spec §5.2.
+
+    view_builder._build_optimizer_view 의 패턴과 동일 — 두 호출자 공유.
+    """
+    return next(
+        (f for f in forecast
+         if f.get("company") == advice.get("company")
+         and f.get("l6_main") == advice.get("l6_main")),
+        None,
+    )
+
+
+def _scenario(no_action_date, recovery_days: int, case_count: int) -> dict:
+    """단일 시나리오 dict 빌드. spec §5.2 Step 3."""
+    if no_action_date is None or recovery_days <= 0:
+        return {
+            "expected_completion": no_action_date.isoformat() if no_action_date else None,
+            "recovery_days": recovery_days,
+            "delta_days": 0,
+            "case_count": case_count,
+        }
+    new_date = no_action_date - timedelta(days=recovery_days)
+    return {
+        "expected_completion": new_date.isoformat(),
+        "recovery_days": recovery_days,
+        "delta_days": -recovery_days,
+        "case_count": case_count,
+    }
+
+
+def _build_scenarios(advice_rows: list[dict], forecast: list[dict]) -> dict:
+    """공기단축 4 시나리오 산출 — site + by_wp.
+
+    spec §5.1 shape + §5.2 산식.
+    """
+    site_days: list[int] = []
+    for advice in advice_rows:
+        site_days.extend(_expand_recovery_to_days(advice.get("recovery_distribution") or {}))
+
+    site_no_action = None
+    if forecast:
+        ecs = [f.get("expected_completion") for f in forecast if f.get("expected_completion")]
+        site_no_action = max(ecs) if ecs else None
+
+    site_scenarios = {
+        "no_action": {
+            "expected_completion": site_no_action.isoformat() if site_no_action else None,
+            "recovery_days": 0,
+            "delta_days": 0,
+            "case_count": len(site_days),
+        },
+        "optimistic_p25":  _scenario(site_no_action, _percentile(site_days, 0.25), len(site_days)),
+        "base_p50":        _scenario(site_no_action, _percentile(site_days, 0.50), len(site_days)),
+        "pessimistic_p75": _scenario(site_no_action, _percentile(site_days, 0.75), len(site_days)),
+    }
+
+    by_wp: dict[str, dict] = {}
+    for advice in advice_rows:
+        f = _match_forecast_by_company_l6(advice, forecast)
+        if f is None:
+            continue
+        wp_id = _wp_id_of(f.get("wa"), advice.get("l6_main"), advice.get("company"))
+        wp_days = _expand_recovery_to_days(advice.get("recovery_distribution") or {})
+        wp_no_action = f.get("expected_completion")
+        by_wp[wp_id] = {
+            "no_action": {
+                "expected_completion": wp_no_action.isoformat() if wp_no_action else None,
+                "recovery_days": 0,
+                "delta_days": 0,
+                "case_count": len(wp_days),
+            },
+            "optimistic_p25":  _scenario(wp_no_action, _percentile(wp_days, 0.25), len(wp_days)),
+            "base_p50":        _scenario(wp_no_action, _percentile(wp_days, 0.50), len(wp_days)),
+            "pessimistic_p75": _scenario(wp_no_action, _percentile(wp_days, 0.75), len(wp_days)),
+        }
+
+    return {"site": site_scenarios, "by_wp": by_wp}

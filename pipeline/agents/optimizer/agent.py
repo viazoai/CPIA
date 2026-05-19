@@ -36,6 +36,7 @@ from pipeline.agents.optimizer.view_builder import (
     _build_productivity_views,
     _build_quadrant,
     _build_s_curve,
+    _build_scenarios,
     _build_trade_bars,
     _build_wp_summary,
 )
@@ -184,6 +185,7 @@ async def optimize(
                     "wp_summary_jsonb": await _build_wp_summary(pg, site_id, today, productivity, quadrant),
                     "s_curve_jsonb": await _build_s_curve(pg, site_id, today),
                     "optimizer_view_jsonb": _build_optimizer_view(advice_rows, forecast, mapped),
+                    "scenarios_jsonb": _build_scenarios(advice_rows, forecast),
                 }
                 for col, val in view_jsonbs.items():
                     try:

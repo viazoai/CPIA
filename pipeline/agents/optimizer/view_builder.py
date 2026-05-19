@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import statistics
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from pipeline.db import PGClient
@@ -623,7 +623,22 @@ def _build_optimizer_view(
 # 공기단축 시나리오 (spec 2026-05-19 §5)
 # ============================================================
 
-from datetime import timedelta
+
+def _coerce_date(v: Any) -> date | None:
+    """expected_completion 입력이 date 객체 또는 ISO 문자열 (asyncpg vs jsonb) 모두 허용.
+
+    spec §5.2 type contract: date | None. 안전 코어스.
+    """
+    if v is None:
+        return None
+    if isinstance(v, date):
+        return v
+    if isinstance(v, str):
+        try:
+            return date.fromisoformat(v[:10])
+        except ValueError:
+            return None
+    return None
 
 
 def _expand_recovery_to_days(dist: dict | None) -> list[int]:
@@ -698,7 +713,8 @@ def _build_scenarios(advice_rows: list[dict], forecast: list[dict]) -> dict:
 
     site_no_action = None
     if forecast:
-        ecs = [f.get("expected_completion") for f in forecast if f.get("expected_completion")]
+        ecs = [_coerce_date(f.get("expected_completion")) for f in forecast]
+        ecs = [e for e in ecs if e is not None]
         site_no_action = max(ecs) if ecs else None
 
     site_scenarios = {
@@ -720,7 +736,7 @@ def _build_scenarios(advice_rows: list[dict], forecast: list[dict]) -> dict:
             continue
         wp_id = _wp_id_of(f.get("wa"), advice.get("l6_main"), advice.get("company"))
         wp_days = _expand_recovery_to_days(advice.get("recovery_distribution") or {})
-        wp_no_action = f.get("expected_completion")
+        wp_no_action = _coerce_date(f.get("expected_completion"))
         by_wp[wp_id] = {
             "no_action": {
                 "expected_completion": wp_no_action.isoformat() if wp_no_action else None,

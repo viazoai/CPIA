@@ -222,7 +222,10 @@ export default function ReportPage() {
                 diagnosis={diagnosis}
                 recoveryActive={selectedWpId !== null}
                 delayDays={detail.kpi.delay_days}
-                recoveryDays={detail.kpi.recovery_days}
+                recoveryDays={
+                  detail.scenarios?.site?.base_p50?.recovery_days
+                  ?? detail.kpi.recovery_days
+                }
               />
             </Section>
 

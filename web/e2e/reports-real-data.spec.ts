@@ -44,6 +44,10 @@ test.describe("/reports — real DB 4 영역", () => {
     await expect(page.locator("text=유사 과거 사례").first()).toBeVisible();
     await expect(page.locator("text=권고사항").first()).toBeVisible();
     await expect(page.locator("text=상세 현황").first()).toBeVisible();
+
+    // negative — EMPTY_OPTIMIZER fallback / cold_start 메시지 비노출 (실 데이터 채워짐)
+    await expect(page.locator("text=진단 데이터 없음")).not.toBeVisible();
+    await expect(page.locator("text=유사 사례 없음")).not.toBeVisible();
   });
 
   test("§ 03 ForecastChart recovery 곡선 노출 (scenarios 어댑터)", async ({ page }) => {

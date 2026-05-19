@@ -3,8 +3,6 @@ import {
   Network,
   TrendingUp,
   Lightbulb,
-  CheckCircle2,
-  AlertTriangle,
   ArrowRight,
   Clock4,
   type LucideIcon,
@@ -15,11 +13,10 @@ interface CoreFeature {
   agent: "Mapper" | "Forecaster" | "Optimizer";
   Icon: LucideIcon;
   headline: string;
-  lead: string;
-  /** 사람 작업 (AS-IS) → AI 작업 (TO-BE) 정량 비교 */
+  /** 사람 작업 (AS-IS) → AI 작업 (TO-BE) 정량 비교 chip */
   shift: { from: string; to: string };
-  aiDoes: string;
-  humanDoes: string;
+  /** AI 가 무엇을 자동화하고 사람이 무엇만 남기는지 한 단락에 정리 */
+  body: string;
 }
 
 const FEATURES: CoreFeature[] = [
@@ -27,31 +24,30 @@ const FEATURES: CoreFeature[] = [
     index: "01",
     agent: "Mapper",
     Icon: Network,
-    headline: "비정형 일보 → WBS 자동 매핑",
-    lead: "협력사 자유 텍스트를 도메인 의미 기반으로 공정표 Activity 에 자동 연결.",
+    headline: "작업일보 실적 정보 → WBS 자동 매핑",
     shift: { from: "사람 1~3h / 일", to: "AI 10 분 / 일" },
-    aiDoes: "100건 매핑 · 평균 정확도 92%",
-    humanDoes: "확신도 낮은 5~8건만 검토",
+    body:
+      "협력사 작업 내용의 문맥 의미 기반으로 공정표 Activity 에 자동 연결합니다. " +
+      "AI 가 신규 발생 작업에 대해 평균 정확도 92% 로 매핑하면, 사람은 확신도 낮은 5~8건만 검토하면 됩니다.",
   },
   {
     index: "02",
     agent: "Forecaster",
     Icon: TrendingUp,
-    headline: "오늘 생산성, AI 가 진단",
-    lead: "같은 현장 과거 이력과 비교해 공종별 4분면 (정상·주의·관찰·위험) 으로 자동 분류.",
+    headline: "오늘의 생산성 Risk는? AI 가 자동 진단",
     shift: { from: "D+2~3 일 사후 인지", to: "D+0 당일 진단" },
-    aiDoes: "전 공종 4분면 분류 · 위험 자동 라우팅",
-    humanDoes: "위험 분면 2건만 검토 — 정상 9건 미열람",
+    body:
+      "현장의 금일 Productivity와 Impact를 기준으로 4분면 (정상·주의·위험) 으로 진단하여, 현장관리자는 별도 분석 작업 없이 위험 항목에 대해 빠르게 조치하여 현장 공기 단축에 보다 집중하여 수행할 수 있습니다.",
   },
   {
     index: "03",
     agent: "Optimizer",
     Icon: Lightbulb,
-    headline: "만회 시나리오, AI 가 먼저",
-    lead: "위험 공종에 대해 과거 유사 만회 사례를 학습한 LLM 이 catch-up 옵션을 사전 제시.",
-    shift: { from: "사후 임시 대책", to: "사전 3 옵션 (-1 ~ -3 일)" },
-    aiDoes: "과거 12 사례 학습 · 비용·일수 자동 추정",
-    humanDoes: "PM 은 채택·발주처 협상만",
+    headline: "예상 지연 공기와 만회 시나리오 동시 제공",
+    shift: { from: "사후 대책 수립", to: "조기 대응 및 방안 제시" },
+    body:
+      "생산성을 기반하여 최적화 가능한 공사기간을 제시하고, 과거 작업 패턴을 분석하여 유사 만회 시나리오와 Catch-up Plan을 사전에 제시합니다. " +
+      "현장관리자는 문제 해결에만 집중하면 됩니다.",
   },
 ];
 
@@ -78,13 +74,12 @@ export function CoreAiSection() {
             / 03 — Core AI
           </span>
           <h2 className="mt-3 font-display text-h3 text-ink">
-            AI 가 정확히 어디서, 어떻게{" "}
+            CPIA, 어떻게{" "}
             <span className="text-brand">사람을 대신</span>하는가
           </h2>
           <p className="mt-6 text-body text-ink-mid">
-            7-Agent 중 사람의 판단·해석 영역을 직접 대체하는 세 가지 AI 코어를 — 시스템이 아닌
-            <span className="font-semibold text-ink"> "AI 의 역할" </span>
-            관점에서 풀어냅니다.
+            시스템으로는 대체 불가능한 사람이 필요한 판단·해석 영역을 
+            <br />아래와 세 가지 CORE AI가 직접 수행합니다.
           </p>
         </div>
 
@@ -119,39 +114,17 @@ function FeatureRow({ feature, flip }: { feature: CoreFeature; flip: boolean }) 
 
         {/* 정량 대치 — 사람 → AI 한 줄 칩 */}
         <div className="mt-4 flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center rounded-full bg-rose-light px-3 py-1 text-body-sm font-medium text-rose-text line-through decoration-rose decoration-1">
+          <span className="inline-flex items-center rounded-full bg-rose-light px-3 py-1 text-body-sm font-medium text-rose-text">
             {feature.shift.from}
           </span>
           <ArrowRight className="h-4 w-4 text-ink-light" />
-          <span className="inline-flex items-center gap-1 rounded-full bg-brand px-3 py-1 text-body-sm font-semibold text-white shadow-sm">
+          <span className="inline-flex items-center gap-1 rounded-full bg-mint-light px-3 py-1 text-body-sm font-semibold text-mint-text">
             <Sparkles className="h-3 w-3" />
             {feature.shift.to}
           </span>
         </div>
 
-        <p className="mt-4 text-body text-ink-mid">{feature.lead}</p>
-
-        {/* AI / Human 역할 비교 */}
-        <div className="mt-7 grid gap-3 sm:grid-cols-2">
-          <div className="rounded-card border border-brand/30 bg-brand-light/40 p-4">
-            <div className="flex items-center gap-2">
-              <Sparkles className="h-3.5 w-3.5 text-brand-text" />
-              <span className="text-body-sm font-semibold text-brand-text">
-                AI 가 한다
-              </span>
-            </div>
-            <p className="mt-2 text-body-sm text-ink">{feature.aiDoes}</p>
-          </div>
-          <div className="rounded-card border border-border bg-card p-4">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="h-3.5 w-3.5 text-mint-text" />
-              <span className="text-body-sm font-semibold text-ink-mid">
-                사람이 한다
-              </span>
-            </div>
-            <p className="mt-2 text-body-sm text-ink-mid">{feature.humanDoes}</p>
-          </div>
-        </div>
+        <p className="mt-5 text-body text-ink-mid">{feature.body}</p>
       </div>
 
       {/* IMAGE / MOCKUP — 텍스트 카피보다 작게, 셀 안쪽 정렬 (flip 에 따라 좌·우 끝으로) */}
@@ -221,34 +194,36 @@ function MapperMock() {
         </div>
       </div>
 
-      {/* floating chip — H-i-L */}
-      <div className="absolute -bottom-5 -left-6 -rotate-3 rounded-card border border-border bg-card px-3 py-2 shadow-md">
-        <div className="flex items-center gap-2">
-          <AlertTriangle className="h-3.5 w-3.5 text-rose-text" />
-          <span className="text-[11px] font-medium text-ink">H-i-L 검토 요청</span>
-        </div>
-      </div>
     </div>
   );
 }
 
 /* — Forecaster: 4분면 진단 카드 — */
 function ForecasterMock() {
-  // y=high → top (오늘이 위험이면 top-right). 좌표는 y 가 클수록 위로 가도록 그린다.
-  const dots: { x: number; y: number; tone: "ok" | "warn" | "neutral" | "risk" }[] = [
-    { x: 22, y: 22, tone: "ok"      }, // bottom-left  · 정상
-    { x: 38, y: 18, tone: "ok"      },
-    { x: 18, y: 32, tone: "ok"      },
-    { x: 28, y: 70, tone: "warn"    }, // top-left     · 주의
-    { x: 82, y: 30, tone: "neutral" }, // bottom-right · 관찰
-    { x: 78, y: 78, tone: "risk"    }, // top-right    · 위험
-    { x: 88, y: 88, tone: "risk"    },
+  // KPI 와 1:1 일치 — 정상 9 · 주의 3 (좌상 + 우하 대각 분포) · 위험 2 (today 펄스 overlay)
+  const dots: { x: number; y: number; tone: "ok" | "warn" | "risk" }[] = [
+    // 정상 (좌하단) — 9개
+    { x: 12, y: 12, tone: "ok"   },
+    { x: 22, y: 28, tone: "ok"   },
+    { x: 38, y: 18, tone: "ok"   },
+    { x: 18, y: 38, tone: "ok"   },
+    { x: 30, y: 30, tone: "ok"   },
+    { x: 42, y: 22, tone: "ok"   },
+    { x: 8,  y: 22, tone: "ok"   },
+    { x: 35, y: 8,  tone: "ok"   },
+    { x: 28, y: 45, tone: "ok"   },
+    // 주의 (좌상 + 우하 대각) — 3개
+    { x: 22, y: 72, tone: "warn" }, // 좌상
+    { x: 32, y: 88, tone: "warn" }, // 좌상
+    { x: 78, y: 28, tone: "warn" }, // 우하 (구 관찰 → 주의)
+    // 위험 (우상단) — 2개 · 두 번째 점 위에 today 펄스 overlay
+    { x: 90, y: 90, tone: "risk" },
+    { x: 82, y: 78, tone: "risk" },
   ];
-  const dotColor = (t: "ok" | "warn" | "neutral" | "risk") =>
+  const dotColor = (t: "ok" | "warn" | "risk") =>
     t === "ok"   ? "bg-mint"
-    : t === "warn"    ? "bg-sun-deep"
-    : t === "neutral" ? "bg-ink-light"
-    :                   "bg-rose-deep";
+    : t === "warn" ? "bg-sun"
+    :                "bg-rose";
 
   return (
     <div className="relative">
@@ -264,11 +239,11 @@ function ForecasterMock() {
 
         {/* quadrant */}
         <div className="relative mt-4 aspect-[5/3] w-full overflow-hidden rounded-md border border-border-soft bg-white">
-          {/* 4 quadrant background fills */}
+          {/* 4 quadrant background fills — 좌상/우하 모두 주의 (대각 동톤) */}
           <span aria-hidden className="absolute left-0 top-0 h-1/2 w-1/2 bg-sun-light/45"  />   {/* 주의   */}
           <span aria-hidden className="absolute right-0 top-0 h-1/2 w-1/2 bg-rose-light/55" />   {/* 위험   */}
           <span aria-hidden className="absolute left-0 bottom-0 h-1/2 w-1/2 bg-mint-light/45" />  {/* 정상   */}
-          <span aria-hidden className="absolute right-0 bottom-0 h-1/2 w-1/2 bg-surface-soft/70" />{/* 관찰   */}
+          <span aria-hidden className="absolute right-0 bottom-0 h-1/2 w-1/2 bg-sun-light/45" /> {/* 주의 (구 관찰) */}
           {/* axes */}
           <div className="absolute inset-y-0 left-1/2 w-px bg-border-soft" />
           <div className="absolute inset-x-0 top-1/2 h-px bg-border-soft" />
@@ -276,26 +251,25 @@ function ForecasterMock() {
           <span className="absolute left-2 top-1.5 font-mono text-[9px] uppercase tracking-wider text-sun-text">주의</span>
           <span className="absolute right-2 top-1.5 font-mono text-[9px] uppercase tracking-wider text-rose-text">위험</span>
           <span className="absolute left-2 bottom-1.5 font-mono text-[9px] uppercase tracking-wider text-mint-text">정상</span>
-          <span className="absolute right-2 bottom-1.5 font-mono text-[9px] uppercase tracking-wider text-ink-light">관찰</span>
+          <span className="absolute right-2 bottom-1.5 font-mono text-[9px] uppercase tracking-wider text-sun-text">주의</span>
           {/* dots */}
           {dots.map((d, i) => (
             <span
               key={i}
-              className={`absolute h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-white shadow-sm ${dotColor(d.tone)}`}
+              className={`absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-white shadow-sm ${dotColor(d.tone)}`}
               style={{ left: `${d.x}%`, top: `${100 - d.y}%` }}
             />
           ))}
-          {/* highlight today — 우측 상단 위험 분면 */}
+          {/* highlight today — 우측 상단 위험 분면, 빨간 점 + 펄스 ring */}
           <span
-            className="absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full bg-rose-deep ring-2 ring-white shadow-md"
+            aria-hidden
+            className="absolute h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-rose/30 animate-ping"
             style={{ left: "82%", top: "22%" }}
           />
           <span
-            className="absolute font-mono text-[10px] font-semibold text-rose-text"
-            style={{ left: "calc(82% + 12px)", top: "calc(22% - 6px)" }}
-          >
-            오늘
-          </span>
+            className="absolute h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-rose ring-2 ring-white shadow-md"
+            style={{ left: "82%", top: "22%" }}
+          />
         </div>
 
         <div className="mt-3 grid grid-cols-3 gap-2 text-center">
@@ -314,15 +288,6 @@ function ForecasterMock() {
         </div>
       </div>
 
-      {/* floating chip — auto-route */}
-      <div className="absolute -top-5 -right-6 rotate-2 rounded-card border border-brand/30 bg-card px-3 py-2 shadow-md">
-        <div className="flex items-center gap-2">
-          <Sparkles className="h-3.5 w-3.5 text-brand-text" />
-          <span className="text-[11px] font-medium text-ink">
-            위험 2건 → Optimizer 자동 라우팅
-          </span>
-        </div>
-      </div>
     </div>
   );
 }
@@ -386,13 +351,6 @@ function OptimizerMock() {
         </div>
       </div>
 
-      {/* floating chip — historical match */}
-      <div className="absolute -bottom-5 -right-6 rotate-2 rounded-card border border-border bg-card px-3 py-2 shadow-md">
-        <div className="flex items-center gap-2">
-          <Sparkles className="h-3.5 w-3.5 text-sky-text" />
-          <span className="text-[11px] font-medium text-ink">유사 패턴 12건 학습</span>
-        </div>
-      </div>
     </div>
   );
 }

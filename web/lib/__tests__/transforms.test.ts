@@ -6,12 +6,9 @@ import {
   deriveItemStatus,
   deriveWpIdAndPath,
   deriveImpact,
-  deriveProductivityTimeseries,
   deriveStageProgress,
-  deriveBaseline,
   wbsTreeBuild,
   deriveChatSequence,
-  deriveSCurve,
 } from "../transforms";
 
 describe("G12 deriveProgressPercent", () => {
@@ -109,33 +106,6 @@ describe("G18 deriveImpact", () => {
   });
 });
 
-describe("G6 deriveProductivityTimeseries", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-  it("빈 결과 → trend=[] sparklines={}", async () => {
-    (sql as any).mockResolvedValueOnce([]);
-    const r = await deriveProductivityTimeseries("fleet", 30);
-    expect(r.trend).toEqual([]);
-    expect(r.sparklines).toEqual({});
-  });
-  it("mapped_history rows → trend (date 별 mean/min/max) + sparklines (site_id 별)", async () => {
-    (sql as any).mockResolvedValueOnce([
-      { report_date: new Date("2025-09-25"), site_id: "m15x", productivity: 0.85 },
-      { report_date: new Date("2025-09-25"), site_id: "g50", productivity: 0.95 },
-      { report_date: new Date("2025-09-26"), site_id: "m15x", productivity: 0.7 },
-    ]);
-    const r = await deriveProductivityTimeseries("fleet", 30);
-    expect(r.trend).toHaveLength(2);
-    const d25 = r.trend.find((p) => p.date === "2025-09-25")!;
-    expect(d25.mean).toBeCloseTo(0.9, 5);
-    expect(d25.min).toBeCloseTo(0.85, 5);
-    expect(d25.max).toBeCloseTo(0.95, 5);
-    expect(r.sparklines).toHaveProperty("m15x");
-    expect(r.sparklines.m15x).toEqual([0.85, 0.7]);
-    expect(r.sparklines.g50).toEqual([0.95]);
-  });
-});
 
 describe("G10 deriveStageProgress", () => {
   beforeEach(() => {
@@ -170,28 +140,6 @@ describe("G10 deriveStageProgress", () => {
   });
 });
 
-describe("G21 deriveBaseline", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-  it("mapped_history 평균 hit → 그 값 반환", async () => {
-    (sql as any).mockResolvedValueOnce([{ baseline: 0.85 }]);
-    const v = await deriveBaseline("A건설", "철근콘크리트공사");
-    expect(v).toBeCloseTo(0.85, 5);
-  });
-  it("mapped_history null → forecasts similar_cases fallback", async () => {
-    (sql as any).mockResolvedValueOnce([{ baseline: null }]);
-    (sql as any).mockResolvedValueOnce([{ baseline: 0.72 }]);
-    const v = await deriveBaseline("A건설", "철근콘크리트공사");
-    expect(v).toBeCloseTo(0.72, 5);
-  });
-  it("둘 다 없음 → 0", async () => {
-    (sql as any).mockResolvedValueOnce([{ baseline: null }]);
-    (sql as any).mockResolvedValueOnce([{ baseline: null }]);
-    const v = await deriveBaseline("A건설", "철근콘크리트공사");
-    expect(v).toBe(0);
-  });
-});
 
 describe("G22 wbsTreeBuild", () => {
   beforeEach(() => {
@@ -278,74 +226,3 @@ describe("G4 deriveChatSequence", () => {
   });
 });
 
-describe("G20 deriveSCurve", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("planned + actual 만 있는 케이스 — forecast/recovery 빈 배열", async () => {
-    (sql as any)
-      .mockResolvedValueOnce([
-        {
-          plan_start: new Date("2025-09-01"),
-          plan_finish: new Date("2025-09-05"),
-          plan_total_qty: 100,
-        },
-      ])
-      .mockResolvedValueOnce([
-        { report_date: "2025-09-01", day_qty: 30 },
-        { report_date: "2025-09-02", day_qty: 25 },
-      ])
-      .mockResolvedValueOnce([{ avg_prod: 0 }]);
-    const r = await deriveSCurve("test", "2025-09-05", null);
-    expect(Array.isArray(r)).toBe(true);
-    expect(r.length).toBeGreaterThan(0);
-    // planned 일별 분배 (100 / 5 = 20 per day) 누적: 20, 40, 60, 80, 100
-    const p05 = r.find((p) => p.date === "2025-09-05");
-    expect(p05).toBeDefined();
-    expect(p05!.planned).toBeCloseTo(100, 5);
-    // actual cum: 09-01=30, 09-02=55
-    const a02 = r.find((p) => p.date === "2025-09-02");
-    expect(a02!.actual).toBeCloseTo(55, 5);
-    // forecast/recovery null (avg_prod=0 → forecast 빈, wpId=null → recovery 빈)
-    expect(p05!.forecast ?? null).toBeNull();
-    expect(p05!.recovery ?? null).toBeNull();
-  });
-
-  it("forecast 외삽 — avg_prod > 0 → endDate 이후 plannedTotal 도달까지", async () => {
-    (sql as any)
-      .mockResolvedValueOnce([
-        {
-          plan_start: new Date("2025-09-20"),
-          plan_finish: new Date("2025-09-25"),
-          plan_total_qty: 100,
-        },
-      ])
-      .mockResolvedValueOnce([{ report_date: "2025-09-25", day_qty: 50 }])
-      .mockResolvedValueOnce([{ avg_prod: 25 }]);
-    const r = await deriveSCurve("test", "2025-09-25", null);
-    // actualLast=50, plannedTotal=100, avg=25 → 09-26: 75, 09-27: 100
-    const f27 = r.find((p) => p.date === "2025-09-27");
-    expect(f27).toBeDefined();
-    expect(f27!.forecast).toBeCloseTo(100, 5);
-  });
-
-  it("recovery — wpId 있고 optimizer_advice 있는 케이스", async () => {
-    (sql as any)
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{ avg_prod: 0 }])
-      .mockResolvedValueOnce([
-        {
-          recovery_pattern: [
-            { date: "2025-09-30", value: 80 },
-            { date: "2025-10-05", value: 100 },
-          ],
-        },
-      ]);
-    const r = await deriveSCurve("test", "2025-09-25", "wp-1");
-    const r30 = r.find((p) => p.date === "2025-09-30");
-    expect(r30).toBeDefined();
-    expect(r30!.recovery).toBe(80);
-  });
-});

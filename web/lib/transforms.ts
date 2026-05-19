@@ -1,15 +1,13 @@
 // web/lib/transforms.ts
 // FE↔BE 연결 Phase 4: pure transform 함수 모음 (G1/G11/G12/G17/G18)
-// + PG 의존 transform 함수 (G4/G6/G10/G21/G22)
+// + PG 의존 transform 함수 (G4/G10/G22)
 
 import sql from "@/lib/pg";
 import type {
-  FleetTrendPoint,
   AgentStageProgress,
   WBSNode,
   ChatMessage,
   Status,
-  SCurvePoint,
 } from "./types";
 
 export function deriveProgressPercent(
@@ -82,48 +80,6 @@ export function deriveImpact(
   return Math.min(100, Math.max(0, (raw / normMax) * 100));
 }
 
-// ──────────────────────────────────────────────
-// G6: 현장별 생산성 시계열
-// mapped_history × mapper_activities → AVG(today_qty / NULLIF(plan_mh, 0))
-// ──────────────────────────────────────────────
-export async function deriveProductivityTimeseries(
-  siteId: string,
-  days: number = 30,
-): Promise<{ trend: FleetTrendPoint[]; sparklines: Record<string, number[]> }> {
-  const rows = (await (sql as any)`
-    SELECT
-      mh.report_date,
-      mh.site_id,
-      AVG(mh.today_qty / NULLIF(ma.plan_mh, 0)) AS productivity
-    FROM mapped_history mh
-    LEFT JOIN mapper_activities ma USING (run_id, wa, l6_main, company)
-    WHERE mh.report_date >= CURRENT_DATE - ${days}::integer
-      AND (${siteId} = 'fleet' OR mh.site_id = ${siteId})
-    GROUP BY mh.report_date, mh.site_id
-    ORDER BY mh.report_date
-  `) as Array<{ report_date: Date; site_id: string; productivity: number | null }>;
-
-  const byDate = new Map<string, number[]>();
-  const sparklines: Record<string, number[]> = {};
-  for (const r of rows) {
-    const dStr =
-      r.report_date instanceof Date
-        ? r.report_date.toISOString().slice(0, 10)
-        : String(r.report_date).slice(0, 10);
-    const v = r.productivity != null ? Number(r.productivity) : 0;
-    if (!byDate.has(dStr)) byDate.set(dStr, []);
-    byDate.get(dStr)!.push(v);
-    if (!sparklines[r.site_id]) sparklines[r.site_id] = [];
-    sparklines[r.site_id].push(v);
-  }
-  const trend: FleetTrendPoint[] = Array.from(byDate.entries()).map(([date, vals]) => ({
-    date,
-    mean: vals.reduce((s, v) => s + v, 0) / vals.length,
-    min: Math.min(...vals),
-    max: Math.max(...vals),
-  }));
-  return { trend, sparklines };
-}
 
 // ──────────────────────────────────────────────
 // G10: 8 단계 (1..7 + 3.5 HIL) 진행률
@@ -223,29 +179,6 @@ export async function deriveStageProgress(date: string): Promise<AgentStageProgr
   ];
 }
 
-// ──────────────────────────────────────────────
-// G21: 업체×공종 이력 평균 생산성 (Baseline)
-// ──────────────────────────────────────────────
-export async function deriveBaseline(
-  company: string,
-  l6_main: string,
-): Promise<number> {
-  const rows = (await (sql as any)`
-    SELECT AVG(mh.today_qty / NULLIF(ma.plan_mh, 0)) AS baseline
-    FROM mapped_history mh
-    LEFT JOIN mapper_activities ma USING (run_id, wa, l6_main, company)
-    WHERE mh.company = ${company} AND mh.l6_main = ${l6_main}
-  `) as Array<{ baseline: number | null }>;
-  const baseline = rows[0]?.baseline;
-  if (baseline != null) return Number(baseline);
-
-  const fb = (await (sql as any)`
-    SELECT AVG((c->>'productivity')::numeric) AS baseline
-    FROM forecasts, jsonb_array_elements(similar_cases) c
-    WHERE company = ${company} AND l6_main = ${l6_main}
-  `) as Array<{ baseline: number | null }>;
-  return Number(fb[0]?.baseline ?? 0);
-}
 
 // ──────────────────────────────────────────────
 // G22: WBS 4 레벨 트리 (site → wa → l5_disc → l6_main)
@@ -434,177 +367,3 @@ export async function deriveChatSequence(runId: string): Promise<ChatMessage[]> 
   ];
 }
 
-// ──────────────────────────────────────────────
-// G20: S-curve (계획 vs 실적 vs 예측 vs 회복)
-// ──────────────────────────────────────────────
-
-function _toDateStr(d: Date | string): string {
-  if (typeof d === "string") return d.slice(0, 10);
-  return d.toISOString().slice(0, 10);
-}
-
-function _addDays(dateStr: string, n: number): string {
-  const d = new Date(dateStr + "T00:00:00Z");
-  d.setUTCDate(d.getUTCDate() + n);
-  return d.toISOString().slice(0, 10);
-}
-
-function _diffDaysInclusive(start: string, end: string): number {
-  const s = new Date(start + "T00:00:00Z").getTime();
-  const e = new Date(end + "T00:00:00Z").getTime();
-  return Math.floor((e - s) / 86400000) + 1;
-}
-
-async function _plannedCurve(
-  siteId: string,
-  endDate: string,
-): Promise<{ date: string; value: number }[]> {
-  const rows = (await (sql as any)`
-    SELECT plan_start, plan_finish, plan_total_qty
-    FROM activity_master
-    WHERE site_id = ${siteId}
-  `) as Array<{
-    plan_start: Date | string | null;
-    plan_finish: Date | string | null;
-    plan_total_qty: number | string | null;
-  }>;
-
-  if (!rows || rows.length === 0) return [];
-  const valid = rows.filter(
-    (r) => r.plan_start != null && r.plan_finish != null && r.plan_total_qty != null,
-  );
-  if (valid.length === 0) return [];
-
-  // 각 activity 일별 분배 → 일별 합산
-  const dayQty = new Map<string, number>();
-  let minStart = endDate;
-  for (const r of valid) {
-    const startStr = _toDateStr(r.plan_start as Date | string);
-    const finishStr = _toDateStr(r.plan_finish as Date | string);
-    const qty = Number(r.plan_total_qty);
-    const span = _diffDaysInclusive(startStr, finishStr);
-    if (span <= 0) continue;
-    const perDay = qty / span;
-    if (startStr < minStart) minStart = startStr;
-    for (let i = 0; i < span; i++) {
-      const d = _addDays(startStr, i);
-      if (d > endDate) break;
-      dayQty.set(d, (dayQty.get(d) ?? 0) + perDay);
-    }
-  }
-
-  // minStart ~ endDate 일별 grid, 누적
-  const out: { date: string; value: number }[] = [];
-  let cum = 0;
-  let cursor = minStart;
-  while (cursor <= endDate) {
-    cum += dayQty.get(cursor) ?? 0;
-    out.push({ date: cursor, value: cum });
-    cursor = _addDays(cursor, 1);
-  }
-  if (out.length === 0) return [];
-
-  // normalize: total qty 합계 = 100%
-  const totalQty = valid.reduce((s, r) => s + Number(r.plan_total_qty), 0);
-  if (totalQty <= 0) return [];
-  return out.map((p) => ({ date: p.date, value: (p.value / totalQty) * 100 }));
-}
-
-async function _actualCurve(
-  siteId: string,
-  endDate: string,
-): Promise<{ date: string; value: number }[]> {
-  const rows = (await (sql as any)`
-    SELECT report_date, SUM(today_qty) AS day_qty
-    FROM mapped_history
-    WHERE site_id = ${siteId} AND report_date <= ${endDate}
-    GROUP BY report_date
-    ORDER BY report_date
-  `) as Array<{ report_date: Date | string; day_qty: number | string }>;
-
-  let cum = 0;
-  return rows.map((r) => {
-    cum += Number(r.day_qty);
-    return { date: _toDateStr(r.report_date), value: cum };
-  });
-}
-
-async function _forecastCurve(
-  siteId: string,
-  endDate: string,
-  actualLast: number,
-  plannedTotal: number,
-): Promise<{ date: string; value: number }[]> {
-  if (plannedTotal <= actualLast) return [];
-  const rows = (await (sql as any)`
-    SELECT AVG(today_productivity) AS avg_prod
-    FROM forecasts
-    WHERE run_id IN (SELECT last_run_id FROM sites WHERE site_id = ${siteId})
-  `) as Array<{ avg_prod: number | string | null }>;
-  const avgProd = Number(rows[0]?.avg_prod ?? 0);
-  if (avgProd <= 0) return [];
-
-  const out: { date: string; value: number }[] = [];
-  let cum = actualLast;
-  let cursor = endDate;
-  while (cum < plannedTotal) {
-    cursor = _addDays(cursor, 1);
-    cum += avgProd;
-    out.push({ date: cursor, value: Math.min(cum, plannedTotal) });
-    if (out.length > 365) break; // 안전 가드
-  }
-  return out;
-}
-
-async function _recoveryCurve(
-  siteId: string,
-  wpId: string | null,
-): Promise<{ date: string; value: number }[]> {
-  if (!wpId) return [];
-  const rows = (await (sql as any)`
-    SELECT recovery_pattern
-    FROM optimizer_advice
-    WHERE run_id IN (SELECT last_run_id FROM sites WHERE site_id = ${siteId})
-  `) as Array<{ recovery_pattern: Array<{ date: string; value: number }> | null }>;
-  if (!rows[0]?.recovery_pattern) return [];
-  return rows[0].recovery_pattern;
-}
-
-export async function deriveSCurve(
-  siteId: string,
-  endDate: string,
-  wpId: string | null,
-): Promise<SCurvePoint[]> {
-  const planned = await _plannedCurve(siteId, endDate);
-  const actual = await _actualCurve(siteId, endDate);
-  const actualLast = actual.length > 0 ? actual[actual.length - 1].value : 0;
-  const plannedTotal = planned.length > 0 ? planned[planned.length - 1].value : 100;
-  const forecast = await _forecastCurve(siteId, endDate, actualLast, plannedTotal);
-  const recovery = await _recoveryCurve(siteId, wpId);
-
-  const dateSet = new Set<string>([
-    ...planned.map((p) => p.date),
-    ...actual.map((a) => a.date),
-    ...forecast.map((f) => f.date),
-    ...recovery.map((r) => r.date),
-  ]);
-  const dates = Array.from(dateSet).sort();
-  const pMap = new Map(planned.map((p) => [p.date, p.value]));
-  const aMap = new Map(actual.map((a) => [a.date, a.value]));
-  const fMap = new Map(forecast.map((f) => [f.date, f.value]));
-  const rMap = new Map(recovery.map((r) => [r.date, r.value]));
-
-  return dates.map((d) => {
-    const point: SCurvePoint = {
-      date: d,
-      planned: pMap.get(d) ?? 0,
-    };
-    const av = aMap.get(d);
-    if (av !== undefined) point.actual = av;
-    const fv = fMap.get(d);
-    if (fv !== undefined) point.forecast = fv;
-    const rv = rMap.get(d);
-    if (rv !== undefined) point.recovery = rv;
-    return point;
-  });
-}

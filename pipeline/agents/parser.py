@@ -1,11 +1,15 @@
 """Parser 에이전트 — 작업일보 xlsx -> ParsedDailyReport.
 
-Spec: docs/superpowers/specs/2026-05-15-cpia-parser-design.md
+Spec: docs/superpowers/specs/2026-05-15-cpia-parser-design.md +
+      docs/superpowers/specs/2026-05-20-cpia-parser-mapper-refactor-design.md
 """
 
 from __future__ import annotations
 
+import json
+import os
 import re
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -559,6 +563,11 @@ def parse_daily_report(xlsx_path: Path | str) -> ParsedDailyReport:
         job_allocations = _parse_sheet2_job_allocations(wb["2.직종별 인원현황"])
         equipment_allocations = _parse_sheet3_equipment_allocations(wb["3.장비현황"])
         activities = _parse_sheet4_activities(wb["4.물량"])
+
+        # spec §2.6 — 시트1/4 LLM 검증 (default on, CPIA_PARSER_VERIFY_LLM=off 로 opt-out)
+        if _should_verify_llm():
+            _verify_sheet1_via_llm(wb["1.출력인원 현황"], bp_summaries)
+            _verify_sheet4_via_llm(wb["4.물량"], activities)
     finally:
         wb.close()
 
@@ -572,3 +581,180 @@ def parse_daily_report(xlsx_path: Path | str) -> ParsedDailyReport:
         "worker_outputs": [],
         "report_meta": None,
     }
+
+
+# ---------------------------------------------------------------------------
+# 2026-05-20 refactor: 시트1/4 LLM 검증 wrapper (spec §2.6)
+# ---------------------------------------------------------------------------
+
+
+def _should_verify_llm() -> bool:
+    """env CPIA_PARSER_VERIFY_LLM — default 'on', 'off'/'false'/'0'/'no' 면 opt-out."""
+    v = os.environ.get("CPIA_PARSER_VERIFY_LLM", "on").lower().strip()
+    return v not in ("off", "false", "0", "no")
+
+
+def _verify_sheet1_via_llm(ws, bp_summaries: list[BPSummary]) -> None:
+    """spec §2.6.1 — 시트1 rule 결과 LLM 검증. issues 는 stderr 로그만 (결정성 보존).
+
+    8 종 error path graceful catch (timeout 30s / length / content_filter /
+    JSONDecodeError / Exception broad / 빈 input / API key 없음).
+    """
+    if not bp_summaries:
+        return  # 빈 input
+    try:
+        from openai import AzureOpenAI
+
+        client = AzureOpenAI(
+            azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
+            api_key=os.environ["AZURE_OPENAI_API_KEY"],
+            api_version=os.environ["AZURE_OPENAI_API_VERSION"],
+        )
+        raw_rows = []
+        for r in range(5, ws.max_row + 1):
+            v5 = ws.cell(r, 5).value
+            if v5 is None:
+                continue
+            raw_rows.append(
+                {
+                    "r": r,
+                    "col5": v5,
+                    "col6": ws.cell(r, 6).value,
+                    "col7_prev": ws.cell(r, 7).value,
+                    "col8_today": ws.cell(r, 8).value,
+                    "col30_total": ws.cell(r, 30).value,
+                    "col37_cum": ws.cell(r, 37).value,
+                }
+            )
+        sys_prompt = (
+            "건설 작업일보 시트1 (출력인원) rule 추출 검증. "
+            "각 BPSummary 필드: bp_code (PH_X-NNN), company (정규화), zone (FAB/CUB/null), "
+            "work_text_today, today_cum_total. raw 와 명확히 어긋난 경우만 issues 에 보고. "
+            'JSON: {"issues": [{"row": N, "field": "...", "current": "...", '
+            '"expected": "...", "why": "..."}]}'
+        )
+        payload = {"rule_results": list(bp_summaries), "raw_rows": raw_rows}
+        resp = client.chat.completions.create(
+            model=os.environ["LLM_MODEL"],
+            messages=[
+                {"role": "system", "content": sys_prompt},
+                {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+            ],
+            response_format={"type": "json_object"},
+            max_completion_tokens=2000,
+            timeout=30,
+        )
+        choice = resp.choices[0]
+        if choice.finish_reason in ("length", "content_filter"):
+            print(
+                f"[parser:sheet1] LLM verify finish_reason={choice.finish_reason} — issues=[]",
+                file=sys.stderr,
+                flush=True,
+            )
+            return
+        try:
+            verify = json.loads(choice.message.content or "{}")
+        except json.JSONDecodeError as e:
+            print(
+                f"[parser:sheet1] LLM verify malformed JSON: {e} — issues=[]",
+                file=sys.stderr,
+                flush=True,
+            )
+            return
+        for it in verify.get("issues", []):
+            print(
+                f"[parser:sheet1] LLM 검증 issue: row={it.get('row')} field={it.get('field')} "
+                f"current={it.get('current')} expected={it.get('expected')} reason={it.get('why')}",
+                file=sys.stderr,
+                flush=True,
+            )
+    except Exception as e:  # noqa: BLE001 — spec §2.6.4 broad catch (cycle block 방지)
+        print(
+            f"[parser:sheet1] LLM verify EXCEPTION: {type(e).__name__}: {e}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+
+def _verify_sheet4_via_llm(ws, activities: list[Activity]) -> None:
+    """spec §2.6.1 — 시트4 sample LLM 검증. 8 종 error path graceful catch."""
+    if not activities:
+        return
+    try:
+        from openai import AzureOpenAI
+
+        client = AzureOpenAI(
+            azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
+            api_key=os.environ["AZURE_OPENAI_API_KEY"],
+            api_version=os.environ["AZURE_OPENAI_API_VERSION"],
+        )
+        # sample 선정 — 첫 10 + 의심 (zone None / plan None / work<=3) 각 5 + 끝 5
+        suspicious_zone = [a for a in activities if a.get("zone") is None][:5]
+        suspicious_no_plan = [a for a in activities if a.get("plan_total_qty") is None][:5]
+        suspicious_short = [a for a in activities if len(a.get("work_content", "")) <= 3][:5]
+        sample = (
+            list(activities[:10])
+            + suspicious_zone
+            + suspicious_no_plan
+            + suspicious_short
+            + list(activities[-5:])
+        )
+        seen: set = set()
+        sample_unique: list = []
+        for a in sample:
+            key = (a.get("bp_code"), a.get("work_content"))
+            if key in seen:
+                continue
+            seen.add(key)
+            sample_unique.append(a)
+
+        sys_prompt = (
+            "건설 작업일보 시트4 (물량) rule 추출 검증. "
+            "각 Activity 필드: company / bp_code / trade / zone (FAB/CUB/null) / "
+            "work_content / unit / plan_total_qty / today_cum_qty. "
+            "명확한 mis-parse 만 보고. "
+            'JSON: {"issues": [{"company": "...", "work_content": "...", "field": "...", '
+            '"current": "...", "expected": "...", "why": "..."}]}'
+        )
+        payload = {"rule_results_sample": sample_unique}
+        resp = client.chat.completions.create(
+            model=os.environ["LLM_MODEL"],
+            messages=[
+                {"role": "system", "content": sys_prompt},
+                {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+            ],
+            response_format={"type": "json_object"},
+            max_completion_tokens=1500,
+            timeout=30,
+        )
+        choice = resp.choices[0]
+        if choice.finish_reason in ("length", "content_filter"):
+            print(
+                f"[parser:sheet4] LLM verify finish_reason={choice.finish_reason} — issues=[]",
+                file=sys.stderr,
+                flush=True,
+            )
+            return
+        try:
+            verify = json.loads(choice.message.content or "{}")
+        except json.JSONDecodeError as e:
+            print(
+                f"[parser:sheet4] LLM verify malformed JSON: {e} — issues=[]",
+                file=sys.stderr,
+                flush=True,
+            )
+            return
+        for it in verify.get("issues", []):
+            print(
+                f"[parser:sheet4] LLM 검증 issue: work={it.get('work_content')} "
+                f"field={it.get('field')} current={it.get('current')} "
+                f"expected={it.get('expected')} reason={it.get('why')}",
+                file=sys.stderr,
+                flush=True,
+            )
+    except Exception as e:  # noqa: BLE001
+        print(
+            f"[parser:sheet4] LLM verify EXCEPTION: {type(e).__name__}: {e}",
+            file=sys.stderr,
+            flush=True,
+        )

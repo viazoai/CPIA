@@ -576,3 +576,59 @@ def test_run_one_cycle_does_not_call_parser_llm():
     assert "parse_daily_report_llm(" not in content
     assert "from pipeline.agents.parser_llm import ParserConfig" not in content
     assert "from pipeline.agents.parser import parse_daily_report" in content
+
+
+# ---------------------------------------------------------------------------
+# 2026-05-20 refactor: col 인덱스 헤더 가드 (spec §5 V4)
+# 4 시트의 r3~r5 헤더 셀이 spec §2.2~§2.5 가정과 일치하는지 검증.
+# implementer 가 col 인덱스를 잘못 코딩하면 즉시 fail.
+# ---------------------------------------------------------------------------
+
+
+def test_sheet1_col_indices_match_header(sample_tong_path: Path):
+    """spec §2.2 — col 4='Dis', col 5='협력업체', col 7-9=작업 텍스트."""
+    wb = openpyxl.load_workbook(sample_tong_path, data_only=True)
+    ws = wb["1.출력인원 현황"]
+    assert ws.cell(4, 4).value == "Dis", f"col 4 header: {ws.cell(4, 4).value!r}"
+    assert ws.cell(4, 5).value == "협력업체", f"col 5 header: {ws.cell(4, 5).value!r}"
+    assert "전일 작업사항" in str(ws.cell(4, 7).value or "")
+    assert "금일 작업사항" in str(ws.cell(4, 8).value or "")
+    assert "명일 작업사항" in str(ws.cell(4, 9).value or "")
+    wb.close()
+
+
+def test_sheet2_col_indices_match_header(sample_tong_path: Path):
+    """spec §2.3 — col 4='관리자/근로자', col 24='Cum. T', col 25='최종'."""
+    wb = openpyxl.load_workbook(sample_tong_path, data_only=True)
+    ws = wb["2.직종별 인원현황"]
+    assert ws.cell(5, 2).value == "Dis"
+    assert ws.cell(5, 3).value == "협력업체"
+    assert ws.cell(5, 4).value == "관리자/근로자"
+    assert ws.cell(5, 24).value == "Cum. T"
+    assert ws.cell(5, 25).value == "최종"
+    wb.close()
+
+
+def test_sheet3_col_indices_match_header(sample_tong_path: Path):
+    """spec §2.4 — col 4='대분류', col 5='중분류', col 25='최종'."""
+    wb = openpyxl.load_workbook(sample_tong_path, data_only=True)
+    ws = wb["3.장비현황"]
+    assert ws.cell(5, 2).value == "Dis"
+    assert ws.cell(5, 3).value == "협력업체"
+    assert ws.cell(5, 4).value == "대분류"
+    assert ws.cell(5, 5).value == "중분류"
+    assert ws.cell(5, 25).value == "최종"
+    wb.close()
+
+
+def test_sheet4_col_indices_match_header(sample_tong_path: Path):
+    """spec §2.5 — col 5='BP사', col 6='업체명', col 7='Scope', col 8='대표물량_작업 내용'."""
+    wb = openpyxl.load_workbook(sample_tong_path, data_only=True)
+    ws = wb["4.물량"]
+    assert ws.cell(3, 3).value == "Zone"
+    assert ws.cell(3, 4).value == "공종"
+    assert ws.cell(3, 5).value == "BP사"
+    assert ws.cell(3, 6).value == "업체명"
+    assert ws.cell(3, 7).value == "Scope"
+    assert ws.cell(3, 8).value == "대표물량_작업 내용"
+    wb.close()

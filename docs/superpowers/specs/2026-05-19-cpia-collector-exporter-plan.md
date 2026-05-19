@@ -628,6 +628,7 @@ import email
 import logging
 import os
 import uuid
+from asyncio import create_task  # monkeypatch target 분리 — 테스트 patch 안정성
 from email.message import Message
 from pathlib import Path
 
@@ -814,7 +815,7 @@ async def _process_one(imap, uid: str, cfg: CollectorConfig) -> None:
             )
         finally:
             await pg.close()
-        asyncio.create_task(
+        create_task(
             run_for_attachment(path, meta, site_id, sub_message_id, cfg)
         )
 
@@ -1023,7 +1024,7 @@ async def test_process_one_dedup(tmp_path: Path, monkeypatch) -> None:
     ))
 
     create_task_mock = MagicMock()
-    monkeypatch.setattr("pipeline.collector.idle_worker.asyncio.create_task", create_task_mock)
+    monkeypatch.setattr("pipeline.collector.idle_worker.create_task", create_task_mock)
 
     fake_imap = AsyncMock()
     fake_imap.fetch.return_value = ("OK", [b"1", raw, b")"])
@@ -1065,7 +1066,7 @@ async def test_process_one_dispatches_graph(tmp_path: Path, monkeypatch) -> None
         coro.close()  # 실행 안 함 — graph 호출 차단
 
     monkeypatch.setattr(
-        "pipeline.collector.idle_worker.asyncio.create_task", fake_create_task,
+        "pipeline.collector.idle_worker.create_task", fake_create_task,
     )
 
     fake_imap = AsyncMock()
@@ -1207,10 +1208,13 @@ async def seeded_run(pg: PGClient):
     rdate = date(2099, 1, 1)  # 미래 날짜 — 운영 데이터와 충돌 회피
 
     async with pg._pool.acquire() as con:
+        # pipeline_runs 컬럼: run_id, site_id, report_date, status, current_node,
+        # error, atomized_count, started_at (NOT NULL DEFAULT NOW()), completed_at
+        # `created_at` 컬럼 없음 — started_at 의 default 사용 (생략).
         await con.execute(
             """
-            INSERT INTO pipeline_runs (run_id, site_id, report_date, status, created_at)
-            VALUES ($1, $2, $3, 'completed', NOW())
+            INSERT INTO pipeline_runs (run_id, site_id, report_date, status)
+            VALUES ($1, $2, $3, 'completed')
             """,
             run_id, site_id, rdate,
         )
@@ -1832,85 +1836,111 @@ git commit -m "feat(exporter): /export/run FastAPI endpoint + httpx 통합 테�
 
 ---
 
-## Task 9: `pipeline/api.py` startup + include_router (3줄)
+## Task 9: `pipeline/api.py` 의 기존 `lifespan` 확장 + `include_router`
 
 **Files:**
-- Modify: `pipeline/api.py` (3 영역 추가)
+- Modify: `pipeline/api.py` (기존 `lifespan` 함수 안에 collector task 삽입 + `include_router` 1줄)
 
 **참고:** Spec §4.1, §6.1. 기존 endpoint 한 줄도 안 건드림.
+
+**⚠ 중요 (reviewer fix)**: `pipeline/api.py:142~178` 는 이미 `@asynccontextmanager async def lifespan(app)` + `app = FastAPI(..., lifespan=lifespan)` 패턴을 쓰고 있다. FastAPI 의 `@app.on_event("startup")` 와 `lifespan=` 은 **mutually exclusive** — 둘 다 쓰면 `on_event` 핸들러는 무시되고 IDLE 루프가 안 뜬다. 따라서 기존 `lifespan()` 함수 안에 collector task 를 끼워넣는다.
+
+또한 GraphConfig 빌더의 실 함수명은 `_build_prod_graph_config()` (`pipeline/api.py:63`). 이를 그대로 재사용.
 
 - [ ] **Step 1: api.py 현 구조 확인**
 
 ```bash
-grep -n "^app = \|@app.on_event\|@app.get\|@app.post\|include_router" "/Users/kyungseoplee/Project Agent/CPIA/pipeline/api.py" | head -10
+grep -n "^app = \|^def \|^async def \|^@asynccontextmanager\|lifespan\|include_router\|_build_prod_graph_config" "/Users/kyungseoplee/Project Agent/CPIA/pipeline/api.py" | head -15
 ```
 
-`app = FastAPI(...)` 위치 확인. startup/shutdown 이벤트 핸들러 위치 확인 (없으면 신규).
+기대: `_build_prod_graph_config` (line ~63), `async def lifespan` (~142), `app = FastAPI(..., lifespan=lifespan)` (~178).
 
-- [ ] **Step 2: import + include_router 추가**
+- [ ] **Step 2: import 추가**
 
-`pipeline/api.py` 상단 import 블록 끝에 추가:
+`pipeline/api.py` 상단의 import 블록 끝에 추가:
 
 ```python
+import asyncio  # 이미 있으면 skip
 from pipeline.collector.config import load_collector_config
 from pipeline.collector.idle_worker import idle_loop, request_shutdown
 from pipeline.exporter_routes import router as exporter_router
 ```
 
-`app = FastAPI(...)` 정의 다음 줄에 추가:
+- [ ] **Step 3: 기존 `lifespan()` 확장 — collector task spawn**
+
+`pipeline/api.py` 의 `async def lifespan(app)` 함수 안, `app.state.cfg = cfg` 다음 줄에 추가하고, `try/finally` 블록의 finally 도 갱신:
+
+기존 (참고):
+```python
+    cfg = _build_prod_graph_config()
+    graph = build_graph(cfg)
+    app.state.graph = graph
+    app.state.cfg = cfg
+
+    try:
+        yield
+    finally:
+        await pg.close()
+```
+
+변경 후:
+```python
+    cfg = _build_prod_graph_config()
+    graph = build_graph(cfg)
+    app.state.graph = graph
+    app.state.cfg = cfg
+
+    # ── Collector (IMAP IDLE) ─────────────────────────────────────
+    # Spec §6.1. COLLECTOR_ENABLED=false 면 task 안 띄움.
+    collector_task = None
+    try:
+        collector_cfg = load_collector_config(graph_cfg=cfg)
+        if collector_cfg.enabled:
+            collector_task = asyncio.create_task(idle_loop(collector_cfg))
+    except KeyError:
+        # COLLECTOR_IMAP_USER 등 미설정 — PoC 외 환경 정상 케이스
+        pass
+
+    try:
+        yield
+    finally:
+        if collector_task is not None:
+            request_shutdown()
+            collector_task.cancel()
+            try:
+                await collector_task
+            except asyncio.CancelledError:
+                pass
+        await pg.close()
+```
+
+- [ ] **Step 4: `include_router` 추가**
+
+`app = FastAPI(..., lifespan=lifespan)` 정의 직후 1줄:
 
 ```python
 app.include_router(exporter_router)
 ```
 
-- [ ] **Step 3: startup / shutdown event 추가**
-
-`pipeline/api.py` 의 적당한 위치 (다른 endpoint 정의 위) 에 추가. GraphConfig 생성 helper 가 이미 있다면 (`_build_graph_config` 같은 함수) 그것 재사용:
-
-```python
-import asyncio
-
-
-@app.on_event("startup")
-async def _start_collector() -> None:
-    cfg = load_collector_config(graph_cfg=_get_graph_cfg())  # ← 기존 helper 재사용
-    if cfg.enabled:
-        app.state._collector_task = asyncio.create_task(idle_loop(cfg))
-
-
-@app.on_event("shutdown")
-async def _stop_collector() -> None:
-    request_shutdown()
-    task = getattr(app.state, "_collector_task", None)
-    if task:
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
-```
-
-**주의:** `_get_graph_cfg()` 는 api.py 안에 이미 있는 GraphConfig 빌더 helper 이름. 실제 함수명은 grep 후 확정 — 없으면 기존 endpoint 들이 어떻게 GraphConfig 만드는지 그 패턴 그대로 사용.
-
-- [ ] **Step 4: api.py syntax 검증 + 기존 테스트 회귀 없음 확인**
+- [ ] **Step 5: api.py syntax 검증 + 기존 테스트 회귀 없음 확인**
 
 ```bash
 cd "/Users/kyungseoplee/Project Agent/CPIA/pipeline"
-.venv/bin/python3 -c "from pipeline.api import app; print(app.routes)" 2>&1 | head -3
-# COLLECTOR_ENABLED=false 기본값으로 IDLE 루프 안 띄움 → 기존 endpoint 회귀 0
+.venv/bin/python3 -c "from pipeline.api import app; print([r.path for r in app.routes if hasattr(r, 'path')][:10])" 2>&1
+# /export/run 이 출력 routes 에 보여야 함
 POSTGRES_URL="$(grep '^POSTGRES_URL=' ../.env | cut -d= -f2-)" \
   COLLECTOR_ENABLED=false \
   .venv/bin/python3 -m pytest tests/test_api_smoke.py -v 2>&1 | tail -10
 ```
 
-기대 출력: `import` 성공 + smoke 테스트 회귀 0.
+기대 출력: routes 에 `/export/run` 포함 + 기존 smoke 테스트 회귀 0.
 
-- [ ] **Step 5: 커밋**
+- [ ] **Step 6: 커밋**
 
 ```bash
 cd "/Users/kyungseoplee/Project Agent/CPIA/"
 git add pipeline/api.py
-git commit -m "feat(api): collector startup hook + exporter router include (+3 줄)"
+git commit -m "feat(api): lifespan 안에 collector task + exporter router include"
 ```
 
 ---
@@ -2119,6 +2149,21 @@ git commit -m "docs(exporter): B_Track UI swap 가이드 (NEXT_PUBLIC_FASTAPI_BA
 
 **Files:**
 - (검증만, 파일 변경 없음)
+
+- [ ] **Step 0: prerequisite — `sites.m15x-ph3-ibl` 시드 확인**
+
+```bash
+PGPASSWORD="$(grep '^POSTGRES_URL=' "/Users/kyungseoplee/Project Agent/CPIA/.env" | sed -E 's|.*://[^:]+:([^@]+)@.*|\1|')" \
+  psql -h cpia-pg.zoai.uk -p 5532 -U cpia -d cpia \
+  -c "SELECT site_id, name FROM sites WHERE site_id='m15x-ph3-ibl';"
+```
+
+row 0 이면 `data/mock_sites.json` 시드 또는 다음 SQL 로 수동 INSERT:
+
+```sql
+INSERT INTO sites (site_id, name, is_mock) VALUES ('m15x-ph3-ibl', 'M15X Ph-3 IBL', true)
+  ON CONFLICT (site_id) DO NOTHING;
+```
 
 - [ ] **Step 1: 데모 환경 변수 활성화**
 

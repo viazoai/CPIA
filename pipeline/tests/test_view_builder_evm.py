@@ -112,3 +112,48 @@ def test_build_contractor_bars_empty():
     """by_contractor 비어있으면 빈 list."""
     assert _build_contractor_bars({}) == []
     assert _build_contractor_bars({"by_contractor": {}}) == []
+
+
+from pipeline.agents.optimizer.view_builder import (
+    _compute_impact_p90,
+    _normalize_impact,
+    _quadrant_label,
+    _wp_id_of,
+)
+
+
+def test_compute_impact_p90_empty_list_returns_one():
+    """Minor 6 guard — 빈 list 시 IndexError 없이 1.0 반환."""
+    assert _compute_impact_p90([]) == 1.0
+
+
+def test_compute_impact_p90_short_list_uses_max():
+    """10 미만이면 max fallback."""
+    assert _compute_impact_p90([10, 20, 30]) == 30
+
+
+def test_compute_impact_p90_ten_or_more():
+    """10 이상이면 quantiles 의 [8] (90 percentile)."""
+    # 1, 2, ..., 10 -> P90 ~ 9.x
+    p90 = _compute_impact_p90([float(i) for i in range(1, 11)])
+    assert 9.0 <= p90 <= 10.0
+
+
+def test_normalize_impact_caps_at_100():
+    """raw > p90 이면 100 으로 capping."""
+    assert _normalize_impact(200, 100) == 100.0
+    assert _normalize_impact(50, 100) == 50.0
+    assert _normalize_impact(0, 100) == 0.0
+    assert _normalize_impact(50, 0) == 0.0  # p90=0 safe
+
+
+def test_quadrant_label_four_quadrants():
+    assert _quadrant_label(50, 70) == "risk"  # low prod + high impact
+    assert _quadrant_label(50, 30) == "caution"  # low prod
+    assert _quadrant_label(90, 70) == "watch"  # high impact
+    assert _quadrant_label(90, 30) == "safe"
+
+
+def test_wp_id_kebab_case():
+    assert _wp_id_of("Zone A", "콘크리트 타설", "세보") == "zone-a-콘크리트-타설-세보"
+    assert _wp_id_of(None, None, None) == "unknown-unknown-unknown"

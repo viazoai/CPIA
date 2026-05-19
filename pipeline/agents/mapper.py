@@ -21,6 +21,76 @@ from pipeline.db import PGClient
 from pipeline.state import Activity, BPSummary, ParsedDailyReport
 
 
+# ============================================================
+# 시간대 가중 MH 환산 (spec 2026-05-19 §3.2~3.3)
+# ============================================================
+
+_SHIFT_WEIGHTS = {
+    "morning": 2.0,
+    "daytime": 8.0,
+    "overtime": 4.0,
+    "night": 8.0,
+    "all_night": 12.0,
+}
+
+
+def _weighted_mh_from_shift(shift_dict: dict | None) -> float:
+    """시트2 workers_today_cum jsonb (TimeShiftCounts) → 가중 MH.
+
+    spec §3.2 가중치 (조출 2 / 주간 8 / 연장 4 / 야간 8 / 철야 12) 적용.
+    None / 빈 dict / 키 누락 → 0.0 처리.
+    """
+    if not shift_dict:
+        return 0.0
+    return sum(float(shift_dict.get(k, 0) or 0) * w for k, w in _SHIFT_WEIGHTS.items())
+
+
+def _prorate_workers_with_mh(
+    mapped: list[dict],
+    parsed_report: dict,
+    company_total_plan_mh: dict[str, float],
+    active_l6_for_company: dict[str, set[str]],
+) -> list[dict]:
+    """company 단위 시간대 가중 누적 MH 산출 후 l6 비례 분배.
+
+    spec §3.3.
+    """
+    company_weighted_mh: dict[str, float] = {}
+    for ja in parsed_report.get("job_allocations", []):
+        if ja.get("final_flag") != "O":
+            continue
+        c = ja.get("company")
+        if c:
+            mh = _weighted_mh_from_shift(ja.get("workers_today_cum"))
+            company_weighted_mh[c] = company_weighted_mh.get(c, 0.0) + mh
+
+    prorated: list[dict] = []
+    for a in mapped:
+        if a.get("l6_main"):
+            c = a["company"]
+            weighted_mh_c = company_weighted_mh.get(c, 0.0)
+            company_mh = company_total_plan_mh.get(c, 0.0)
+            plan_mh_val = float(a.get("plan_mh") or 0)
+            n_l6 = len(active_l6_for_company.get(c, set())) if c else 0
+            if company_mh > 0 and plan_mh_val > 0:
+                cum_actual_mh = weighted_mh_c * (plan_mh_val / company_mh)
+                prorate_method = "plan_mh"
+            elif n_l6 > 0:
+                cum_actual_mh = weighted_mh_c / n_l6
+                prorate_method = "uniform_fallback"
+            else:
+                cum_actual_mh = 0.0
+                prorate_method = "zero"
+            a = {
+                **a,
+                "cum_actual_mh_today": cum_actual_mh,
+                "cum_workers_today": cum_actual_mh / 8.0,
+                "prorate_method": prorate_method,
+            }
+        prorated.append(a)
+    return prorated
+
+
 # 시트2 직종 noise 제거 — mapping-layer.md §2.1 (3)
 _TRADE_KEYWORDS = (
     "형틀",
@@ -449,16 +519,6 @@ async def _prorate_mh(
             }
         out.append(a)
 
-    # U1.B: parser_job_allocations company workers_cum_t → activity 단위 prorate
-    # final_flag='O' 인 항목만 SUM
-    job_alloc_company_sum: dict[str, int] = {}
-    for ja in parsed_report.get("job_allocations", []):
-        if ja.get("final_flag") != "O":
-            continue
-        c = ja.get("company")
-        if c:
-            job_alloc_company_sum[c] = job_alloc_company_sum.get(c, 0) + int(ja.get("workers_cum_t") or 0)
-
     # company 전체 plan_mh 합 (prorate 분모)
     company_total_plan_mh: dict[str, float] = {}
     for a in out:
@@ -472,33 +532,11 @@ async def _prorate_mh(
         if a.get("company") and a.get("l6_main"):
             active_l6_for_company[a["company"]].add(a["l6_main"])
 
-    prorated: list[Activity] = []
-    for a in out:
-        if a.get("l6_main"):
-            c = a["company"]
-            workers_c = job_alloc_company_sum.get(c, 0)
-            company_mh = company_total_plan_mh.get(c, 0.0)
-            plan_mh_val = float(a.get("plan_mh") or 0)
-            n_l6 = len(active_l6_for_company[c]) if c else 0
-            if company_mh > 0 and plan_mh_val > 0:
-                a = {
-                    **a,
-                    "cum_workers_today": workers_c * (plan_mh_val / company_mh),
-                    "prorate_method": "plan_mh",
-                }
-            elif n_l6 > 0:
-                a = {
-                    **a,
-                    "cum_workers_today": workers_c / n_l6,
-                    "prorate_method": "uniform_fallback",
-                }
-            else:
-                a = {
-                    **a,
-                    "cum_workers_today": 0.0,
-                    "prorate_method": "zero",
-                }
-            a = {**a, "cum_actual_mh_today": a["cum_workers_today"] * 8.0}
-        prorated.append(a)
+    prorated = _prorate_workers_with_mh(
+        out,
+        parsed_report,
+        company_total_plan_mh,
+        active_l6_for_company,
+    )
 
     return prorated

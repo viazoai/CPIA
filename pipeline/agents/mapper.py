@@ -146,6 +146,8 @@ class WAResolution:
 
     value: str | None
     source: Literal[
+        "auto_bp_zone_match",  # 2026-05-20 fix C — BP 코드 일치 BPSummary.zone deterministic
+        "auto_llm_rerank",  # 2026-05-20 옵션 A — LLM chosen_wa ∈ cand_pool
         "auto_bp_single",
         "auto_l6_single",
         "auto_sheet1_text",

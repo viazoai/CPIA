@@ -189,30 +189,36 @@ rows = list[dict[col_idx, value]] — 각 row 가 1 BP 단위 row.
 {{ "bp_summaries_raw": [BPSummaryRaw, ...] }}
 """
 
-_SYS_JOB_ALLOCATIONS = f"""당신은 건설 작업일보 시트2 (직종별 인원현황) 파서. raw row JSON → JobAllocation list.
+_SYS_JOB_ALLOCATIONS = f"""당신은 건설 작업일보 시트2 (직종별 인원현황) 파서. raw row JSON → JobAllocationRaw list (1 row = 1 출력).
 
-# JobAllocation 출력 schema
+# 입력 col 의미
+- col 1 = 공종 (한글), col 2 = BP사 (BP 코드 또는 한글 회사명)
+- col 3 = 직종 코드 (Mm##=관리자, Wk##=기능공 둘 다 가능)
+- col 4 = 근로자 코드 (sk##)
+- col 5 = 직종명 (한글)
+- col 6~22 = 시간대별 인원 (header_map 명시된 col 의미만 사용)
+- col 23 = 금일누계 Cum.T
+
+# JobAllocationRaw 출력 schema (각 input row 1개)
 {{
-  "bp_code":      PH_X-... 또는 null,
-  "company":      회사명 — required,
-  "disc_abbrev":  공종 한글,
-  "manager_code": "Mm##" (관리자/근로자 코드) 또는 null,
-  "worker_code":  "sk##" (기능공 코드) 또는 null,
-  "job_type":     직종 — required (예: 형틀목수, 철근공, 배관공, ...),
-  "workers_yesterday_cum": {_TIMESHIFT_SCHEMA} 또는 null,
-  "workers_today_incr":    {_TIMESHIFT_SCHEMA} 또는 null,
-  "workers_today_cum":     {_TIMESHIFT_SCHEMA} 또는 null,
-  "final_flag":   "O" 또는 "X" 또는 null,
-  "workers_cum_t": int (금일누계 Total)
+  "row_idx": int,
+  "company_or_bp": str|null,
+  "disc_code": str|null,
+  "worker_code": str|null,
+  "job_type": str|null,
+  "disc_abbrev": str|null,
+  "workers_today_cum": {_TIMESHIFT_SCHEMA}|null,
+  "workers_cum_t": int|null,
+  "final_flag": "O"|"X"|null
 }}
 
-# 규칙
-1. 관리자 직종 (BP소장/공사관리자/안전관리자/품질관리자/일반관리자) 은 입력에서 사전 필터됨. job_type 은 기능공 명만.
-2. row 의 BP사 row 와 직종 row 가 분리돼 있으면 동일 BP사 단위로 페어링.
-3. 시간대 6 필드 누락 시 각 0.
+# 핵심 규칙
+1. **각 input row = 1 JobAllocationRaw**. len(rows) == len(items).
+2. disc_code 는 raw 그대로 (Mm## 또는 Wk##). 의미 해석 X.
+3. 모르는 필드 null. 시간대 6 필드 누락 시 각 0.
 
-# 출력 형식
-{{ "job_allocations": [JobAllocation, ...] }}
+# 출력
+{{ "job_allocations_raw": [JobAllocationRaw, ...] }}
 """
 
 _SYS_EQUIPMENT_ALLOCATIONS = f"""당신은 건설 작업일보 시트3 (장비현황) 파서. raw row JSON → EquipmentAllocation list.
@@ -515,8 +521,8 @@ async def parse_daily_report_llm(
             _call_list(_SYS_BP_SUMMARIES, payloads["bp_summaries"], "bp_summaries_raw", chunk_size=15)
         )
     if "job_allocations" in payloads:
-        tasks["job_allocations"] = asyncio.create_task(
-            _call_list(_SYS_JOB_ALLOCATIONS, payloads["job_allocations"], "job_allocations", chunk_size=40)
+        tasks["job_allocations_raw"] = asyncio.create_task(
+            _call_list(_SYS_JOB_ALLOCATIONS, payloads["job_allocations"], "job_allocations_raw", chunk_size=15)
         )
     if "equipment_allocations" in payloads:
         tasks["equipment_allocations"] = asyncio.create_task(

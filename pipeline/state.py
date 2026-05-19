@@ -272,3 +272,17 @@ class BPSummaryRaw(TypedDict, total=False):
     work_text_today: str | None
     workers_today_cum: dict | None
     today_cum_total: int | None
+
+
+class JobAllocationRaw(TypedDict, total=False):
+    """시트 2 의 row 단위 1:1 LLM 출력. parser_post (A.6) 가 페어링."""
+
+    row_idx: int
+    company_or_bp: str | None
+    disc_code: str | None  # Mm## 또는 Wk## (raw)
+    worker_code: str | None  # sk##
+    job_type: str | None
+    disc_abbrev: str | None
+    workers_today_cum: dict | None
+    workers_cum_t: int | None
+    final_flag: str | None

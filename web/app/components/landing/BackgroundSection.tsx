@@ -14,13 +14,13 @@ const PAINS = [
     icon: Mail,
     title: "작업일보 수작업 취합",
     body: "BP 100개사 이메일·카카오톡·SNS로 분산 수신. 수기 복붙·집계에 담당자 1~3명 전일 투입.",
-    tag: "Y-1 OBL 400h/월",
+    tag: "용인 Cluster 1기 OBL 400h/월",
   },
   {
     icon: FileSpreadsheet,
     title: "보고서 작성 반복 소모",
     body: "Daily·Weekly·Monthly Report, S-Curve 등 동일 데이터를 매번 PPT·Excel에 수기 기입.",
-    tag: "6개 현장 ~1,144h/월 (Activity 실측)",
+    tag: "Hi-tech 6개 현장 ~1,144h/월 (Activity 실측)",
   },
   {
     icon: AlertTriangle,

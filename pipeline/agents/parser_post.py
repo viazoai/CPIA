@@ -153,6 +153,7 @@ def transform_bp_summaries(raw_rows: list[dict]) -> list[dict]:
             "work_text_today": r.get("work_text_today"),
             "workers_today_cum": r.get("workers_today_cum"),
             "today_cum_total": r.get("today_cum_total") or 0,
+            "today_incr_total": r.get("today_incr_total") or 0,
         }
         for r in paired
         if r.get("company") or r.get("bp_code")

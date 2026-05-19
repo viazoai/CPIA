@@ -230,6 +230,7 @@ class CPIAState(TypedDict):
     run_id: str
     date: str
     input_files: list[str]
+    site_id: str | None  # 현장 식별자 (sites.site_id) — Optimizer view builder UPSERT 용
 
     # 파이프라인 누적
     raw_texts: dict[str, str]

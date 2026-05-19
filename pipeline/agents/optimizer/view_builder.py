@@ -381,13 +381,22 @@ async def _build_s_curve(
     async with pg._pool.acquire() as con:
         planned = await con.fetch(
             """
-            SELECT generate_series(MIN(plan_start), $2::date, '1 day')::date AS date,
-                   SUM(plan_total_qty * LEAST(1.0, GREATEST(0.0,
-                       (generate_series(MIN(plan_start), $2::date, '1 day')::date - plan_start + 1)::float
-                       / NULLIF((plan_finish - plan_start + 1)::float, 0)
+            SELECT gs.date::date AS date,
+                   SUM(am.plan_total_qty * LEAST(1.0, GREATEST(0.0,
+                       (gs.date::date - am.plan_start + 1)::float
+                       / NULLIF((am.plan_finish - am.plan_start + 1)::float, 0)
                    )))::float AS cum_plan_qty
-            FROM activity_master WHERE site_id = $1
-            GROUP BY date ORDER BY date
+            FROM activity_master am
+            CROSS JOIN LATERAL (
+                SELECT d AS date
+                FROM generate_series(
+                    (SELECT MIN(plan_start) FROM activity_master WHERE site_id = $1),
+                    $2::date,
+                    '1 day'::interval
+                ) AS d
+            ) gs
+            WHERE am.site_id = $1
+            GROUP BY gs.date ORDER BY gs.date
             """,
             site_id,
             today,

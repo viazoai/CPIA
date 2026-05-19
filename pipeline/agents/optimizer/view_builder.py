@@ -312,3 +312,107 @@ async def _build_wp_summary(
             }
         )
     return out
+
+
+def _merge_curves(
+    planned: list[dict[str, Any]],
+    actual: list[dict[str, Any]],
+    recovery: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """date 단위 datapoint 합성 — planned / actual / recovery 키 동시 노출.
+
+    cum_plan_qty + cum_actual_qty (누적 변환) + recovery_days 합성.
+    forecast 는 호출 측에서 마지막 actual 기준 linear 연장 추가.
+    """
+    by_date: dict[str, dict[str, Any]] = {}
+    for p in planned:
+        d = p["date"]
+        key = d.isoformat() if hasattr(d, "isoformat") else str(d)
+        by_date.setdefault(key, {"date": key})["planned"] = p.get("cum_plan_qty") or 0
+    # actual 은 daily delta → cumulative 변환
+    cum = 0.0
+    for a in sorted(actual, key=lambda x: x["report_date"]):
+        cum += float(a.get("day_qty") or 0)
+        d = a["report_date"]
+        key = d.isoformat() if hasattr(d, "isoformat") else str(d)
+        by_date.setdefault(key, {"date": key})["actual"] = cum
+    if recovery:
+        for r in recovery:
+            d = r.get("date")
+            if d is None:
+                continue
+            key = d.isoformat() if hasattr(d, "isoformat") else str(d)
+            by_date.setdefault(key, {"date": key})["recovery_days"] = r.get("recovery_days")
+    return sorted(by_date.values(), key=lambda x: x["date"])
+
+
+def _extend_forecast(merged: list[dict[str, Any]], days_ahead: int = 30) -> list[dict[str, Any]]:
+    """현 추세 연장 — 마지막 actual rate x remaining days. 결정론적 linear.
+
+    merged 의 마지막 actual 기준 rate 계산 → days_ahead 만큼 forecast 추가.
+    """
+    actual_points = [m for m in merged if m.get("actual") is not None]
+    if len(actual_points) < 2:
+        return merged
+    last = actual_points[-1]
+    prev = actual_points[-2]
+    from datetime import date as _date, timedelta
+    last_dt = _date.fromisoformat(last["date"]) if isinstance(last["date"], str) else last["date"]
+    prev_dt = _date.fromisoformat(prev["date"]) if isinstance(prev["date"], str) else prev["date"]
+    days = max(1, (last_dt - prev_dt).days)
+    rate = (last["actual"] - prev["actual"]) / days
+    last["forecast"] = last["actual"]  # forecast 시작점 = 마지막 actual
+    out = list(merged)
+    for i in range(1, days_ahead + 1):
+        next_dt = last_dt + timedelta(days=i)
+        out.append({
+            "date": next_dt.isoformat(),
+            "forecast": last["actual"] + rate * i,
+        })
+    return out
+
+
+async def _build_s_curve(
+    pg: PGClient,
+    site_id: str,
+    today: date,
+) -> list[dict[str, Any]]:
+    """planned/actual/forecast/recovery 4 곡선 unified datapoint list."""
+    async with pg._pool.acquire() as con:
+        planned = await con.fetch(
+            """
+            SELECT generate_series(MIN(plan_start), $2::date, '1 day')::date AS date,
+                   SUM(plan_total_qty * LEAST(1.0, GREATEST(0.0,
+                       (generate_series(MIN(plan_start), $2::date, '1 day')::date - plan_start + 1)::float
+                       / NULLIF((plan_finish - plan_start + 1)::float, 0)
+                   )))::float AS cum_plan_qty
+            FROM activity_master WHERE site_id = $1
+            GROUP BY date ORDER BY date
+            """,
+            site_id,
+            today,
+        )
+        actual = await con.fetch(
+            """
+            SELECT report_date, SUM(today_qty)::float AS day_qty
+            FROM mapped_history WHERE site_id = $1 AND report_date <= $2
+            GROUP BY report_date ORDER BY report_date
+            """,
+            site_id,
+            today,
+        )
+        rp_row = await con.fetchrow(
+            """
+            SELECT oa.recovery_pattern FROM optimizer_advice oa
+            JOIN pipeline_runs pr USING (run_id)
+            WHERE pr.site_id = $1 ORDER BY oa.created_at DESC LIMIT 1
+            """,
+            site_id,
+        )
+    recovery = (rp_row["recovery_pattern"] if rp_row else None) or []
+    merged = _merge_curves(
+        [dict(r) for r in planned],
+        [dict(r) for r in actual],
+        recovery if isinstance(recovery, list) else [],
+    )
+    return _extend_forecast(merged, days_ahead=30)

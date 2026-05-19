@@ -157,3 +157,53 @@ def test_quadrant_label_four_quadrants():
 def test_wp_id_kebab_case():
     assert _wp_id_of("Zone A", "콘크리트 타설", "세보") == "zone-a-콘크리트-타설-세보"
     assert _wp_id_of(None, None, None) == "unknown-unknown-unknown"
+
+
+from datetime import date as _date
+
+from pipeline.agents.optimizer.view_builder import _merge_curves, _extend_forecast
+
+
+def test_merge_curves_planned_and_actual():
+    planned = [{"date": _date(2026, 1, 1), "cum_plan_qty": 100}, {"date": _date(2026, 1, 2), "cum_plan_qty": 200}]
+    actual = [{"report_date": _date(2026, 1, 1), "day_qty": 50}, {"report_date": _date(2026, 1, 2), "day_qty": 70}]
+    out = _merge_curves(planned, actual)
+    assert len(out) == 2
+    assert out[0]["date"] == "2026-01-01"
+    assert out[0]["planned"] == 100
+    assert out[0]["actual"] == 50  # cumulative day 1
+    assert out[1]["actual"] == 120  # cumulative day 2
+
+
+def test_merge_curves_with_recovery():
+    planned = [{"date": _date(2026, 1, 1), "cum_plan_qty": 100}]
+    actual = []
+    recovery = [{"date": "2026-01-01", "recovery_days": 3}]
+    out = _merge_curves(planned, actual, recovery)
+    assert out[0]["recovery_days"] == 3
+
+
+def test_merge_curves_empty():
+    assert _merge_curves([], []) == []
+
+
+def test_extend_forecast_linear_extrapolation():
+    merged = [
+        {"date": "2026-01-01", "actual": 100},
+        {"date": "2026-01-02", "actual": 150},  # rate = 50/day
+    ]
+    out = _extend_forecast(merged, days_ahead=3)
+    forecast_points = [m for m in out if m.get("forecast") is not None]
+    # 시작점 (last actual) + 3 days = 4 forecast point
+    assert len(forecast_points) == 4
+    assert forecast_points[0]["forecast"] == 150  # last actual 시작점
+    assert forecast_points[1]["forecast"] == 200  # +50
+    assert forecast_points[2]["forecast"] == 250
+    assert forecast_points[3]["forecast"] == 300
+
+
+def test_extend_forecast_skip_when_too_few_actual():
+    """actual point 1 개 이하 면 forecast 연장 skip."""
+    merged = [{"date": "2026-01-01", "actual": 100}]
+    out = _extend_forecast(merged)
+    assert out == merged  # 그대로

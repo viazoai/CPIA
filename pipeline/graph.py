@@ -133,6 +133,10 @@ async def mapper_node(state: CPIAState, cfg: GraphConfig) -> dict:
             f"insert_parser_equipment_allocations_batch OK ({len(parsed.get('equipment_allocations') or [])} rows)"
         )
 
+        # company 정규화 (㈜ prefix / 괄호 sub-context 제거) — A.6 와 일관
+        for a in mapped:
+            a["company"] = normalize_company(a.get("company"))
+
         await pg.insert_mapper_activities_batch(
             run_id=run_id,
             report_date=today,

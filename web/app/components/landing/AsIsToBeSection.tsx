@@ -88,7 +88,7 @@ export function AsIsToBeSection() {
               </span>
             </div>
             <h3 className="mt-3 font-display text-h5 text-ink">
-              7-Agent 자동화
+              7-Agent 자동화 (LangGraph 기반)
             </h3>
             <ol className="mt-6 flex flex-col gap-3">
               {TO_BE.map((it, i) => (

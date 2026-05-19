@@ -37,8 +37,20 @@ export default function ReportPage() {
   useEffect(() => {
     const detail = details[selectedDate];
     if (!detail) return;
-    const riskPoint = detail.quadrant.find((p) => p.quadrant === "risk");
-    setSelectedWpId(riskPoint?.wp_id ?? detail.quadrant[0]?.wp_id ?? null);
+    const wpSummary = (detail.wp_summary as any[]) || [];
+    // 1. status='risk' + impact desc
+    let initial = wpSummary
+      .filter((w: any) => w.status === "risk")
+      .sort((a: any, b: any) => (b.impact ?? 0) - (a.impact ?? 0))[0];
+    // 2. status='caution' + impact desc
+    if (!initial)
+      initial = wpSummary
+        .filter((w: any) => w.status === "caution")
+        .sort((a: any, b: any) => (b.impact ?? 0) - (a.impact ?? 0))[0];
+    // 3. wp_summary 의 첫 row
+    if (!initial) initial = wpSummary[0];
+    // 4. optimizer.default_wp_id fallback
+    setSelectedWpId(initial?.wp_id ?? (detail.optimizer as any)?.default_wp_id ?? null);
   }, [selectedDate, details]);
 
   const detail = details[selectedDate];
@@ -94,6 +106,14 @@ export default function ReportPage() {
                 todayValue={detail.kpi.productivity_today}
                 endDate={selectedDate}
               />
+              <div className="flex gap-2 mt-2">
+                <span className="inline-flex items-center rounded-full bg-[var(--mint)] px-3 py-1 text-xs font-semibold text-[var(--mint-text)]">
+                  SPI {typeof (detail.kpi as any).spi === "number" ? ((detail.kpi as any).spi as number).toFixed(1) : "—"}% (시공 진척률)
+                </span>
+                <span className="inline-flex items-center rounded-full bg-[var(--brand)] px-3 py-1 text-xs font-semibold text-[var(--brand-text)]">
+                  CPI {typeof (detail.kpi as any).cpi === "number" ? ((detail.kpi as any).cpi as number).toFixed(1) : "—"}% (mh 효율)
+                </span>
+              </div>
               <ProductivityBarToggle
                 contractorBars={detail.contractor_bars}
                 tradeBars={detail.trade_bars}

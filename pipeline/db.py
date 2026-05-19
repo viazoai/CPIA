@@ -1019,6 +1019,48 @@ class PGClient:
             rows = await con.fetch(sql, *args)
         return [dict(r) for r in rows]
 
+    _VIEW_JSONB_COLS: tuple[str, ...] = (
+        "kpi_jsonb",
+        "contractor_bars_jsonb",
+        "trade_bars_jsonb",
+        "quadrant_jsonb",
+        "wp_summary_jsonb",
+        "s_curve_jsonb",
+        "optimizer_view_jsonb",
+        "productivity_jsonb",
+    )
+
+    async def upsert_daily_report_view_col(
+        self,
+        run_id: uuid.UUID,
+        site_id: str,
+        report_date: _date,
+        col: str,
+        value: dict | list,
+    ) -> None:
+        """daily_reports 의 jsonb 컬럼 1개 UPSERT — partial write 가드.
+
+        col 은 _VIEW_JSONB_COLS 화이트리스트 중 하나여야 함 (SQL injection 가드).
+        """
+        import json as _json
+
+        if col not in self._VIEW_JSONB_COLS:
+            raise ValueError(f"col '{col}' not in whitelist {self._VIEW_JSONB_COLS}")
+        assert self._pool is not None, "connect() 미호출"
+        async with self._pool.acquire() as con:
+            await con.execute(
+                f"""
+                INSERT INTO daily_reports (run_id, site_id, report_date, {col})
+                VALUES ($1, $2, $3, $4::jsonb)
+                ON CONFLICT (run_id, site_id, report_date)
+                DO UPDATE SET {col} = EXCLUDED.{col}
+                """,
+                run_id,
+                site_id,
+                report_date,
+                _json.dumps(value, ensure_ascii=False, default=str),
+            )
+
 
 async def update_site_last_run(pg: PGClient, site_id: str, run_id: uuid.UUID) -> None:
     """G8 — reporter→END 진입 시 sites.last_run_id 갱신."""

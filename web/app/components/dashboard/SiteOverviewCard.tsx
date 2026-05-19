@@ -1,10 +1,17 @@
 "use client";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { ResponsiveContainer, LineChart, Line } from "recharts";
 import { AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { generateSiteTrend } from "@/lib/fleet-trend-mock";
 import type { Site } from "@/lib/types";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 
 interface Props {
   site: Site;
@@ -13,6 +20,8 @@ interface Props {
 }
 
 export function SiteOverviewCard({ site, sparkline }: Props) {
+  const [previewOpen, setPreviewOpen] = useState(false);
+
   const stripeColor =
     site.status === "risk" ? "bg-rose"
     : site.status === "caution" ? "bg-sun"
@@ -36,23 +45,39 @@ export function SiteOverviewCard({ site, sparkline }: Props) {
   }, [site.id, site.productivity_today, sparkline]);
 
   return (
-    <article className="relative overflow-hidden rounded-card border border-border-soft bg-card p-4 shadow-xs cursor-default">
-      <span aria-hidden className={cn("absolute inset-y-0 left-0 w-1", stripeColor)} />
-      <div className="pl-3">
-        <div className="flex items-start justify-between">
-          <div className="min-w-0">
-            <div className="truncate font-display text-h6 text-ink">{site.name}</div>
-            <div className="font-mono text-xs uppercase tracking-wider text-ink-light mt-0.5">
-              {site.location} · Hi-tech
+    <>
+      <article
+        className={cn(
+          "relative overflow-hidden rounded-card border border-border-soft bg-card p-4 shadow-xs",
+          site.is_mock
+            ? "opacity-50 grayscale cursor-pointer"
+            : "cursor-default",
+        )}
+        onClick={site.is_mock ? () => setPreviewOpen(true) : undefined}
+      >
+        <span aria-hidden className={cn("absolute inset-y-0 left-0 w-1", stripeColor)} />
+        <div className="pl-3">
+          <div className="flex items-start justify-between">
+            <div className="min-w-0">
+              <div className="truncate font-display text-h6 text-ink">{site.name}</div>
+              <div className="font-mono text-xs uppercase tracking-wider text-ink-light mt-0.5">
+                {site.location} · Hi-tech
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              {site.is_mock && (
+                <span className="bg-zinc-300 text-zinc-700 text-xs px-2 py-0.5 rounded">
+                  preview
+                </span>
+              )}
+              {site.status === "risk" && !site.is_mock && (
+                <span className="inline-flex items-center gap-0.5 rounded-sm bg-rose-light px-1.5 py-0.5 text-[11px] font-bold text-rose-text">
+                  <AlertTriangle className="h-2.5 w-2.5" />
+                  이상
+                </span>
+              )}
             </div>
           </div>
-          {site.status === "risk" && (
-            <span className="inline-flex items-center gap-0.5 rounded-sm bg-rose-light px-1.5 py-0.5 text-[11px] font-bold text-rose-text">
-              <AlertTriangle className="h-2.5 w-2.5" />
-              이상
-            </span>
-          )}
-        </div>
 
         <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
           <div>
@@ -97,5 +122,19 @@ export function SiteOverviewCard({ site, sparkline }: Props) {
         </div>
       </div>
     </article>
+
+    {site.is_mock && (
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>데이터 준비 중</DialogTitle>
+            <DialogDescription>
+              데이터 준비 중 — Parser 강화 cycle 완료 후 synthetic 데이터 적재 예정
+            </DialogDescription>
+          </DialogHeader>
+        </DialogContent>
+      </Dialog>
+    )}
+    </>
   );
 }

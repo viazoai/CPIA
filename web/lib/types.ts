@@ -11,6 +11,7 @@ export interface Site {
   name: string;
   location: string;
   status: Status;
+  is_mock?: boolean;             // true = 데이터 미적재, 회색 + preview 배지
   progress_planned: number;     // 계획 공정률 %
   progress_actual: number;      // 실적 공정률 %
   gap_percent: number;          // 격차 %p

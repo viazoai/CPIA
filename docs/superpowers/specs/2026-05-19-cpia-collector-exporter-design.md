@@ -18,13 +18,22 @@
 
 CPIA 7-agent pipeline 의 양 끝 (입력 Collector / 출력 Exporter) 가 본 cycle 의 범위:
 
-- **Collector 현 상태** (`pipeline/agents/collector.py`, 72 줄): `discover_daily_reports(input_dir)` + `collect_and_parse(input_dir, cfg)` 두 함수만. 디렉토리 walk + 병렬 Parser 호출. 코드 주석 (collector.py:9~10) 명시: **"메일 통합 (IMAP/API 폴링 + 첨부 추출) 은 별 cycle 후속."** 본 cycle 이 정확히 그 후속.
+- **Collector 현 상태** (`pipeline/agents/collector.py`, 71 줄): `discover_daily_reports(input_dir)` + `collect_and_parse(input_dir, cfg)` 두 함수만. 디렉토리 walk + 병렬 Parser 호출. 코드 주석 (collector.py:9~10) 명시: **"메일 통합 (IMAP/API 폴링 + 첨부 추출) 은 별 cycle 후속."** 본 cycle 이 정확히 그 후속.
 
-- **Exporter 현 상태**: `pipeline/agents/reporter.py` 162 줄이 forecast + optimizer 종합 마크다운 (= `daily_reports.report_md`) 생성. CLAUDE.md (2026-05-18 footer): **"Agent rename: Reporter → Exporter. 기능 재정의: 업체별 작업일보 → 통합 작업일보 출력. 이번 변경은 B_Track 만, A_Track 파일 rename 은 후속 PR."** ← 본 cycle 이 그 후속 PR. 단 `reports` 페이지가 살아있어 (`web/app/(app)/reports/page.tsx` + `/api/mock/report` + `daily_reports.report_md`) **reporter.py MD 기능은 폐기 X — 그대로 유지** (Section 2 결정).
+- **Exporter 현 상태**: `pipeline/agents/reporter.py` 161 줄이 forecast + optimizer 종합 마크다운 (= `daily_reports.report_md`) 생성. CLAUDE.md (2026-05-18 footer): **"Agent rename: Reporter → Exporter. 기능 재정의: 업체별 작업일보 → 통합 작업일보 출력. 이번 변경은 B_Track 만, A_Track 파일 rename 은 후속 PR."** ← 본 cycle 이 그 후속 PR. 단 `reports` 페이지가 살아있어 (`web/app/(app)/reports/page.tsx` + `/api/mock/report` + `daily_reports.report_md`) **reporter.py MD 기능은 폐기 X — 그대로 유지** (Section 2 결정).
 
 - **UI 가 기다리는 endpoint**: `ConsolidatedReportCard.tsx:37~38` 주석 정확 인용: *"PoC: Exporter 에이전트 호출은 A_Track 구현 대기. ... 추후 A_Track FastAPI POST /export/run?date= 가 준비되면 a.href 를 그 응답 URL 로 swap."* B_Track 은 데이터 fetch (`/api/mock/consolidated`) + 다운로드 흐름 모두 깔아둠. 본 cycle = A_Track endpoint 채우기.
 
-- **데이터 schema 도 확정**: `/api/mock/consolidated/route.ts` 가 이미 `parser_reports.bp_summaries` jsonb + `parser_activities` + 정규화 2종 SELECT 로 4 시트 row 반환. Python BE Exporter 는 같은 SQL 의미론 + openpyxl 렌더링만 추가.
+- **데이터 schema 도 확정**: `/api/mock/consolidated/route.ts` 가 이미 `parser_reports.bp_summaries`/`job_allocations`/`equipment_allocations` jsonb + `parser_activities JOIN pipeline_runs USING (run_id)` SELECT 로 4 시트 row 반환. Python BE Exporter 는 같은 PG 테이블 사용 + `pipeline_runs.site_id` JOIN 필터 추가 + 시트1~3 jsonb `LIMIT 1` 제거 (N run 합집합) + openpyxl 렌더링.
+
+  **현 schema 실태** (`infra/postgres/init.sql` + 마이그레이션 전수 확인):
+  - `parser_reports`: site_id 컬럼 없음. `run_id`, `report_date`, `project`, `bp_summaries`/`job_allocations`/`equipment_allocations` jsonb. site 필터링은 `pipeline_runs JOIN USING (run_id) WHERE pr.site_id=$1` 패턴.
+  - `parser_activities`: site_id 없음. 동일 JOIN 패턴.
+  - `parser_job_allocations` / `parser_equipment_allocations` (정규화): 현재 비어있음 — BFF 가 `parser_reports` jsonb 만 사용 중. Exporter 도 동일.
+  - `sites`: `site_id PRIMARY KEY`, `name`, `plan_progress`/`actual_progress`/`status`/`last_run_id`/`location` 등. **`project_code` 컬럼 없음** — 본 cycle 신설 X (§10 결정).
+  - `pipeline_runs.site_id` 존재 → JOIN 필터링 가능.
+
+  **BFF (`/api/mock/consolidated`) 와 Exporter 의 의미론적 차이**: BFF 는 `WHERE report_date=$1 LIMIT 1` 으로 시트1~3 의 jsonb 를 첫 row 만 사용 (PoC 단일 run 가정). Exporter 는 **모든 run 의 jsonb 합집합** — 사용자 의도 (N 업체 N run 통합) 를 더 정확히 반영. BFF 가 후속에서 동일 로직으로 정정될 가능성 (별 cycle).
 
 PoC 데모 마감 = 2026-06-05 (목), D-17.
 
@@ -43,9 +52,10 @@ PoC 데모 마감 = 2026-06-05 (목), D-17.
 - 자동 회신 (PM 에게 처리 결과 메일) — PoC dead_letter 폴더 + Gmail label 로 충분
 - SK 사내 메일 (Outlook/Office 365) 연동 — 권한 / endpoint 부담
 - xlsx 캐싱 / Pre-render (PoC 사용량 분당 1~2 클릭, PG SELECT 100ms 이내 예상)
-- Multi-site 동적 site_id 매핑 (PoC 단일 site `m15x-ph3-ibl`)
+- Multi-site 동적 site_id 매핑 (PoC 단일 site `m15x-ph3-ibl`) — Collector 는 `COLLECTOR_DEFAULT_SITE_ID` env 로 고정. 첨부 파일명의 project 토큰은 정보용 metadata 로만 보관 (site 결정에 사용 X). `sites.project_code` 컬럼 신설은 본 cycle 범위 밖.
 - Mapper 결과 반영 시트4 (dummy 양식엔 WBS 컬럼 없음 — Parser raw 만으로 충분)
 - 현 `reporter.py` MD 종합보고서 폐기 / rename (reports 페이지 살아있음 — 그대로 유지)
+- **CLAUDE.md 폴더 트리 정정**: CLAUDE.md (2026-05-18) 의 폴더 트리는 `exporter.py` 를 "구 reporter.py rename" 으로 표기 — 본 cycle 결정 (D-9) 이후 부정확. 본 cycle 은 두 파일 (`reporter.py` MD + 신규 `exporter.py` xlsx) 공존. CLAUDE.md 갱신은 별 PR (작업 흐름 분리, 본 cycle 충돌 회피).
 
 ---
 
@@ -63,6 +73,7 @@ PoC 데모 마감 = 2026-06-05 (목), D-17.
 | D-8 | Exporter 데이터 소스 | `parser_*` PG SELECT (= `/api/mock/consolidated` 와 같은 SQL 의미론) | dummy 양식 4 시트와 1:1, mapper 정보 불필요 |
 | D-9 | `reporter.py` 운명 | **그대로 유지** | reports 페이지 + daily_reports.report_md 가 살아있음. CLAUDE.md 의 "rename" 은 reports 페이지 간과한 표현 — 정확한 의도는 "신규 Exporter 추가" |
 | D-10 | graph 호출 방식 | in-process `graph.ainvoke()` (HTTP self-call 안 함) | 같은 프로세스 안 self-loopback HTTP 는 오버킬 |
+| D-11 | site_id resolution | `COLLECTOR_DEFAULT_SITE_ID` env fallback (PoC 단일 site) | `sites.project_code` 신설 부담 회피. 첨부 파일명의 project 토큰은 metadata 로만 보관. Multi-site 는 후속 cycle |
 
 ---
 
@@ -96,6 +107,8 @@ PoC 데모 마감 = 2026-06-05 (목), D-17.
     ▼
 [LangGraph 기존 — 변경 0]
    mapper → hil_1 → atomizer → forecaster → hil_2 → optimizer → reporter(MD)
+   (graph.py 의 실제 노드 — CLAUDE.md 의 "HiL2 자동 라우팅 대체" 표기와 drift 있으나
+    본 cycle 범위 밖. 본 cycle 은 graph.py 일체 안 건드림.)
     │
     │ PG 적재
     ▼
@@ -195,7 +208,6 @@ PM 메일 (첨부 N)
 | Message-ID 중복 | skip (collector_inbox PRIMARY KEY 위반) | log only |
 | 첨부 0개 메일 | skip + log "no attachment" | log only |
 | 파일명 regex 미일치 | dead_letter 폴더 + Gmail label "cpia-dead-letter" | log only (PoC) — 자동 회신 후속 |
-| `project` → `site_id` lookup miss | 위와 동일 (dead_letter) | log only |
 | graph 실행 실패 | `pipeline_runs.status='failed'` + `collector_inbox.parse_status='failed'` + error 메시지 박힘 | Dashboard run 상태에 노출 |
 | Exporter PG 0건 | HTTP 400 + `{"detail":"해당 ({site_id}, {date}) 데이터 없음"}` | UI 토스트 에러 |
 | Exporter 템플릿 누락 | startup-time 체크로 사전 차단 (FastAPI 기동 실패) | 운영자만 |
@@ -376,6 +388,7 @@ _GRAPH_SEM = asyncio.Semaphore(int(os.environ.get("CPIA_COLLECTOR_CONCURRENCY", 
 async def run_for_attachment(
     attachment_path: Path,
     meta: ParsedFilename,
+    site_id: str,                    # ← env COLLECTOR_DEFAULT_SITE_ID 에서 결정 (D-11)
     message_id: str,
     cfg: "CollectorConfig",
 ) -> None:
@@ -391,7 +404,7 @@ async def run_for_attachment(
                     "run_id": str(run_id),
                     "date": meta.date,
                     "input_files": [str(attachment_path)],
-                    "site_id": meta_site_id,  # project → site_id lookup 결과
+                    "site_id": site_id,
                     # ... (CPIAState 의 다른 필드는 graph 내부 default)
                 },
                 config={"configurable": {"thread_id": str(run_id)}},
@@ -439,13 +452,10 @@ async def _process_one(imap, uid: str, cfg: CollectorConfig) -> None:
         log.info("no attachment: %s", message_id)
         await imap.store(uid, "+FLAGS", "\\Seen")
         return
+    site_id = cfg.default_site_id  # D-11: PoC 단일 site, env 고정
     for att_name, att_bytes in attachments:
         meta = parse_filename(att_name)
         if meta is None:
-            await _to_dead_letter(att_name, att_bytes, cfg)
-            continue
-        site_id = await _resolve_site_id(meta.project, cfg)
-        if site_id is None:
             await _to_dead_letter(att_name, att_bytes, cfg)
             continue
         path = _save_to_input_dir(att_name, att_bytes, meta.date, cfg)
@@ -457,7 +467,7 @@ async def _process_one(imap, uid: str, cfg: CollectorConfig) -> None:
                 attachment_filename=att_name, attachment_path=str(path),
             )
         asyncio.create_task(
-            run_for_attachment(path, meta._replace_site(site_id), f"{message_id}#{att_name}", cfg)
+            run_for_attachment(path, meta, site_id, f"{message_id}#{att_name}", cfg)
         )
     await imap.store(uid, "+FLAGS", "\\Seen")
     await _add_gmail_label(imap, uid, "cpia-processed")
@@ -498,37 +508,60 @@ async def fetch_sheet_data(
     site_id: str,
     report_date: _date,
 ) -> SheetData:
-    """같은 (site_id, report_date) 의 모든 run = 모든 업체 메일을 합집합."""
+    """같은 (site_id, report_date) 의 모든 run = 모든 업체 메일을 합집합.
+
+    Schema 실태 반영 (§1):
+    - parser_reports / parser_activities 에 site_id 컬럼 없음.
+    - 모든 SELECT 는 pipeline_runs USING (run_id) JOIN 으로 site_id 필터링.
+    - 시트1~3 (jsonb) 도 N run 합집합 — BFF (LIMIT 1) 와 의도적 차이.
+    """
+    # 시트1: bp_summaries jsonb — N run 합집합
     bp_rows = await pg.fetch_all(
         """
-        SELECT jsonb_array_elements(bp_summaries) AS row
-        FROM parser_reports
-        WHERE site_id = $1 AND report_date = $2
+        SELECT jsonb_array_elements(pt.bp_summaries) AS row
+        FROM parser_reports pt
+        JOIN pipeline_runs pr USING (run_id)
+        WHERE pr.site_id = $1 AND pt.report_date = $2
         """,
         site_id, report_date,
     )
+    # 시트2: job_allocations jsonb — N run 합집합
     job_rows = await pg.fetch_all(
         """
-        SELECT * FROM parser_job_allocations
-        WHERE site_id = $1 AND report_date = $2
-        ORDER BY id
+        SELECT jsonb_array_elements(pt.job_allocations) AS row
+        FROM parser_reports pt
+        JOIN pipeline_runs pr USING (run_id)
+        WHERE pr.site_id = $1 AND pt.report_date = $2
         """,
         site_id, report_date,
     )
+    # 시트3: equipment_allocations jsonb — N run 합집합
     eq_rows = await pg.fetch_all(
-        "SELECT * FROM parser_equipment_allocations WHERE site_id=$1 AND report_date=$2 ORDER BY id",
+        """
+        SELECT jsonb_array_elements(pt.equipment_allocations) AS row
+        FROM parser_reports pt
+        JOIN pipeline_runs pr USING (run_id)
+        WHERE pr.site_id = $1 AND pt.report_date = $2
+        """,
         site_id, report_date,
     )
+    # 시트4: parser_activities row 전체
     act_rows = await pg.fetch_all(
-        "SELECT * FROM parser_activities WHERE site_id=$1 AND report_date=$2 ORDER BY id",
+        """
+        SELECT pa.*
+        FROM parser_activities pa
+        JOIN pipeline_runs pr USING (run_id)
+        WHERE pr.site_id = $1 AND pa.report_date = $2
+        ORDER BY pa.run_id, pa.idx
+        """,
         site_id, report_date,
     )
     if not (bp_rows or job_rows or eq_rows or act_rows):
         raise NoDataError(f"({site_id}, {report_date}) 데이터 없음")
     return SheetData(
         output_manpower=[r["row"] for r in bp_rows],
-        occupation_manpower=[dict(r) for r in job_rows],
-        equipment=[dict(r) for r in eq_rows],
+        occupation_manpower=[r["row"] for r in job_rows],
+        equipment=[r["row"] for r in eq_rows],
         quantity=[dict(r) for r in act_rows],
     )
 ```
@@ -553,34 +586,34 @@ def render_xlsx(sheet_data: SheetData, report_date: _date, project: str) -> byte
 def _fill_output_manpower(ws, rows: list[dict], report_date: _date) -> None:
     # B2 헤더: 금일 작업 현황 : {report_date}, 요일
     ws["B2"].value = f"금일 작업 현황 : {report_date.isoformat()}, {_korean_weekday(report_date)}"
-    # r5 부터 BPSummary row 매핑
-    # 컬럼 (1-based): B=Zone, C=공종, D=BP, E=Scope, F=전일작업, G=금일, H=명일,
-    #                 I~N = 전일투입 6 (조출/주간/연장/야간/철야/Total),
-    #                 P~U = 전일누적 6, W~AB = 금일투입 6, AD~AI = 금일누적 6
+    # r5 부터 BPSummary row 매핑.
+    # ⚠ 정확한 컬럼 번호는 implementation 단계에서 dummy xlsx 의 r3~r5 헤더를
+    # openpyxl 로 읽어 dict 로 fix 한다 (TODO 마크).
+    # 의사 매핑 (구조만 — column 인덱스는 임시 placeholder):
     for offset, bp in enumerate(rows):
         r = DATA_START_ROW + offset
-        ws.cell(row=r, column=2, value=bp.get("zone"))
-        ws.cell(row=r, column=3, value=bp.get("disc_abbrev"))
-        ws.cell(row=r, column=4, value=bp.get("bp_code"))
-        ws.cell(row=r, column=5, value=bp.get("company"))
-        ws.cell(row=r, column=6, value=bp.get("scope"))
-        ws.cell(row=r, column=7, value=bp.get("work_text_yesterday"))
-        ws.cell(row=r, column=8, value=bp.get("work_text_today"))
-        ws.cell(row=r, column=9, value=bp.get("work_text_tomorrow"))
-        _fill_timeshift(ws, r, 10, bp.get("workers_yesterday_incr"))  # I~N
-        _fill_timeshift(ws, r, 17, bp.get("workers_yesterday_cum"))   # P~U
-        _fill_timeshift(ws, r, 24, bp.get("workers_today_incr"))      # W~AB
-        _fill_timeshift(ws, r, 31, bp.get("workers_today_cum"))       # AD~AI
+        ws.cell(row=r, column=COL["zone"],     value=bp.get("zone"))
+        ws.cell(row=r, column=COL["trade"],    value=bp.get("disc_abbrev"))
+        ws.cell(row=r, column=COL["bp_code"],  value=bp.get("bp_code"))
+        ws.cell(row=r, column=COL["company"],  value=bp.get("company"))
+        ws.cell(row=r, column=COL["scope"],    value=bp.get("scope"))
+        ws.cell(row=r, column=COL["work_y"],   value=bp.get("work_text_yesterday"))
+        ws.cell(row=r, column=COL["work_t"],   value=bp.get("work_text_today"))
+        ws.cell(row=r, column=COL["work_n"],   value=bp.get("work_text_tomorrow"))
+        _fill_timeshift(ws, r, COL["yest_incr"], bp.get("workers_yesterday_incr"))
+        _fill_timeshift(ws, r, COL["yest_cum"],  bp.get("workers_yesterday_cum"))
+        _fill_timeshift(ws, r, COL["today_incr"], bp.get("workers_today_incr"))
+        _fill_timeshift(ws, r, COL["today_cum"], bp.get("workers_today_cum"))
 
 def _fill_timeshift(ws, row: int, col_start: int, ts: dict | None) -> None:
     if not ts: return
     for i, key in enumerate(["morning", "daytime", "overtime", "night", "all_night", "total"]):
         ws.cell(row=row, column=col_start + i, value=ts.get(key, 0))
 
-# _fill_occupation / _fill_equipment / _fill_quantity 동일 패턴
+# _fill_occupation / _fill_equipment / _fill_quantity 동일 패턴 — 각 시트별 COL dict 따로
 ```
 
-**정확한 컬럼 매핑** (시트2/3/4) 은 implementation 단계 (writing-plans) 에서 dummy xlsx 의 r3~r5 헤더를 한 셀 한 셀 확인 후 dict 로 fix. 본 spec 에선 의도만 명시.
+**TODO (implementation 단계)**: dummy xlsx (`docs/sample/통합작업일보_DUMMY_20250926.xlsx`) 의 4 시트 r3~r5 헤더를 openpyxl 로 한 셀씩 확인해 `COL_OUTPUT_MANPOWER` / `COL_OCCUPATION` / `COL_EQUIPMENT` / `COL_QUANTITY` 4 dict 로 fix. spec sample 의 placeholder `COL["zone"]` 류는 의도만 표현 — 실 row 3~5 헤더 행 확인 후 정확한 column 인덱스 박기.
 
 ### 7.3 FastAPI endpoint
 
@@ -612,7 +645,9 @@ async def export_consolidated(site_id: str, date: str) -> Response:
         except NoDataError as e:
             raise HTTPException(400, str(e))
 
-    xlsx_bytes = render_xlsx(data, report_date, project=site["project_code"])
+    # sites.project_code 컬럼 없음 (D-11) — sites.name 또는 BFF 의 PJT 상수 사용.
+    # 첫 번째 parser_reports.project 도 가능 (run 별 동일).
+    xlsx_bytes = render_xlsx(data, report_date, project=site["name"])
     filename = f"통합작업일보_{date}.xlsx"
     return Response(
         content=xlsx_bytes,
@@ -746,8 +781,11 @@ EXPORTER_TEMPLATE_PATH=pipeline/agents/exporter_templates/consolidated_template.
 
 - 데모용 Gmail 계정의 정확한 주소 (cpia-collector@gmail.com 가용 여부)
 - B_Track 의 UI swap 방식: Next.js BFF proxy vs FastAPI 직접 fetch (CORS / NEXT_PUBLIC_FASTAPI_BASE 환경 변수 노출 정책)
-- `project → site_id` lookup: `sites.project_code` 컬럼 신설 필요 여부 (현 schema 확인 후 결정)
+- dummy xlsx 4 시트 정확한 컬럼 인덱스 (§7.2 TODO) — implementation 단계 첫 작업
 - dead_letter 누적 시 운영자 알림 — 후속 cycle (PoC 외)
+
+**결정 완료** (본 spec review iteration 1):
+- `sites.project_code` 컬럼 신설 — **하지 않음**. `COLLECTOR_DEFAULT_SITE_ID` env fallback (D-11) 으로 PoC 충족.
 
 ---
 

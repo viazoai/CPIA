@@ -137,7 +137,8 @@ from pipeline.agents.parser import _parse_sheet1_bp_summaries  # noqa: E402
 
 
 def test_parse_sheet1_bp_summaries_count(sample_tong_path: Path):
-    wb = openpyxl.load_workbook(sample_tong_path, data_only=True, read_only=True)
+    # 2026-05-20 refactor: 시트1 신 logic 은 merged_cells.ranges 의존 → read_only=False
+    wb = openpyxl.load_workbook(sample_tong_path, data_only=True)
     ws = wb["1.출력인원 현황"]
     summaries = _parse_sheet1_bp_summaries(ws)
     wb.close()
@@ -148,7 +149,7 @@ def test_parse_sheet1_bp_summaries_count(sample_tong_path: Path):
 
 def test_parse_sheet1_bp_summaries_fields(sample_tong_path: Path):
     """BPSummary TypedDict 의 모든 필드 존재."""
-    wb = openpyxl.load_workbook(sample_tong_path, data_only=True, read_only=True)
+    wb = openpyxl.load_workbook(sample_tong_path, data_only=True)
     ws = wb["1.출력인원 현황"]
     summaries = _parse_sheet1_bp_summaries(ws)
     wb.close()
@@ -172,7 +173,7 @@ def test_parse_sheet1_bp_summaries_fields(sample_tong_path: Path):
 
 def test_parse_sheet1_disc_abbrev_kr(sample_tong_path: Path):
     """disc_abbrev 가 한글로 변환됐거나 None."""
-    wb = openpyxl.load_workbook(sample_tong_path, data_only=True, read_only=True)
+    wb = openpyxl.load_workbook(sample_tong_path, data_only=True)
     ws = wb["1.출력인원 현황"]
     summaries = _parse_sheet1_bp_summaries(ws)
     wb.close()
@@ -291,3 +292,56 @@ def test_parse_error_missing_sheet(tmp_path):
     wb.save(bad_path)
     with pytest.raises(ParseError):
         parse_daily_report(bad_path)
+
+
+# ---------------------------------------------------------------------------
+# 2026-05-20 refactor: 시트1 신규 case (spec §2.2)
+# ---------------------------------------------------------------------------
+
+
+def _load_sheet1(sample_tong_path: Path):
+    """신 logic 은 merged_cells.ranges 사용 → read_only=False 필요."""
+    wb = openpyxl.load_workbook(sample_tong_path, data_only=True)
+    return wb["1.출력인원 현황"]
+
+
+def test_sheet1_extracts_around_99_groups(sample_tong_path: Path):
+    """spec §2.2 — sub-section 합계 + 빈 placeholder skip 후 ~99 그룹."""
+    ws = _load_sheet1(sample_tong_path)
+    rows = _parse_sheet1_bp_summaries(ws)
+    assert 90 <= len(rows) <= 110, f"expected ~99 groups, got {len(rows)}"
+
+
+def test_sheet1_namwoong_fab_cub_split(sample_tong_path: Path):
+    """남웅건설 PH_X-001 (FAB) + PH_X-009 (CUB) 분리 확인."""
+    ws = _load_sheet1(sample_tong_path)
+    rows = _parse_sheet1_bp_summaries(ws)
+    namwoong = [r for r in rows if (r.get("company") or "") == "남웅건설"]
+    assert len(namwoong) >= 2, f"expected 2 sites, got {len(namwoong)}"
+    bp_to_zone = {r["bp_code"]: r["zone"] for r in namwoong if r["bp_code"]}
+    assert bp_to_zone.get("PH_X-001") == "FAB", f"PH_X-001 zone={bp_to_zone.get('PH_X-001')}"
+    assert bp_to_zone.get("PH_X-009") == "CUB", f"PH_X-009 zone={bp_to_zone.get('PH_X-009')}"
+
+
+def test_sheet1_subsection_total_skipped(sample_tong_path: Path):
+    """col 5/6 둘 다 None + col 30/37 > 0 인 sub-section 합계 row 는 skip."""
+    ws = _load_sheet1(sample_tong_path)
+    rows = _parse_sheet1_bp_summaries(ws)
+    none_rows = [r for r in rows if r.get("bp_code") is None and not r.get("company")]
+    assert len(none_rows) == 0, f"sub-section total leaked: {none_rows[:3]}"
+
+
+def test_sheet1_chwangwon_paren_normalized(sample_tong_path: Path):
+    """창원기전(6.6kV) → 창원기전 (괄호 부속 normalize)."""
+    ws = _load_sheet1(sample_tong_path)
+    rows = _parse_sheet1_bp_summaries(ws)
+    chwangwon = [r for r in rows if (r.get("company") or "") == "창원기전"]
+    assert len(chwangwon) >= 1, f"expected >=1 정규화된 창원기전 row, got {len(chwangwon)}"
+
+
+def test_sheet1_bp_code_extracted(sample_tong_path: Path):
+    """BP 코드가 회사명과 같은 그룹에 묶여 추출됨 (None 비율 < 50%)."""
+    ws = _load_sheet1(sample_tong_path)
+    rows = _parse_sheet1_bp_summaries(ws)
+    with_bp = sum(1 for r in rows if r.get("bp_code"))
+    assert with_bp >= len(rows) * 0.5, f"bp_code 추출률 낮음: {with_bp}/{len(rows)}"

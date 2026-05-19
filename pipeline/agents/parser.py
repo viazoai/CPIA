@@ -11,12 +11,18 @@ from typing import Any
 
 import openpyxl
 
+from pipeline.agents.parser_post import (
+    extract_zone,
+    normalize_company,
+    split_company_and_zone,
+)
 from pipeline.state import (
     Activity,
     BPSummary,
     EquipmentAllocation,
     JobAllocation,
     ParsedDailyReport,
+    TimeShiftCounts,
 )
 
 
@@ -87,35 +93,148 @@ def _ffill(
     return out
 
 
-def _parse_sheet1_bp_summaries(ws) -> list[BPSummary]:
-    """시트 1 (출력인원 현황) -> BPSummary[]. 시뮬 v3 패턴 기반.
+_BP_RE = re.compile(r"^PH[_\- ]?X[_\- ]?\d+$", re.IGNORECASE)
 
-    Header end = row 4. Forward-fill cols = [1, 2, 3, 4] (병합 셀 패턴).
-    r[2]=zone, r[3]=disc_abbrev, r[4]=company (BP 코드 row 는 mapper 무시),
-    r[6]=work_text_yesterday, r[7]=work_text_today, r[8]=work_text_tomorrow,
-    r[28]=today_incr_total, r[35]=today_cum_total.
-    bp_code / scope: GATE 2 에서 보강 예정 -> None.
+
+def _is_bp_code(v: object) -> bool:
+    if v is None:
+        return False
+    return bool(_BP_RE.match(str(v).strip()))
+
+
+def _safe_int(v: object) -> int:
+    if v is None:
+        return 0
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _shift_dict_sum(ws, start: int, end: int, col_start: int) -> TimeShiftCounts:
+    """col_start..col_start+5 의 6 칸 시간대를 group row 합산."""
+    keys = ("morning", "daytime", "overtime", "night", "all_night", "total")
+    return {  # type: ignore[return-value]
+        k: sum(_safe_int(ws.cell(r, col_start + i).value) for r in range(start, end + 1))
+        for i, k in enumerate(keys)
+    }
+
+
+def _parse_sheet1_bp_summaries(ws) -> list[BPSummary]:
+    """시트1 (출력인원 현황) -> BPSummary[].
+
+    spec §2.2 (2026-05-20 refactor):
+      - col 30 (금일 투입 그룹 Total) 의 merged range 또는 단독 row 가 group boundary
+      - BP 코드 row (col 5 = PH_X-NNN) + 회사명 row (col 5 한글) 인접 pair
+      - company 정규화 = split_company_and_zone (FAB/CUB suffix 분리) + normalize_company
+      - zone = extract_zone(col 6) — 옵션 2 보수 매칭
+      - sub-section 합계 row (bp+company 둘 다 None) skip
+      - 빈 placeholder (company None + cum=0) skip
+      - solo merged + 다음 row 흡수 (회사명 단독 row)
+
+    주의: ws 는 `read_only=False` 모드여야 함 (merged_cells.ranges 필요).
     """
-    rows = _ffill(list(ws.iter_rows(values_only=True)), header_end=4, fill_cols=[1, 2, 3, 4])
+    # 1. col 30 merged 범위 수집 (값 있는 좌상단만)
+    ad_merges: dict[int, int] = {}
+    for mr in ws.merged_cells.ranges:
+        if mr.min_col == 30 and mr.max_col == 30:
+            top_val = ws.cell(mr.min_row, 30).value
+            if top_val is None:
+                continue
+            ad_merges[mr.min_row] = mr.max_row
+
+    # 2. solo row (merged 가 아니면서 col 30 값 있는 row)
+    solo_rows: list[int] = []
+    for r in range(5, ws.max_row + 1):
+        v = ws.cell(r, 30).value
+        if v is None:
+            continue
+        if not any(s <= r <= e for s, e in ad_merges.items()):
+            solo_rows.append(r)
+
+    # 3. group range 결정 (solo+next 흡수)
+    raw_groups: list[tuple[int, int]] = list(ad_merges.items())
+    for r in solo_rows:
+        next_r = r + 1
+        absorbed = False
+        if next_r <= ws.max_row:
+            v5_next = ws.cell(next_r, 5).value
+            v30_next = ws.cell(next_r, 30).value
+            in_other = any(s <= next_r <= e for s, e in ad_merges.items())
+            if v5_next and v30_next is None and not in_other:
+                raw_groups.append((r, next_r))
+                absorbed = True
+        if not absorbed:
+            raw_groups.append((r, r))
+    raw_groups.sort(key=lambda g: g[0])
+
+    # 4. 각 group → BPSummary
     summaries: list[BPSummary] = []
-    for _i, r in rows:
-        if not r[4]:
-            continue
-        company = str(r[4]).strip()
-        if not company:
-            continue
+    for start, end in raw_groups:
+        bp_code: str | None = None
+        company_raw: str | None = None
+        col6_zone_raw: str | None = None
+        work_text_today_parts: list[str] = []
+        work_text_prev_parts: list[str] = []
+        work_text_tomorrow_parts: list[str] = []
+
+        for r in range(start, end + 1):
+            v5 = ws.cell(r, 5).value
+            v6 = ws.cell(r, 6).value
+            v7 = ws.cell(r, 7).value
+            v8 = ws.cell(r, 8).value
+            v9 = ws.cell(r, 9).value
+
+            if _is_bp_code(v5):
+                bp_code = str(v5).strip()
+                if v6 is not None and col6_zone_raw is None:
+                    col6_zone_raw = str(v6)
+            elif v5:
+                if company_raw is None:
+                    company_raw = str(v5)
+                if v6 is not None and col6_zone_raw is None:
+                    col6_zone_raw = str(v6)
+
+            if v7:
+                work_text_prev_parts.append(str(v7).strip())
+            if v8:
+                work_text_today_parts.append(str(v8).strip())
+            if v9:
+                work_text_tomorrow_parts.append(str(v9).strip())
+
+        company = normalize_company(split_company_and_zone(company_raw))
+        zone = extract_zone(col6_zone_raw)
+
+        today_incr_total = _safe_int(ws.cell(start, 30).value)
+        today_cum_total = _safe_int(ws.cell(start, 37).value)
+
+        # spec §2.2 skip 조건
+        if bp_code is None and not company:
+            continue  # sub-section 합계
+        if not company and today_incr_total == 0 and today_cum_total == 0:
+            continue  # 빈 placeholder
+
+        workers_today_incr = _shift_dict_sum(ws, start, end, 24)
+        workers_today_cum = _shift_dict_sum(ws, start, end, 31)
+        workers_yesterday_incr = _shift_dict_sum(ws, start, end, 10)
+        workers_yesterday_cum = _shift_dict_sum(ws, start, end, 17)
+
         summaries.append(
             {
-                "bp_code": None,
-                "company": company,
-                "disc_abbrev": _disc_abbrev_to_kr(str(r[3]).strip()) if r[3] else None,
-                "zone": str(r[2]).strip() if r[2] else None,
-                "scope": None,
-                "work_text_yesterday": str(r[6]).strip() if r[6] else None,
-                "work_text_today": str(r[7]).strip() if r[7] else None,
-                "work_text_tomorrow": str(r[8]).strip() if r[8] else None,
-                "today_incr_total": int(r[28]) if isinstance(r[28], (int, float)) else 0,
-                "today_cum_total": int(r[35]) if isinstance(r[35], (int, float)) else 0,
+                "bp_code": bp_code,
+                "company": company or "",
+                "disc_abbrev": None,
+                "zone": zone,
+                "scope": col6_zone_raw,
+                "work_text_yesterday": " | ".join(work_text_prev_parts) or None,
+                "work_text_today": " | ".join(work_text_today_parts) or None,
+                "work_text_tomorrow": " | ".join(work_text_tomorrow_parts) or None,
+                "workers_yesterday_incr": workers_yesterday_incr,
+                "workers_yesterday_cum": workers_yesterday_cum,
+                "workers_today_incr": workers_today_incr,
+                "workers_today_cum": workers_today_cum,
+                "today_incr_total": today_incr_total,
+                "today_cum_total": today_cum_total,
             }
         )
     return summaries
@@ -280,7 +399,8 @@ def parse_daily_report(xlsx_path: Path | str) -> ParsedDailyReport:
         ParseError: 시트명 누락, report_date/project 추출 실패.
     """
     xlsx_path = Path(xlsx_path)
-    wb = openpyxl.load_workbook(xlsx_path, data_only=True, read_only=True)
+    # read_only=False: 시트1 의 merged_cells.ranges 필요 (spec §2.2)
+    wb = openpyxl.load_workbook(xlsx_path, data_only=True)
     try:
         required_sheets = {"1.출력인원 현황", "2.직종별 인원현황", "3.장비현황", "4.물량"}
         missing = required_sheets - set(wb.sheetnames)
@@ -303,4 +423,6 @@ def parse_daily_report(xlsx_path: Path | str) -> ParsedDailyReport:
         "job_allocations": job_allocations,
         "equipment_allocations": equipment_allocations,
         "activities": activities,
+        "worker_outputs": [],
+        "report_meta": None,
     }

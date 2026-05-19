@@ -99,6 +99,47 @@ def normalize_company(raw: str | None) -> str | None:
     return s or None
 
 
+_TRAILING_FABCUB_RE = re.compile(r"\s*(FAB|CUB)\s*$", re.IGNORECASE)
+_FAB_CUB_BOTH_RE = re.compile(r"FAB\s*[/&,]\s*CUB|CUB\s*[/&,]\s*FAB")
+_FAB_START_RE = re.compile(r"^FAB[\s,/\-_]")
+_CUB_START_RE = re.compile(r"^CUB[\s,/\-_]")
+
+
+def split_company_and_zone(raw: str | None) -> str | None:
+    """회사명 끝의 FAB/CUB suffix 분리 후 정규화된 회사명 반환.
+
+    옵션 2 (scope ≠ wa): suffix 는 회사명 정규화에만 사용, zone 정보 반환 X.
+    예: '에스비테크CUB' → '에스비테크'
+        '광건티엔씨FAB(수장2)' → '광건티엔씨' (괄호도 normalize 에서 제거)
+    """
+    s = normalize_company(raw) or ""
+    s = _TRAILING_FABCUB_RE.sub("", s).strip()
+    return s or None
+
+
+def extract_zone(v6: str | None) -> str | None:
+    """col 6 (Scope) 의 명시적 'FAB' / 'CUB' 토큰만 zone 추출.
+
+    옵션 2 (spec §2.1) 보수 매칭:
+    - 단일 토큰 'FAB' / 'CUB' → 결정
+    - 시작 토큰 ('FAB 전구간', 'CUB 1F~7F') → 결정
+    - 양쪽 ('FAB/CUB') → None
+    - 텍스트 중간 ('M15X FAB F04') → None
+    """
+    if v6 is None:
+        return None
+    s = str(v6).strip().upper()
+    if _FAB_CUB_BOTH_RE.search(s):
+        return None
+    if s in ("FAB", "CUB"):
+        return s
+    if _FAB_START_RE.match(s):
+        return "FAB"
+    if _CUB_START_RE.match(s):
+        return "CUB"
+    return None
+
+
 def transform_job_allocations(raw_rows: list[dict]) -> list[dict]:
     """JobAllocationRaw list → JobAllocation list. company normalize + marker filter."""
     rows = filter_marker_rows(raw_rows, target_key="company_or_bp")

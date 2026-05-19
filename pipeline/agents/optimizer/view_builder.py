@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import statistics
 from datetime import date
-from typing import Any, Optional
+from typing import Any
 
 from pipeline.db import PGClient
 
@@ -49,18 +49,14 @@ async def _evm_for_group(
     today: date,
     group_key: str,
 ) -> dict[str, Any]:
-    """site 전체 EVM 산출 — group_key='site'."""
+    """site 전체 EVM 산출 — group_key='site'.
+
+    컨셉 (2026-05-19 변경): 분모 = 마스터플랜 전체, 분자 = 통합 일보 mapper_activities 전체.
+    mapped CTE 제거 — plan side 가 mapper_activities 매핑 결과에 종속되지 않음.
+    """
     async with pg._pool.acquire() as con:
         plan_row = await con.fetchrow(
             """
-            WITH mapped AS (
-              SELECT DISTINCT ma.company, ma.l6_main
-              FROM mapper_activities ma
-              JOIN pipeline_runs pr USING (run_id)
-              WHERE pr.site_id = $1 AND pr.report_date = $2
-                AND ma.company IS NOT NULL AND ma.l6_main IS NOT NULL
-                AND COALESCE(ma.cum_actual_mh_today, 0) > 0
-            )
             SELECT
               SUM(am.plan_total_qty * LEAST(1.0, GREATEST(0.0,
                   ($2::date - am.plan_start + 1)::float / NULLIF((am.plan_finish - am.plan_start + 1)::float, 0)
@@ -71,7 +67,6 @@ async def _evm_for_group(
               SUM(am.plan_total_qty)::float AS plan_qty_full,
               SUM(am.plan_mh_rev2)::float AS plan_mh_full
             FROM activity_master am
-            JOIN mapped USING (company, l6_main)
             WHERE am.site_id = $1
             """,
             site_id,
@@ -122,45 +117,99 @@ def _compose_evm(plan_row: Any, actual_row: Any) -> dict[str, Any]:
     }
 
 
+_PROGRESS_RATIO_SQL = (
+    "LEAST(1.0, GREATEST(0.0, "
+    "($2::date - am.plan_start + 1)::float / "
+    "NULLIF((am.plan_finish - am.plan_start + 1)::float, 0)"
+    "))"
+)
+
+
 async def _evm_by_group(
     pg: PGClient,
     site_id: str,
     today: date,
     group_key: str,
 ) -> dict[str, dict[str, Any]]:
-    """group_key (company / l6_main / wa_l6_company) 별 EVM dict."""
+    """group_key (company / l6_main / wa_l6_company) 별 EVM dict.
+
+    컨셉 (2026-05-19): 분모 = activity_master 전체, 분자 = mapper_activities 전체.
+    company / l6_main 은 FULL OUTER JOIN — plan/actual 한 쪽에만 있는 group 도 포함.
+    wa_l6_company 는 wa 가 mapper 만 가진 키라 mapper anchor 유지.
+    """
     if group_key == "company":
-        group_select = "ma.company AS gkey"
-        group_by = "ma.company"
-
-        def result_key_expr(r: Any) -> Optional[str]:
-            return r["gkey"]
-
+        plan_gkey = "am.company"
+        actual_gkey = "ma.company"
     elif group_key == "l6_main":
-        group_select = "ma.l6_main AS gkey"
-        group_by = "ma.l6_main"
-
-        def result_key_expr(r: Any) -> Optional[str]:
-            return r["gkey"]
-
+        plan_gkey = "am.l6_main"
+        actual_gkey = "ma.l6_main"
     elif group_key == "wa_l6_company":
-        group_select = "ma.wa AS wa, ma.l6_main AS l6_main, ma.company AS company"
-        group_by = "ma.wa, ma.l6_main, ma.company"
-
-        def result_key_expr(r: Any) -> Optional[str]:
-            return _wp_id_of(r["wa"], r["l6_main"], r["company"])
-
+        return await _evm_by_wa_l6_company(pg, site_id, today)
     else:
         return {}
 
     sql = f"""
-        SELECT {group_select},
-               COALESCE(SUM(am.plan_total_qty * LEAST(1.0, GREATEST(0.0,
-                   ($2::date - am.plan_start + 1)::float / NULLIF((am.plan_finish - am.plan_start + 1)::float, 0)
-               ))), 0)::float AS cum_plan_qty,
-               COALESCE(SUM(am.plan_mh_rev2 * LEAST(1.0, GREATEST(0.0,
-                   ($2::date - am.plan_start + 1)::float / NULLIF((am.plan_finish - am.plan_start + 1)::float, 0)
-               ))), 0)::float AS cum_plan_mh,
+        WITH plan_agg AS (
+            SELECT {plan_gkey} AS gkey,
+                   SUM(am.plan_total_qty * {_PROGRESS_RATIO_SQL})::float AS cum_plan_qty,
+                   SUM(am.plan_mh_rev2 * {_PROGRESS_RATIO_SQL})::float AS cum_plan_mh,
+                   SUM(am.plan_total_qty)::float AS plan_qty_full,
+                   SUM(am.plan_mh_rev2)::float AS plan_mh_full
+            FROM activity_master am
+            WHERE am.site_id = $1 AND {plan_gkey} IS NOT NULL
+            GROUP BY {plan_gkey}
+        ),
+        actual_agg AS (
+            SELECT {actual_gkey} AS gkey,
+                   SUM(COALESCE(ma.today_cum_qty, 0))::float AS cum_actual_qty,
+                   SUM(COALESCE(ma.cum_actual_mh_today, 0))::float AS cum_actual_mh
+            FROM mapper_activities ma
+            JOIN pipeline_runs pr USING (run_id)
+            WHERE pr.site_id = $1 AND pr.report_date = $2 AND {actual_gkey} IS NOT NULL
+            GROUP BY {actual_gkey}
+        )
+        SELECT COALESCE(p.gkey, a.gkey) AS gkey,
+               COALESCE(p.cum_plan_qty, 0)::float AS cum_plan_qty,
+               COALESCE(p.cum_plan_mh, 0)::float AS cum_plan_mh,
+               COALESCE(p.plan_qty_full, 0)::float AS plan_qty_full,
+               COALESCE(p.plan_mh_full, 0)::float AS plan_mh_full,
+               COALESCE(a.cum_actual_qty, 0)::float AS cum_actual_qty,
+               COALESCE(a.cum_actual_mh, 0)::float AS cum_actual_mh
+        FROM plan_agg p
+        FULL OUTER JOIN actual_agg a USING (gkey)
+    """
+    async with pg._pool.acquire() as con:
+        rows = await con.fetch(sql, site_id, today)
+
+    out: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        key = r["gkey"]
+        if not key:
+            continue
+        plan_row = {
+            "cum_plan_qty": r["cum_plan_qty"],
+            "cum_plan_mh": r["cum_plan_mh"],
+            "plan_qty_full": r["plan_qty_full"],
+            "plan_mh_full": r["plan_mh_full"],
+        }
+        actual_row = {
+            "cum_actual_qty": r["cum_actual_qty"],
+            "cum_actual_mh": r["cum_actual_mh"],
+        }
+        out[key] = _compose_evm(plan_row, actual_row)
+    return out
+
+
+async def _evm_by_wa_l6_company(
+    pg: PGClient,
+    site_id: str,
+    today: date,
+) -> dict[str, dict[str, Any]]:
+    """wa_l6_company group — wa 는 mapper 전용 키라 mapper anchor 유지."""
+    sql = f"""
+        SELECT ma.wa AS wa, ma.l6_main AS l6_main, ma.company AS company,
+               COALESCE(SUM(am.plan_total_qty * {_PROGRESS_RATIO_SQL}), 0)::float AS cum_plan_qty,
+               COALESCE(SUM(am.plan_mh_rev2 * {_PROGRESS_RATIO_SQL}), 0)::float AS cum_plan_mh,
                COALESCE(SUM(am.plan_total_qty), 0)::float AS plan_qty_full,
                COALESCE(SUM(am.plan_mh_rev2), 0)::float AS plan_mh_full,
                COALESCE(SUM(ma.today_cum_qty), 0)::float AS cum_actual_qty,
@@ -172,14 +221,14 @@ async def _evm_by_group(
           AND am.l6_main = ma.l6_main
           AND am.site_id = pr.site_id
         WHERE pr.site_id = $1 AND pr.report_date = $2
-        GROUP BY {group_by}
+        GROUP BY ma.wa, ma.l6_main, ma.company
     """
     async with pg._pool.acquire() as con:
         rows = await con.fetch(sql, site_id, today)
 
     out: dict[str, dict[str, Any]] = {}
     for r in rows:
-        key = result_key_expr(r)
+        key = _wp_id_of(r["wa"], r["l6_main"], r["company"])
         if not key:
             continue
         plan_row = {

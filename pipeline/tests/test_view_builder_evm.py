@@ -207,3 +207,52 @@ def test_extend_forecast_skip_when_too_few_actual():
     merged = [{"date": "2026-01-01", "actual": 100}]
     out = _extend_forecast(merged)
     assert out == merged  # 그대로
+
+
+# ---------------------------------------------------------------------------
+# 2026-05-19: EVM 산식 컨셉 변경 — mapped CTE 제거 (분모 = 마스터플랜 전체)
+# ---------------------------------------------------------------------------
+
+
+def test_progress_ratio_sql_helper_exists():
+    """_PROGRESS_RATIO_SQL helper 가 by_group SQL 통일에 사용됨."""
+    from pipeline.agents.optimizer.view_builder import _PROGRESS_RATIO_SQL
+
+    assert "LEAST(1.0" in _PROGRESS_RATIO_SQL
+    assert "GREATEST(0.0" in _PROGRESS_RATIO_SQL
+    assert "NULLIF" in _PROGRESS_RATIO_SQL
+    assert "$2::date" in _PROGRESS_RATIO_SQL
+    assert "am.plan_start" in _PROGRESS_RATIO_SQL
+    assert "am.plan_finish" in _PROGRESS_RATIO_SQL
+
+
+def test_evm_by_wa_l6_company_function_exists():
+    """wa_l6_company group 은 별도 함수로 분리됨 (wa 는 mapper 전용 키 → mapper anchor 유지)."""
+    from pipeline.agents.optimizer import view_builder
+
+    assert callable(view_builder._evm_by_wa_l6_company)
+
+
+def test_compose_evm_master_plan_denominator():
+    """2026-05-19 컨셉: 분모=마스터플랜 전체, 분자=mapper_activities 전체.
+
+    plan_row 가 site 전체 master SUM (mapped CTE 없이) 이고 actual_row 가 작아도
+    SPI/CPI 모두 계산됨 (분모 stable, 분자가 scope 결과로 변동).
+    """
+    plan_row = {
+        "cum_plan_qty": 10000.0,  # 전체 마스터플랜
+        "cum_plan_mh": 80000.0,
+        "plan_qty_full": 10000.0,
+        "plan_mh_full": 80000.0,
+    }
+    actual_row = {"cum_actual_qty": 500.0, "cum_actual_mh": 4500.0}
+    r = _compose_evm(plan_row, actual_row)
+    # progress = 500/10000 = 0.05
+    # EV = 0.05 * 80000 = 4000
+    # SPI = 4000/80000 * 100 = 5.0
+    # CPI = 4000/4500 * 100 ≈ 88.89
+    assert abs(r["spi"] - 5.0) < 0.01
+    assert abs(r["cpi"] - 88.89) < 0.1
+    assert r["ev"] == 4000.0
+    assert r["pv"] == 80000.0
+    assert r["ac"] == 4500.0

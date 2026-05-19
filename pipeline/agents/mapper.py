@@ -448,4 +448,57 @@ async def _prorate_mh(
                 "plan_mh": plan_mh_lookup.get(key, 0.0),
             }
         out.append(a)
-    return out
+
+    # U1.B: parser_job_allocations company workers_cum_t → activity 단위 prorate
+    # final_flag='O' 인 항목만 SUM
+    job_alloc_company_sum: dict[str, int] = {}
+    for ja in parsed_report.get("job_allocations", []):
+        if ja.get("final_flag") != "O":
+            continue
+        c = ja.get("company")
+        if c:
+            job_alloc_company_sum[c] = job_alloc_company_sum.get(c, 0) + int(ja.get("workers_cum_t") or 0)
+
+    # company 전체 plan_mh 합 (prorate 분모)
+    company_total_plan_mh: dict[str, float] = {}
+    for a in out:
+        c = a.get("company")
+        if c and a.get("plan_mh"):
+            company_total_plan_mh[c] = company_total_plan_mh.get(c, 0.0) + float(a["plan_mh"])
+
+    # active l6 (균등 분배 fallback 용)
+    active_l6_for_company: dict[str, set[str]] = defaultdict(set)
+    for a in out:
+        if a.get("company") and a.get("l6_main"):
+            active_l6_for_company[a["company"]].add(a["l6_main"])
+
+    prorated: list[Activity] = []
+    for a in out:
+        if a.get("l6_main"):
+            c = a["company"]
+            workers_c = job_alloc_company_sum.get(c, 0)
+            company_mh = company_total_plan_mh.get(c, 0.0)
+            plan_mh_val = float(a.get("plan_mh") or 0)
+            n_l6 = len(active_l6_for_company[c]) if c else 0
+            if company_mh > 0 and plan_mh_val > 0:
+                a = {
+                    **a,
+                    "cum_workers_today": workers_c * (plan_mh_val / company_mh),
+                    "prorate_method": "plan_mh",
+                }
+            elif n_l6 > 0:
+                a = {
+                    **a,
+                    "cum_workers_today": workers_c / n_l6,
+                    "prorate_method": "uniform_fallback",
+                }
+            else:
+                a = {
+                    **a,
+                    "cum_workers_today": 0.0,
+                    "prorate_method": "zero",
+                }
+            a = {**a, "cum_actual_mh_today": a["cum_workers_today"] * 8.0}
+        prorated.append(a)
+
+    return prorated

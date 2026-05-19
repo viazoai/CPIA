@@ -649,7 +649,8 @@ class PGClient:
                      progress_percent, remaining_qty, remaining_percent,
                      note, work_location_code,
                      wbs_mid_name, wbs_sub_name, wbs_detail_name,
-                     alternatives)
+                     alternatives,
+                     cum_workers_today, cum_actual_mh_today)
                 VALUES ($1, $2, $3,
                         $4, $5, $6, $7,
                         $8, $9, $10, $11, $12,
@@ -661,7 +662,8 @@ class PGClient:
                         $23, $24, $25,
                         $26, $27,
                         $28, $29, $30,
-                        $31::jsonb)
+                        $31::jsonb,
+                        $32, $33)
                 ON CONFLICT (run_id, idx) DO UPDATE SET
                     company            = EXCLUDED.company,
                     trade              = EXCLUDED.trade,
@@ -690,7 +692,9 @@ class PGClient:
                     wbs_mid_name       = EXCLUDED.wbs_mid_name,
                     wbs_sub_name       = EXCLUDED.wbs_sub_name,
                     wbs_detail_name    = EXCLUDED.wbs_detail_name,
-                    alternatives       = EXCLUDED.alternatives
+                    alternatives       = EXCLUDED.alternatives,
+                    cum_workers_today  = EXCLUDED.cum_workers_today,
+                    cum_actual_mh_today = EXCLUDED.cum_actual_mh_today
                 """,
                 [
                     (
@@ -725,6 +729,8 @@ class PGClient:
                         a.get("wbs_sub_name"),
                         a.get("wbs_detail_name"),
                         _json.dumps(a.get("alternatives") or [], ensure_ascii=False),
+                        a.get("cum_workers_today"),
+                        a.get("cum_actual_mh_today"),
                     )
                     for i, a in enumerate(activities)
                 ],

@@ -367,36 +367,73 @@ def _parse_sheet4_activities(ws) -> list[Activity]:
 
 
 def _parse_sheet3_equipment_allocations(ws) -> list[EquipmentAllocation]:
-    """시트 3 (장비현황) -> EquipmentAllocation[].
+    """시트3 (장비현황) -> EquipmentAllocation[].
 
-    cell 인덱스 (Task 0 시뮬 v3 발췌 / 실 파일 row 3 헤더 검증):
-      r[1] = disc_abbrev, r[2] = company,
-      r[3] = equipment_big (대분류), r[4] = equipment_mid (중분류),
-      r[5] = equipment_spec (규격, None 허용),
-      r[23] = count_cum_t. header_end = 5, fill_cols = [1, 2] (시뮬과 일치).
+    spec §2.4 (2026-05-20 refactor):
+      - group 시작 = col 2 (공종) + col 3 (PH_X-NNN) + col 4 (장비 대분류) 채워있음
+      - 헤더 reprint row ('장비 투입...') 회피
+      - 장비 row = col 25='O' + col 4 채워있음
+      - 회사명 = group 내 첫 col 3 한글값
+      - 3 시간대 그룹 (yest_cum col 7, today_incr col 13, today_cum col 19)
+      - subtotal 없음 → cross-check 불요
     """
-    rows = _ffill(list(ws.iter_rows(values_only=True)), header_end=5, fill_cols=[1, 2])
+    starts: list[int] = []
+    for r in range(6, ws.max_row + 1):
+        c2 = ws.cell(r, 2).value
+        c3 = ws.cell(r, 3).value
+        c4 = ws.cell(r, 4).value
+        if c2 is None or c3 is None or c4 is None:
+            continue
+        if not _BP_RE.match(str(c3).strip()):
+            continue
+        # 헤더 reprint row 회피
+        if "장비 투입" in str(c2):
+            continue
+        starts.append(r)
+
+    groups: list[tuple[int, int]] = [
+        (s, (starts[i + 1] - 1) if i + 1 < len(starts) else ws.max_row) for i, s in enumerate(starts)
+    ]
+
     eqs: list[EquipmentAllocation] = []
-    for _i, r in rows:
-        if _is_total_row(tuple(r)):
-            continue
-        company = str(r[2]).strip() if r[2] else ""
-        big = str(r[3]).strip() if len(r) > 3 and r[3] else ""
-        mid = str(r[4]).strip() if len(r) > 4 and r[4] else ""
-        if not (company and big and mid):
-            continue
-        spec = str(r[5]).strip() if len(r) > 5 and r[5] else None
-        cum_t = int(r[23]) if len(r) > 23 and isinstance(r[23], (int, float)) else 0
-        eqs.append(
-            {
-                "bp_code": None,
-                "company": company,
-                "equipment_big": big,
-                "equipment_mid": mid,
-                "equipment_spec": spec,
-                "count_cum_t": cum_t,
-            }
-        )
+    for start, end in groups:
+        bp_code = str(ws.cell(start, 3).value).strip()
+        discipline_raw = str(ws.cell(start, 2).value).strip()
+        discipline = _disc_abbrev_to_kr(discipline_raw) or discipline_raw
+
+        company_raw: str | None = None
+        for r in range(start + 1, min(start + 6, end + 1)):
+            v = ws.cell(r, 3).value
+            if v is not None and not _is_bp_code(v):
+                company_raw = str(v)
+                break
+        company = normalize_company(split_company_and_zone(company_raw)) or ""
+
+        for r in range(start, end + 1):
+            c25 = ws.cell(r, 25).value
+            if c25 != "O":
+                continue
+            c4 = ws.cell(r, 4).value
+            if c4 is None:
+                continue
+            count_today_cum = _shift_dict_row(ws, r, 19)
+            eqs.append(
+                {
+                    "bp_code": bp_code,
+                    "company": company,
+                    "disc_abbrev": discipline,
+                    "equipment_big": str(c4).strip(),
+                    "equipment_mid": str(ws.cell(r, 5).value or "").strip(),
+                    "equipment_spec": (
+                        str(ws.cell(r, 6).value).strip() if ws.cell(r, 6).value is not None else None
+                    ),
+                    "count_yesterday_cum": _shift_dict_row(ws, r, 7),
+                    "count_today_incr": _shift_dict_row(ws, r, 13),
+                    "count_today_cum": count_today_cum,
+                    "final_flag": "O",
+                    "count_cum_t": count_today_cum.get("total", 0),
+                }
+            )
     return eqs
 
 

@@ -399,3 +399,46 @@ def test_sheet2_manager_worker_code_split(sample_tong_path: Path):
     # admin filter 적용 시 manager 0 일 수도 있음 — 그땐 worker 만 검증
     has_worker = any(r.get("worker_code") for r in rows)
     assert has_manager or has_worker, "manager_code / worker_code 둘 다 None"
+
+
+# ---------------------------------------------------------------------------
+# 2026-05-20 refactor: 시트3 신규 case (spec §2.4)
+# ---------------------------------------------------------------------------
+
+
+def _load_sheet3(sample_tong_path: Path):
+    wb = openpyxl.load_workbook(sample_tong_path, data_only=True)
+    return wb["3.장비현황"]
+
+
+def test_sheet3_extracts_around_1111_rows(sample_tong_path: Path):
+    """spec §2.4 — col 25='O' 인 장비 row ≈ 1,111."""
+    ws = _load_sheet3(sample_tong_path)
+    rows = _parse_sheet3_equipment_allocations(ws)
+    assert 1000 <= len(rows) <= 1300, f"expected ~1111, got {len(rows)}"
+
+
+def test_sheet3_bp_code_filled(sample_tong_path: Path):
+    """신 logic: bp_code 가 채워짐."""
+    ws = _load_sheet3(sample_tong_path)
+    rows = _parse_sheet3_equipment_allocations(ws)
+    with_bp = sum(1 for r in rows if r.get("bp_code"))
+    assert with_bp >= len(rows) * 0.95, f"bp_code 추출률 낮음: {with_bp}/{len(rows)}"
+
+
+def test_sheet3_namwoong_equipment(sample_tong_path: Path):
+    """남웅건설 row 가 추출되고 equipment_big 다양."""
+    ws = _load_sheet3(sample_tong_path)
+    rows = _parse_sheet3_equipment_allocations(ws)
+    namwoong = [r for r in rows if r.get("company") == "남웅건설"]
+    assert len(namwoong) >= 1, "남웅건설 장비 row 없음"
+    bigs = {r.get("equipment_big") for r in namwoong}
+    assert len(bigs) >= 1, f"equipment_big 다양성 부족: {bigs}"
+
+
+def test_sheet3_disc_abbrev_filled(sample_tong_path: Path):
+    """disc_abbrev (공종) 가 채워짐."""
+    ws = _load_sheet3(sample_tong_path)
+    rows = _parse_sheet3_equipment_allocations(ws)
+    has_disc = sum(1 for r in rows if r.get("disc_abbrev"))
+    assert has_disc >= len(rows) * 0.95, f"disc_abbrev 누락: {has_disc}/{len(rows)}"

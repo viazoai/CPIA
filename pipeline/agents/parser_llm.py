@@ -598,12 +598,16 @@ async def parse_daily_report_llm(
         results[k] = await t
 
     # post-processing: raw → 정제된 entity
-    bp_summaries = parser_post.transform_bp_summaries(results.get("bp_summaries_raw") or [])
-    job_allocations = parser_post.transform_job_allocations(results.get("job_allocations_raw") or [])
+    # dict-only guard — LLM 이 가끔 str / null 을 list 안에 섞어 출력 (schema 위반)
+    def _dict_only(xs: Any) -> list[dict]:
+        return [x for x in xs if isinstance(x, dict)] if isinstance(xs, list) else []
+
+    bp_summaries = parser_post.transform_bp_summaries(_dict_only(results.get("bp_summaries_raw")))
+    job_allocations = parser_post.transform_job_allocations(_dict_only(results.get("job_allocations_raw")))
     equipment_allocations = parser_post.transform_equipment_allocations(
-        results.get("equipment_allocations_raw") or []
+        _dict_only(results.get("equipment_allocations_raw"))
     )
-    activities = results.get("activities") or []  # 이미 final shape (raw 변환 X)
+    activities = _dict_only(results.get("activities"))  # 이미 final shape (raw 변환 X)
 
     # project 명: Cover.project_name 우선, 그 다음 파일명 stem.
     rm = results.get("report_meta") or {}

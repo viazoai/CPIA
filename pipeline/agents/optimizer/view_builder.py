@@ -59,6 +59,7 @@ async def _evm_for_group(
               JOIN pipeline_runs pr USING (run_id)
               WHERE pr.site_id = $1 AND pr.report_date = $2
                 AND ma.company IS NOT NULL AND ma.l6_main IS NOT NULL
+                AND COALESCE(ma.cum_actual_mh_today, 0) > 0
             )
             SELECT
               SUM(am.plan_total_qty * LEAST(1.0, GREATEST(0.0,

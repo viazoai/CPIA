@@ -53,17 +53,25 @@ async def _evm_for_group(
     async with pg._pool.acquire() as con:
         plan_row = await con.fetchrow(
             """
+            WITH mapped AS (
+              SELECT DISTINCT ma.company, ma.l6_main
+              FROM mapper_activities ma
+              JOIN pipeline_runs pr USING (run_id)
+              WHERE pr.site_id = $1 AND pr.report_date = $2
+                AND ma.company IS NOT NULL AND ma.l6_main IS NOT NULL
+            )
             SELECT
-              SUM(plan_total_qty * LEAST(1.0, GREATEST(0.0,
-                  ($2::date - plan_start + 1)::float / NULLIF((plan_finish - plan_start + 1)::float, 0)
+              SUM(am.plan_total_qty * LEAST(1.0, GREATEST(0.0,
+                  ($2::date - am.plan_start + 1)::float / NULLIF((am.plan_finish - am.plan_start + 1)::float, 0)
               )))::float AS cum_plan_qty,
-              SUM(plan_mh_rev2 * LEAST(1.0, GREATEST(0.0,
-                  ($2::date - plan_start + 1)::float / NULLIF((plan_finish - plan_start + 1)::float, 0)
+              SUM(am.plan_mh_rev2 * LEAST(1.0, GREATEST(0.0,
+                  ($2::date - am.plan_start + 1)::float / NULLIF((am.plan_finish - am.plan_start + 1)::float, 0)
               )))::float AS cum_plan_mh,
-              SUM(plan_total_qty)::float AS plan_qty_full,
-              SUM(plan_mh_rev2)::float AS plan_mh_full
-            FROM activity_master
-            WHERE site_id = $1
+              SUM(am.plan_total_qty)::float AS plan_qty_full,
+              SUM(am.plan_mh_rev2)::float AS plan_mh_full
+            FROM activity_master am
+            JOIN mapped USING (company, l6_main)
+            WHERE am.site_id = $1
             """,
             site_id,
             today,

@@ -12,11 +12,11 @@ interface PersonaState {
 export const usePersona = create<PersonaState>()(
   persist(
     (set, get) => ({
-      persona: "member",
+      persona: "manager",
       setPersona: (p) => set({ persona: p }),
       toggle: () => set({ persona: get().persona === "member" ? "manager" : "member" }),
     }),
-    { name: "cpia-persona" }
+    { name: "cpia-persona-v2" }
   )
 );
 

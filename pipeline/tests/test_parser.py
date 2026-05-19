@@ -551,3 +551,28 @@ def test_should_verify_llm_env_parsing():
     with patch.dict(os.environ, {}, clear=False):
         os.environ.pop("CPIA_PARSER_VERIFY_LLM", None)
         assert _should_verify_llm() is True
+
+
+# ---------------------------------------------------------------------------
+# 2026-05-20 refactor: caller smoke test — collector + run_one_cycle (spec §4.1)
+# ---------------------------------------------------------------------------
+
+
+def test_collector_does_not_import_parser_llm():
+    """split-brain 방지 — collector 가 parser_llm 직접 import 안 함."""
+    with open("pipeline/agents/collector.py") as f:
+        content = f.read()
+    assert "from pipeline.agents.parser_llm import" not in content
+    # docstring 안 단어 매치 회피 — 실제 호출 패턴만 검증
+    assert "parse_daily_report_llm(" not in content
+    assert "from pipeline.agents.parser import parse_daily_report" in content
+
+
+def test_run_one_cycle_does_not_call_parser_llm():
+    """split-brain 방지 — scripts/run_one_cycle.py 가 parser_llm 호출 안 함."""
+    with open("scripts/run_one_cycle.py") as f:
+        content = f.read()
+    # parser_llm.parse_daily_report_llm 호출 패턴 부재
+    assert "parse_daily_report_llm(" not in content
+    assert "from pipeline.agents.parser_llm import ParserConfig" not in content
+    assert "from pipeline.agents.parser import parse_daily_report" in content

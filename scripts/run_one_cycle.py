@@ -1,12 +1,14 @@
-"""1 cycle 직접 실행 — parser_llm + graph.ainvoke + HIL auto-resume + stderr 캡쳐.
+"""1 cycle 직접 실행 — rule-based parser + LLM 검증 + graph.ainvoke + HIL auto-resume.
 
-prod entry script. graph 외부에서 parser_llm 호출해 state["parsed"] 채운 후 graph.ainvoke.
+prod entry script. graph 외부에서 parser.parse_daily_report 호출해 state["parsed"] 채운 후
+graph.ainvoke. 2026-05-20: parser_llm chunk 4-5 분 → parser_rule + LLM 검증 ~20 초.
 
 사용:
   pipeline/.venv/bin/python3 scripts/run_one_cycle.py <xlsx> <site_id> <report_date>
 
-stderr 에 parser_llm 의 `[parser_llm] key=... attempt=N EXCEPTION ...` 로그가 그대로 흘러나옴.
-파일로 캡쳐하려면: `... 2>/tmp/run_one_cycle.log`
+env:
+  CPIA_PARSER_VERIFY_LLM=off  # 시트1/4 LLM 검증 skip (속도 ↑, 비용 0)
+  CPIA_SAMPLE=1               # (deprecated) parser_llm 의 sample mode — 현 rule path 무시
 """
 
 from __future__ import annotations
@@ -15,8 +17,8 @@ import asyncio
 import os
 import sys
 import uuid
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -26,7 +28,7 @@ load_dotenv(ROOT / ".env")
 
 from langgraph.types import Command  # noqa: E402
 
-from pipeline.agents.parser_llm import ParserConfig, parse_daily_report_llm  # noqa: E402
+from pipeline.agents.parser import parse_daily_report  # noqa: E402
 from pipeline.api import _build_prod_graph_config  # noqa: E402
 from pipeline.graph import build_graph  # noqa: E402
 
@@ -44,30 +46,12 @@ async def main():
 
     _log(f"start xlsx={xlsx} site={site_id} date={report_date}")
 
-    # Phase A: Parser (LLM)
-    parser_cfg = ParserConfig(
-        azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
-        azure_api_key=os.environ["AZURE_OPENAI_API_KEY"],
-        azure_api_version=os.environ["AZURE_OPENAI_API_VERSION"],
-        llm_model=os.environ["LLM_MODEL"],
-    )
-    # CPIA_SAMPLE=1 (또는 truthy) 면 sample mode — 시트별 row limit 적용 (시연용 빠른 cycle)
-    sample_mode = os.environ.get("CPIA_SAMPLE", "").lower() in ("1", "true", "yes")
-    max_rows = (
-        {
-            "bp_summaries": 50,
-            "job_allocations": 200,
-            "equipment_allocations": 100,
-            "activities": 200,
-        }
-        if sample_mode
-        else None
-    )
+    # Phase A: Parser (rule-based + 시트1/4 LLM 검증, sync — 별 스레드 실행)
+    verify_llm = os.environ.get("CPIA_PARSER_VERIFY_LLM", "on").lower()
     _log(
-        f"parser_llm.parse_daily_report_llm starting "
-        f"(sample={'on' if sample_mode else 'off'}, Azure OpenAI 호출 다수)"
+        f"parser.parse_daily_report starting (LLM 검증={verify_llm}, Azure OpenAI 호출 2회)"
     )
-    parsed = await parse_daily_report_llm(xlsx, parser_cfg, max_rows_per_sheet=max_rows)
+    parsed = await asyncio.to_thread(parse_daily_report, xlsx)
     _log(
         f"parser done: bp={len(parsed['bp_summaries'])} "
         f"job={len(parsed['job_allocations'])} "

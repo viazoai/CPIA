@@ -255,3 +255,20 @@ class CPIAState(TypedDict):
         "completed",
         "failed",
     ]
+
+
+class BPSummaryRaw(TypedDict, total=False):
+    """시트 1 의 row 단위 1:1 LLM 출력. parser_post.pair_bp_summaries (A.6) 가 페어링."""
+
+    row_idx: int
+    col_4_value: str | None
+    is_bp_code: bool
+    is_korean_company: bool
+    bp_code: str | None
+    company: str | None
+    disc_abbrev: str | None
+    zone: str | None
+    scope: str | None
+    work_text_today: str | None
+    workers_today_cum: dict | None
+    today_cum_total: int | None

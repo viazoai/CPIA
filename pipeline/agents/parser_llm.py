@@ -157,44 +157,36 @@ _TIMESHIFT_SCHEMA = (
     '"night": int, "all_night": int, "total": int }'
 )
 
-_SYS_BP_SUMMARIES = f"""당신은 건설 작업일보 파서. 시트1 (출력인원 현황) 의 raw row JSON 을 받아 BPSummary 객체 list 로 추출.
+_SYS_BP_SUMMARIES = f"""당신은 건설 작업일보 시트1 (출력인원 현황) 파서. raw row JSON → BPSummaryRaw list (1 row = 1 출력).
 
-# 컬럼 의미
-입력의 header_map 참조 (col_idx → 헤더 의미).
+# 입력
+header_map = col_idx → 헤더 의미.
+rows = list[dict[col_idx, value]] — 각 row 가 1 BP 단위 row.
 
-# BPSummary 출력 schema
+# BPSummaryRaw 출력 schema (각 row 1개)
 {{
-  "bp_code":        BP 코드 (PH_X-... 류) 또는 null,
-  "company":        회사명 (한글) — required,
-  "disc_abbrev":    공종 한글 ("건축"/"설비"/"전기"/"공통가설"/"UT"/"제어"/"토목"/"소방설비"/"소방전기"...).
-                    영문 약자 [TE/AR/CI/ME/EL/UT/IN] 도 받아 한글로 변환,
-  "zone":           "FAB" / "CUB" / "FAB/CUB" 또는 null,
-  "scope":          Scope 컬럼 텍스트 (Zone 별 작업 위치) 또는 null,
-  "work_text_yesterday": 전일 작업사항 자연어 또는 null,
-  "work_text_today":     금일 작업사항 자연어 또는 null,
-  "work_text_tomorrow":  명일 작업사항 자연어 또는 null,
-  "workers_yesterday_incr": {_TIMESHIFT_SCHEMA} 또는 null,
-  "workers_yesterday_cum":  {_TIMESHIFT_SCHEMA} 또는 null,
-  "workers_today_incr":     {_TIMESHIFT_SCHEMA} 또는 null,
-  "workers_today_cum":      {_TIMESHIFT_SCHEMA} 또는 null,
-  "today_incr_total": int,
-  "today_cum_total":  int
+  "row_idx": int,
+  "col_4_value": str|null,
+  "is_bp_code": bool,
+  "is_korean_company": bool,
+  "bp_code": str|null,
+  "company": str|null,
+  "disc_abbrev": str|null,
+  "zone": str|null,
+  "scope": str|null,
+  "work_text_today": str|null,
+  "workers_today_cum": {_TIMESHIFT_SCHEMA}|null,
+  "today_cum_total": int|null
 }}
 
 # 핵심 규칙
-1. **2-row group 페어링**: 통합 작업일보 는 한 BP사가 2 row 로 분할 표시 가능.
-   - BP 코드 row: col 4 = "PH_X-..." 류 (영문/숫자/-/_)
-   - 회사명 row: col 4 = 한글 회사명
-   - 인접 row 가 같은 zone/disc 면 페어. 두 row 의 work_text/scope/zone/disc/인원수
-     중 채워진 값을 머지해서 **하나의 BPSummary** 로 출력 (company=한글 회사명, bp_code=BP 코드).
-2. BP 코드 row 만 있고 회사명 row 없는 경우: company=BP 코드 자체 그대로.
-3. 회사명 row 만 있는 경우: bp_code=null.
-4. work_text 와 모든 인원수 0 둘 다 인 row 는 skip.
-5. 시간대 6 필드 (조출/주간/연장/야간/철야/Total) 누락 시 각 0.
-6. **추측 금지** — header_map 에 명시된 col_idx 값만 사용. 다른 시트의 정보 끌어오지 말 것.
+1. **각 input row = 1 BPSummaryRaw**. len(rows) == len(bp_summaries_raw). 페어링 X (post-processing 책임).
+2. col 4 = "PH_X-..." 면 is_bp_code=true, bp_code=col4 값. 한글이면 is_korean_company=true, company=col4 값.
+3. 시간대 6 필드 누락 시 각 0.
+4. **추측 X** — header_map 명시된 col 값만. 모르면 null.
 
-# 출력 형식
-{{ "bp_summaries": [BPSummary, ...] }}
+# 출력
+{{ "bp_summaries_raw": [BPSummaryRaw, ...] }}
 """
 
 _SYS_JOB_ALLOCATIONS = f"""당신은 건설 작업일보 시트2 (직종별 인원현황) 파서. raw row JSON → JobAllocation list.
@@ -519,8 +511,8 @@ async def parse_daily_report_llm(
 
     tasks: dict[str, asyncio.Task] = {}
     if "bp_summaries" in payloads:
-        tasks["bp_summaries"] = asyncio.create_task(
-            _call_list(_SYS_BP_SUMMARIES, payloads["bp_summaries"], "bp_summaries", chunk_size=40)
+        tasks["bp_summaries_raw"] = asyncio.create_task(
+            _call_list(_SYS_BP_SUMMARIES, payloads["bp_summaries"], "bp_summaries_raw", chunk_size=15)
         )
     if "job_allocations" in payloads:
         tasks["job_allocations"] = asyncio.create_task(

@@ -20,6 +20,7 @@ from pipeline.agents.atomizer import AtomizerConfig, atomize
 from pipeline.agents.forecaster import ForecasterConfig, forecast
 from pipeline.agents.mapper import MapperConfig, _prorate_mh, map_activity
 from pipeline.agents.optimizer.agent import OptimizerConfig, optimize
+from pipeline.agents.parser_post import normalize_company
 from pipeline.agents.optimizer.retrieve import (
     _group_baseline,
     fetch_degradation_cases,

@@ -51,14 +51,55 @@ async def main():
         azure_api_version=os.environ["AZURE_OPENAI_API_VERSION"],
         llm_model=os.environ["LLM_MODEL"],
     )
-    _log("parser_llm.parse_daily_report_llm starting (Azure OpenAI 호출 다수)")
-    parsed = await parse_daily_report_llm(xlsx, parser_cfg)
+    # CPIA_SAMPLE=1 (또는 truthy) 면 sample mode — 시트별 row limit 적용 (시연용 빠른 cycle)
+    sample_mode = os.environ.get("CPIA_SAMPLE", "").lower() in ("1", "true", "yes")
+    max_rows = (
+        {
+            "bp_summaries": 50,
+            "job_allocations": 200,
+            "equipment_allocations": 100,
+            "activities": 200,
+        }
+        if sample_mode
+        else None
+    )
+    _log(
+        f"parser_llm.parse_daily_report_llm starting "
+        f"(sample={'on' if sample_mode else 'off'}, Azure OpenAI 호출 다수)"
+    )
+    parsed = await parse_daily_report_llm(xlsx, parser_cfg, max_rows_per_sheet=max_rows)
     _log(
         f"parser done: bp={len(parsed['bp_summaries'])} "
         f"job={len(parsed['job_allocations'])} "
         f"equip={len(parsed['equipment_allocations'])} "
         f"act={len(parsed['activities'])}"
     )
+
+    # POC 3사 필터 (tmp/run_prod_cycle.py 패턴) — 회사명 비어있는 BP row 제거 →
+    # mapper_activities.company NOT NULL constraint 위반 방지.
+    POC_KEYWORDS = ("남웅", "세보", "창원기전", "에스티엠")
+
+    def _pass(c):
+        return bool(c) and any(k in c for k in POC_KEYWORDS)
+
+    parsed["bp_summaries"] = [
+        s for s in parsed["bp_summaries"] if _pass(s.get("company"))
+    ]
+    parsed["activities"] = [a for a in parsed["activities"] if _pass(a.get("company"))]
+    parsed["job_allocations"] = [
+        j for j in (parsed.get("job_allocations") or []) if _pass(j.get("company"))
+    ]
+    parsed["equipment_allocations"] = [
+        e
+        for e in (parsed.get("equipment_allocations") or [])
+        if _pass(e.get("company"))
+    ]
+    _log(
+        f"3사 필터 후: bp={len(parsed['bp_summaries'])} act={len(parsed['activities'])} job={len(parsed['job_allocations'])} eq={len(parsed['equipment_allocations'])}"
+    )
+    if not parsed["activities"]:
+        _log("STOP: 3사 필터 후 activities 0 — cycle 진행 불가")
+        sys.exit(2)
 
     # Phase B: Graph
     cfg = _build_prod_graph_config()

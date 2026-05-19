@@ -483,12 +483,18 @@ def _llm_extract_chunked(
 async def parse_daily_report_llm(
     xlsx_path: Path | str,
     cfg: ParserConfig,
+    max_rows_per_sheet: dict[str, int] | None = None,
 ) -> ParsedDailyReport:
     """xlsx 1건 → ParsedDailyReport (6 entity).
 
     통합 / 업체별 자동 판단 (시트6/Cover 존재 여부).
     시트별 LLM 호출 6 회 (병렬). Azure rate-limit 고려해 Semaphore.
+
+    max_rows_per_sheet (sample mode): {"bp_summaries": 50, "job_allocations": 200, ...}
+      _sheet_to_payload 의 max_body_rows 로 전달 — row_filter 통과한 signal row 만 limit.
+      None 이면 full mode (전체 row 처리).
     """
+    _max = max_rows_per_sheet or {}
     xlsx_path = Path(xlsx_path)
     report_date = _extract_date_from_filename(xlsx_path)
 
@@ -507,13 +513,17 @@ async def parse_daily_report_llm(
         sn_sheet6 = next((s for s in sheet_names if "출력일보" in s), None)
 
         if sn_sheet1:
-            h, b = _sheet_to_payload(wb[sn_sheet1])
+            h, b = _sheet_to_payload(
+                wb[sn_sheet1],
+                max_body_rows=_max.get("bp_summaries"),
+            )
             payloads["bp_summaries"] = {"header_map": h, "rows": b}
 
         if sn_sheet2:
             h, b = _sheet_to_payload(
                 wb[sn_sheet2], header_rows=(3, 4), body_start=5,
                 row_filter=_is_job_alloc_signal_row,
+                max_body_rows=_max.get("job_allocations"),
             )
             payloads["job_allocations"] = {"header_map": h, "rows": b}
 
@@ -521,11 +531,15 @@ async def parse_daily_report_llm(
             h, b = _sheet_to_payload(
                 wb[sn_sheet3], header_rows=(3, 4), body_start=5,
                 row_filter=_is_equipment_signal_row,
+                max_body_rows=_max.get("equipment_allocations"),
             )
             payloads["equipment_allocations"] = {"header_map": h, "rows": b}
 
         if sn_sheet4:
-            h, b = _sheet_to_payload(wb[sn_sheet4])
+            h, b = _sheet_to_payload(
+                wb[sn_sheet4],
+                max_body_rows=_max.get("activities"),
+            )
             payloads["activities"] = {"header_map": h, "rows": b}
 
         if sn_sheet6:

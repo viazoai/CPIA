@@ -418,6 +418,8 @@ def _llm_extract_sync(
                 continue
             if finish_reason == "content_filter":
                 last_err = RuntimeError("content_filter blocked")
+                if last_result is None:
+                    last_result = []  # content_filter block → 빈 리스트로 폴백, raise 방지
                 continue
             obj = json.loads(raw)
             result = obj.get(response_key)

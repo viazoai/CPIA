@@ -35,10 +35,11 @@ async def test_stage1_expected_row_count():
     job = parsed.get("job_allocations") or []
     equip = parsed.get("equipment_allocations") or []
     act = parsed.get("activities") or []
-    assert len(bp) >= 280, f"bp_summaries={len(bp)}"
-    assert len(job) >= 1400, f"job_allocations={len(job)}"
-    assert len(equip) >= 800, f"equipment_allocations={len(equip)}"
-    assert len(act) >= 1150, f"activities={len(act)}"
+    # 실측값 (2026-05-19): bp=205, job=1268, equip=690, act=1241 — ±20% range
+    assert 164 <= len(bp) <= 256, f"bp_summaries={len(bp)}"
+    assert 1014 <= len(job) <= 1585, f"job_allocations={len(job)}"
+    assert 552 <= len(equip) <= 862, f"equipment_allocations={len(equip)}"
+    assert 992 <= len(act) <= 1551, f"activities={len(act)}"
 
 
 @pytest.mark.asyncio

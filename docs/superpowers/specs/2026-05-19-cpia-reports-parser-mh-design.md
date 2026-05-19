@@ -681,8 +681,12 @@ def test_scenarios_no_action_zero_delta():
     assert out["site"]["base_p50"]["delta_days"] == -5
 
 def test_scenarios_cold_start():
-    """advice 0건 → 빈 dict."""
-    assert _build_scenarios([], []) == {"site": {...}, "by_wp": {}}  # site 는 no_action only
+    """advice 0건 → site no_action 만, by_wp 빈 dict."""
+    out = _build_scenarios([], [])
+    assert out["by_wp"] == {}
+    # site 는 no_action 키 존재 + delta_days=0 (recovery 없음)
+    assert out["site"]["no_action"]["delta_days"] == 0
+    assert out["site"]["base_p50"]["delta_days"] == 0
 ```
 
 ### V5 — E2E (Playwright)

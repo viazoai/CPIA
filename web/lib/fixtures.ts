@@ -27,13 +27,36 @@ type FixtureMap = {
   simulation: SimulationSequence;
 };
 
+export type Scenario = {
+  expected_completion: string | null;
+  recovery_days: number;
+  delta_days: number;
+  case_count: number;
+};
+
+export type ScenarioSet = {
+  no_action: Scenario;
+  optimistic_p25: Scenario;
+  base_p50: Scenario;
+  pessimistic_p75: Scenario;
+};
+
+export type OptimizerByWp = {
+  by_wp: Record<string, OptimizerOutput>;
+  default_wp_id: string | null;
+};
+
 export interface ReportDetail {
   kpi: ReportKpi;
   s_curve: SCurvePoint[];
   contractor_bars: BarItem[];
   trade_bars: BarItem[];
   quadrant: QuadrantPoint[];
-  optimizer: OptimizerOutput;
+  optimizer: OptimizerByWp;
+  scenarios?: {
+    site?: Partial<ScenarioSet>;
+    by_wp?: Record<string, ScenarioSet>;
+  };
   raw_data: RawDataRow[];
   wp_summary: WPSummaryRow[];
 }

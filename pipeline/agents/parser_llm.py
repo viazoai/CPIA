@@ -29,6 +29,7 @@ from typing import Any
 import openpyxl
 from openai import AzureOpenAI
 
+from pipeline.agents import parser_post
 from pipeline.state import ParsedDailyReport
 
 

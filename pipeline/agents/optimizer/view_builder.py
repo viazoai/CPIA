@@ -123,3 +123,78 @@ async def _evm_by_group(
     placeholder — Task B.4 에서 구현.
     """
     return {}
+
+
+async def _build_kpi(
+    pg: PGClient,
+    site_id: str,
+    today: date,
+    productivity: dict[str, Any],
+) -> dict[str, Any]:
+    """§ 01 헤더 KPI — productivity_today, target, delay_days, expected_completion."""
+    site_evm = productivity.get("today", {}) or {}
+    cpi = site_evm.get("cpi")
+    spi = site_evm.get("spi")
+
+    async with pg._pool.acquire() as con:
+        d_row = await con.fetchrow(
+            """
+            SELECT AVG(delay_days)::float AS delay,
+                   MAX(expected_completion) AS expected_completion
+            FROM forecasts f JOIN pipeline_runs pr USING (run_id)
+            WHERE pr.site_id = $1 AND pr.report_date = $2
+            """,
+            site_id,
+            today,
+        )
+    delay = d_row["delay"] if d_row else None
+    exp = d_row["expected_completion"] if d_row else None
+    return {
+        "productivity_today": round(cpi or 0, 2),
+        "spi": round(spi or 0, 2),
+        "cpi": round(cpi or 0, 2),
+        "target_productivity": 100,
+        "delay_days": round(delay or 0),
+        "expected_completion": exp.isoformat() if exp else None,
+    }
+
+
+def _bar_status(cpi: float) -> str:
+    """공통: CPI → status 라벨."""
+    if cpi >= 90:
+        return "normal"
+    if cpi >= 80:
+        return "caution"
+    return "risk"
+
+
+def _build_contractor_bars(productivity: dict[str, Any]) -> list[dict[str, Any]]:
+    """by_contractor dict → BarItem[] sorted by CPI desc."""
+    by_c = productivity.get("by_contractor", {}) or {}
+    return sorted(
+        [
+            {
+                "label": c,
+                "value": round(d.get("cpi") or 0, 1),
+                "status": _bar_status(d.get("cpi") or 0),
+            }
+            for c, d in by_c.items()
+        ],
+        key=lambda x: -x["value"],
+    )
+
+
+def _build_trade_bars(productivity: dict[str, Any]) -> list[dict[str, Any]]:
+    """by_l6 dict → BarItem[]."""
+    by_l = productivity.get("by_l6", {}) or {}
+    return sorted(
+        [
+            {
+                "label": l,
+                "value": round(d.get("cpi") or 0, 1),
+                "status": _bar_status(d.get("cpi") or 0),
+            }
+            for l, d in by_l.items()
+        ],
+        key=lambda x: -x["value"],
+    )

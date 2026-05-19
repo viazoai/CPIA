@@ -311,9 +311,10 @@ rows 갯수와 동일한 수의 Activity 를 출력하세요 (절대 빈 list �
 
 # 핵심 규칙
 1. 입력 rows 의 **모든 row 가 1 Activity** — len(rows) == len(activities).
-2. company 는 한글 회사명 우선 (header "업체명" 또는 한글 row 값). 회사명 없으면 BP 코드 그대로.
-3. trade / l5_disc 동일 값 (둘 다 한글 공종명).
-4. 누락 필드는 null. 추측 X. 0 도 OK (today_qty=0 정상).
+2. **list 안에는 반드시 object (dict) 만**. 문자열 / 숫자 직접 배치 X.
+3. company 는 한글 회사명 우선 (header "업체명" 또는 한글 row 값). 회사명 없으면 BP 코드 그대로.
+4. trade / l5_disc 동일 값 (둘 다 한글 공종명).
+5. 누락 필드는 null. 추측 X. 0 도 OK (today_qty=0 정상).
 
 # 출력 (JSON 만)
 { "activities": [Activity, ...] }
@@ -557,7 +558,7 @@ async def parse_daily_report_llm(
         )
     if "activities" in payloads:
         tasks["activities"] = asyncio.create_task(
-            _call_list(_SYS_ACTIVITIES, payloads["activities"], "activities", chunk_size=30)
+            _call_list(_SYS_ACTIVITIES, payloads["activities"], "activities", chunk_size=15)
         )
     if "worker_outputs" in payloads:
         tasks["worker_outputs"] = asyncio.create_task(

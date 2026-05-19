@@ -416,3 +416,76 @@ async def _build_s_curve(
         recovery if isinstance(recovery, list) else [],
     )
     return _extend_forecast(merged, days_ahead=30)
+
+
+def _build_optimizer_view(
+    advice_rows: list[dict[str, Any]],
+    forecast: list[dict[str, Any]],
+    mapped: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """§ 02 by_wp dict — 진단/유사사례/권고/상세 6칸.
+
+    advice = optimizer_advice 의 row. forecast = forecasts 의 row (wa lookup).
+    """
+    by_wp: dict[str, dict[str, Any]] = {}
+    for advice in advice_rows:
+        # wa lookup — forecast 에서 (company, l6_main) 매칭
+        matched_f = next(
+            (f for f in forecast
+             if f.get("company") == advice.get("company")
+             and f.get("l6_main") == advice.get("l6_main")),
+            None,
+        )
+        if matched_f is None:
+            continue
+        wa = matched_f.get("wa")
+        wp_id = _wp_id_of(wa, advice.get("l6_main"), advice.get("company"))
+
+        # 유사 사례 자연어 변환
+        similar_cases = []
+        for c in (advice.get("degradation_cases") or []):
+            activities = c.get("activities") or []
+            conditions = c.get("conditions") or ""
+            productivity = c.get("productivity") or 0
+            recovery = c.get("recovery") or {}
+            rd = recovery.get("recovery_days") if isinstance(recovery, dict) else None
+            similar_cases.append({
+                "date": c.get("date") or "",
+                "description": f"{conditions} - {activities[0] if activities else ''}, 생산성 {productivity:.1f}",
+                "outcome": f"{rd}일 후 회복" if rd is not None else "미회복",
+            })
+
+        # 권고 text 만 추출
+        recs_raw = advice.get("recommendations") or []
+        recommendations: list[str] = []
+        for r in recs_raw:
+            if isinstance(r, dict):
+                recommendations.append(r.get("text") or "")
+            else:
+                recommendations.append(str(r))
+
+        # 6칸 details
+        rp = advice.get("recovery_pattern") or []
+        rd_vals = [p.get("recovery_days") for p in rp if isinstance(p, dict) and p.get("recovery_days") is not None]
+        avg_rd: Optional[float] = (sum(rd_vals) / len(rd_vals)) if rd_vals else None
+        rdist = advice.get("recovery_distribution") or {}
+        rdist_text = " / ".join(f"{k}: {v}건" for k, v in rdist.items()) if isinstance(rdist, dict) else ""
+
+        details = [
+            {"label": "위험 평가", "value": matched_f.get("risk_level") or "—"},
+            {"label": "진단 대상", "value": f"{advice.get('company') or ''} · {advice.get('l6_main') or ''}"},
+            {"label": "유사 사례 수", "value": f"{len(advice.get('degradation_cases') or [])}건"},
+            {"label": "평균 회복 일수", "value": f"{avg_rd:.1f}일" if avg_rd is not None else "—"},
+            {"label": "회복 분포", "value": rdist_text or "—"},
+            {"label": "일정 영향", "value": f"{round(matched_f.get('delay_days') or 0)}일 지연"},
+        ]
+
+        by_wp[wp_id] = {
+            "diagnosis": advice.get("diagnosis") or "",
+            "similar_cases": similar_cases,
+            "recommendations": recommendations,
+            "details": details,
+        }
+
+    default_wp_id = next(iter(by_wp.keys()), None)
+    return {"by_wp": by_wp, "default_wp_id": default_wp_id}

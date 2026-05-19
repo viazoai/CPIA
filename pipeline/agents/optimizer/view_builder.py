@@ -119,11 +119,72 @@ async def _evm_by_group(
     today: date,
     group_key: str,
 ) -> dict[str, dict[str, Any]]:
-    """group_key (company / l6_main / wa_l6_company) 별 EVM dict.
+    """group_key (company / l6_main / wa_l6_company) 별 EVM dict."""
+    if group_key == "company":
+        group_select = "ma.company AS gkey"
+        group_by = "ma.company"
 
-    placeholder — Task B.4 에서 구현.
+        def result_key_expr(r: Any) -> Optional[str]:
+            return r["gkey"]
+
+    elif group_key == "l6_main":
+        group_select = "ma.l6_main AS gkey"
+        group_by = "ma.l6_main"
+
+        def result_key_expr(r: Any) -> Optional[str]:
+            return r["gkey"]
+
+    elif group_key == "wa_l6_company":
+        group_select = "ma.wa AS wa, ma.l6_main AS l6_main, ma.company AS company"
+        group_by = "ma.wa, ma.l6_main, ma.company"
+
+        def result_key_expr(r: Any) -> Optional[str]:
+            return _wp_id_of(r["wa"], r["l6_main"], r["company"])
+
+    else:
+        return {}
+
+    sql = f"""
+        SELECT {group_select},
+               COALESCE(SUM(am.plan_total_qty * LEAST(1.0, GREATEST(0.0,
+                   ($2::date - am.plan_start + 1)::float / NULLIF((am.plan_finish - am.plan_start + 1)::float, 0)
+               ))), 0)::float AS cum_plan_qty,
+               COALESCE(SUM(am.plan_mh_rev2 * LEAST(1.0, GREATEST(0.0,
+                   ($2::date - am.plan_start + 1)::float / NULLIF((am.plan_finish - am.plan_start + 1)::float, 0)
+               ))), 0)::float AS cum_plan_mh,
+               COALESCE(SUM(am.plan_total_qty), 0)::float AS plan_qty_full,
+               COALESCE(SUM(am.plan_mh_rev2), 0)::float AS plan_mh_full,
+               COALESCE(SUM(ma.today_cum_qty), 0)::float AS cum_actual_qty,
+               COALESCE(SUM(ma.cum_actual_mh_today), 0)::float AS cum_actual_mh
+        FROM mapper_activities ma
+        JOIN pipeline_runs pr USING (run_id)
+        LEFT JOIN activity_master am
+          ON am.company = ma.company
+          AND am.l6_main = ma.l6_main
+          AND am.site_id = pr.site_id
+        WHERE pr.site_id = $1 AND pr.report_date = $2
+        GROUP BY {group_by}
     """
-    return {}
+    async with pg._pool.acquire() as con:
+        rows = await con.fetch(sql, site_id, today)
+
+    out: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        key = result_key_expr(r)
+        if not key:
+            continue
+        plan_row = {
+            "cum_plan_qty": r["cum_plan_qty"],
+            "cum_plan_mh": r["cum_plan_mh"],
+            "plan_qty_full": r["plan_qty_full"],
+            "plan_mh_full": r["plan_mh_full"],
+        }
+        actual_row = {
+            "cum_actual_qty": r["cum_actual_qty"],
+            "cum_actual_mh": r["cum_actual_mh"],
+        }
+        out[key] = _compose_evm(plan_row, actual_row)
+    return out
 
 
 async def _build_kpi(

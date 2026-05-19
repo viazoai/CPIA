@@ -18,15 +18,20 @@
 3. 리스크/대안 검토 (`/ 02` WP 클릭 시 우측 진단/유사사례/권고사항/상세현황 4칸)
 4. 공기단축 예측 시나리오 (`/ 03` ForecastChart)
 
-원인 3 가지 (전수조사 확인):
+원인 3 가지 (전수조사 + reviewer 권고 1 정정):
 
 | 원인 | 위치 | 영향 |
 |---|---|---|
-| **A. FE 가 mock 호출** | `web/app/(app)/reports/page.tsx:28` 의 `fetch("/api/mock/report")` | 모든 영역 실 데이터 안 옴 |
-| **B. EVM AC 산식 결손** | `pipeline/agents/mapper.py:486-501` 의 `cum_workers_today × 8.0` — 8h 고정 + 단일 일자치 (이름 misleading) | CPI = EV/AC 가 비현실적 (AC 분모가 1/30 ~ 1/100 수준 → CPI 폭주). 업체별/공종별/WP 별 막대 신뢰 불가 |
-| **C. WP 클릭 shape 불일치** | BE = `optimizer_view_jsonb.by_wp[wp_id]` dict / FE = `<OptimizerResult output={detail.optimizer}>` single | WP 클릭해도 같은 데이터 또는 빈값 |
+| **A. WP 클릭 shape 불일치** | BE = `optimizer_view_jsonb.by_wp[wp_id]` dict (view_builder.py:619) / FE `reports/page.tsx:42` 의 `optimizer: r.optimizer_view_jsonb || { by_wp: {}, default_wp_id: null }` 그대로 받음 → `:188` 의 `<OptimizerResult output={detail.optimizer}>` 가 by_wp dict 자체를 single OptimizerOutput 으로 취급. wp_id lookup 0 | WP 클릭 무효, 진단/유사사례/권고/상세 4칸 모두 빈값 |
+| **B. EVM AC 산식 결손** | `pipeline/agents/mapper.py:486-501` 의 `cum_workers_today × 8.0` — 8h 고정 + 단일 일자치 (이름 misleading) | CPI = EV/AC 가 비현실적 (AC 분모가 1/30 ~ 1/100 수준 → CPI 폭주). 업체별/공종별/WP 별 막대 값 신뢰 불가 — `kpi_jsonb.productivity_today` 도 같은 결손 |
+| **C. scenarios 미산출** | view_builder 가 s_curve_jsonb 까지 산출하지만 명시적 시나리오 (낙관/기준/비관 expected_completion) 컬럼 없음. FE diagnose() 는 mock 으로 채움 | 공기단축 시나리오가 mock 그대로 표시 (실 recovery_distribution 미반영) |
 
-본 spec 의 목표 = 세 원인 동시 해소 + 공기단축 시나리오 신설.
+**`/api/mock/report` route 의 정체** (reviewer 권고 1 검증):
+- 파일명만 mock — 실제로는 `web/lib/pg.ts` 의 postgres 클라이언트로 `daily_reports JOIN pipeline_runs JOIN sites WHERE is_mock=FALSE` SELECT 후 8 jsonb 그대로 노출.
+- 따라서 endpoint 신설 불요. `daily_reports.scenarios_jsonb` SELECT 1 줄 추가 + FE adapter 만 변경하면 됨.
+- 단, 이름이 misleading — 향후 cycle 에서 `/api/reports` 로 rename 권장 (본 cycle scope 외).
+
+본 spec 의 목표 = 세 원인 동시 해소.
 
 ---
 
@@ -40,10 +45,10 @@
 | Mapper | mapper.py:476-502 의 prorate 산식을 시간대 가중 MH 환산으로 교체 | A_Track |
 | Optimizer view_builder | `_build_scenarios()` 신규 + daily_reports.scenarios_jsonb UPSERT 추가 | A_Track |
 | PG migration | `2026-05-19_scenarios_jsonb.sql` 신설 (1 컬럼) | A_Track |
-| FE API route | `web/app/api/reports/[site]/[date]/route.ts` (신설), `web/app/api/reports/[site]/list/route.ts` (신설) | B_Track |
-| FE page | `reports/page.tsx:28` fetch 교체 + OptimizerResult by_wp lookup 어댑터 | B_Track |
-| FE adapter | `web/lib/diagnosis-adapter.ts` scenarios fallback 분기 | B_Track |
-| FE types | `web/lib/fixtures.ts` ReportDetail shape 업데이트 (optimizer_view + scenarios) | B_Track |
+| FE API route | `web/app/api/mock/report/route.ts` — SELECT 절에 `dr.scenarios_jsonb` 추가 + `details` 객체에 `scenarios: r.scenarios_jsonb || {}` 추가. endpoint 신설 0 (이미 실 DB). | B_Track |
+| FE page | `reports/page.tsx:53` initial WP selection 의 `optimizer.default_wp_id` 경로 + `:188` OptimizerResult prop 을 `detail.optimizer.by_wp[selectedWpId]` lookup 으로 어댑터화 | B_Track |
+| FE adapter | `web/lib/diagnosis-adapter.ts` scenarios optional param 추가 + base_p50/p25/p75 분기 | B_Track |
+| FE types | `web/lib/fixtures.ts` ReportDetail.optimizer = `{by_wp, default_wp_id}` 로 정정, `scenarios?` 신규 optional | B_Track |
 
 ### Non-scope (의도적 drift)
 
@@ -124,9 +129,10 @@ for a in out:
         a["cum_actual_mh_today"] = a["cum_workers_today"] × 8.0
 ```
 
-**신규** (위 위치 교체):
+**신규** (위 위치 교체) — 두 헬퍼 함수 추출 + inline 루프 단순화. 헬퍼 분리 사유: §7 V2 unit test 가 standalone 호출:
+
 ```python
-# 1. company 단위 시간대 가중 누적 MH (시트2 jsonb 6칸 분해 + 가중치)
+# === 모듈 상수 ===
 _SHIFT_WEIGHTS = {
     "morning":   2.0,
     "daytime":   8.0,
@@ -135,8 +141,13 @@ _SHIFT_WEIGHTS = {
     "all_night": 12.0,
 }
 
+
+# === 헬퍼 1 ===
 def _weighted_mh_from_shift(shift_dict: dict | None) -> float:
-    """parser_job_allocations.workers_today_cum jsonb → 가중 MH."""
+    """시트2 workers_today_cum jsonb (TimeShiftCounts) → 가중 MH.
+
+    spec §3.2 가중치 적용. None / 빈 dict → 0.0.
+    """
     if not shift_dict:
         return 0.0
     return sum(
@@ -144,42 +155,64 @@ def _weighted_mh_from_shift(shift_dict: dict | None) -> float:
         for k, w in _SHIFT_WEIGHTS.items()
     )
 
-# company 단위 history 누적 MH 합
-company_weighted_mh: dict[str, float] = {}
-for ja in parsed_report.get("job_allocations", []):
-    if ja.get("final_flag") != "O":
-        continue
-    c = ja.get("company")
-    if c:
-        mh = _weighted_mh_from_shift(ja.get("workers_today_cum"))
-        company_weighted_mh[c] = company_weighted_mh.get(c, 0.0) + mh
 
-# 2. l6 비례 분배 (기존 분배 로직 유지)
-for a in out:
-    if a.get("l6_main"):
-        c = a["company"]
-        weighted_mh_c = company_weighted_mh.get(c, 0.0)
-        company_mh = company_total_plan_mh.get(c, 0.0)
-        plan_mh_val = float(a.get("plan_mh") or 0)
-        n_l6 = len(active_l6_for_company[c]) if c else 0
-        if company_mh > 0 and plan_mh_val > 0:
-            cum_actual_mh = weighted_mh_c * (plan_mh_val / company_mh)
-            prorate_method = "plan_mh"
-        elif n_l6 > 0:
-            cum_actual_mh = weighted_mh_c / n_l6
-            prorate_method = "uniform_fallback"
-        else:
-            cum_actual_mh = 0.0
-            prorate_method = "zero"
-        # cum_workers_today 는 보조 — MH ÷ 8h 환산값 (BI 호환 유지)
-        a = {
-            **a,
-            "cum_actual_mh_today": cum_actual_mh,
-            "cum_workers_today": cum_actual_mh / 8.0,
-            "prorate_method": prorate_method,
-        }
-    prorated.append(a)
+# === 헬퍼 2 ===
+def _prorate_workers_with_mh(
+    mapped: list[Activity],
+    parsed_report: ParsedDailyReport,
+    company_total_plan_mh: dict[str, float],
+    active_l6_for_company: dict[str, set[str]],
+) -> list[Activity]:
+    """company 단위 누적 가중 MH 산출 후 l6 비례 분배.
+
+    Args:
+        mapped: Mapper LLM 매핑 직후 Activity list (l6_main 채워짐, assigned_workers / plan_mh 채워짐).
+        parsed_report: Parser 산출 ParsedDailyReport (job_allocations 시간대 jsonb 포함).
+        company_total_plan_mh: 기존 산출 (a.plan_mh sum by company).
+        active_l6_for_company: 기존 산출 (균등 fallback 용).
+
+    Returns:
+        cum_actual_mh_today / cum_workers_today / prorate_method 채워진 Activity list.
+    """
+    # 1. company 단위 시간대 가중 누적 MH 합 (final_flag='O' 만)
+    company_weighted_mh: dict[str, float] = {}
+    for ja in parsed_report.get("job_allocations", []):
+        if ja.get("final_flag") != "O":
+            continue
+        c = ja.get("company")
+        if c:
+            mh = _weighted_mh_from_shift(ja.get("workers_today_cum"))
+            company_weighted_mh[c] = company_weighted_mh.get(c, 0.0) + mh
+
+    # 2. l6 비례 분배
+    prorated: list[Activity] = []
+    for a in mapped:
+        if a.get("l6_main"):
+            c = a["company"]
+            weighted_mh_c = company_weighted_mh.get(c, 0.0)
+            company_mh = company_total_plan_mh.get(c, 0.0)
+            plan_mh_val = float(a.get("plan_mh") or 0)
+            n_l6 = len(active_l6_for_company[c]) if c else 0
+            if company_mh > 0 and plan_mh_val > 0:
+                cum_actual_mh = weighted_mh_c * (plan_mh_val / company_mh)
+                prorate_method = "plan_mh"
+            elif n_l6 > 0:
+                cum_actual_mh = weighted_mh_c / n_l6
+                prorate_method = "uniform_fallback"
+            else:
+                cum_actual_mh = 0.0
+                prorate_method = "zero"
+            a = {
+                **a,
+                "cum_actual_mh_today": cum_actual_mh,
+                "cum_workers_today": cum_actual_mh / 8.0,  # BI 호환용 보조
+                "prorate_method": prorate_method,
+            }
+        prorated.append(a)
+    return prorated
 ```
+
+mapper.py 의 기존 `_prorate_workers(out, parsed_report)` 호출부는 위 헬퍼 호출로 1:1 교체. `company_total_plan_mh` / `active_l6_for_company` 산출 로직 (line 462-473) 은 그대로 유지.
 
 ### §3.4 변경 사항 요약
 
@@ -311,6 +344,17 @@ def _build_scenarios(
     }
     
     # by_wp: advice 별 (company, l6_main) → forecast 매칭으로 wa lookup → wp_id
+    # _match_forecast: forecast row 중 (company, l6_main) 동일한 첫 row 반환. 매칭 실패 시 None.
+    #   매칭 키 = (advice["company"], advice["l6_main"]) ↔ (f["company"], f["l6_main"]) 동일.
+    #   view_builder.py:561-566 의 _build_optimizer_view 와 동일 패턴 — 같은 helper 추출 권장.
+    def _match_forecast(advice: dict, forecast: list[dict]) -> dict | None:
+        return next(
+            (f for f in forecast
+             if f.get("company") == advice.get("company")
+             and f.get("l6_main") == advice.get("l6_main")),
+            None,
+        )
+
     by_wp: dict[str, dict] = {}
     for advice in advice_rows:
         f = _match_forecast(advice, forecast)
@@ -381,39 +425,50 @@ view_jsonbs = {
 
 ## §6. FE 매핑 (FE UI 변경 0)
 
-### §6.1 신규 endpoint
+### §6.1 기존 mock route 확장 (endpoint 신설 0)
 
-`web/app/api/reports/[site]/list/route.ts` (신설):
+`web/app/api/mock/report/route.ts` 가 이미 실 DB 를 SELECT 중 (route 이름은 misleading). 다음 2 곳만 추가:
+
 ```typescript
-// GET /api/reports/{site}/list
-// → ReportDaily[] (date list, 좌측 sticky panel 용)
-// SQL: SELECT report_date, ... FROM daily_reports WHERE site_id=$1 ORDER BY report_date DESC LIMIT 30
+// route.ts:11 — SELECT 절에 scenarios_jsonb 한 줄 추가
+const rows = await (sql as any)`
+  SELECT pr.report_date,
+         dr.kpi_jsonb, dr.contractor_bars_jsonb, dr.trade_bars_jsonb,
+         dr.quadrant_jsonb, dr.wp_summary_jsonb, dr.s_curve_jsonb,
+         dr.optimizer_view_jsonb, dr.productivity_jsonb,
+         dr.scenarios_jsonb                            // ← 추가
+  FROM daily_reports dr
+  JOIN pipeline_runs pr USING (run_id)
+  JOIN sites s ON s.site_id = pr.site_id
+  WHERE s.is_mock = FALSE
+  ORDER BY pr.report_date DESC
+`;
+
+// route.ts:35 — details 객체 빌드에 scenarios 추가
+details[date] = {
+  kpi: r.kpi_jsonb || {},
+  s_curve: r.s_curve_jsonb || [],
+  contractor_bars: r.contractor_bars_jsonb || [],
+  trade_bars: r.trade_bars_jsonb || [],
+  quadrant: r.quadrant_jsonb || [],
+  optimizer: r.optimizer_view_jsonb || { by_wp: {}, default_wp_id: null },  // 기존 (by_wp dict 그대로 노출)
+  scenarios: r.scenarios_jsonb || { site: {}, by_wp: {} },                  // ← 추가
+  wp_summary: r.wp_summary_jsonb || [],
+  raw_data: [],
+};
 ```
 
-`web/app/api/reports/[site]/[date]/route.ts` (신설):
-```typescript
-// GET /api/reports/{site}/{date}
-// → ReportDetail (단일 일자 상세, 9 jsonb 풀어서 노출)
-// SQL: SELECT 
-//   kpi_jsonb              AS kpi,
-//   productivity_jsonb     AS productivity,
-//   contractor_bars_jsonb  AS contractor_bars,
-//   trade_bars_jsonb       AS trade_bars,
-//   quadrant_jsonb         AS quadrant,
-//   wp_summary_jsonb       AS wp_summary,
-//   s_curve_jsonb          AS s_curve,
-//   optimizer_view_jsonb   AS optimizer_view,
-//   scenarios_jsonb        AS scenarios
-// FROM daily_reports WHERE site_id=$1 AND report_date=$2 LIMIT 1
-```
+향후 cycle 에서 `/api/mock/report` → `/api/reports` 로 path rename 권장 (본 cycle scope 외 — route name drift 정리).
 
 ### §6.2 page.tsx 변경 (3 곳)
 
-| 위치 | 변경 |
-|---|---|
-| `reports/page.tsx:28` | `fetch("/api/mock/report")` → `fetch("/api/reports/{site}/list")` + 첫 date 자동 선택 시 lazy fetch `/api/reports/{site}/{date}` |
-| `reports/page.tsx:188` | `output={detail.optimizer}` → `output={detail.optimizer_view?.by_wp?.[selectedWpId ?? ""] ?? detail.optimizer_view?.by_wp?.[detail.optimizer_view?.default_wp_id ?? ""] ?? {} as OptimizerOutput}` |
-| `reports/page.tsx:59` | `diagnose(toDiagnosisInput(detail.kpi, detail.s_curve, REPORT_SITE_ID))` → 그대로 (어댑터 내부에서 scenarios 분기) |
+| 위치 | 현 코드 | 변경 후 |
+|---|---|---|
+| `reports/page.tsx:53` | `setSelectedWpId(initial?.wp_id ?? (detail.optimizer as any)?.default_wp_id ?? null)` | `setSelectedWpId(initial?.wp_id ?? detail.optimizer?.default_wp_id ?? null)` — 어차피 BE shape 동일 (`{by_wp, default_wp_id}`), 단지 type 명시 |
+| `reports/page.tsx:59` | `diagnose(toDiagnosisInput(detail.kpi, detail.s_curve, REPORT_SITE_ID))` | `diagnose(toDiagnosisInput(detail.kpi, detail.s_curve, REPORT_SITE_ID, detail.scenarios))` — 어댑터에 scenarios 전달 |
+| `reports/page.tsx:188` | `<OptimizerResult output={detail.optimizer} />` | `<OptimizerResult output={detail.optimizer?.by_wp?.[selectedWpId ?? ""] ?? detail.optimizer?.by_wp?.[detail.optimizer?.default_wp_id ?? ""] ?? EMPTY_OPTIMIZER} />` — by_wp lookup 어댑터 (page.tsx 상단에 `EMPTY_OPTIMIZER` 상수 정의: `{diagnosis:"", similar_cases:[], recommendations:[], details:[]}`) |
+
+`reports/page.tsx:28` 의 `fetch("/api/mock/report")` 는 **변경 0** (이미 실 DB). 다만 mock route 자체의 SELECT 변경 (§6.1) 이 전제.
 
 ### §6.3 diagnosis-adapter 어댑터 (분기 추가)
 
@@ -462,13 +517,12 @@ ForecastChart **컴포넌트 내부 변경 0** — diagnosis prop 의 recovery �
 ```typescript
 export type ReportDetail = {
   kpi: ReportKpi;
-  productivity: ProductivityView;       // ← 추가 (productivity_jsonb)
   contractor_bars: BarItem[];
   trade_bars: BarItem[];
   quadrant: QuadrantPoint[];
   wp_summary: WPSummaryRow[];
   s_curve: SCurvePoint[];
-  optimizer_view: {                     // ← 변경 (optimizer → optimizer_view, by_wp dict)
+  optimizer: {                          // ← 변경 (single OptimizerOutput → by_wp dict)
     by_wp: Record<string, OptimizerOutput>;
     default_wp_id: string | null;
   };
@@ -494,10 +548,15 @@ export type Scenario = {
 };
 ```
 
-### §6.5 mock fixture 정리
+### §6.5 mock route naming drift (본 cycle 외)
 
-- `web/app/api/mock/report/route.ts` 은 **유지** (`/reports?mock=1` 같은 fallback 또는 e2e 시 사용 — 본 cycle 에선 prod path 만 endpoint 교체).
-- 추가 작업으로 mock fixture 의 shape 도 신규 ReportDetail 정합으로 갱신 (FE 컴파일 깨지지 않도록).
+`web/app/api/mock/report/route.ts` — 이름은 mock 인데 실 DB 를 SELECT. 본 cycle 에선 SELECT 절 + details build 만 확장 (§6.1). 향후 cycle 에서:
+
+- path rename `/api/mock/report` → `/api/reports` (또는 `/api/reports/[site]/[date]`)
+- mock 라벨 떼고 prod endpoint 로 승격
+- query param `?site=` / `?date=` 추가로 multi-site / multi-date drill-down 지원
+
+위 3 개는 모두 본 cycle scope 외.
 
 ---
 
@@ -596,7 +655,7 @@ asyncio.run(main())
 "
 ```
 
-**기대 검증**:
+**기대 검증** (V3 는 §8 step 2~3 commit 후 **신규 pipeline_run** 실행 후 만든 row 에 돌려야 함 — 기존 row 는 망가진 AC 로 박혀 있음):
 - `kpi_jsonb.productivity_today` ∈ [50, 150] 범위 (현 폭주값 X)
 - `productivity_jsonb.today.spi`, `cpi` 둘 다 0보다 큼
 - `productivity_jsonb.by_contractor` 가 비어있지 않음
@@ -657,11 +716,13 @@ test("reports page shows real EVM CPI + WP click toggles 4 panels", async ({ pag
 | # | Commit | 영향 |
 |---|---|---|
 | 1 | `db: add scenarios_jsonb column to daily_reports` (migration) | DB 1 컬럼 추가, 기존 row 영향 0 (default `{}`) |
-| 2 | `mapper: replace 8h fixed with shift-weighted MH` (mapper.py + test V2) | mapper_activities.cum_actual_mh_today 의미 fix, downstream forecaster/optimizer 자동 정합 |
+| 2 | `mapper: replace 8h fixed with shift-weighted MH` (mapper.py 헬퍼 2개 + test V2) | mapper_activities.cum_actual_mh_today 의미 fix, downstream forecaster/optimizer 자동 정합 |
 | 3 | `optimizer: add _build_scenarios + scenarios_jsonb upsert` (view_builder + agent + test V4) | daily_reports.scenarios_jsonb 채워짐 |
-| 4 | `web: add /api/reports/[site]/list + /[date] endpoints + types update` | FE 가 mock 대신 실 DB 호출 가능 |
-| 5 | `web: switch reports/page.tsx from mock to real + by_wp lookup + scenarios fallback` | FE 가 실 데이터로 전환 |
+| 4 | `web: extend mock/report SELECT with scenarios + types update (optimizer dict, scenarios)` | FE 가 BE shape 받을 준비 |
+| 5 | `web: switch reports/page.tsx — by_wp lookup + scenarios adapter` (line 53/59/188 + diagnosis-adapter 분기) | FE 가 by_wp dict lookup + 실 scenarios 사용 |
 | 6 | `web: e2e test reports-real-data.spec.ts` (V5) | regression 방지 |
+
+**중요**: step 2~3 commit 후 신규 pipeline_run 1 회 실행 (기존 row 는 망가진 AC). step 4~5 는 신규 row 가 박힌 후 FE 검증 가능.
 
 각 commit 은 단독으로 빌드/테스트 통과. 6 까지 끝나면 reports 페이지가 실 데이터로 동작.
 

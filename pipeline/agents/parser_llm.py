@@ -132,8 +132,26 @@ def _is_job_alloc_signal_row(d: dict[int, Any]) -> bool:
     return True
 
 
+_MARKER_PATTERNS = {"M15 PH-X", "FAB", "CUB", "M15X", "M15 X"}
+_BP_CODE_RE = re.compile(r"^PH_X-\d+$")
+
+
+def _is_real_bp(value: str | None) -> bool:
+    """진짜 BP사 식별 — BP 코드 ('PH_X-123') 또는 한글 회사명."""
+    if not value:
+        return False
+    s = str(value).strip()
+    if s in _MARKER_PATTERNS:
+        return False
+    if _BP_CODE_RE.match(s):
+        return True
+    if any("가" <= c <= "힣" for c in s):  # 한글 검사
+        return True
+    return False
+
+
 def _is_equipment_signal_row(d: dict[int, Any]) -> bool:
-    """시트3 row 의미있는지 — 0 대수 / 합계 row skip."""
+    """시트3 row 의미있는지 — 0 대수 / marker row / 합계 row skip."""
     for v in d.values():
         if isinstance(v, str) and "투입 Total" in v:
             return False
@@ -145,7 +163,8 @@ def _is_equipment_signal_row(d: dict[int, Any]) -> bool:
         pass
     big = str(d.get(3, "") or "").strip()
     mid = str(d.get(4, "") or "").strip()
-    return bool(big and mid)
+    bp = d.get(2)
+    return bool(big and mid and _is_real_bp(bp))
 
 
 # ---------------------------------------------------------------------------
@@ -221,29 +240,37 @@ _SYS_JOB_ALLOCATIONS = f"""당신은 건설 작업일보 시트2 (직종별 인�
 {{ "job_allocations_raw": [JobAllocationRaw, ...] }}
 """
 
-_SYS_EQUIPMENT_ALLOCATIONS = f"""당신은 건설 작업일보 시트3 (장비현황) 파서. raw row JSON → EquipmentAllocation list.
+_SYS_EQUIPMENT_ALLOCATIONS = f"""당신은 건설 작업일보 시트3 (장비현황) 파서. raw row JSON → EquipmentAllocationRaw list (1 row = 1 출력).
 
-# EquipmentAllocation 출력 schema
+# 입력 col 의미
+- col 1 = 공종 한글
+- col 2 = BP사 (BP 코드 "PH_X-..." 또는 한글 회사명)
+- col 3 = 장비 대분류 (필수)
+- col 4 = 장비 중분류 (필수)
+- col 5 = 규격
+- col 6~ 시간대별 (header_map 명시)
+- col 23 = 금일투입누계 Total
+
+# EquipmentAllocationRaw schema
 {{
-  "bp_code":      PH_X-... 또는 null,
-  "company":      회사명 — required,
-  "disc_abbrev":  공종 한글 또는 null,
-  "equipment_big":   장비 대분류 (예: 굴삭운반기계류) — required,
-  "equipment_mid":   장비 중분류 (예: Back Hoe) — required,
-  "equipment_spec":  규격 (예: "2㎥ 미만") 또는 null,
-  "count_yesterday_cum": {_TIMESHIFT_SCHEMA} 또는 null,
-  "count_today_incr":    {_TIMESHIFT_SCHEMA} 또는 null,
-  "count_today_cum":     {_TIMESHIFT_SCHEMA} 또는 null,
-  "final_flag":   "O" / "X" / null,
-  "count_cum_t":  int (금일투입누계 Total)
+  "row_idx": int,
+  "company_or_bp": str|null,
+  "disc_abbrev": str|null,
+  "equipment_big": str|null,
+  "equipment_mid": str|null,
+  "equipment_spec": str|null,
+  "count_today_cum": {_TIMESHIFT_SCHEMA}|null,
+  "count_cum_t": int|null,
+  "final_flag": "O"|"X"|null
 }}
 
-# 규칙
-1. 시간대 6 필드 누락 시 각 0.
-2. 0 대수 row 는 사전 필터됨.
+# 핵심 규칙
+1. 각 row = 1 EquipmentAllocationRaw.
+2. **marker row 사전 filter 됨** — input rows 에 'M15 PH-X' / 'FAB' / 'CUB' 같은 marker 없음. 정상 BP사 row 만.
+3. company_or_bp 는 col 2 raw 그대로.
 
-# 출력 형식
-{{ "equipment_allocations": [EquipmentAllocation, ...] }}
+# 출력
+{{ "equipment_allocations_raw": [EquipmentAllocationRaw, ...] }}
 """
 
 _SYS_ACTIVITIES = """건설 작업일보 시트4 (물량) 파서. 입력의 rows 리스트의 **각 row 가 1 Activity** 입니다.
@@ -525,8 +552,8 @@ async def parse_daily_report_llm(
             _call_list(_SYS_JOB_ALLOCATIONS, payloads["job_allocations"], "job_allocations_raw", chunk_size=15)
         )
     if "equipment_allocations" in payloads:
-        tasks["equipment_allocations"] = asyncio.create_task(
-            _call_list(_SYS_EQUIPMENT_ALLOCATIONS, payloads["equipment_allocations"], "equipment_allocations", chunk_size=40)
+        tasks["equipment_allocations_raw"] = asyncio.create_task(
+            _call_list(_SYS_EQUIPMENT_ALLOCATIONS, payloads["equipment_allocations"], "equipment_allocations_raw", chunk_size=15)
         )
     if "activities" in payloads:
         tasks["activities"] = asyncio.create_task(

@@ -286,3 +286,17 @@ class JobAllocationRaw(TypedDict, total=False):
     workers_today_cum: dict | None
     workers_cum_t: int | None
     final_flag: str | None
+
+
+class EquipmentAllocationRaw(TypedDict, total=False):
+    """시트 3 의 row 단위 1:1 LLM 출력."""
+
+    row_idx: int
+    company_or_bp: str | None
+    disc_abbrev: str | None
+    equipment_big: str | None
+    equipment_mid: str | None
+    equipment_spec: str | None
+    count_today_cum: dict | None
+    count_cum_t: int | None
+    final_flag: str | None

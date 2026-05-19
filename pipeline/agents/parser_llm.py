@@ -1,4 +1,22 @@
-"""LLM 기반 작업일보 parser — 통합/업체별 일보 모두 지원.
+"""LLM 기반 작업일보 parser — DEPRECATED (2026-05-20).
+
+본 모듈은 chunk LLM parsing 으로 ParsedDailyReport 를 생성했으나, 5/20 부터
+`pipeline.agents.parser.parse_daily_report` (rule-based + 시트1/4 LLM 검증 hybrid)
+로 대체됨. 이 모듈은 본 cycle 의 graph entry 에서 호출되지 않음.
+
+회귀 사용 (rule path 가 실패하는 비상 경로):
+  - collector / run_one_cycle 의 import 를 parser_llm 으로 되돌리면 동작.
+  - 또는 env flag `CPIA_PARSER=llm` 으로 graph entry 안에서 분기 (미구현).
+
+대체 이유:
+  - chunk LLM 270 호출 → 4-5 분 / cycle, ~$3 / cycle → 시연 마감 (6/5) 압력
+  - rule + 시트1/4 LLM 검증 hybrid → ~20 초 / cycle, ~$0.55 / cycle
+  - 매핑 정확도: mapper auto_bp_zone_match (BP-zone deterministic) 와 정합
+
+spec: docs/superpowers/specs/2026-05-20-cpia-parser-mapper-refactor-design.md
+
+----
+이하 원본 docstring 보존 (회귀 사용 시 참고):
 
 2026-05-19 신규. 기존 정규화 코드 (parser.py) 가 작업일보 양식 비일관 (2-row group +
 시트2/3 다중 row pattern) 에 brittle 한 문제 해결. schema-guided LLM 으로 6 시트 추출.

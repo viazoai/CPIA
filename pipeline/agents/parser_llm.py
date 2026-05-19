@@ -373,17 +373,23 @@ def _llm_extract_sync(
     system_prompt: str,
     user_payload: dict,
     response_key: str,
-    retries: int = 1,
+    retries: int = 2,
     max_completion_tokens: int = 16000,
 ) -> Any:
     """LLM 1 호출 → JSON 파싱 → response_key 값 반환.
 
-    JSON parse 실패 / truncated 시 retries 회 재시도. 끝까지 실패하면 빈 list 또는 None.
-    truncation 진단 위해 stderr 로 finish_reason + raw 길이 + 첫 200 chars log.
+    Retry trigger:
+      - JSON parse 실패
+      - truncated (finish_reason='length')
+      - content_filter (finish_reason='content_filter')
+      - 빈 list 응답 (input rows > 0 인데 결과 [])
     """
     import sys as _sys
 
+    input_rows_count = len(user_payload.get("rows", [])) if isinstance(user_payload, dict) else 0
+
     last_err: Exception | None = None
+    last_result: Any = None
     for attempt in range(retries + 1):
         try:
             resp = client.chat.completions.create(
@@ -409,8 +415,16 @@ def _llm_extract_sync(
             if finish_reason == "length":
                 last_err = RuntimeError(f"truncated (max_completion_tokens={max_completion_tokens})")
                 continue
+            if finish_reason == "content_filter":
+                last_err = RuntimeError("content_filter blocked")
+                continue
             obj = json.loads(raw)
-            return obj.get(response_key)
+            result = obj.get(response_key)
+            if input_rows_count > 0 and isinstance(result, list) and len(result) == 0:
+                last_err = RuntimeError(f"empty list returned (input rows={input_rows_count})")
+                last_result = result
+                continue
+            return result
         except Exception as e:  # noqa: BLE001
             last_err = e
             print(
@@ -419,6 +433,9 @@ def _llm_extract_sync(
                 flush=True,
             )
             continue
+    if last_result is not None:
+        print(f"[parser_llm] key={response_key} all retries failed, returning last_result", file=_sys.stderr, flush=True)
+        return last_result
     raise RuntimeError(f"LLM extract '{response_key}' 실패 {retries+1}회: {last_err}")
 
 

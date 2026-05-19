@@ -413,6 +413,8 @@ async def _prorate_mh(
             bp_l6[a["company"]].add(a["l6_main"])
 
     workers_lookup: dict[tuple[str, str], float] = {}
+    # U1.A: plan_mh propagate — l6_mh 맵을 activity 단위로 보존 (EVM CPI/SPI 분모)
+    plan_mh_lookup: dict[tuple[str, str], float] = {}
     for company, l6_set in bp_l6.items():
         total_n = bp_total.get(company, 0)
         if total_n == 0 or not l6_set:
@@ -421,6 +423,10 @@ async def _prorate_mh(
             continue
 
         l6_mh: dict[str, int] = await pg.fetch_l6_plan_mh_map(company, list(l6_set))
+
+        # U1.A: fetch 한 l6_mh 값을 plan_mh_lookup 에 보존
+        for l6, mh in l6_mh.items():
+            plan_mh_lookup[(company, l6)] = float(mh)
 
         sum_mh = sum(l6_mh.values())
         if sum_mh == 0:
@@ -438,6 +444,8 @@ async def _prorate_mh(
                 **a,
                 "assigned_workers": workers_lookup.get(key, 0.0),
                 "worker_source": "mh_prorated",
+                # U1.A: plan_mh — 맵에 없으면 0 (B.2 prorate 분모로 사용)
+                "plan_mh": plan_mh_lookup.get(key, 0.0),
             }
         out.append(a)
     return out

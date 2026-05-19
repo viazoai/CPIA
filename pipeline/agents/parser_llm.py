@@ -386,12 +386,16 @@ def _llm_extract_sync(
       - 빈 list 응답 (input rows > 0 인데 결과 [])
     """
     import sys as _sys
+    import time as _time
 
     input_rows_count = len(user_payload.get("rows", [])) if isinstance(user_payload, dict) else 0
 
     last_err: Exception | None = None
     last_result: Any = None
     for attempt in range(retries + 1):
+        # exponential backoff between retries — Azure rate limit / content_filter 회피
+        if attempt > 0:
+            _time.sleep(2 ** (attempt - 1))  # 1s, 2s, 4s, 8s, ...
         try:
             resp = client.chat.completions.create(
                 model=model,
@@ -464,7 +468,7 @@ def _llm_extract_chunked(
         payload = {"header_map": header_map, "rows": chunk}
         partial = _llm_extract_sync(
             client, model, system_prompt, payload, response_key,
-            retries=1, max_completion_tokens=max_completion_tokens,
+            retries=3, max_completion_tokens=max_completion_tokens,
         )
         if partial:
             out.extend(partial)

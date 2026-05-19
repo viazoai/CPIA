@@ -590,6 +590,14 @@ async def parse_daily_report_llm(
     for k, t in tasks.items():
         results[k] = await t
 
+    # post-processing: raw → 정제된 entity
+    bp_summaries = parser_post.transform_bp_summaries(results.get("bp_summaries_raw") or [])
+    job_allocations = parser_post.transform_job_allocations(results.get("job_allocations_raw") or [])
+    equipment_allocations = parser_post.transform_equipment_allocations(
+        results.get("equipment_allocations_raw") or []
+    )
+    activities = results.get("activities") or []  # 이미 final shape (raw 변환 X)
+
     # project 명: Cover.project_name 우선, 그 다음 파일명 stem.
     rm = results.get("report_meta") or {}
     project = (rm.get("project_name") if isinstance(rm, dict) else None) or xlsx_path.stem
@@ -597,10 +605,10 @@ async def parse_daily_report_llm(
     parsed: ParsedDailyReport = {
         "report_date": report_date or (rm.get("report_date") if isinstance(rm, dict) else "") or "",
         "project": project,
-        "bp_summaries": results.get("bp_summaries") or [],
-        "job_allocations": results.get("job_allocations") or [],
-        "equipment_allocations": results.get("equipment_allocations") or [],
-        "activities": results.get("activities") or [],
+        "bp_summaries": bp_summaries,
+        "job_allocations": job_allocations,
+        "equipment_allocations": equipment_allocations,
+        "activities": activities,
         "worker_outputs": results.get("worker_outputs") or [],
         "report_meta": rm if isinstance(rm, dict) and rm else None,
     }

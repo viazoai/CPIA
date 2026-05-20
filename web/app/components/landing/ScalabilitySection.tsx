@@ -5,9 +5,9 @@ const AXES = [
     icon: Cpu,
     axis: "AXIS 01",
     category: "FOUNDATION",
-    title: "LangGraph 기반 — 쉽게 교체할 수 있도록 설계",
+    title: "노드만 교체하면 새 현장에 적용",
     body:
-      "7개 Agent 가 독립 모듈로 구성되어, 현장 특성에 맞춰 일부 노드만 교체하면 동작. 새 현장·새 영역으로 옮길 때 코어 재학습 없이 빠르게 적용할 수 있도록 LangGraph 기술로 설계.",
+      "Agent 가 독립 노드로 구성되어, 현장 특성에 맞는 일부만 교체하면 동작. LangGraph 로 설계해 재학습 없이 빠르게 확장.",
     target: "노드 교체 only · 코어 재학습 불요",
     active: true,
   },
@@ -17,17 +17,17 @@ const AXES = [
     category: "HORIZONTAL SCALE-OUT",
     title: "Hi-tech 6개 → SK ecosystem 전체",
     body:
-      "Hi-tech 사업부 6개 현장 내재화 후, AI Solution·글로벌 사업부로 동일 LangGraph 베이스 확산. 발주처 포맷·언어 모듈만 교체하여 신규 현장 적용.",
-    target: "월 4,200h+ 통합 절감 (사업부 누적)",
+      "Hi-tech 6개 현장에서 검증 후 AI Solution·글로벌 사업부로 확산. 발주처 포맷·언어만 맞추면 신규 적용.",
+    target: "월 4,200h+ 통합 절감",
   },
   {
     icon: Layers,
     axis: "AXIS 03",
-    category: "MPRS DOMAIN EXPANSION",
-    title: "P-Construction → R-Engineering · P-Procurement · M / PM",
+    category: "UPSTREAM IMPACT",
+    title: "시공 진단이 설계·지원 의사결정으로 사전 이동",
     body:
-      "현재 P-Construction 한정. 동일 패턴으로 R-Engineering (VE·Clash Detection·예상공기 검토), P-Procurement (자재 수급 예측), M / PM 까지 확장하여 전 EPC 단계 공기 단축에 기여.",
-    target: "예상공기 검토시간 50% 절감 (Hi-tech 정보화 과제 요청 기준)",
+      "지금까지의 P-시공 단계는 사후 진단. 누적 데이터·패턴을 R-설계와 S-지원 단계로 환류해 사후 발견을 사전 차단으로 전환 → 전체 EPC value chain 의 공기 단축 레버 확보.",
+    target: "예상공기 검토시간 50% 절감 (R-설계 첫 진입)",
   },
 ];
 
@@ -46,7 +46,7 @@ export function ScalabilitySection() {
             하나의 현장 패턴이, 다른 현장·다른 영역의 출발점이 된다
           </h2>
           <p className="mt-6 text-body text-ink-mid">
-            LangGraph 기반 노드 모듈 구조로 — 현장 다양성과 MPRS 전 영역을 같은 베이스에서 흡수. Hi-tech P-Construction 의 학습을 SK ecosystem 전체로 전이.
+            Hi-tech 시공 현장에서 검증한 패턴을, 다른 현장과 다른 사업 영역으로 빠르게 확장합니다.
           </p>
         </div>
 

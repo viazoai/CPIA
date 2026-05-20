@@ -417,17 +417,22 @@ async def optimizer_node(state: CPIAState, cfg: GraphConfig) -> dict:
 
     Spec §8.2 + §7. hil_2_node 가 사전 영속한 pre_optimizer_cases 만 소비.
     """
-    if not state.get("hil_2_selection"):
-        return {"optimizer_advice": [], "current_node": "optimizer"}
+    # 2026-05-20: risky 0 인 cycle (1사 sample 등) 도 view 산출 (KPI/EVM 등 7 view 는 advice 무관)
+    # 위해 early return 제거. optimize() 안에서 hil_2_selection 빈 → advice_rows=[] 진행.
     run_id = uuid.UUID(state["run_id"]) if isinstance(state["run_id"], str) else state["run_id"]
     today = _date.fromisoformat(state["date"])
+    # site_id + mapped 전달 — optimize() 의 view 산출 (9 jsonb) block 진입 보장.
+    # 미전달 시 agent.py:175 의 `if site_id:` block skip → daily_reports 의 9 jsonb 모두 default
+    # ({} / []) 그대로. cycle 7차 issue A root cause fix.
     advice = await optimize(
         state["forecast"],
-        state["hil_2_selection"],
-        state["pre_optimizer_cases"],
+        state.get("hil_2_selection") or [],
+        state.get("pre_optimizer_cases") or {},
         run_id,
         today,
         cfg.optimizer,
+        site_id=state.get("site_id"),
+        mapped=state.get("mapped"),
     )
     return {"optimizer_advice": advice, "current_node": "optimizer"}
 
@@ -467,10 +472,18 @@ async def reporter_node(state: CPIAState, cfg: GraphConfig) -> dict:
                 site_id=site_id,
                 atomized_count=len(state.get("atomized_ids", []) or []),
             )
+        # 2026-05-20 Issue B fix: pipeline_runs.status='completed' + completed_at 갱신.
+        # 이전엔 reporter_node 진입 후 graph 끝나도 status='running' 그대로 (completed_at=NULL).
+        # cycle 7차 발견 — final status=running current_node=reporter.
+        async with pg._pool.acquire() as _con:  # type: ignore[attr-defined]
+            await _con.execute(
+                "UPDATE pipeline_runs SET status='completed', completed_at=NOW() WHERE run_id=$1",
+                run_id,
+            )
     finally:
         await pg.close()
 
-    return {"report_md": report_md, "current_node": "reporter"}
+    return {"report_md": report_md, "current_node": "reporter", "status": "completed"}
 
 
 def build_demo_graph(cfg: GraphConfig):

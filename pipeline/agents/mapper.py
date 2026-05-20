@@ -9,6 +9,7 @@ Task 7 — map_activity 통합 함수.
 
 from __future__ import annotations
 
+import asyncio  # noqa: F401 — used by map_activity asyncio.to_thread wraps (L382/389/441)
 import json
 from collections import defaultdict
 from dataclasses import dataclass
@@ -19,6 +20,29 @@ from openai import AzureOpenAI
 from pipeline.chroma_client import ChromaClient
 from pipeline.db import PGClient
 from pipeline.state import Activity, BPSummary, ParsedDailyReport
+
+
+# ============================================================
+# Chroma wbs_master collection singleton (2026-05-20 hang fix)
+# ============================================================
+# map_activity 가 매 activity 마다 ChromaClient 새로 만들면 1162 × 4 동시 conn → AWS Chroma
+# 의 user_identity 인증 timeout. async Lock 으로 1회 init 후 cache 공유.
+_WBS_MASTER_CACHE: dict[tuple, Any] = {}
+_WBS_MASTER_LOCK = asyncio.Lock()
+
+
+async def _get_wbs_master_coll(cfg: "MapperConfig") -> Any:
+    """ChromaClient + wbs_master collection 의 singleton getter.
+
+    같은 (host, port, ssl) 키면 cache hit (1 init / 모든 cycle 공유).
+    asyncio.Lock 으로 동시 init 경쟁 회피.
+    """
+    key = (cfg.chroma_host, cfg.chroma_port, cfg.chroma_ssl)
+    async with _WBS_MASTER_LOCK:
+        if key not in _WBS_MASTER_CACHE:
+            chroma = ChromaClient(host=cfg.chroma_host, port=cfg.chroma_port, ssl=cfg.chroma_ssl)
+            _WBS_MASTER_CACHE[key] = chroma.get_or_create_wbs_master()
+        return _WBS_MASTER_CACHE[key]
 
 
 # ============================================================
@@ -376,14 +400,20 @@ async def map_activity(
     # 사용자 명시: "work_area와 l6에 주로 매칭하고 bp는 추가로 도와주는 메타데이터"
 
     # ② 임베딩 input (단순)
+    # 2026-05-20: sync Azure call 을 asyncio.to_thread 로 wrap — event loop block 회피.
+    # 이전 cycle hang root cause = asyncio.gather(Semaphore 4) × sync embeddings.create
     embed_text = build_embedding_input(activity)
-    emb_resp = client.embeddings.create(model=cfg.embedding_model, input=[embed_text])
+    emb_resp = await asyncio.to_thread(
+        client.embeddings.create, model=cfg.embedding_model, input=[embed_text]
+    )
     inp_vec = emb_resp.data[0].embedding
 
     # ③ Chroma Top-K — 전체 후보 유지 (BP filter ∩ 안 함, Task 4)
-    chroma = ChromaClient(host=cfg.chroma_host, port=cfg.chroma_port, ssl=cfg.chroma_ssl)
-    coll = chroma.get_or_create_wbs_master()
-    chroma_result = coll.query(
+    # 2026-05-20: ChromaClient singleton + sync query 를 asyncio.to_thread wrap.
+    # 매 activity 마다 새 client 만들면 1162 × 4 동시 init → AWS Chroma user_identity timeout.
+    coll = await _get_wbs_master_coll(cfg)
+    chroma_result = await asyncio.to_thread(
+        coll.query,
         query_embeddings=[inp_vec],
         n_results=cfg.top_k,
         include=["documents", "metadatas", "distances"],
@@ -433,7 +463,9 @@ async def map_activity(
         f"### 응답 (JSON only)\n"
         f'{{"choice": <int>, "confidence": <0.0~1.0 float>, "reason": "<짧게>"}}'
     )
-    chat_resp = client.chat.completions.create(
+    # 2026-05-20: sync Azure chat.completions 도 to_thread — Semaphore 4 deadlock 방지.
+    chat_resp = await asyncio.to_thread(
+        client.chat.completions.create,
         model=cfg.llm_model,
         messages=[
             {
@@ -457,7 +489,8 @@ async def map_activity(
         }
 
     choice = llm_result.get("choice", -1)
-    if not (0 <= choice < len(candidates)):
+    # 2026-05-20: LLM 응답이 "choice": null 인 경우 (모호 시 null 반환) None 안전 처리.
+    if choice is None or not (0 <= choice < len(candidates)):
         return {
             **activity,
             "wa": None,

@@ -137,7 +137,8 @@ from pipeline.agents.parser import _parse_sheet1_bp_summaries  # noqa: E402
 
 
 def test_parse_sheet1_bp_summaries_count(sample_tong_path: Path):
-    wb = openpyxl.load_workbook(sample_tong_path, data_only=True, read_only=True)
+    # 2026-05-20 refactor: 시트1 신 logic 은 merged_cells.ranges 의존 → read_only=False
+    wb = openpyxl.load_workbook(sample_tong_path, data_only=True)
     ws = wb["1.출력인원 현황"]
     summaries = _parse_sheet1_bp_summaries(ws)
     wb.close()
@@ -148,7 +149,7 @@ def test_parse_sheet1_bp_summaries_count(sample_tong_path: Path):
 
 def test_parse_sheet1_bp_summaries_fields(sample_tong_path: Path):
     """BPSummary TypedDict 의 모든 필드 존재."""
-    wb = openpyxl.load_workbook(sample_tong_path, data_only=True, read_only=True)
+    wb = openpyxl.load_workbook(sample_tong_path, data_only=True)
     ws = wb["1.출력인원 현황"]
     summaries = _parse_sheet1_bp_summaries(ws)
     wb.close()
@@ -172,7 +173,7 @@ def test_parse_sheet1_bp_summaries_fields(sample_tong_path: Path):
 
 def test_parse_sheet1_disc_abbrev_kr(sample_tong_path: Path):
     """disc_abbrev 가 한글로 변환됐거나 None."""
-    wb = openpyxl.load_workbook(sample_tong_path, data_only=True, read_only=True)
+    wb = openpyxl.load_workbook(sample_tong_path, data_only=True)
     ws = wb["1.출력인원 현황"]
     summaries = _parse_sheet1_bp_summaries(ws)
     wb.close()
@@ -291,3 +292,343 @@ def test_parse_error_missing_sheet(tmp_path):
     wb.save(bad_path)
     with pytest.raises(ParseError):
         parse_daily_report(bad_path)
+
+
+# ---------------------------------------------------------------------------
+# 2026-05-20 refactor: 시트1 신규 case (spec §2.2)
+# ---------------------------------------------------------------------------
+
+
+def _load_sheet1(sample_tong_path: Path):
+    """신 logic 은 merged_cells.ranges 사용 → read_only=False 필요."""
+    wb = openpyxl.load_workbook(sample_tong_path, data_only=True)
+    return wb["1.출력인원 현황"]
+
+
+def test_sheet1_extracts_around_99_groups(sample_tong_path: Path):
+    """spec §2.2 — sub-section 합계 + 빈 placeholder skip 후 ~99 그룹."""
+    ws = _load_sheet1(sample_tong_path)
+    rows = _parse_sheet1_bp_summaries(ws)
+    assert 90 <= len(rows) <= 110, f"expected ~99 groups, got {len(rows)}"
+
+
+def test_sheet1_namwoong_fab_cub_split(sample_tong_path: Path):
+    """남웅건설 PH_X-001 (FAB) + PH_X-009 (CUB) 분리 확인."""
+    ws = _load_sheet1(sample_tong_path)
+    rows = _parse_sheet1_bp_summaries(ws)
+    namwoong = [r for r in rows if (r.get("company") or "") == "남웅건설"]
+    assert len(namwoong) >= 2, f"expected 2 sites, got {len(namwoong)}"
+    bp_to_zone = {r["bp_code"]: r["zone"] for r in namwoong if r["bp_code"]}
+    assert bp_to_zone.get("PH_X-001") == "FAB", f"PH_X-001 zone={bp_to_zone.get('PH_X-001')}"
+    assert bp_to_zone.get("PH_X-009") == "CUB", f"PH_X-009 zone={bp_to_zone.get('PH_X-009')}"
+
+
+def test_sheet1_subsection_total_skipped(sample_tong_path: Path):
+    """col 5/6 둘 다 None + col 30/37 > 0 인 sub-section 합계 row 는 skip."""
+    ws = _load_sheet1(sample_tong_path)
+    rows = _parse_sheet1_bp_summaries(ws)
+    none_rows = [r for r in rows if r.get("bp_code") is None and not r.get("company")]
+    assert len(none_rows) == 0, f"sub-section total leaked: {none_rows[:3]}"
+
+
+def test_sheet1_chwangwon_paren_normalized(sample_tong_path: Path):
+    """창원기전(6.6kV) → 창원기전 (괄호 부속 normalize)."""
+    ws = _load_sheet1(sample_tong_path)
+    rows = _parse_sheet1_bp_summaries(ws)
+    chwangwon = [r for r in rows if (r.get("company") or "") == "창원기전"]
+    assert len(chwangwon) >= 1, f"expected >=1 정규화된 창원기전 row, got {len(chwangwon)}"
+
+
+def test_sheet1_bp_code_extracted(sample_tong_path: Path):
+    """BP 코드가 회사명과 같은 그룹에 묶여 추출됨 (None 비율 < 50%)."""
+    ws = _load_sheet1(sample_tong_path)
+    rows = _parse_sheet1_bp_summaries(ws)
+    with_bp = sum(1 for r in rows if r.get("bp_code"))
+    assert with_bp >= len(rows) * 0.5, f"bp_code 추출률 낮음: {with_bp}/{len(rows)}"
+
+
+# ---------------------------------------------------------------------------
+# 2026-05-20 refactor: 시트2 신규 case (spec §2.3)
+# ---------------------------------------------------------------------------
+
+
+def _load_sheet2(sample_tong_path: Path):
+    wb = openpyxl.load_workbook(sample_tong_path, data_only=True)
+    return wb["2.직종별 인원현황"]
+
+
+def test_sheet2_extracts_at_least_800_rows(sample_tong_path: Path):
+    """spec §2.3 — admin filter 적용 후 직종 row 충분 (보수)."""
+    ws = _load_sheet2(sample_tong_path)
+    rows = _parse_sheet2_job_allocations(ws)
+    assert len(rows) >= 800, f"expected >=800 직종 row, got {len(rows)}"
+
+
+def test_sheet2_bp_code_extracted(sample_tong_path: Path):
+    """신 logic: bp_code 가 채워짐 (기존 None → PH_X-NNN)."""
+    ws = _load_sheet2(sample_tong_path)
+    rows = _parse_sheet2_job_allocations(ws)
+    with_bp = sum(1 for r in rows if r.get("bp_code"))
+    assert with_bp >= len(rows) * 0.95, f"bp_code 추출률 낮음: {with_bp}/{len(rows)}"
+
+
+def test_sheet2_includes_ut_jeo_disciplines(sample_tong_path: Path):
+    """col 2 keyword 무한정 — UT / 제어 group 도 추출 (whitelist X)."""
+    ws = _load_sheet2(sample_tong_path)
+    rows = _parse_sheet2_job_allocations(ws)
+    disc_set = {r.get("disc_abbrev") for r in rows if r.get("disc_abbrev")}
+    has_ut_or_eng = "UT" in disc_set
+    has_control = "제어" in disc_set or "IN" in disc_set
+    assert has_ut_or_eng or has_control, f"UT/제어 그룹 누락: disciplines={sorted(disc_set)}"
+
+
+def test_sheet2_shift_dict_filled(sample_tong_path: Path):
+    """TimeShiftCounts 4 그룹 채워짐 (workers_today_cum.total 합 > 0)."""
+    ws = _load_sheet2(sample_tong_path)
+    rows = _parse_sheet2_job_allocations(ws)
+    sample = rows[:20]
+    total_sum = sum(r["workers_today_cum"]["total"] for r in sample if r.get("workers_today_cum"))
+    assert total_sum > 0, f"workers_today_cum.total 모두 0: {sample[:3]}"
+
+
+def test_sheet2_manager_worker_code_split(sample_tong_path: Path):
+    """manager_code (Mm##) vs worker_code (sk## / Wk##) 분리."""
+    ws = _load_sheet2(sample_tong_path)
+    rows = _parse_sheet2_job_allocations(ws)
+    has_manager = any(r.get("manager_code") for r in rows)
+    # admin filter 적용 시 manager 0 일 수도 있음 — 그땐 worker 만 검증
+    has_worker = any(r.get("worker_code") for r in rows)
+    assert has_manager or has_worker, "manager_code / worker_code 둘 다 None"
+
+
+# ---------------------------------------------------------------------------
+# 2026-05-20 refactor: 시트3 신규 case (spec §2.4)
+# ---------------------------------------------------------------------------
+
+
+def _load_sheet3(sample_tong_path: Path):
+    wb = openpyxl.load_workbook(sample_tong_path, data_only=True)
+    return wb["3.장비현황"]
+
+
+def test_sheet3_extracts_around_1111_rows(sample_tong_path: Path):
+    """spec §2.4 — col 25='O' 인 장비 row ≈ 1,111."""
+    ws = _load_sheet3(sample_tong_path)
+    rows = _parse_sheet3_equipment_allocations(ws)
+    assert 1000 <= len(rows) <= 1300, f"expected ~1111, got {len(rows)}"
+
+
+def test_sheet3_bp_code_filled(sample_tong_path: Path):
+    """신 logic: bp_code 가 채워짐."""
+    ws = _load_sheet3(sample_tong_path)
+    rows = _parse_sheet3_equipment_allocations(ws)
+    with_bp = sum(1 for r in rows if r.get("bp_code"))
+    assert with_bp >= len(rows) * 0.95, f"bp_code 추출률 낮음: {with_bp}/{len(rows)}"
+
+
+def test_sheet3_namwoong_equipment(sample_tong_path: Path):
+    """남웅건설 row 가 추출되고 equipment_big 다양."""
+    ws = _load_sheet3(sample_tong_path)
+    rows = _parse_sheet3_equipment_allocations(ws)
+    namwoong = [r for r in rows if r.get("company") == "남웅건설"]
+    assert len(namwoong) >= 1, "남웅건설 장비 row 없음"
+    bigs = {r.get("equipment_big") for r in namwoong}
+    assert len(bigs) >= 1, f"equipment_big 다양성 부족: {bigs}"
+
+
+def test_sheet3_disc_abbrev_filled(sample_tong_path: Path):
+    """disc_abbrev (공종) 가 채워짐."""
+    ws = _load_sheet3(sample_tong_path)
+    rows = _parse_sheet3_equipment_allocations(ws)
+    has_disc = sum(1 for r in rows if r.get("disc_abbrev"))
+    assert has_disc >= len(rows) * 0.95, f"disc_abbrev 누락: {has_disc}/{len(rows)}"
+
+
+# ---------------------------------------------------------------------------
+# 2026-05-20 refactor: 시트4 신규 case (spec §2.5)
+# ---------------------------------------------------------------------------
+
+
+def _load_sheet4(sample_tong_path: Path):
+    wb = openpyxl.load_workbook(sample_tong_path, data_only=True)
+    return wb["4.물량"]
+
+
+def test_sheet4_extracts_around_1193_activities(sample_tong_path: Path):
+    """spec §2.5 — Activity row (col 8 채워있음) ≈ 1,193."""
+    ws = _load_sheet4(sample_tong_path)
+    rows = _parse_sheet4_activities(ws)
+    assert 1100 <= len(rows) <= 1300, f"expected ~1193, got {len(rows)}"
+
+
+def test_sheet4_ffill_namwoong_bp(sample_tong_path: Path):
+    """ffill 정상 — 남웅건설 PH_X-001 의 activity 다수."""
+    ws = _load_sheet4(sample_tong_path)
+    rows = _parse_sheet4_activities(ws)
+    namwoong_ph1 = [r for r in rows if r.get("company") == "남웅건설" and r.get("bp_code") == "PH_X-001"]
+    assert len(namwoong_ph1) >= 5, f"ffill broken — only {len(namwoong_ph1)} rows for 남웅 PH_X-001"
+
+
+def test_sheet4_zone_option2_conservative(sample_tong_path: Path):
+    """zone — col 7 (Scope) 명시 토큰만, 모호 시 None (옵션 2 보수)."""
+    ws = _load_sheet4(sample_tong_path)
+    rows = _parse_sheet4_activities(ws)
+    zone_none = sum(1 for r in rows if r.get("zone") is None)
+    # prototype 측정: 76% None
+    assert zone_none >= len(rows) * 0.5, f"zone 보수성 부족: {zone_none}/{len(rows)} None"
+
+
+def test_sheet4_cross_check_BC_eq_D(sample_tong_path: Path):
+    """B+C=D 산술 정합 — mismatch row 극소수."""
+    ws = _load_sheet4(sample_tong_path)
+    rows = _parse_sheet4_activities(ws)
+    mismatch = 0
+    for r in rows:
+        b = r.get("yesterday_cum_qty") or 0
+        c = r.get("today_qty") or 0
+        d = r.get("today_cum_qty")
+        if d is None:
+            continue
+        if abs((b + c) - d) > 0.001:
+            mismatch += 1
+    assert mismatch <= 10, f"too many B+C != D: {mismatch}"
+
+
+def test_sheet4_required_new_fields(sample_tong_path: Path):
+    """state.py Activity 의 신규 필드 (zone / bp_code / scope / yesterday_cum_qty / today_cum_qty) 존재."""
+    ws = _load_sheet4(sample_tong_path)
+    rows = _parse_sheet4_activities(ws)
+    required = {
+        "zone",
+        "bp_code",
+        "scope",
+        "yesterday_cum_qty",
+        "today_cum_qty",
+    }
+    for r in rows[:5]:
+        assert required <= set(r.keys()), f"누락 키: {required - set(r.keys())}"
+
+
+# ---------------------------------------------------------------------------
+# 2026-05-20 refactor: LLM 검증 wrapper (spec §2.6)
+# ---------------------------------------------------------------------------
+
+import os  # noqa: E402
+from unittest.mock import patch  # noqa: E402
+
+
+def test_parse_daily_report_llm_verify_off_skip(sample_tong_path: Path):
+    """CPIA_PARSER_VERIFY_LLM=off 시 LLM 호출 없이 정상 종료."""
+    with patch.dict(os.environ, {"CPIA_PARSER_VERIFY_LLM": "off"}):
+        parsed = parse_daily_report(sample_tong_path)
+    assert "bp_summaries" in parsed
+    assert len(parsed["bp_summaries"]) > 0
+
+
+def test_parse_daily_report_llm_verify_graceful_on_error(sample_tong_path: Path):
+    """LLM 호출 실패 (API key 가짜) 해도 cycle block 안 함 (graceful degrade)."""
+    with patch.dict(
+        os.environ,
+        {"CPIA_PARSER_VERIFY_LLM": "on", "AZURE_OPENAI_API_KEY": "FAKE_KEY_FOR_TEST"},
+    ):
+        # Exception 안 던지고 정상 종료해야 함
+        parsed = parse_daily_report(sample_tong_path)
+    assert "bp_summaries" in parsed
+    assert len(parsed["bp_summaries"]) > 0
+
+
+def test_should_verify_llm_env_parsing():
+    """env CPIA_PARSER_VERIFY_LLM 파싱: 'off'/'false'/'0'/'no' 만 opt-out."""
+    from pipeline.agents.parser import _should_verify_llm
+
+    for v in ("off", "false", "0", "no", "Off", "False"):
+        with patch.dict(os.environ, {"CPIA_PARSER_VERIFY_LLM": v}):
+            assert _should_verify_llm() is False, f"{v} should opt-out"
+    for v in ("on", "true", "1", "yes", "anything-else"):
+        with patch.dict(os.environ, {"CPIA_PARSER_VERIFY_LLM": v}):
+            assert _should_verify_llm() is True, f"{v} should opt-in"
+    # default = on
+    with patch.dict(os.environ, {}, clear=False):
+        os.environ.pop("CPIA_PARSER_VERIFY_LLM", None)
+        assert _should_verify_llm() is True
+
+
+# ---------------------------------------------------------------------------
+# 2026-05-20 refactor: caller smoke test — collector + run_one_cycle (spec §4.1)
+# ---------------------------------------------------------------------------
+
+
+def test_collector_does_not_import_parser_llm():
+    """split-brain 방지 — collector 가 parser_llm 직접 import 안 함."""
+    with open("pipeline/agents/collector.py") as f:
+        content = f.read()
+    assert "from pipeline.agents.parser_llm import" not in content
+    # docstring 안 단어 매치 회피 — 실제 호출 패턴만 검증
+    assert "parse_daily_report_llm(" not in content
+    assert "from pipeline.agents.parser import parse_daily_report" in content
+
+
+def test_run_one_cycle_does_not_call_parser_llm():
+    """split-brain 방지 — scripts/run_one_cycle.py 가 parser_llm 호출 안 함."""
+    with open("scripts/run_one_cycle.py") as f:
+        content = f.read()
+    # parser_llm.parse_daily_report_llm 호출 패턴 부재
+    assert "parse_daily_report_llm(" not in content
+    assert "from pipeline.agents.parser_llm import ParserConfig" not in content
+    assert "from pipeline.agents.parser import parse_daily_report" in content
+
+
+# ---------------------------------------------------------------------------
+# 2026-05-20 refactor: col 인덱스 헤더 가드 (spec §5 V4)
+# 4 시트의 r3~r5 헤더 셀이 spec §2.2~§2.5 가정과 일치하는지 검증.
+# implementer 가 col 인덱스를 잘못 코딩하면 즉시 fail.
+# ---------------------------------------------------------------------------
+
+
+def test_sheet1_col_indices_match_header(sample_tong_path: Path):
+    """spec §2.2 — col 4='Dis', col 5='협력업체', col 7-9=작업 텍스트."""
+    wb = openpyxl.load_workbook(sample_tong_path, data_only=True)
+    ws = wb["1.출력인원 현황"]
+    assert ws.cell(4, 4).value == "Dis", f"col 4 header: {ws.cell(4, 4).value!r}"
+    assert ws.cell(4, 5).value == "협력업체", f"col 5 header: {ws.cell(4, 5).value!r}"
+    assert "전일 작업사항" in str(ws.cell(4, 7).value or "")
+    assert "금일 작업사항" in str(ws.cell(4, 8).value or "")
+    assert "명일 작업사항" in str(ws.cell(4, 9).value or "")
+    wb.close()
+
+
+def test_sheet2_col_indices_match_header(sample_tong_path: Path):
+    """spec §2.3 — col 4='관리자/근로자', col 24='Cum. T', col 25='최종'."""
+    wb = openpyxl.load_workbook(sample_tong_path, data_only=True)
+    ws = wb["2.직종별 인원현황"]
+    assert ws.cell(5, 2).value == "Dis"
+    assert ws.cell(5, 3).value == "협력업체"
+    assert ws.cell(5, 4).value == "관리자/근로자"
+    assert ws.cell(5, 24).value == "Cum. T"
+    assert ws.cell(5, 25).value == "최종"
+    wb.close()
+
+
+def test_sheet3_col_indices_match_header(sample_tong_path: Path):
+    """spec §2.4 — col 4='대분류', col 5='중분류', col 25='최종'."""
+    wb = openpyxl.load_workbook(sample_tong_path, data_only=True)
+    ws = wb["3.장비현황"]
+    assert ws.cell(5, 2).value == "Dis"
+    assert ws.cell(5, 3).value == "협력업체"
+    assert ws.cell(5, 4).value == "대분류"
+    assert ws.cell(5, 5).value == "중분류"
+    assert ws.cell(5, 25).value == "최종"
+    wb.close()
+
+
+def test_sheet4_col_indices_match_header(sample_tong_path: Path):
+    """spec §2.5 — col 5='BP사', col 6='업체명', col 7='Scope', col 8='대표물량_작업 내용'."""
+    wb = openpyxl.load_workbook(sample_tong_path, data_only=True)
+    ws = wb["4.물량"]
+    assert ws.cell(3, 3).value == "Zone"
+    assert ws.cell(3, 4).value == "공종"
+    assert ws.cell(3, 5).value == "BP사"
+    assert ws.cell(3, 6).value == "업체명"
+    assert ws.cell(3, 7).value == "Scope"
+    assert ws.cell(3, 8).value == "대표물량_작업 내용"
+    wb.close()

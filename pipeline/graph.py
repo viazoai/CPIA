@@ -20,6 +20,7 @@ from pipeline.agents.atomizer import AtomizerConfig, atomize
 from pipeline.agents.forecaster import ForecasterConfig, forecast
 from pipeline.agents.mapper import MapperConfig, _prorate_mh, map_activity
 from pipeline.agents.optimizer.agent import OptimizerConfig, optimize
+from pipeline.agents.parser_post import normalize_company
 from pipeline.agents.optimizer.retrieve import (
     _group_baseline,
     fetch_degradation_cases,
@@ -59,6 +60,12 @@ async def mapper_node(state: CPIAState, cfg: GraphConfig) -> dict:
     parsed: ParsedDailyReport = state["parsed"]
     run_id = uuid.UUID(state["run_id"]) if isinstance(state["run_id"], str) else state["run_id"]
     today = _date.fromisoformat(state["date"])
+
+    # 정규화 타이밍 fix — fetch_bp_candidates 는 정확 일치 SQL (db.py:55).
+    # ㈜/(주) prefix 가 LLM 응답에 섞이면 마스터와 mismatch 로 cand_pool 빔.
+    # mapper 진입 직전 일괄 정규화 (line 138 의 mapper 후 정규화와 일관).
+    for a in parsed["activities"]:
+        a["company"] = normalize_company(a.get("company"))
 
     # BP cand_pool 미리 batch fetch — 1 PG connection 으로 모든 company 조회
     pg = PGClient(cfg.mapper.postgres_url)
@@ -219,10 +226,23 @@ async def hil_1_node(state: CPIAState, cfg) -> dict:
 
     Spec §5.1. cfg = GraphConfig (PG INSERT 용 postgres_url 추출, cfg=None 이면
     PG insert skip — unit 테스트 path).
+
+    env CPIA_HIL_AUTO_BYPASS={1|true|on} → review_needed 가 있어도 interrupt 건너뛰고
+    빈 corrections 로 통과 (dev/검증 모드 — atomizer/forecaster 진행 위해).
     """
     mapped = state["mapped"]
     review_needed = _build_review_needed(mapped)
     if not review_needed:
+        return {"hil_1_corrections": {}, "current_node": "hil_1"}
+
+    if os.environ.get("CPIA_HIL_AUTO_BYPASS", "").lower() in ("1", "true", "on", "yes"):
+        import sys as _sys_local
+
+        print(
+            f"[hil_1] AUTO_BYPASS — review_needed={len(review_needed)} 무시, interrupt 우회",
+            file=_sys_local.stderr,
+            flush=True,
+        )
         return {"hil_1_corrections": {}, "current_node": "hil_1"}
 
     corrections_raw = interrupt({"review_needed": review_needed})

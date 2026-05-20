@@ -269,6 +269,38 @@ cp .env.local.example .env.local  # DB 접속 정보 입력
 npm run dev  # http://localhost:3000
 ```
 
+### Web 빌드 경로 — Compose 시연 vs npm dev (중요)
+
+이 레포는 **두 경로**가 병행됩니다. 시연 화면이 옛 코드로 보이면 거의 항상 (1) 컨테이너가 옛 image 를 쥐고 있는 경우입니다.
+
+| 용도 | 실행 위치 | 명령 | 포트 | 코드 반영 |
+|------|-----------|------|------|-----------|
+| **시연 / homelab (프로덕션)** | `infra/` | `docker compose build web && docker compose up -d --force-recreate web` | `5535` | **수동 재빌드 필요** (Next.js standalone, NODE_ENV=production) |
+| **개발 (HMR)** | `web/` | `npm run dev` | `5536` (혹은 `3000`) | 워킹트리 자동 reload |
+| **빌드 검증** | `web/` | `npm run build` | — | 타입·빌드 통과 여부 확인용 (서빙 안 함) |
+
+**시연 화면 (5535) 업데이트 절차** — 코드 머지·pull 직후 또는 이전 image 가 옛 코드로 보일 때:
+
+```bash
+# 1. 호스트 build 캐시 제거 (필수는 아니지만 안전)
+cd web && rm -rf .next
+
+# 2. Compose 로 cpia-web image 를 --no-cache 로 재빌드 (~1~2분)
+cd ../infra
+docker compose build --no-cache web
+
+# 3. 컨테이너 재기동 (image 가 갱신됐으니 force-recreate)
+docker compose up -d --force-recreate web
+
+# 4. 확인
+docker logs cpia-web --tail 10   # "✓ Ready in ..." 확인
+docker ps --filter "name=cpia-web"
+```
+
+**왜 자동이 아닌가**: `cpia-web` 은 `web/Dockerfile` 의 멀티스테이지 standalone 빌드를 사용합니다. `docker compose up -d web` 만 실행해도 image 가 이미 존재하면 재빌드되지 않습니다 (Compose 의 일반 동작). 새 코드는 **명시적 `build` 명령**이 있어야 image 에 반영됩니다.
+
+**평소 작업 흐름**: 코드 수정 → `5536` (npm dev) 에서 즉시 확인 → 시연/리뷰 직전에 `5535` Compose 재빌드 1회.
+
 ---
 
 ## 협업 분담 (2인 확정안)
@@ -335,7 +367,7 @@ docs/sample/WBS공정표_M15X IBL PH-3_CPRS_2025.09.25.xlsx
 
 ---
 
-*최종 수정: 2026-05-20 — 컨테이너 빌드 & 재시작 규칙 추가 (`docker build` → `docker-compose up -d` 순서 명시).*
+*최종 수정: 2026-05-20 — 컨테이너 빌드 & 재시작 규칙 추가 (`docker build` → `docker-compose up -d` 순서 명시). Web 빌드 경로 명시: `cpia-web` (port 5535, Compose) 는 `docker compose build --no-cache web && docker compose up -d --force-recreate web` 로 수동 재빌드 필요, `npm run dev` (port 5536) 는 HMR 자동 반영. 시연 직전 Compose 재빌드 1회 권장.*
 *이전 수정: 2026-05-18 — Agent rename: Reporter → Exporter (한글 "보고" → "출력"). 기능 재정의: "업체별 작업일보 → 통합 작업일보 출력". 이번 변경은 B_Track (web/, data/mock, CLAUDE.md) 만 반영, pipeline/agents/reporter.py 등 A_Track 파일 rename 은 후속 PR 로 분리.*
 *이전 수정: 2026-05-17 — design-intent + deep-dive 산출물 추가 (`deep-dive/design-intent/INDEX.md` + 서브시스템 카드 7종, `deep-dive/architecture_overview.md`)*
 *이전 수정: 2026-05-16 — A_Track 매핑 레이어 plan 반영 (Azure OpenAI gpt-5.1 + text-embedding-3-small 전환, ChromaDB `wbs_master`+`daily_activities` 두 컬렉션, PG `activity_master` 추가, A 는 로컬 Docker 로 PoC 진행 중 — homelab 은 대기·마이그레이션 예정)*

@@ -1,8 +1,10 @@
 # Design Intent — atomizer
 
 - **Generated**: 2026-05-17 (git SHA: f9a695f5315eba97b2686f55a72bc91ef6cae6b2, branch A_Track)
+- **Last checked**: 2026-05-20 (git SHA: `ef7c6cd`) — **코드 변경 없음** (cf3c143 이후 commit 0). T1/T2 카드 그대로 유효.
 - **Pair file**: `../architecture_overview.md`
-- **Range**: `pipeline/agents/atomizer.py` (118 LOC) + `pipeline/tests/test_atomizer.py` (271 LOC)
+- **Range**: `pipeline/agents/atomizer.py` (141 LOC, 이전 118 → +23 docstring + None 가드) + `pipeline/tests/test_atomizer.py` + `pipeline/tests/test_atomizer_atomized_count.py` + `pipeline/tests/test_atomizer_mapped_history.py`
+- **Note**: 이전 cycle (cf3c143) 에 흡수된 안전 처리 hotfix — None work_content/conditions filter 가드.
 
 Mapper 출력 Activity → Azure 임베딩 → Chroma `daily_activities` 적재. LLM 호출 없음, 임베딩만. 결정성 doc_id (SHA256 16자) + within-call dedup + fail-fast PG 검증.
 

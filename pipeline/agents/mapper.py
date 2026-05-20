@@ -21,6 +21,76 @@ from pipeline.db import PGClient
 from pipeline.state import Activity, BPSummary, ParsedDailyReport
 
 
+# ============================================================
+# 시간대 가중 MH 환산 (spec 2026-05-19 §3.2~3.3)
+# ============================================================
+
+_SHIFT_WEIGHTS = {
+    "morning": 2.0,
+    "daytime": 8.0,
+    "overtime": 4.0,
+    "night": 8.0,
+    "all_night": 12.0,
+}
+
+
+def _weighted_mh_from_shift(shift_dict: dict | None) -> float:
+    """시트2 workers_today_cum jsonb (TimeShiftCounts) → 가중 MH.
+
+    spec §3.2 가중치 (조출 2 / 주간 8 / 연장 4 / 야간 8 / 철야 12) 적용.
+    None / 빈 dict / 키 누락 → 0.0 처리.
+    """
+    if not shift_dict:
+        return 0.0
+    return sum(float(shift_dict.get(k, 0) or 0) * w for k, w in _SHIFT_WEIGHTS.items())
+
+
+def _prorate_workers_with_mh(
+    mapped: list[dict],
+    parsed_report: dict,
+    company_total_plan_mh: dict[str, float],
+    active_l6_for_company: dict[str, set[str]],
+) -> list[dict]:
+    """company 단위 시간대 가중 누적 MH 산출 후 l6 비례 분배.
+
+    spec §3.3.
+    """
+    company_weighted_mh: dict[str, float] = {}
+    for ja in parsed_report.get("job_allocations", []):
+        if ja.get("final_flag") != "O":
+            continue
+        c = ja.get("company")
+        if c:
+            mh = _weighted_mh_from_shift(ja.get("workers_today_cum"))
+            company_weighted_mh[c] = company_weighted_mh.get(c, 0.0) + mh
+
+    prorated: list[dict] = []
+    for a in mapped:
+        if a.get("l6_main"):
+            c = a["company"]
+            weighted_mh_c = company_weighted_mh.get(c, 0.0)
+            company_mh = company_total_plan_mh.get(c, 0.0)
+            plan_mh_val = float(a.get("plan_mh") or 0)
+            n_l6 = len(active_l6_for_company.get(c, set())) if c else 0
+            if company_mh > 0 and plan_mh_val > 0:
+                cum_actual_mh = weighted_mh_c * (plan_mh_val / company_mh)
+                prorate_method = "plan_mh"
+            elif n_l6 > 0:
+                cum_actual_mh = weighted_mh_c / n_l6
+                prorate_method = "uniform_fallback"
+            else:
+                cum_actual_mh = 0.0
+                prorate_method = "zero"
+            a = {
+                **a,
+                "cum_actual_mh_today": cum_actual_mh,
+                "cum_workers_today": cum_actual_mh / 8.0,
+                "prorate_method": prorate_method,
+            }
+        prorated.append(a)
+    return prorated
+
+
 # 시트2 직종 noise 제거 — mapping-layer.md §2.1 (3)
 _TRADE_KEYWORDS = (
     "형틀",
@@ -76,6 +146,8 @@ class WAResolution:
 
     value: str | None
     source: Literal[
+        "auto_bp_zone_match",  # 2026-05-20 fix C — BP 코드 일치 BPSummary.zone deterministic
+        "auto_llm_rerank",  # 2026-05-20 옵션 A — LLM chosen_wa ∈ cand_pool
         "auto_bp_single",
         "auto_l6_single",
         "auto_sheet1_text",
@@ -106,16 +178,24 @@ def build_bp_context(
         return "  · (parsed_report 미제공 — BP 컨텍스트 없이 진행)"
 
     summaries: list[BPSummary] = [s for s in parsed_report["bp_summaries"] if s["company"] == company]
-    work_texts = [s["work_text_today"] for s in summaries if s["work_text_today"]]
-    today_incr = sum(s["today_incr_total"] for s in summaries)
-    today_cum = sum(s["today_cum_total"] for s in summaries)
-    work_text_str = " / ".join(t for t in work_texts[:2] if t)[:200] if work_texts else "미기재"
 
-    sheet1_block = (
-        f"  · [시트1] 주요작업 텍스트 (BP사 기재): {work_text_str}\n"
-        f"  · [시트1] 금일 신규 투입 인원 (Incr.): {today_incr:,}명\n"
-        f"  · [시트1] 금일 누적 인원 (Cum.): {today_cum:,}명-일"
-    )
+    # fix B (2026-05-20) — BP 코드별 분리 + zone 명시. 한 회사가 여러 BP site (FAB+CUB)
+    # 운영 시 LLM 가 work_content 의 BP 와 zone 매칭 가능. 옵션 A 의 정확성 강화.
+    if summaries:
+        bp_lines = []
+        for s in summaries:
+            bp = s.get("bp_code") or "(BP 없음)"
+            zone = s.get("zone") or "(미상)"
+            wt = (s.get("work_text_today") or "").strip()
+            wt_short = (wt[:120] + "...") if len(wt) > 120 else (wt or "(작업 미기재)")
+            incr = s.get("today_incr_total") or 0
+            cum = s.get("today_cum_total") or 0
+            bp_lines.append(f"      - {bp} (zone={zone}): {wt_short} [Incr {incr:,}명, Cum {cum:,}명-일]")
+        sheet1_block = "  · [시트1] BP 사이트별 작업 (작업 내용 보고 어느 BP 코드인지 판단):\n" + "\n".join(
+            bp_lines
+        )
+    else:
+        sheet1_block = "  · [시트1] BP 사이트 데이터 없음"
 
     # 시트2 — 기능공만, noise 제거
     jobs: dict[str, int] = {}
@@ -156,8 +236,9 @@ def build_llm_input(
     bp_ctx = build_bp_context(activity["company"], parsed_report)
     today_str = activity["today_qty"] if activity["today_qty"] not in (None, 0) else "-"
     plan_str = activity["plan_total_qty"] if activity["plan_total_qty"] not in (None, 0) else "-"
+    bp_code = activity.get("bp_code") or "(미상)"
     return (
-        f"회사: {activity['company']} (공종 {activity['trade']})\n"
+        f"회사: {activity['company']} / BP: {bp_code} (공종 {activity['trade']})\n"
         f"작업: {activity['work_content']}\n"
         f"단위: {activity['unit']}  |  금일실적: {today_str}  |  계획 총수량: {plan_str}\n"
         f"[BP사 단위 컨텍스트]\n{bp_ctx}"
@@ -180,6 +261,24 @@ def resolve_wa(
     # Task 4 — cand_pool 빈 시 (BP master 미등록) — Chroma 선택 결과 그대로
     if not cand_pool:
         return WAResolution(value=chosen_wa, source="auto_chroma_top1")
+
+    # 0단계 (fix C, 2026-05-20) — BP-zone deterministic 매칭.
+    # activity.bp_code 와 일치하는 BPSummary 가 있고 그 zone 이 cand_pool 의 wa set 안에
+    # 있으면 채택. LLM 의 우연 결정보다 우선. 사용자 본인 옛 POC 회상 ("시트1 에서 FAB/CUB
+    # 알 수 있음") 와 정합. 예: 남웅건설 PH_X-001 (BPSummary.zone=FAB) →
+    # cand_pool={(FAB, 철근콘크리트공사), (CUB, 철근콘크리트공사)} 의 FAB 채택.
+    if parsed_report and activity.get("bp_code"):
+        cand_wa_set = {wa for wa, _ in cand_pool}
+        for s in parsed_report["bp_summaries"]:
+            if s.get("bp_code") == activity["bp_code"] and s.get("zone"):
+                if s["zone"] in cand_wa_set:
+                    return WAResolution(value=s["zone"], source="auto_bp_zone_match")
+
+    # 1단계 (옵션 A, 2026-05-20) — LLM rerank 의 (wa, l6) 가 cand_pool 안에 있으면 채택.
+    # 사용자 push back ("scope ≠ wa, 오른쪽 작업으로 wa 판단") 정합. LLM 의 work_text + bp_ctx
+    # 기반 판단을 신뢰. BP-zone 매칭이 없을 때 fallback.
+    if chosen_wa and (chosen_wa, l6_choice) in cand_pool:
+        return WAResolution(value=chosen_wa, source="auto_llm_rerank")
 
     # 1단계 — BP scope WA 단일
     bp_wa = {wa for wa, _ in cand_pool}
@@ -449,16 +548,6 @@ async def _prorate_mh(
             }
         out.append(a)
 
-    # U1.B: parser_job_allocations company workers_cum_t → activity 단위 prorate
-    # final_flag='O' 인 항목만 SUM
-    job_alloc_company_sum: dict[str, int] = {}
-    for ja in parsed_report.get("job_allocations", []):
-        if ja.get("final_flag") != "O":
-            continue
-        c = ja.get("company")
-        if c:
-            job_alloc_company_sum[c] = job_alloc_company_sum.get(c, 0) + int(ja.get("workers_cum_t") or 0)
-
     # company 전체 plan_mh 합 (prorate 분모)
     company_total_plan_mh: dict[str, float] = {}
     for a in out:
@@ -472,33 +561,11 @@ async def _prorate_mh(
         if a.get("company") and a.get("l6_main"):
             active_l6_for_company[a["company"]].add(a["l6_main"])
 
-    prorated: list[Activity] = []
-    for a in out:
-        if a.get("l6_main"):
-            c = a["company"]
-            workers_c = job_alloc_company_sum.get(c, 0)
-            company_mh = company_total_plan_mh.get(c, 0.0)
-            plan_mh_val = float(a.get("plan_mh") or 0)
-            n_l6 = len(active_l6_for_company[c]) if c else 0
-            if company_mh > 0 and plan_mh_val > 0:
-                a = {
-                    **a,
-                    "cum_workers_today": workers_c * (plan_mh_val / company_mh),
-                    "prorate_method": "plan_mh",
-                }
-            elif n_l6 > 0:
-                a = {
-                    **a,
-                    "cum_workers_today": workers_c / n_l6,
-                    "prorate_method": "uniform_fallback",
-                }
-            else:
-                a = {
-                    **a,
-                    "cum_workers_today": 0.0,
-                    "prorate_method": "zero",
-                }
-            a = {**a, "cum_actual_mh_today": a["cum_workers_today"] * 8.0}
-        prorated.append(a)
+    prorated = _prorate_workers_with_mh(
+        out,
+        parsed_report,
+        company_total_plan_mh,
+        active_l6_for_company,
+    )
 
     return prorated

@@ -1,13 +1,13 @@
 """Collector — 메일 수신 업체별 작업일보 수집 + Parser 전달.
 
-2026-05-19 신규. 기존 0 줄. Prod 흐름:
+2026-05-19 신규. Prod 흐름:
   업체 N개가 메일로 작업일보 xlsx 첨부 전송
-    → Collector 가 메일 (IMAP / Gmail API / Outlook Graph) 에서 첨부 다운로드
+    → Collector 가 메일에서 첨부 다운로드
     → 임시 dir 에 일자별 저장 (data/input/YYYYMMDD/업체작업일보_*.xlsx)
-    → list[Path] 반환 → Parser × N (LLM) → Merge → Mapper → ... → Exporter
+    → list[Path] 반환 → Parser × N (rule-based + LLM 검증) → Merge → Mapper → ...
 
-본 cycle 구현 범위 = 디렉토리 walk + 병렬 Parser 호출 (stub).
-메일 통합 (IMAP/API 폴링 + 첨부 추출) 은 별 cycle 후속.
+2026-05-20: parser_llm.parse_daily_report_llm → parser.parse_daily_report (rule + LLM 검증)
+            교체 (spec §4.1 split-brain 방지).
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ import asyncio
 from dataclasses import dataclass
 from pathlib import Path
 
-from pipeline.agents.parser_llm import ParserConfig, parse_daily_report_llm
+from pipeline.agents.parser import parse_daily_report
 from pipeline.state import ParsedDailyReport
 
 
@@ -24,8 +24,7 @@ from pipeline.state import ParsedDailyReport
 class CollectorConfig:
     """Collector 동작 환경."""
 
-    parser: ParserConfig
-    file_concurrency: int = 4  # 파일 단위 병렬 (각 파일은 내부적으로 6 시트 LLM 호출)
+    file_concurrency: int = 4  # 파일 단위 병렬 (각 파일 sync parse — 약 20 초)
 
 
 def discover_daily_reports(input_dir: Path | str) -> list[Path]:
@@ -66,6 +65,6 @@ async def collect_and_parse(
 
     async def _parse_one(path: Path) -> ParsedDailyReport:
         async with sem:
-            return await parse_daily_report_llm(path, cfg.parser)
+            return await asyncio.to_thread(parse_daily_report, path)
 
     return list(await asyncio.gather(*[_parse_one(p) for p in files]))

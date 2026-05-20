@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import statistics
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from pipeline.db import PGClient
@@ -133,9 +133,10 @@ async def _evm_by_group(
 ) -> dict[str, dict[str, Any]]:
     """group_key (company / l6_main / wa_l6_company) 별 EVM dict.
 
-    컨셉 (2026-05-19): 분모 = activity_master 전체, 분자 = mapper_activities 전체.
-    company / l6_main 은 FULL OUTER JOIN — plan/actual 한 쪽에만 있는 group 도 포함.
-    wa_l6_company 는 wa 가 mapper 만 가진 키라 mapper anchor 유지.
+    컨셉 (2026-05-20, spec §8.1): actual anchor. mapper_activities 에 등장한 group 만 표시.
+    company / l6_main 모두 FROM actual_agg LEFT JOIN plan_agg — 매핑 안 된 plan-only 업체/공종 제외.
+    plan 만 있고 actual 없으면 그 group 은 결과에서 빠짐 — 시연 시 노이즈 제거.
+    site 전체 EVM (_evm_for_group) 은 별도 함수, 분모=계획 유지.
     """
     if group_key == "company":
         plan_gkey = "am.company"
@@ -166,17 +167,18 @@ async def _evm_by_group(
             FROM mapper_activities ma
             JOIN pipeline_runs pr USING (run_id)
             WHERE pr.site_id = $1 AND pr.report_date = $2 AND {actual_gkey} IS NOT NULL
+              AND ma.is_mock = FALSE
             GROUP BY {actual_gkey}
         )
-        SELECT COALESCE(p.gkey, a.gkey) AS gkey,
+        SELECT a.gkey AS gkey,
                COALESCE(p.cum_plan_qty, 0)::float AS cum_plan_qty,
                COALESCE(p.cum_plan_mh, 0)::float AS cum_plan_mh,
                COALESCE(p.plan_qty_full, 0)::float AS plan_qty_full,
                COALESCE(p.plan_mh_full, 0)::float AS plan_mh_full,
-               COALESCE(a.cum_actual_qty, 0)::float AS cum_actual_qty,
-               COALESCE(a.cum_actual_mh, 0)::float AS cum_actual_mh
-        FROM plan_agg p
-        FULL OUTER JOIN actual_agg a USING (gkey)
+               a.cum_actual_qty::float AS cum_actual_qty,
+               a.cum_actual_mh::float AS cum_actual_mh
+        FROM actual_agg a
+        LEFT JOIN plan_agg p USING (gkey)
     """
     async with pg._pool.acquire() as con:
         rows = await con.fetch(sql, site_id, today)
@@ -221,6 +223,7 @@ async def _evm_by_wa_l6_company(
           AND am.l6_main = ma.l6_main
           AND am.site_id = pr.site_id
         WHERE pr.site_id = $1 AND pr.report_date = $2
+          AND ma.is_mock = FALSE
         GROUP BY ma.wa, ma.l6_main, ma.company
     """
     async with pg._pool.acquire() as con:
@@ -289,13 +292,18 @@ def _bar_status(cpi: float) -> str:
 
 
 def _build_contractor_bars(productivity: dict[str, Any]) -> list[dict[str, Any]]:
-    """by_contractor dict → BarItem[] sorted by CPI desc."""
+    """by_contractor dict → BarItem[] sorted by CPI desc.
+
+    baseline=90: _bar_status 의 normal/caution 경계와 일치. spec §8.2.
+    FE ProductivityBarToggle 의 underCount = value < baseline 카운트.
+    """
     by_c = productivity.get("by_contractor", {}) or {}
     return sorted(
         [
             {
                 "label": c,
                 "value": round(d.get("cpi") or 0, 1),
+                "baseline": 90,
                 "status": _bar_status(d.get("cpi") or 0),
             }
             for c, d in by_c.items()
@@ -305,13 +313,14 @@ def _build_contractor_bars(productivity: dict[str, Any]) -> list[dict[str, Any]]
 
 
 def _build_trade_bars(productivity: dict[str, Any]) -> list[dict[str, Any]]:
-    """by_l6 dict -> BarItem[]."""
+    """by_l6 dict -> BarItem[]. baseline=90 — spec §8.2."""
     by_l = productivity.get("by_l6", {}) or {}
     return sorted(
         [
             {
                 "label": l,
                 "value": round(d.get("cpi") or 0, 1),
+                "baseline": 90,
                 "status": _bar_status(d.get("cpi") or 0),
             }
             for l, d in by_l.items()
@@ -550,11 +559,18 @@ def _build_optimizer_view(
     advice_rows: list[dict[str, Any]],
     forecast: list[dict[str, Any]],
     mapped: list[dict[str, Any]],
+    wa_lookup: Optional[dict[tuple[str, str], list[str]]] = None,
 ) -> dict[str, Any]:
     """§ 02 by_wp dict — 진단/유사사례/권고/상세 6칸.
 
     advice = optimizer_advice 의 row. forecast = forecasts 의 row (wa lookup).
+
+    wa_lookup: (l6_main, company) → DISTINCT wa list. fan-out 용.
+                전달되면 한 advice 를 wa list 의 각 wa 마다 by_wp 에 복사.
+                None / 빈 dict 면 forecasts.wa 1개 기준 단일 key (기존 동작).
+                spec §8.3 — quadrant dot 의 wp_id (mapper_activities 기반) 와 매칭 보장.
     """
+    wa_lookup = wa_lookup or {}
     by_wp: dict[str, dict[str, Any]] = {}
     for advice in advice_rows:
         # wa lookup — forecast 에서 (company, l6_main) 매칭
@@ -566,8 +582,11 @@ def _build_optimizer_view(
         )
         if matched_f is None:
             continue
-        wa = matched_f.get("wa")
-        wp_id = _wp_id_of(wa, advice.get("l6_main"), advice.get("company"))
+        # fan-out: wa_lookup 의 모든 wa 마다 같은 advice 적재.
+        # lookup miss → forecasts.wa 1개 fallback (기존 동작).
+        wa_list = wa_lookup.get(
+            (advice.get("l6_main"), advice.get("company"))
+        ) or [matched_f.get("wa")]
 
         # 유사 사례 자연어 변환
         similar_cases = []
@@ -608,12 +627,148 @@ def _build_optimizer_view(
             {"label": "일정 영향", "value": f"{round(matched_f.get('delay_days') or 0)}일 지연"},
         ]
 
-        by_wp[wp_id] = {
+        advice_dict = {
             "diagnosis": advice.get("diagnosis") or "",
             "similar_cases": similar_cases,
             "recommendations": recommendations,
             "details": details,
         }
+        for wa in wa_list:
+            wp_id = _wp_id_of(wa, advice.get("l6_main"), advice.get("company"))
+            by_wp[wp_id] = advice_dict
 
     default_wp_id = next(iter(by_wp.keys()), None)
     return {"by_wp": by_wp, "default_wp_id": default_wp_id}
+
+
+# ============================================================
+# 공기단축 시나리오 (spec 2026-05-19 §5)
+# ============================================================
+
+
+def _coerce_date(v: Any) -> date | None:
+    """expected_completion 입력이 date 객체 또는 ISO 문자열 (asyncpg vs jsonb) 모두 허용.
+
+    spec §5.2 type contract: date | None. 안전 코어스.
+    """
+    if v is None:
+        return None
+    if isinstance(v, date):
+        return v
+    if isinstance(v, str):
+        try:
+            return date.fromisoformat(v[:10])
+        except ValueError:
+            return None
+    return None
+
+
+def _expand_recovery_to_days(dist: dict | None) -> list[int]:
+    """recovery_distribution → percentile 산출 가능한 list.
+
+    spec §5.2 Step 1. not_recovered 는 +30 일 캡.
+    """
+    out: list[int] = []
+    for key, count in (dist or {}).items():
+        if key == "not_recovered":
+            out.extend([30] * int(count))
+        elif key.startswith("d+"):
+            try:
+                d = int(key[2:])
+                out.extend([d] * int(count))
+            except ValueError:
+                continue
+    return out
+
+
+def _percentile(days: list[int], q: float) -> int:
+    """q in [0, 1]. 빈 list → 0. spec §5.2 Step 2."""
+    if not days:
+        return 0
+    sorted_days = sorted(days)
+    if len(sorted_days) < 4:
+        idx = min(len(sorted_days) - 1, int(q * len(sorted_days)))
+        return sorted_days[idx]
+    cuts = statistics.quantiles(sorted_days, n=100, method="inclusive")
+    return int(round(cuts[max(0, min(98, int(q * 100) - 1))]))
+
+
+def _match_forecast_by_company_l6(advice: dict, forecast: list[dict]) -> dict | None:
+    """(company, l6_main) 매칭. spec §5.2.
+
+    view_builder._build_optimizer_view 의 패턴과 동일 — 두 호출자 공유.
+    """
+    return next(
+        (f for f in forecast
+         if f.get("company") == advice.get("company")
+         and f.get("l6_main") == advice.get("l6_main")),
+        None,
+    )
+
+
+def _scenario(no_action_date, recovery_days: int, case_count: int) -> dict:
+    """단일 시나리오 dict 빌드. spec §5.2 Step 3."""
+    if no_action_date is None or recovery_days <= 0:
+        return {
+            "expected_completion": no_action_date.isoformat() if no_action_date else None,
+            "recovery_days": recovery_days,
+            "delta_days": 0,
+            "case_count": case_count,
+        }
+    new_date = no_action_date - timedelta(days=recovery_days)
+    return {
+        "expected_completion": new_date.isoformat(),
+        "recovery_days": recovery_days,
+        "delta_days": -recovery_days,
+        "case_count": case_count,
+    }
+
+
+def _build_scenarios(advice_rows: list[dict], forecast: list[dict]) -> dict:
+    """공기단축 4 시나리오 산출 — site + by_wp.
+
+    spec §5.1 shape + §5.2 산식.
+    """
+    site_days: list[int] = []
+    for advice in advice_rows:
+        site_days.extend(_expand_recovery_to_days(advice.get("recovery_distribution") or {}))
+
+    site_no_action = None
+    if forecast:
+        ecs = [_coerce_date(f.get("expected_completion")) for f in forecast]
+        ecs = [e for e in ecs if e is not None]
+        site_no_action = max(ecs) if ecs else None
+
+    site_scenarios = {
+        "no_action": {
+            "expected_completion": site_no_action.isoformat() if site_no_action else None,
+            "recovery_days": 0,
+            "delta_days": 0,
+            "case_count": len(site_days),
+        },
+        "optimistic_p25":  _scenario(site_no_action, _percentile(site_days, 0.25), len(site_days)),
+        "base_p50":        _scenario(site_no_action, _percentile(site_days, 0.50), len(site_days)),
+        "pessimistic_p75": _scenario(site_no_action, _percentile(site_days, 0.75), len(site_days)),
+    }
+
+    by_wp: dict[str, dict] = {}
+    for advice in advice_rows:
+        f = _match_forecast_by_company_l6(advice, forecast)
+        if f is None:
+            continue
+        wp_id = _wp_id_of(f.get("wa"), advice.get("l6_main"), advice.get("company"))
+        wp_days = _expand_recovery_to_days(advice.get("recovery_distribution") or {})
+        wp_no_action = _coerce_date(f.get("expected_completion"))
+        by_wp[wp_id] = {
+            "no_action": {
+                "expected_completion": wp_no_action.isoformat() if wp_no_action else None,
+                "recovery_days": 0,
+                "delta_days": 0,
+                "case_count": len(wp_days),
+            },
+            "optimistic_p25":  _scenario(wp_no_action, _percentile(wp_days, 0.25), len(wp_days)),
+            "base_p50":        _scenario(wp_no_action, _percentile(wp_days, 0.50), len(wp_days)),
+            "pessimistic_p75": _scenario(wp_no_action, _percentile(wp_days, 0.75), len(wp_days)),
+        }
+
+    return {"site": site_scenarios, "by_wp": by_wp}

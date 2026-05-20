@@ -10,12 +10,20 @@ import { ProductivityTrendChart } from "@/app/components/charts/ProductivityTren
 import { QuadrantScatter } from "@/app/components/charts/QuadrantScatter";
 import { diagnose } from "@/lib/diagnosis";
 import { toDiagnosisInput } from "@/lib/diagnosis-adapter";
-import type { ReportDaily } from "@/lib/types";
+import type { ReportDaily, OptimizerOutput } from "@/lib/types";
 import type { ReportDetail } from "@/lib/fixtures";
 
 type Filter = "all" | "risk" | "caution" | "safe";
 
 const REPORT_SITE_ID = "M15X-Ph3-IBL";
+
+const EMPTY_OPTIMIZER: OptimizerOutput = {
+  wp_id: "",
+  diagnosis: "",
+  similar_cases: [],
+  recommendations: [],
+  details: [],
+};
 
 export default function ReportPage() {
   const [daily, setDaily] = useState<ReportDaily[]>([]);
@@ -50,13 +58,25 @@ export default function ReportPage() {
     // 3. wp_summary 의 첫 row
     if (!initial) initial = wpSummary[0];
     // 4. optimizer.default_wp_id fallback
-    setSelectedWpId(initial?.wp_id ?? (detail.optimizer as any)?.default_wp_id ?? null);
+    setSelectedWpId(initial?.wp_id ?? detail.optimizer?.default_wp_id ?? null);
   }, [selectedDate, details]);
 
   const detail = details[selectedDate];
   const diagnosis = useMemo(() => {
     if (!detail) return null;
-    return diagnose(toDiagnosisInput(detail.kpi, detail.s_curve, REPORT_SITE_ID));
+    const base = diagnose(toDiagnosisInput(detail.kpi, detail.s_curve, REPORT_SITE_ID));
+    const beP50 = detail.scenarios?.site?.base_p50;
+    if (beP50 && typeof beP50.recovery_days === "number") {
+      return {
+        ...base,
+        recovery: {
+          p25_days: detail.scenarios?.site?.optimistic_p25?.recovery_days ?? 0,
+          p50_days: beP50.recovery_days,
+          p75_days: detail.scenarios?.site?.pessimistic_p75?.recovery_days ?? 0,
+        },
+      };
+    }
+    return base;
   }, [detail]);
 
   if (!detail || !diagnosis) {
@@ -185,7 +205,13 @@ export default function ReportPage() {
                     })()}
                   </div>
                   <div className="flex-1">
-                    <OptimizerResult output={detail.optimizer} />
+                    <OptimizerResult
+                      output={
+                        detail.optimizer?.by_wp?.[selectedWpId ?? ""]
+                        ?? detail.optimizer?.by_wp?.[detail.optimizer?.default_wp_id ?? ""]
+                        ?? EMPTY_OPTIMIZER
+                      }
+                    />
                   </div>
                 </div>
               </div>
@@ -196,7 +222,10 @@ export default function ReportPage() {
                 diagnosis={diagnosis}
                 recoveryActive={selectedWpId !== null}
                 delayDays={detail.kpi.delay_days}
-                recoveryDays={detail.kpi.recovery_days}
+                recoveryDays={
+                  detail.scenarios?.site?.base_p50?.recovery_days
+                  ?? detail.kpi.recovery_days
+                }
               />
             </Section>
 

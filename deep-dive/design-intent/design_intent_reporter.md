@@ -1,8 +1,10 @@
 # Design Intent — reporter
 
 - **Generated**: 2026-05-17 (hil1-forecaster-reporter cycle 신규)
-- **Git SHA**: `d57b0c5` (A_Track, PR #19 pending)
+- **Last checked**: 2026-05-20 (git SHA: `ef7c6cd`) — **코드 변경 없음** (cf3c143 이후 commit 0). T1/T2 카드 그대로 유효.
+- **Git SHA**: `d57b0c5` (A_Track, PR #19 머지 완료)
 - **Pair file**: `../architecture_overview.md` §2.reporter
+- **Note**: 종합 보고서 1종 + `update_site_last_run` (G8) + `update_site_hours_saved_cum` (G2) + state.site_id PG fallback 모두 이전 cycle 에 흡수됨. reporter → exporter rename 은 backlog 잔존 (파일명 + 13개 import 변경 필요).
 - **Range**: `pipeline/agents/reporter.py` (161 LOC, 본 cycle 신규) + `pipeline/tests/test_reporter.py` (177 LOC, 3건)
 
 Mapper 확정 + Forecaster 진단 + Optimizer 권고 → 마크다운 종합 보고서 1 종 + PG `daily_reports.history_csv_row` JSONB 영속. Azure gpt-5.1 호출 1회 (per run). 의도적 drift = Reporter 위치 = Optimizer 다음 (원안 v2 = Atomizer 다음 병렬). drift #1 (PoC 성공 기준 #1) 해소.

@@ -278,8 +278,10 @@ export async function wbsTreeBuild(siteId: string): Promise<WBSNode> {
       waNode.children!.push(discNode);
     }
 
+    // spec §6.3 — review/route.ts:50 의 cards.ai_mapped_wp_id 와 동일 포맷.
+    // site_name 은 wp_id 산출에 비의존 (path 만 사용) → "" 전달 OK.
     const l6Node: WBSNode = {
-      id: `${discKey}::${r.l6_main}`,
+      id: deriveWpIdAndPath(r.wa, r.l6_main, "").wp_id,
       type: "work_package",
       name: r.l6_main,
       parent_id: discNode.id,

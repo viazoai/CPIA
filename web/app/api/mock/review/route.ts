@@ -12,25 +12,32 @@ import { wbsTreeBuild, deriveWpIdAndPath } from "@/lib/transforms";
 import type { ReviewItem } from "@/lib/types";
 
 export async function GET() {
-  // 실 PoC 현장 1 개 — sites.is_mock = false.
+  const useMock = process.env.CPIA_DEMO_FALLBACK === "on";
+
+  // 실 PoC 현장 1 개 — sites.is_mock = false (useMock 무관, wbs 빌드용 site_id 식별).
   const siteRow = (await (sql as any)`
     SELECT site_id, name FROM sites WHERE is_mock = FALSE ORDER BY site_id LIMIT 1
   `) as Array<{ site_id: string; name: string }>;
   const siteId = siteRow[0]?.site_id ?? "m15x-ph3-ibl";
   const siteName = siteRow[0]?.name ?? siteId;
 
-  const wbs = await wbsTreeBuild(siteId);
+  const wbs = await wbsTreeBuild(siteId, siteName);
 
+  // LIMIT 50 → 300, site 제약 추가 (wbs 노드 옆 숫자와 클릭 시 카드 수 일치).
+  // site 필터 없으면 orphan ma row (pipeline_runs 매칭 없는) 까지 포함되어 wbs review_count 와 mismatch.
   const cardRows = (await (sql as any)`
     SELECT
       ma.id, ma.run_id, ma.idx, ma.company, ma.today_qty, ma.unit,
       ma.wa, ma.l6_main, ma.mapping_conf, ma.requires_review, ma.alternatives,
       pa.work_content
     FROM mapper_activities ma
+    JOIN pipeline_runs pr USING (run_id)
     LEFT JOIN parser_activities pa ON pa.run_id = ma.run_id AND pa.idx = ma.idx
-    WHERE ma.requires_review = TRUE
+    WHERE pr.site_id = ${siteId}
+      AND ma.requires_review = TRUE
+      AND ma.is_mock = ${useMock}
     ORDER BY ma.mapping_conf ASC NULLS FIRST
-    LIMIT 50
+    LIMIT 300
   `) as Array<{
     id: number | string;
     run_id: string;

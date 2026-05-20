@@ -1,4 +1,22 @@
-"""LLM 기반 작업일보 parser — 통합/업체별 일보 모두 지원.
+"""LLM 기반 작업일보 parser — DEPRECATED (2026-05-20).
+
+본 모듈은 chunk LLM parsing 으로 ParsedDailyReport 를 생성했으나, 5/20 부터
+`pipeline.agents.parser.parse_daily_report` (rule-based + 시트1/4 LLM 검증 hybrid)
+로 대체됨. 이 모듈은 본 cycle 의 graph entry 에서 호출되지 않음.
+
+회귀 사용 (rule path 가 실패하는 비상 경로):
+  - collector / run_one_cycle 의 import 를 parser_llm 으로 되돌리면 동작.
+  - 또는 env flag `CPIA_PARSER=llm` 으로 graph entry 안에서 분기 (미구현).
+
+대체 이유:
+  - chunk LLM 270 호출 → 4-5 분 / cycle, ~$3 / cycle → 시연 마감 (6/5) 압력
+  - rule + 시트1/4 LLM 검증 hybrid → ~20 초 / cycle, ~$0.55 / cycle
+  - 매핑 정확도: mapper auto_bp_zone_match (BP-zone deterministic) 와 정합
+
+spec: docs/superpowers/specs/2026-05-20-cpia-parser-mapper-refactor-design.md
+
+----
+이하 원본 docstring 보존 (회귀 사용 시 참고):
 
 2026-05-19 신규. 기존 정규화 코드 (parser.py) 가 작업일보 양식 비일관 (2-row group +
 시트2/3 다중 row pattern) 에 brittle 한 문제 해결. schema-guided LLM 으로 6 시트 추출.
@@ -386,12 +404,18 @@ def _llm_extract_sync(
       - 빈 list 응답 (input rows > 0 인데 결과 [])
     """
     import sys as _sys
+    import time as _time
+
+    input_rows_count = len(user_payload.get("rows", [])) if isinstance(user_payload, dict) else 0
 
     input_rows_count = len(user_payload.get("rows", [])) if isinstance(user_payload, dict) else 0
 
     last_err: Exception | None = None
     last_result: Any = None
     for attempt in range(retries + 1):
+        # exponential backoff between retries — Azure rate limit / content_filter 회피
+        if attempt > 0:
+            _time.sleep(2 ** (attempt - 1))  # 1s, 2s, 4s, 8s, ...
         try:
             resp = client.chat.completions.create(
                 model=model,
@@ -464,7 +488,7 @@ def _llm_extract_chunked(
         payload = {"header_map": header_map, "rows": chunk}
         partial = _llm_extract_sync(
             client, model, system_prompt, payload, response_key,
-            retries=1, max_completion_tokens=max_completion_tokens,
+            retries=3, max_completion_tokens=max_completion_tokens,
         )
         if partial:
             out.extend(partial)
@@ -479,12 +503,18 @@ def _llm_extract_chunked(
 async def parse_daily_report_llm(
     xlsx_path: Path | str,
     cfg: ParserConfig,
+    max_rows_per_sheet: dict[str, int] | None = None,
 ) -> ParsedDailyReport:
     """xlsx 1건 → ParsedDailyReport (6 entity).
 
     통합 / 업체별 자동 판단 (시트6/Cover 존재 여부).
     시트별 LLM 호출 6 회 (병렬). Azure rate-limit 고려해 Semaphore.
+
+    max_rows_per_sheet (sample mode): {"bp_summaries": 50, "job_allocations": 200, ...}
+      _sheet_to_payload 의 max_body_rows 로 전달 — row_filter 통과한 signal row 만 limit.
+      None 이면 full mode (전체 row 처리).
     """
+    _max = max_rows_per_sheet or {}
     xlsx_path = Path(xlsx_path)
     report_date = _extract_date_from_filename(xlsx_path)
 
@@ -503,13 +533,17 @@ async def parse_daily_report_llm(
         sn_sheet6 = next((s for s in sheet_names if "출력일보" in s), None)
 
         if sn_sheet1:
-            h, b = _sheet_to_payload(wb[sn_sheet1])
+            h, b = _sheet_to_payload(
+                wb[sn_sheet1],
+                max_body_rows=_max.get("bp_summaries"),
+            )
             payloads["bp_summaries"] = {"header_map": h, "rows": b}
 
         if sn_sheet2:
             h, b = _sheet_to_payload(
                 wb[sn_sheet2], header_rows=(3, 4), body_start=5,
                 row_filter=_is_job_alloc_signal_row,
+                max_body_rows=_max.get("job_allocations"),
             )
             payloads["job_allocations"] = {"header_map": h, "rows": b}
 
@@ -517,11 +551,15 @@ async def parse_daily_report_llm(
             h, b = _sheet_to_payload(
                 wb[sn_sheet3], header_rows=(3, 4), body_start=5,
                 row_filter=_is_equipment_signal_row,
+                max_body_rows=_max.get("equipment_allocations"),
             )
             payloads["equipment_allocations"] = {"header_map": h, "rows": b}
 
         if sn_sheet4:
-            h, b = _sheet_to_payload(wb[sn_sheet4])
+            h, b = _sheet_to_payload(
+                wb[sn_sheet4],
+                max_body_rows=_max.get("activities"),
+            )
             payloads["activities"] = {"header_map": h, "rows": b}
 
         if sn_sheet6:
@@ -594,12 +632,16 @@ async def parse_daily_report_llm(
         results[k] = await t
 
     # post-processing: raw → 정제된 entity
-    bp_summaries = parser_post.transform_bp_summaries(results.get("bp_summaries_raw") or [])
-    job_allocations = parser_post.transform_job_allocations(results.get("job_allocations_raw") or [])
+    # dict-only guard — LLM 이 가끔 str / null 을 list 안에 섞어 출력 (schema 위반)
+    def _dict_only(xs: Any) -> list[dict]:
+        return [x for x in xs if isinstance(x, dict)] if isinstance(xs, list) else []
+
+    bp_summaries = parser_post.transform_bp_summaries(_dict_only(results.get("bp_summaries_raw")))
+    job_allocations = parser_post.transform_job_allocations(_dict_only(results.get("job_allocations_raw")))
     equipment_allocations = parser_post.transform_equipment_allocations(
-        results.get("equipment_allocations_raw") or []
+        _dict_only(results.get("equipment_allocations_raw"))
     )
-    activities = results.get("activities") or []  # 이미 final shape (raw 변환 X)
+    activities = _dict_only(results.get("activities"))  # 이미 final shape (raw 변환 X)
 
     # project 명: Cover.project_name 우선, 그 다음 파일명 stem.
     rm = results.get("report_meta") or {}

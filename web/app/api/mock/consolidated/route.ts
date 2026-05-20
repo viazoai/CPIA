@@ -42,6 +42,7 @@ function asArray(v: unknown): any[] {
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const date = searchParams.get("date");
+  const useMock = process.env.CPIA_DEMO_FALLBACK === "on";
 
   // ────── 일자 리스트 ──────
   if (!date) {
@@ -49,6 +50,7 @@ export async function GET(req: Request) {
       SELECT DISTINCT pr.report_date
       FROM pipeline_runs pr
       WHERE pr.report_date >= CURRENT_DATE - INTERVAL '1 year'
+        AND pr.is_mock = ${useMock}
       ORDER BY pr.report_date DESC
       LIMIT 365
     `) as Array<{ report_date: Date | string }>;
@@ -60,21 +62,25 @@ export async function GET(req: Request) {
         SELECT
           COALESCE((
             SELECT jsonb_array_length(bp_summaries)
-            FROM parser_reports WHERE report_date = ${dStr} LIMIT 1
+            FROM parser_reports WHERE report_date = ${dStr} AND is_mock = ${useMock}
+            ORDER BY created_at DESC LIMIT 1
           ), 0) AS output_count,
           COALESCE((
             SELECT jsonb_array_length(job_allocations)
-            FROM parser_reports WHERE report_date = ${dStr} LIMIT 1
+            FROM parser_reports WHERE report_date = ${dStr} AND is_mock = ${useMock}
+            ORDER BY created_at DESC LIMIT 1
           ), 0) AS occupation_count,
           COALESCE((
             SELECT jsonb_array_length(equipment_allocations)
-            FROM parser_reports WHERE report_date = ${dStr} LIMIT 1
+            FROM parser_reports WHERE report_date = ${dStr} AND is_mock = ${useMock}
+            ORDER BY created_at DESC LIMIT 1
           ), 0) AS equipment_count,
           (
             SELECT COUNT(*)
             FROM parser_activities pa
             JOIN pipeline_runs pr USING (run_id)
             WHERE pr.report_date = ${dStr}
+              AND pa.is_mock = ${useMock}
           ) AS quantity_count
       `) as Array<Record<string, number | string | null>>;
       const c = counts[0] ?? {};
@@ -98,6 +104,8 @@ export async function GET(req: Request) {
     SELECT bp_summaries, job_allocations, equipment_allocations
     FROM parser_reports
     WHERE report_date = ${date}
+      AND is_mock = ${useMock}
+    ORDER BY created_at DESC
     LIMIT 1
   `) as Array<{
     bp_summaries: unknown;
@@ -114,6 +122,7 @@ export async function GET(req: Request) {
     FROM parser_activities pa
     JOIN pipeline_runs pr USING (run_id)
     WHERE pr.report_date = ${date}
+      AND pa.is_mock = ${useMock}
   `) as Array<{
     zone: string | null;
     trade: string | null;

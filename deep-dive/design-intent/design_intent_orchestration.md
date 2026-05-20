@@ -1,478 +1,425 @@
 # Design Intent — orchestration (graph + state + checkpointer + constants)
 
-- **Generated**: 2026-05-17 (git SHA: f9a695f5315eba97b2686f55a72bc91ef6cae6b2, branch A_Track)
+- **Generated**: 2026-05-20 (HIL bypass + 정규화 타이밍 + HIL2 auto-select 3 hotfix cycle)
+- **Git SHA**: `ef7c6cd` (A_Track HEAD, branch A_Track)
 - **Pair file**: `../architecture_overview.md` (deep-dive 라이트 산출)
-- **Range**: `pipeline/graph.py` (272) + `pipeline/state.py` (137) + `pipeline/checkpointer.py` (18) + `pipeline/constants.py` (5) — 합계 432 LOC
+- **Range**:
+  - `pipeline/graph.py` (563 LOC, 이전 ~500 → +63)
+  - `pipeline/state.py` (303 LOC)
+  - `pipeline/checkpointer.py` (94 LOC, persistence 페어 카드도 참조)
+  - `pipeline/constants.py` (5 LOC)
+  - `pipeline/tests/test_graph_e2e*.py` (3 파일) + `test_graph_hil1.py` + `test_state.py` + `test_stubs_e2e.py`
+- **스펙**:
+  - `docs/superpowers/specs/2026-05-14-cpia-2인-langgraph-협업-design.md`
+  - `docs/superpowers/specs/2026-05-17-cpia-hil1-forecaster-reporter-design.md`
 
-LangGraph StateGraph 조립 + 공유 상태 스키마 + HIL interrupt/resume + checkpoint. 노드 5개 + builder 2개 + checkpointer 1개. Phase 1 PoC 기준 HIL 2 만 완성, HIL 1 은 상태 필드만 있고 노드 미구현.
+LangGraph StateGraph 조립 + 공유 상태 스키마 + HIL interrupt/resume + checkpoint. **7 node + 2 helper + 2 builder + 2 interrupt point**. 본 cycle 3 hotfix — (1) `normalize_company` import (cf2a791, #31 close), (2) 정규화 타이밍 (e163e1a, fetch_bp_candidates 전 일괄 정규화 — ㈜/(주) prefix cand_pool 빈 버그), (3) full cycle (844d4c3 — `CPIA_HIL_AUTO_BYPASS` env + `pipeline_runs` 사전 INSERT + HIL2 auto-select).
 
 ---
 
 ## T1 — Function Index
 
-| Function/Class | File:Line | Signature | One-line role | T2? |
+### graph.py (563 LOC) — Node 함수 + 빌더 + helper
+
+| Function | File:Line | Signature | One-line role | T2? |
 |---|---|---|---|---|
-| `GraphConfig` | graph.py:33 | `@dataclass class GraphConfig` | Mapper/Atomizer/Forecaster/Optimizer 4 cfg 묶음 | — |
-| `mapper_node` | graph.py:40 | `async (state: CPIAState, cfg: GraphConfig) -> dict` | Parser → WBS 매핑 + `_prorate_mh` 인원 분배 | ✅ |
-| `atomizer_node` | graph.py:57 | `async (state, cfg) -> dict` | Mapped Activity → Chroma `daily_activities` 적재 | ✅ |
-| `forecaster_node` | graph.py:64 | `async (state, cfg) -> dict` | Mapped + 유사 이력 → 생산성 진단 (risk_level) | ✅ |
-| `hil_2_node` | graph.py:71 | `async (state, cfg) -> dict` | Risky 그룹 사전 영속 + `interrupt({"risky_groups": ...})` | ✅ |
-| `optimizer_node` | graph.py:180 | `async (state, cfg) -> dict` | Selected group 별 advice row 생성 + PG insert | ✅ |
-| `build_graph` | graph.py:233 | `(cfg: GraphConfig) -> CompiledGraph` | 본 graph (mapper→atomizer→forecaster→hil_2→[optimizer\|END]) | ✅ |
-| `build_demo_graph` | graph.py:200 | `(cfg: GraphConfig) -> CompiledGraph` | 데모 graph (forecaster→hil_2→optimizer, mapper/atomizer skip) | ✅ |
-| `Activity` | state.py:11 | `class Activity(TypedDict)` | 작업일보 1행 = 매핑 단위 | — |
-| `BPSummary` | state.py:59 | `class BPSummary(TypedDict)` | 시트1 BP사 × 공종 row | — |
-| `JobAllocation` | state.py:74 | `class JobAllocation(TypedDict)` | 시트2 BP사 × 직종 row | — |
-| `EquipmentAllocation` | state.py:84 | `class EquipmentAllocation(TypedDict)` | 시트3 BP사 × 장비 row | — |
-| `ParsedDailyReport` | state.py:95 | `class ParsedDailyReport(TypedDict)` | 1 작업일보 xlsx 4시트 통합 | — |
-| `CPIAState` | state.py:106 | `class CPIAState(TypedDict)` | LangGraph 전체 상태 | ✅ |
-| `build_checkpointer` | checkpointer.py:13 | `() -> InMemorySaver` | Phase 1 PoC checkpointer (InMemorySaver) | ✅ |
-| `WORK_HOURS_PER_DAY` | constants.py:5 | `int = 8` | Pipeline-wide constant (8h/day) | — |
+| `GraphConfig` | graph.py:39 | `@dataclass` | 4 sub-config 묶음 + reporter | — |
+| `mapper_node` | graph.py:48 | `async (state, cfg) -> dict` | Parser → WBS 매핑 + Semaphore 4 + BP cand_pool batch + 정규화 2회 + G24 호출 + 5 PG INSERT | ✅ |
+| `_build_review_needed` | graph.py:168 | `(mapped) -> list[dict]` | requires_review=True 행 9 필드 extraction | ✅ |
+| `_apply_corrections` | graph.py:189 | `(mapped, corrections: dict[int, dict]) -> list[Activity]` | corrections 적용 + mapping_source="user_corrected" + requires_review=False 강제 | ✅ |
+| `hil_1_node` | graph.py:224 | `async (state, cfg) -> dict` | Mapper interrupt + `CPIA_HIL_AUTO_BYPASS` env 우회 + PG mapping_corrections INSERT | ✅ |
+| `atomizer_node` | graph.py:292 | `async (state, cfg) -> dict` | Chroma daily_activities 적재 + ID 반환 | ✅ |
+| `forecaster_node` | graph.py:299 | `async (state, cfg) -> dict` | 그룹별 진단 (RAG + Plan fallback) | ✅ |
+| `hil_2_node` | graph.py:306 | `async (state, cfg) -> dict` | risky 그룹 사전 영속 + F5/F7 정정 + interrupt | ✅ |
+| `optimizer_node` | graph.py:415 | `async (state, cfg) -> dict` | Selected group advice + view_builder + PG insert | ✅ |
+| `reporter_node` | graph.py:435 | `async (state, cfg) -> dict` | 종합 보고서 + G8 sites.last_run_id + G2 hours_saved_cum + state.site_id PG fallback | ✅ |
+| `build_demo_graph` | graph.py:476 | `(cfg) -> CompiledGraph` | forecaster → hil_2 → (optimizer\|reporter) → END (Parser/Mapper/Atomizer skip) | ✅ |
+| `build_graph` | graph.py:514 | `(cfg) -> CompiledGraph` | mapper → hil_1 → atomizer → forecaster → hil_2 → (optimizer\|reporter) → END | ✅ |
+
+### state.py (303 LOC) — TypedDict 9개
+
+| TypedDict | File:Line | 역할 | T2? |
+|---|---|---|---|
+| `TimeShiftCounts` | state.py:17 | 6 시간대 분포 (morning/daytime/overtime/night/all_night/total) | — |
+| `Activity` | state.py:32 | 작업일보 시트4 매핑 단위 (44 필드, 본 cycle 16개 신규) | ✅ |
+| `BPSummary` | state.py:96 | 시트1 BP사×공종×Zone×Scope (20 필드) | — |
+| `JobAllocation` | state.py:122 | 시트2 BP사×직종×시간대 (10 필드) | — |
+| `EquipmentAllocation` | state.py:146 | 시트3 BP사×장비×시간대 (10 필드) | — |
+| `WorkerOutput` | state.py:170 | 시트6 개별 작업자 (12 필드, 업체별만) | — |
+| `ReportMeta` | state.py:193 | Cover (9 필드, 업체별만) | — |
+| `ParsedDailyReport` | state.py:207 | 1 xlsx 통합 (8 필드) | — |
+| `CPIAState` | state.py:226 | LangGraph 전체 상태 (16 필드) | ✅ |
+
+### constants.py (5 LOC)
+
+- AGENT 7 종 이름 상수 (collector / parser / mapper / atomizer / forecaster / optimizer / reporter).
 
 ---
 
 ## T2 — Issue Cards
 
-### `hil_2_node` — Forecaster 직후 risky 그룹 사전 영속 + interrupt
+### `mapper_node` — Parser → WBS 매핑 + 병렬화 + 정규화 2회
 
-- **위치**: `pipeline/graph.py:71-177` (107 LOC, 8 분기)
-- **시그니처**: `async def hil_2_node(state: CPIAState, cfg: GraphConfig) -> dict`
-- **이슈**:
-  - git log `a0a7a82` (optimizer/Task 8): `checkpointer.py InMemorySaver + graph.py hil_2/optimizer node + conditional edge` — 최초 추가
-  - git log `44ec63b` (optimizer/Task 9): `graph E2E hil_2 + Command(resume=) 4 path (slow)` — payload schema 검증 테스트 4개 추가
-  - 함수 docstring (graph.py:71-83): "Spec §8.2 (F5 정정 — coll.get 1회 + F7 정정 — None 분기). 원칙: retrieve.fetch_* 호출은 본 노드 책임 (agent.py 는 import X — 결정 #8 / Task 6 test 6.5)."
-  - 인라인 주석 `# F5: coll.get 1회 호출 후 두 함수에 metadatas/documents 전달` (line 115), `# F7: None 분기 명시` (line 124)
-  - 메타: `docs/superpowers/specs/2026-05-16-cpia-optimizer-hil2-design.md §8.2` (F5/F7 정정)
-  - `docs/audit/2026-05-17-cpia-e2e-audit-report.md:143` "graph.py:71 hil_2_node + graph.py:172 interrupt(...). 시뮬 1 raw §1.3 의 `[HIL-2 INTERRUPT] risky_groups: 2` 확인"
-- **설계 의도**:
-  - retrieve 책임 분리: `optimizer_node` 는 retrieve 재호출 금지, `hil_2_node` 가 사전에 `pre_optimizer_cases` 영속 (결정 #8). LangGraph checkpoint resume 시 Optimizer 단계가 결정론적이도록.
-  - Chroma round-trip 절감: 그룹당 `coll.get(...)` 1회만 호출 후 metadatas/documents 를 degradation/recovery 두 함수에 전달 (F5).
-  - cold_start 명시: `baseline_value is None` 또는 `main_unit is None` 일 때 `pre_cases[key]=[]` 박고 다음 그룹 (F7).
-  - risky 0건 → `interrupt` 미발생, `empty selection` 반환 → conditional_edge 가 END 분기.
-- **대응 패턴**:
-  - 발동: `state["forecast"]` 에 `risk_level in {"주의", "이상"}` row 1건 이상
-  - 입력: forecast list + cfg.optimizer
-  - 처리: 그룹별 (`company`, `l6_main`) 묶음 → Chroma 1회 조회 → `fetch_degradation_cases` + `fetch_recovery_trajectory` → preview_cases ≥ 3 인 그룹만 `risky_groups` payload 에 포함 → `interrupt({"risky_groups": ...})`
-  - 출력: `pre_optimizer_cases` + (resume 후) `hil_2_selection` + `current_node="hil_2"`
-- **관련**:
-  - 호출: `build_graph` (graph.py:251 add_node)
-  - 호출 후 분기: conditional_edge (graph.py:266-270) — `hil_2_selection` 비어있으면 END, 있으면 `optimizer`
-  - 테스트: `pipeline/tests/test_graph_e2e_hil2.py` (`test_graph_e2e_hil2_interrupt_payload:243` / `_resume_optimizer:296` / `_skip_no_risky:345` / `_resume_empty_selection:377`)
-  - 상태 필드: `pre_optimizer_cases` (state.py:126), `hil_2_selection` (state.py:125)
-- **Suspected related** (2026-05-17 stale):
-  - `agents/forecaster/agent.py:_forecast_one_group` — risk_level 산출 책임 (`classify_risk_level`)
-  - `agents/optimizer/retrieve.py:fetch_degradation_cases` / `fetch_recovery_trajectory` — hil_2_node 가 직접 호출
-  - HIL 1 (Mapper interrupt) — 미구현. 같은 interrupt+Command(resume) 패턴 그대로 재사용 후보. drift backlog #4 참조.
-
----
-
-### `optimizer_node` — Selected group 별 advice 생성 + PG insert
-
-- **위치**: `pipeline/graph.py:180-197` (18 LOC)
-- **시그니처**: `async def optimizer_node(state: CPIAState, cfg: GraphConfig) -> dict`
-- **이슈**:
-  - git log `a0a7a82` (optimizer/Task 8) 최초 추가.
-  - docstring (graph.py:180-184): "Optimizer — selected group 별 advice row 생성 + PG insert. retrieve 재호출 X. Spec §8.2 + §7. hil_2_node 가 사전 영속한 pre_optimizer_cases 만 소비."
-  - 메타: `docs/superpowers/specs/2026-05-16-cpia-optimizer-hil2-design.md §7` (optimize() 스펙), §8.2 (retrieve 책임 분리).
-- **설계 의도**:
-  - 책임 단일화: retrieve 는 hil_2_node 에서 끝, optimizer_node 는 LLM 호출 + PG insert 만.
-  - 결정론 보장: `_compute_recovery_distribution` 은 Counter 기반 deterministic 산출 (결정 #20), LLM 출력 override.
-  - `hil_2_selection` 빈 리스트 → `optimizer_advice=[]` early return.
-- **대응 패턴**:
-  - 발동: `state["hil_2_selection"]` 비어있지 않음 (conditional edge 통과)
-  - 입력: `pre_optimizer_cases[key]` (group_key in selection)
-  - 처리: cold_start (cases<3) → LLM skip / 정상 → `optimize()` 호출
-  - 출력: `optimizer_advice: list[dict]` + `current_node="optimizer"`
-- **관련**:
-  - `agents/optimizer/agent.py:optimize` — 실제 LLM 호출 + PG insert 함수
-  - 테스트: `test_graph_e2e_hil2_resume_optimizer` (test_graph_e2e_hil2.py:296)
-- **Suspected related** (2026-05-17 stale):
-  - `db.py:insert_optimizer_advice` — 영속화 endpoint
-  - JSONB falsy 보호 (`is not None` 패턴) — db.py:299-307
-
----
-
-### `mapper_node` — Parser → WBS 매핑 + `_prorate_mh`
-
-- **위치**: `pipeline/graph.py:40-54` (15 LOC)
+- **위치**: `pipeline/graph.py:48-165` (118 LOC)
 - **시그니처**: `async def mapper_node(state: CPIAState, cfg: GraphConfig) -> dict`
 - **이슈**:
-  - git log `8455dd1` (graph: Phase 1 StateGraph — mapper_node + atomizer_node 연결) 최초 추가.
-  - git log `8e153b3` (graph: forecaster_node 통합) — docstring 제거 간결화.
-  - 테스트: `pipeline/tests/test_graph_e2e.py:126 test_graph_e2e_namwong_47` — 47 row → 47 mapped activities, assigned_workers 88.0 prorated 검증.
+  - git log:
+    - `cf2a791 fix(graph): import normalize_company — close #31`
+    - `e163e1a fix(graph,scripts): POC 3사 + 정규화 타이밍 버그`
+    - `844d4c3 fix(graph,cycle): full cycle 진행 — HIL bypass + pipeline_runs + HIL2 auto-select`
+    - 이전 `03ebc3d perf(mapper): graph mapper_node 병렬화 + BP cand_pool batch fetch`
+  - 주석 (graph.py:49~59):
+    - "Parser 결과 + Parser/Mapper 산출 PG 영속."
+    - "BP cand_pool 미리 batch fetch (1 PG connection × N BP) → map_activity 안의 매 활동마다 새 PG connection 폭발 회피"
+    - "asyncio.gather + Semaphore(`CPIA_MAPPER_CONCURRENCY`, 기본 4) 로 묶어 Azure rate-limit 회피"
+  - **정규화 타이밍 fix (e163e1a)**: fetch_bp_candidates 가 정확 일치 SQL → ㈜/(주) prefix 남아있으면 cand_pool 빔 → conf=0.1
 - **설계 의도**:
-  - 두 단계 분리: ① `map_activity` 매핑 호출 → ② `_prorate_mh` (BP사 단위 인원 비례 분배) PG 호출.
-  - PG connection 생명주기 명시: `try/finally` 내에서 `pg.connect()` → `_prorate_mh()` → `pg.close()`.
+  - 병렬화 성능: 79 row → Semaphore(4) → Azure rate-limit 회피 + PG cand_pool batch (1 connection × N company)
+  - **정규화 2회**:
+    1. graph.py:67~68 — fetch_bp_candidates 전 일괄 정규화 (parsed.activities)
+    2. graph.py:145 — mapped 일괄 (방어 중복)
+  - PG 영속 5건 (G24 호출 추가):
+    - `insert_parser_report`
+    - `insert_parser_activities_batch`
+    - `insert_parser_job_allocations_batch` (G24, 이전 호출 누락 row=0)
+    - `insert_parser_equipment_allocations_batch` (G24, 이전 호출 누락 row=0)
+    - `insert_mapper_activities_batch` (33 컬럼 + alternatives)
 - **대응 패턴**:
-  - 발동: parser_node 완료, `state["parsed"]["activities"]` 존재
-  - 입력: ParsedDailyReport + cfg.mapper
-  - 처리: 각 activity 매핑 → BP 인원 분배
-  - 출력: `mapped: list[Activity]` + `current_node="mapper"`
+  - 입력: state["parsed"] (ParsedDailyReport)
+  - 처리:
+    - graph.py:67~68 — 정규화 1 (parsed.activities)
+    - graph.py:74~79 — unique_companies batch fetch_bp_candidates
+    - graph.py:82~93 — Semaphore + `asyncio.gather(map_activity, ...)`
+    - graph.py:145 — 정규화 2 (mapped)
+    - graph.py:108~152 — PG 영속 5건
+  - 출력: `{"mapped": list[Activity], "current_node": "mapper"}`
 - **관련**:
-  - `agents/mapper.py:map_activity` (mapper.py:208) — 6단계 매핑 함수
-  - `agents/mapper.py:_prorate_mh` (mapper.py:347) — 인원 비례 분배
-  - `db.py:fetch_l6_plan_mh_map` — N+1 회피 쿼리
-- **Suspected related** (2026-05-17 stale):
-  - HIL 1 자리 (mapper → hil_1 → atomizer). 현재는 mapper 직후 바로 atomizer.
+  - 호출자: build_graph mapper → hil_1
+  - 페어: mapper.py `map_activity` (mapper.py:341)
+  - 테스트: `test_graph_e2e.py` (line 96~)
+- **Suspected related** (2026-05-20):
+  - mapper.py `resolve_wa` step 1 — BP-zone deterministic 정확도 의존
+  - parser_post.py `normalize_company` — graph.py:23 import
+  - db.py 의 5 batch INSERT 함수
 
 ---
 
-### `atomizer_node` — Chroma daily_activities 적재
+### `hil_1_node` — Mapper 검토 interrupt + AUTO_BYPASS env
 
-- **위치**: `pipeline/graph.py:57-61` (5 LOC)
-- **시그니처**: `async def atomizer_node(state: CPIAState, cfg: GraphConfig) -> dict`
-- **이슈**:
-  - git log `8455dd1` (graph: Phase 1 StateGraph) 최초 추가.
-  - 테스트 `test_graph_e2e_namwong_47`: atomized_ids 11건 (남웅 47 row → dedup 11)
-- **설계 의도**:
-  - 단순 래퍼: `agents/atomizer.py:atomize` 호출 + `atomized_ids` 반환.
-  - state 의 `parsed.report_date` 와 `run_id` 를 atomize 에 전달.
-- **대응 패턴**:
-  - 발동: mapper_node 완료, `state["mapped"]` 존재
-  - 입력: mapped list + parsed (report_date 추출용) + cfg.atomizer
-  - 처리: dedup + Azure embedding batch + Chroma upsert + PG `update_run_atomized_count`
-  - 출력: `atomized_ids: list[str]` + `current_node="atomizer"`
-- **관련**:
-  - `agents/atomizer.py:atomize` (atomizer.py:62) — 본체
-  - `db.py:assert_pipeline_run_exists` (db.py:127) — fail-fast 보호
-- **Suspected related** (2026-05-17 stale): 없음.
-
----
-
-### `forecaster_node` — 생산성 진단
-
-- **위치**: `pipeline/graph.py:64-68` (5 LOC)
-- **시그니처**: `async def forecaster_node(state: CPIAState, cfg: GraphConfig) -> dict`
-- **이슈**:
-  - git log `8e153b3` (graph: forecaster_node 통합) 최초 추가.
-  - git log `b9d0d80` (graph: date import alias — date shadowing 정리 권고 #6) — `_date.fromisoformat` 으로 변경.
-  - 테스트 `test_graph_e2e_namwong_47`: forecast 1건 (남웅|철근콘크리트공사), `risk_level in {"정상","주의","이상",None}` 검증.
-- **설계 의도**:
-  - 단순 래퍼: `agents/forecaster/agent.py:forecast` 호출.
-  - date import shadowing 회피 위해 `from datetime import date as _date` 별칭.
-- **대응 패턴**:
-  - 발동: atomizer_node 완료, `state["mapped"]` 존재
-  - 입력: mapped list + run_id + today + cfg.forecaster
-  - 처리: 그룹별 진단 (RAG 우선 + Plan fallback + cold_start)
-  - 출력: `forecast: list[dict]` + `current_node="forecaster"`
-- **관련**:
-  - `agents/forecaster/agent.py:forecast` (agent.py:229) — entry
-- **Suspected related** (2026-05-17 stale):
-  - audit drift #2 (assessment "정상" bias) — `classify_assessment` 결정 path 추적 시 본 노드 출발.
-
----
-
-### `build_graph` — StateGraph 조립 (mapper → atomizer → forecaster → hil_2 → [optimizer\|END])
-
-- **위치**: `pipeline/graph.py:233-272` (40 LOC)
-- **시그니처**: `def build_graph(cfg: GraphConfig) -> CompiledGraph`
-- **이슈**:
-  - git log `8455dd1` (Phase 1: mapper → atomizer → END) 최초.
-  - git log `8e153b3` (forecaster 추가) — atomizer → forecaster.
-  - git log `a0a7a82` (optimizer/Task 8) — hil_2 + optimizer + conditional_edge 추가.
-  - docstring (graph.py:233-239): 5 단계 + conditional_edges 명시.
-  - 테스트 `test_graph_e2e_namwong_47` — `risk_level in {"주의","이상"}` → `__interrupt__` 발생 확인, 아니면 END 분기 확인.
-- **설계 의도**:
-  - 진화형 조립: Phase 1(mapper+atomizer) → +forecaster → +hil_2/optimizer. 매 commit 마다 추가만 (기존 edge 보존).
-  - conditional edge 1개: `hil_2 → optimizer | END` — `hil_2_selection` 비어있음 = risky 0건 OR PM 무선택.
-- **대응 패턴**:
-  - 발동: FastAPI `/run` 또는 CLI 진입 (현재 entry point 미구현 — `pipeline/main.py` / `pipeline/api.py` 0 byte)
-  - 입력: GraphConfig (4 sub-config)
-  - 처리: StateGraph 노드 5개 + edge 4개 + conditional_edge 1개 등록 후 `compile(checkpointer=build_checkpointer())`
-  - 출력: CompiledGraph
-- **관련**:
-  - `build_demo_graph` (graph.py:200) — 자매 함수 (Parser/Mapper/Atomizer skip 데모)
-  - `build_checkpointer` (checkpointer.py:13)
-- **Suspected related** (2026-05-17 stale):
-  - HIL 1 추가 자리 (mapper → hil_1 → atomizer). drift backlog #4 진입 시 본 함수에서 노드 +1, edge 1개 split.
-
----
-
-### `build_demo_graph` — Parser/Mapper/Atomizer skip 데모 graph
-
-- **위치**: `pipeline/graph.py:200-230` (31 LOC)
-- **시그니처**: `def build_demo_graph(cfg: GraphConfig) -> CompiledGraph`
-- **이슈**:
-  - git log `ba5d274` (optimizer/Task 11: synthetic_daily_report + build_demo_graph + CLI). 최초.
-  - docstring (graph.py:200-206): "데모 graph — START → forecaster → hil_2 → (optimizer | END) → END. Spec §10.3. Parser/Mapper/Atomizer skip — state['mapped'] 에 가짜 Activity list 사전 주입 가정 (LLM 비용 회피). build_graph 와 별도 (기존 graph 영향 X)."
-- **설계 의도**:
-  - 비용 회피: Parser/Mapper LLM 호출 ($0.02/run 매핑) 없이 hil_2/Optimizer 흐름만 시연.
-  - `synthetic_daily_report.py` CLI + `test_synthetic_daily_report.py` E2E 가 진입점.
-  - `build_graph` 와 완전 분리 — 기존 그래프 변경 없이 추가.
-- **대응 패턴**:
-  - 발동: synthetic_daily_report CLI 또는 test
-  - 입력: `state["mapped"]` 에 가짜 Activity 사전 주입된 GraphConfig
-  - 처리: forecaster → hil_2 → conditional → optimizer 또는 END
-  - 출력: CompiledGraph (별도 checkpointer 인스턴스)
-- **관련**:
-  - `agents/optimizer/synthetic_daily_report.py:_main_cli` — CLI 엔트리
-  - `pipeline/tests/optimizer/test_synthetic_daily_report.py` — E2E
-- **Suspected related** (2026-05-17 stale):
-  - audit drift #3 (synthetic fixture productivity_ratio bug) — 본 데모 graph 의 입력이 synthetic_daily_report.
-
----
-
-### `CPIAState` — LangGraph 전체 상태 TypedDict
-
-- **위치**: `pipeline/state.py:106-137` (32 LOC)
-- **시그니처**: `class CPIAState(TypedDict)` — 17 필드
-- **이슈**:
-  - 주석 (state.py:124): `# optimizer cycle Task 1 (v3.1) — 3 필드 (hil_2 / Optimizer 데이터 계약)` — `hil_2_selection`, `pre_optimizer_cases`, `optimizer_advice` 추가 이력.
-  - CLAUDE.md "Phase 0 — 코드 전에 둘이 함께 결정할 것" 명시: state.py 는 Agent 간 공유 데이터 구조, 합의 후 노드 코드 작성 게이트.
-  - `docs/schema/state.md` 가 페어 문서 (자료 없음 — 파일은 있으나 본 cycle 미참조).
-- **설계 의도**:
-  - 누적식 상태: 각 node 가 `current_node` + 새 필드만 add (LangGraph reducer 패턴).
-  - HIL 1 + HIL 2 자리 명시: `hil_1_corrections: dict` (line 118), `hil_2_selection: list[str]` (line 125). HIL 1 은 필드만 정의되어 있고 set 되는 코드 없음.
-  - `status: Literal["running","waiting_hil_1","waiting_hil_2","completed","failed"]` (line 131-137) — 5 상태값 정의. `waiting_hil_1` 값은 정의만 있고 명시적 전환 코드 미확인.
-- **대응 패턴**:
-  - 발동: 모든 노드 입력/출력 시그니처에 박혀 있음
-  - 입력: 노드별 add 필드 (return dict)
-  - 처리: LangGraph reducer 가 merge
-  - 출력: 누적 dict
-- **관련**:
-  - 모든 node 시그니처 (`async def X(state: CPIAState, cfg: ...) -> dict`)
-- **Suspected related** (2026-05-17 stale):
-  - HIL 1 미구현 — `hil_1_corrections` 필드는 있으나 mapper.py 에서 set 하는 코드 없음, graph.py 에 hil_1_node 부재. drift backlog #4.
-
----
-
-### `build_checkpointer` — Phase 1 PoC InMemorySaver
-
-- **위치**: `pipeline/checkpointer.py:13-18` (8 LOC)
-- **시그니처**: `def build_checkpointer() -> InMemorySaver`
-- **이슈**:
-  - git log `a0a7a82` (optimizer/Task 8) 최초 추가.
-  - docstring: "Phase 1 PoC checkpointer — InMemorySaver. interrupt + Command(resume=...) cycle 지원에 필요한 thread-local 상태 저장소."
-  - 메타: `docs/superpowers/specs/2026-05-16-cpia-optimizer-hil2-design.md §8.1` — "InMemorySaver (Phase 1) → PostgresSaver (prod, Reporter cycle 또는 통합)".
-  - 파일 상단 주석 (checkpointer.py:1-5): "prod (Reporter cycle 또는 통합 cycle): PostgresSaver 전환".
-- **설계 의도**:
-  - PoC 단순화: thread_id 만으로 인터럽트/resume 동작하면 충분, 진짜 영속성은 prod 전환 시점에 PostgresSaver.
-  - CLAUDE.md 아키텍처 도식의 `checkpoints` 테이블은 LangGraph PostgresSaver 가 auto-manage 한다는 약속 — 현재는 미작동.
-- **대응 패턴**:
-  - 발동: `build_graph` / `build_demo_graph` 가 compile 시 호출
-  - 입력: 없음
-  - 처리: `InMemorySaver()` 인스턴스 생성
-  - 출력: checkpointer
-- **관련**:
-  - `graph.py:230` (build_demo_graph compile)
-  - `graph.py:272` (build_graph compile)
-- **Suspected related** (2026-05-17 stale):
-  - Reporter cycle 진입 시 PostgresSaver 전환. drift backlog #1.
-  - `docs/schema/postgres.md:checkpoints` 테이블 — 현재 dead schema (LangGraph PostgresSaver 미활성).
-
----
-
-## 2026-05-17 hil1-forecaster-reporter cycle 변경 (Git SHA d57b0c5)
-
-### T1 신규 함수 5
-
-| Function/Class | File:Line | Signature | One-line role | T2? |
-|---|---|---|---|---|
-| `_build_review_needed` | graph.py:57 | `(mapped) -> list[dict]` | requires_review=True 인 Activity payload 빌더 (8 키: idx + work_content + company + trade + wa + l6_main + mapping_conf + mapping_source) | ✅ |
-| `_apply_corrections` | graph.py:78 | `(mapped, corrections) -> list[Activity]` | corrections (idx→{wa, l6_main}) 적용 — 답한 row 정정 + 답 안 한 row Mapper 추천 수용 | ✅ |
-| `hil_1_node` | graph.py:113 | `async (state, cfg) -> dict` | Mapper 결과 사람 검토 interrupt + PG mapping_corrections 영속 | ✅ |
-| `reporter_node` | graph.py:311 | `async (state, cfg) -> dict` | Mapper+Forecaster+Optimizer 종합 보고서 생성 + PG daily_reports INSERT | ✅ |
-| `_LazyAsyncPostgresSaver` | checkpointer.py:30 | class (AsyncPostgresSaver 상속) | AsyncConnectionPool lazy open wrapper — 첫 async method 호출 시 await pool.open() | ✅ |
-
-`GraphConfig` 에 `reporter: ReporterConfig` 필드 추가 (graph.py:39). `build_graph` + `build_demo_graph` edges 변경:
-- mapper → hil_1 → atomizer (기존 mapper → atomizer)
-- hil_2 conditional → optimizer | reporter (기존 optimizer | END)
-- optimizer → reporter (기존 optimizer → END)
-- reporter → END (신규)
-
-`build_checkpointer` 기존 InMemorySaver → `_LazyAsyncPostgresSaver` (POSTGRES_URL 있고 CPIA_CHECKPOINTER!="memory" 시). 두 fallback 분기 유지.
-
----
-
-### T2 신규 카드
-
-#### `hil_1_node` — Mapper 결과 사람 검토 interrupt
-
-- **위치**: `pipeline/graph.py:113-167` (55 LOC, 분기 3)
+- **위치**: `pipeline/graph.py:224-289` (66 LOC)
 - **시그니처**: `async def hil_1_node(state: CPIAState, cfg) -> dict`
 - **이슈**:
-  - git log `1bb78fb` (feat(hil_1): Mapper 결과 사람 검토 + PG mapping_corrections 영속) — 본 cycle 신규.
-  - spec `docs/superpowers/specs/2026-05-17-cpia-hil1-forecaster-reporter-design.md §5.1` — 의도적 drift = CLI 인터랙티브 (PM 원안 v2 Dashboard Modal 회피).
-  - drift backlog: #4 (PoC 성공 기준 #2 직접 미충족 — 본 commit 으로 해소).
-  - 코드 주석 (graph.py:113-117): "Mapper 결과 사람 검토. requires_review=True 가 1건 이상이면 interrupt. Spec §5.1. cfg = GraphConfig (PG INSERT 용 postgres_url 추출, cfg=None 이면 PG insert skip — unit 테스트 path)."
-  - LangGraph 패턴 fact (commit msg `1bb78fb`): "LangGraph multi-resume 검사 fix — Command(resume=dict) 의 key 는 str 필수 (int → TypeError). hil_1_node 가 int(k) 변환 처리." (drift #N5)
+  - git log:
+    - `1bb78fb feat(hil_1): Mapper 결과 사람 검토 + PG mapping_corrections 영속`
+    - `844d4c3 fix(graph,cycle): full cycle 진행 — HIL bypass` (2026-05-20)
+  - 주석 (graph.py:225~232):
+    - "Mapper 결과 사람 검토. requires_review=True가 1건 이상이면 interrupt"
+    - "cfg = GraphConfig (cfg=None 이면 PG insert skip — unit 테스트 path)"
+    - "env CPIA_HIL_AUTO_BYPASS={1|true|on} → review_needed 가 있어도 interrupt 건너뛰고 빈 corrections 로 통과 (dev/검증 모드 — atomizer/forecaster 진행 위해)"
 - **설계 의도**:
-  - hil_2_node 패턴 차용 (interrupt + Command(resume=)) — graph.py:hil_2_node 의 risky_groups payload 와 대칭.
-  - review_needed 빈 list → interrupt 미발생 (자동 통과) — 100% confidence row 인 경우 효율.
-  - 답 안 한 row 처리: Mapper 추천 그대로 수용 + `mapping_source="user_corrected"` 박음 → "no decision = approve" 의미 (PoC 기본, 재시도 옵션은 후속 cycle).
-  - PG 영속: 사용자 정정 row 마다 1 INSERT — 다음 run 진입 시 자가 학습 데이터 (postgres.md:311 의도).
-  - cfg=None 분기: unit 테스트가 LangGraph runtime 없이 호출 가능 (review_needed=빈 list path).
+  - interrupt pattern (spec §5.1):
+    - `interrupt({"review_needed": review_needed})` → 외부 user/PM input
+    - `Command(resume=corrections)` → corrections_raw = {} 안전 처리
+    - corrections key (int) ← str 변환 (LangGraph Command resume key int → str 룰, issue #N5)
+  - **AUTO_BYPASS env (844d4c3)**: cycle1~4 의 interrupt 무한 루프 (resume={} → re-raise) 해결 — dev/검증 path
+  - PG insert 조건: `cfg is not None and corrections` (Unit test + AUTO_BYPASS 시 PG INSERT skip)
 - **대응 패턴**:
-  - 발동: `graph.add_edge("mapper", "hil_1")` 후 mapper_node 종료 시
-  - 입력: state.mapped (Mapper 출력) + cfg (PG URL 용)
-  - 처리: `_build_review_needed` → 빈 list 시 즉시 return / 1+ 시 `interrupt({"review_needed": [...]})` → corrections_raw dict → int(k) 변환 → `_apply_corrections` → cfg.mapper.postgres_url 로 PGClient connect → corrections idx 마다 insert_mapping_correction → close
-  - 출력: `{"mapped": corrected, "hil_1_corrections": corrections, "current_node": "hil_1"}`
+  - 입력: state["mapped"]
+  - 처리:
+    - `_build_review_needed` (graph.py:168) — requires_review=True 9 필드 추출
+    - AUTO_BYPASS 체크 (graph.py:238~246)
+    - `interrupt(...)` → `Command(resume=...)`
+    - `_apply_corrections` (graph.py:189) — corrections 적용
+    - `cfg.pg.insert_mapping_correction` 반복 (corrections per row)
+  - 출력: `{"mapped": [...corrected], "hil_1_corrections": corrections, "current_node": "hil_1"}`
 - **관련**:
-  - 내부 헬퍼: `_build_review_needed` + `_apply_corrections`
-  - PG INSERT: `db.py:insert_mapping_correction`
-  - LangGraph: `from langgraph.types import Command, interrupt` (graph.py:15)
-  - 테스트: `tests/test_graph_hil1.py` (unit 3) + `tests/test_graph_e2e_hil1.py` (e2e 2 slow)
-  - 차용 패턴: `hil_2_node` 의 `selected = interrupt({"risky_groups": payload_groups})`
-- **Suspected related** (2026-05-17 stale):
-  - `hil_2_node` — 동일 interrupt/resume 패턴. 향후 _common_interrupt helper 추출 후보 (low priority).
-  - B_Track Dashboard `MappingReviewModal.tsx` — CLI 인터랙티브 의도적 drift. 통합 cycle 진입 시 채널 교체.
-
-#### `reporter_node` — Mapper+Forecaster+Optimizer 종합 보고서 생성
-
-- **위치**: `pipeline/graph.py:311-328` (18 LOC, 분기 1)
-- **시그니처**: `async def reporter_node(state: CPIAState, cfg: GraphConfig) -> dict`
-- **이슈**:
-  - git log `22d44c2` (feat(reporter): Mapper+Forecaster+Optimizer 종합 보고서 + PG daily_reports) — 본 cycle 신규.
-  - spec `§5.3` — 의도적 drift = Optimizer 다음 + 종합 1 종 (PM 원안 v2 = Atomizer 다음 병렬 + 사내/발주처 2 종).
-- **설계 의도**:
-  - 얇은 wrapper — 실 로직은 `reporter.report` (별 파일). graph 노드 = run_id/today 변환 + state 추출 + report() 호출.
-  - hil_2 conditional 의 양 분기 합류 — selection=[] 시에도 진입 (mapped=빈 인 cold_start path 도 fallback MD).
-- **대응 패턴**:
-  - 발동: optimizer → reporter (selection 있음) 또는 hil_2 → reporter (selection 없음) conditional_edge
-  - 입력: state.mapped + state.forecast + state.optimizer_advice + state.run_id + state.date + cfg.reporter
-  - 처리: run_id UUID 변환 → today date 변환 → `reporter.report(...)` 호출 → report_md 반환
-  - 출력: `{"report_md": report_md, "current_node": "reporter"}`
-- **관련**: [reporter 카드](./design_intent_reporter.md) (실 로직 + LLM call + PG INSERT 상세)
-
-#### `_LazyAsyncPostgresSaver` — AsyncPostgresSaver lazy pool open wrapper
-
-- **위치**: `pipeline/checkpointer.py:30-79` (50 LOC, 분기 1 lazy)
-- **시그니처**: `class _LazyAsyncPostgresSaver(AsyncPostgresSaver): def __init__(self, postgres_url: str)`
-- **이슈**:
-  - git log `41908f6` (feat(checkpointer): InMemorySaver → AsyncPostgresSaver 전환 + memory fallback) — 본 cycle 신규.
-  - design-intent O-6 권고: "Reporter cycle 또는 통합 cycle 진입 시 PostgresSaver 전환" — 본 cycle 흡수.
-  - 기술 결정 (commit msg `41908f6`):
-    - "PostgresSaver (sync) 는 graph.ainvoke 의 aget_tuple 등 async method 호출 시 NotImplementedError → AsyncPostgresSaver 사용 필수."
-    - "AsyncConnectionPool 은 sync __init__ 안에서 await pool.open() 호출 불가 → _LazyAsyncPostgresSaver 가 첫 async method 호출 (graph.ainvoke 안) 에서 자동 pool.open() 처리."
-    - "LangGraph 의 isinstance(checkpointer, BaseCheckpointSaver) 검사 통과를 위해 wrapper 가 AsyncPostgresSaver 상속."
-- **설계 의도**:
-  - 3 제약 동시 충족:
-    - LangGraph async graph (ainvoke) → AsyncPostgresSaver
-    - AsyncConnectionPool open=False (sync __init__ 안에서 async open 불가)
-    - LangGraph BaseCheckpointSaver isinstance 검사 통과
-  - 첫 async method 호출 시 lazy open (단 1회) — `self._opened` flag.
-  - 5 method override: aput / aget_tuple / aput_writes / alist / aget (LangGraph 가 호출하는 async method 전부).
-  - `autocommit=True` kwargs — checkpoint INSERT 별 transaction 자동 commit (별 transaction 안 진입).
-- **대응 패턴**:
-  - 발동: `build_checkpointer()` 가 `CPIA_CHECKPOINTER!="memory"` + `POSTGRES_URL` 존재 시 반환
-  - 입력: postgres_url str
-  - 처리: AsyncConnectionPool 생성 (open=False, max_size=10) → super().__init__(pool) → 첫 async method 호출 시 `_ensure_open` → `await self._lazy_pool.open()` → super().aXXX delegate
-  - 출력: AsyncPostgresSaver-compatible 객체
-- **관련**:
-  - 호출자: `build_checkpointer:80` (graph.py:build_graph / build_demo_graph 가 사용)
-  - 의존성: `pyproject.toml` 의 `langgraph-checkpoint-postgres>=2.0.0` + `psycopg[binary]` (uv add 2 패키지)
-  - PG 테이블 4 자동 생성: checkpoints + checkpoint_writes + checkpoint_blobs + checkpoint_migrations
-  - 테스트: `tests/test_checkpointer.py` 3건 (postgres default + memory fallback + no POSTGRES_URL fallback)
-- **Suspected related** (2026-05-17 stale):
-  - 본 wrapper 는 본 cycle 종결 후 production 진입점 (main.py / api.py — 현재 0 byte stub) 에서 lifecycle 관리 권장.
-  - drift backlog #N5 LangGraph Command(resume=dict) int key TypeError — 본 wrapper 와 무관 (interrupt payload 변환 룰, hil_1_node 가 처리).
-
-#### `_build_review_needed` + `_apply_corrections` — hil_1_node 분리 헬퍼
-
-- **위치**: graph.py:57-76 + graph.py:78-111 (각 20/34 LOC, pure functions)
-- **시그니처**:
-  - `def _build_review_needed(mapped: list[Activity]) -> list[dict]`
-  - `def _apply_corrections(mapped: list[Activity], corrections: dict[int, dict]) -> list[Activity]`
-- **이슈**: hil_1_node 분리 헬퍼 — unit 테스트 단순 호출 위해 (state/cfg 무관). spec §5.1 #6 의 "답 안 한 row 는 Mapper 추천 수용" 룰 명시.
-- **설계 의도**:
-  - pure function — unit 테스트 단순 호출, LangGraph runtime 의존 X.
-  - `_apply_corrections` 3 path 분기 — (a) requires_review=False 변경 X, (b) requires_review=True + corrections 있음 → 사용자 정정, (c) requires_review=True + corrections 없음 → Mapper 추천 수용. 모두 `mapping_source="user_corrected"` + `requires_review=False` 마킹.
-- **대응 패턴**: 호출자 = `hil_1_node`. 테스트 = `tests/test_graph_hil1.py::test_hil_1_node_review_needed_filter` + `::test_hil_1_node_apply_corrections`.
+  - 호출자: build_graph mapper → hil_1 → atomizer
+  - 테스트: `test_graph_hil1.py`, `test_graph_e2e_hil1.py`
+  - PG: `insert_mapping_correction` (db.py:370)
+- **Suspected related** (2026-05-20):
+  - `_build_review_needed` (graph.py:168) — interrupt payload 빌드
+  - `_apply_corrections` (graph.py:189) — corrections 적용
 
 ---
 
-## 2026-05-19 FE↔BE 연결 + 6 BE 적재 보완 cycle (Git SHA cf3c143, PR #28)
+### `hil_2_node` — risky 그룹 사전 영속 + F5/F7 정정 + interrupt
 
-### T1 갱신 (기존 mapper_node / reporter_node 행 노트 추가)
+- **위치**: `pipeline/graph.py:306-412` (107 LOC)
+- **시그니처**: `async def hil_2_node(state: CPIAState, cfg: GraphConfig) -> dict`
+- **이슈**:
+  - 주석 (graph.py:307~318):
+    - "Forecaster 직후 — risky (주의/이상) 그룹별 degradation + recovery 사전 영속 + interrupt"
+    - "Spec §8.2 (F5 정정 — coll.get 1회 + F7 정정 — None 분기)"
+    - "retrieve.fetch_* 호출은 본 노드 책임 (agent.py 는 import X — 결정 #8 / Task 6 test 6.5)"
+    - "Chroma coll.get(...) 그룹당 1회만 호출 후 metadatas/documents 두 함수 (degradation/recovery) 에 전달 (round-trip 절감)"
+    - "baseline None 또는 main_unit None 일 때 cold_start signal payload 박고 다음 그룹"
+- **설계 의도**:
+  - F5 정정: Chroma `coll.get()` 그룹당 1회만 호출 → metadatas + documents 를 `fetch_degradation_cases` + `fetch_recovery_trajectory` 두 함수에 전달 (round-trip 절감)
+  - F7 정정 (graph.py:358~371): baseline_value=None → `pre_cases[key]=[]` + cold_start_no_baseline signal payload
+  - resume payload: `Command(resume=[group_key, ...])` — selection list 직접
+  - risky 0건 → interrupt 미발생, empty selection 반환 → conditional_edge 가 reporter 분기
+  - **844d4c3 HIL2 auto-select**: `scripts/run_one_cycle.py` 에서 risky_groups 모든 key 를 selection 으로 채움
+- **대응 패턴**:
+  - 입력: state["forecast"] (risky 분류 포함)
+  - 처리:
+    - risky 그룹 iterate
+    - Chroma `coll.get()` 1회 호출 (F5)
+    - `_group_baseline` → None 분기 (F7) → cold_start payload
+    - `fetch_degradation_cases` + `fetch_recovery_trajectory` (각 case 마다)
+    - `pre_cases[key] = [...]`
+    - `interrupt({"risky_groups": [{key, preview_cases, ...}]})` → `selected = ... or []`
+  - 출력: `{"hil_2_selection": [keys], "pre_optimizer_cases": dict, "current_node": "hil_2"}`
+- **관련**:
+  - 호출자: build_graph forecaster → hil_2 → (optimizer | reporter)
+  - 페어: retrieve.py `fetch_degradation_cases` + `fetch_recovery_trajectory`
+  - 테스트: `test_graph_e2e_hil2.py` 4 path (interrupt_payload / resume_optimizer / skip_no_risky / resume_empty_selection)
+- **Suspected related** (2026-05-20):
+  - optimizer/agent.py `optimize` — `pre_optimizer_cases` 재활용 (결정 #8)
+  - run_one_cycle.py — HIL2 auto-select 로직
 
-| Function/Class | File:Line (변경 후) | 본 cycle 노트 |
+---
+
+### `reporter_node` — 종합 보고서 + G8/G2 + site_id PG fallback
+
+- **위치**: `pipeline/graph.py:435-473` (39 LOC)
+- **시그니처**: `async def reporter_node(state: CPIAState, cfg: GraphConfig) -> dict`
+- **이슈**:
+  - git log: `22d44c2 feat(reporter): Mapper+Forecaster+Optimizer 종합 보고서 + PG daily_reports`
+  - 주석 (graph.py:436~450):
+    - "Mapper + Forecaster + Optimizer 결과 종합 보고서 생성 + PG INSERT"
+    - "hil_2_selection=[] (Optimizer skip) 또는 risky 0건 path 에서도 본 노드 진입"
+    - "mapped empty → fallback MD + PG INSERT skip"
+- **설계 의도**:
+  - 최종 노드 — 모든 cycle 종료 (build_graph + build_demo_graph 둘 다)
+  - **G8 sites.last_run_id 갱신** + **G2 hours_saved_cum 누적** ((120-5)/60 × atomized_count 시간)
+  - **state.site_id PG fallback** (graph.py:458~462): state.site_id 없으면 pipeline_runs 에서 fetch
+- **대응 패턴**:
+  - 입력: state["mapped"] + state["forecast"] + state["optimizer_advice"]
+  - 처리:
+    - reporter.py `report()` → report_md + summary
+    - PG: `insert_daily_report` (db.py:405)
+    - site_id PG fallback (state.get("site_id") 없으면 `SELECT site_id FROM pipeline_runs WHERE run_id=$1`)
+    - `update_site_last_run` (G8) + `update_site_hours_saved_cum` (G2, atomized_count 기반)
+  - 출력: `{"report_md": "...", "current_node": "reporter", "status": "completed"}`
+- **관련**:
+  - 호출자: optimizer | hil_2 → reporter → END
+  - 페어: reporter.py `report`
+  - PG: db.py `insert_daily_report` / `update_site_last_run` / `update_site_hours_saved_cum`
+- **Suspected related** (2026-05-19):
+  - optimizer.view_builder — daily_reports JSONB view 8개 사전 적재
+  - db.py `upsert_daily_report_view_col` — view jsonb 적재 페어
+
+---
+
+### `optimizer_node` — Selected group advice (selection 비어있으면 skip)
+
+- **위치**: `pipeline/graph.py:415-433` (19 LOC)
+- **시그니처**: `async def optimizer_node(state: CPIAState, cfg: GraphConfig) -> dict`
+- **이슈**:
+  - 결정 #8 (spec): retrieve 책임은 hil_2_node, optimize 는 LLM 만
+- **설계 의도**:
+  - conditional_edge 가 hil_2_selection 비어있으면 reporter 직진 → 본 노드 진입 자체 X
+  - 진입 시 pre_optimizer_cases 재활용 (retrieve 재호출 X)
+- **대응 패턴**:
+  - 입력: state["forecast"] + state["hil_2_selection"] + state["pre_optimizer_cases"]
+  - 처리: optimizer.agent `optimize()` 호출
+  - 출력: `{"optimizer_advice": [...], "current_node": "optimizer"}`
+- **관련**:
+  - 호출자: build_graph hil_2 → optimizer (conditional)
+  - 페어: optimizer/agent.py `optimize`
+- **Suspected related**:
+  - hil_2_node — pre_optimizer_cases 의 source
+
+---
+
+### `forecaster_node` — RAG + Plan fallback 진단
+
+- **위치**: `pipeline/graph.py:299-304` (6 LOC)
+- **시그니처**: `async def forecaster_node(state: CPIAState, cfg: GraphConfig) -> dict`
+- **설계 의도**:
+  - 그룹별 (company, l6_main) 생산성 진단
+  - RAG (Chroma daily_activities) 우선, 부족 시 Plan fallback (PG forecasts)
+- **대응 패턴**:
+  - 입력: state["mapped"] (atomizer 결과 idempotent)
+  - 처리: forecaster.agent `forecast()` 호출
+  - 출력: `{"forecast": [...], "current_node": "forecaster"}`
+- **관련**:
+  - 호출자: build_graph atomizer → forecaster → hil_2
+- **Suspected related**:
+  - hil_2_node — risky 분류 input
+
+---
+
+### `atomizer_node` — Chroma daily_activities INSERT + ID 반환
+
+- **위치**: `pipeline/graph.py:292-297` (6 LOC)
+- **시그니처**: `async def atomizer_node(state: CPIAState, cfg: GraphConfig) -> dict`
+- **설계 의도**:
+  - 임베딩만 (LLM 호출 X)
+  - 멱등성 dedupe — deterministic hash (결정 #N3 cycle drift 기록, 본 cycle 정상)
+- **대응 패턴**:
+  - 출력: `{"atomized_ids": [...], "current_node": "atomizer"}`
+- **관련**:
+  - 호출자: build_graph hil_1 → atomizer → forecaster
+- **Suspected related**:
+  - reporter_node — atomized_count 기반 G2 산식
+
+---
+
+### `build_graph` — production topology
+
+- **위치**: `pipeline/graph.py:514-562` (49 LOC)
+- **시그니처**: `def build_graph(cfg: GraphConfig) -> CompiledGraph`
+- **이슈**:
+  - 신규 노드 추가 (hil_1 + reporter)
+  - conditional_edges (hil_2 → optimizer | reporter)
+- **설계 의도**:
+  - **topology**:
+    ```
+    START → mapper → hil_1 → atomizer → forecaster → hil_2
+      → (optimizer | reporter)
+      → reporter → END
+    ```
+  - conditional_edge (graph.py:556~560):
+    ```python
+    lambda s: "optimizer" if s.get("hil_2_selection") else "reporter"
+    ```
+- **대응 패턴**:
+  - 입력: cfg (GraphConfig)
+  - 처리: StateGraph add_node × 7 + add_edge × 6 + add_conditional_edges × 1 → compile
+  - 출력: CompiledGraph (checkpointer 포함)
+- **관련**:
+  - 호출자: scripts/run_one_cycle.py, FastAPI api.py
+  - 페어: `build_demo_graph` (graph.py:476)
+- **Suspected related**:
+  - 모든 7 node 함수
+
+---
+
+### `build_demo_graph` — Parser/Mapper/Atomizer skip (synthetic CLI 용)
+
+- **위치**: `pipeline/graph.py:476-512` (37 LOC)
+- **시그니처**: `def build_demo_graph(cfg: GraphConfig) -> CompiledGraph`
+- **설계 의도**:
+  - topology: `forecaster → hil_2 → (optimizer | reporter) → END`
+  - state["mapped"] 사전 주입 가정 (synthetic_daily_report.py CLI 또는 test fixture)
+  - 데모/PoC 빠른 시연 path
+- **대응 패턴**:
+  - 출력: CompiledGraph (3 노드만)
+- **관련**:
+  - 호출자: `synthetic_daily_report.py` CLI
+  - 페어: `build_graph` (production)
+- **Suspected related**:
+  - optimizer/synthetic_daily_report.py — 본 함수의 유일한 호출자 (test 외)
+
+---
+
+### `_build_review_needed` — interrupt payload 9 필드
+
+- **위치**: `pipeline/graph.py:168-187` (20 LOC)
+- **시그니처**: `def _build_review_needed(mapped: list[Activity]) -> list[dict]`
+- **설계 의도**:
+  - requires_review=True 행 만 9 필드 (idx, work_content, company, trade, wa, l6_main, mapping_conf, mapping_source, ...) extraction
+  - FE review modal 의 input 최소화 (Activity 44 필드 중 9개만)
+- **대응 패턴**:
+  - 입력: mapped (Activity list)
+  - 처리: filter (requires_review=True) → 9 필드 dict 변환
+  - 출력: list[dict]
+- **관련**:
+  - 호출자: hil_1_node (graph.py:224)
+- **Suspected related**:
+  - `_apply_corrections` — 본 함수와 페어
+
+---
+
+### `_apply_corrections` — corrections 적용 + metadata 갱신
+
+- **위치**: `pipeline/graph.py:189-222` (34 LOC)
+- **시그니처**: `def _apply_corrections(mapped: list[Activity], corrections: dict[int, dict]) -> list[Activity]`
+- **설계 의도**:
+  - HIL 1 corrections 적용 — mapping_source="user_corrected" + requires_review=False 강제
+  - 답 안 한 row 는 Mapper 추천 그대로 수용
+- **대응 패턴**:
+  - 입력: mapped + corrections (dict[int, dict])
+  - 처리: iterate corrections → Activity 의 wa/l6_main/source/review 갱신
+  - 출력: list[Activity]
+- **관련**:
+  - 호출자: hil_1_node
+- **Suspected related**:
+  - `_build_review_needed` — 본 함수의 input 원천
+
+---
+
+### `CPIAState` — LangGraph 전체 상태 (16 필드)
+
+- **위치**: `pipeline/state.py:226-259` (34 LOC)
+- **시그니처**: `class CPIAState(TypedDict)`
+- **이슈**:
+  - state.py 137 → 303 LOC (Activity 16 필드 신규 + TimeShiftCounts 등)
+- **설계 의도**:
+  - **입력**: run_id, date, input_files, site_id (PG fallback 용)
+  - **누적**: raw_texts, parsed, mapped, hil_1_corrections, atomized_ids
+  - **분기**: report_md, forecast, hil_2_selection, pre_optimizer_cases, optimizer_advice
+  - **상태 추적**: current_node, status ∈ {running, waiting_hil_1, waiting_hil_2, completed, failed}
+- **관련**:
+  - 모든 노드의 입출력
+  - PostgresSaver thread_id 영속 (checkpointer)
+- **Suspected related**:
+  - `Activity` (state.py:32) — mapped/parsed 의 element type
+  - `ParsedDailyReport` — parsed 필드 타입
+
+---
+
+### `Activity` — 작업일보 시트4 매핑 단위 (44 필드)
+
+- **위치**: `pipeline/state.py:32-94` (63 LOC)
+- **이슈**:
+  - 2026-05-19 cycle 16 신규 필드: zone, bp_code, scope, yesterday_cum_qty, today_cum_qty, progress_percent, remaining_qty, remaining_percent, note, work_location_code, wbs_mid_name, wbs_sub_name, wbs_detail_name 등
+  - PoC 제약 (issue #N11): wbs_activity_id / l7_sub / l7_5_activity / sub_work_area 항상 None (Master List 1:N)
+- **설계 의도**:
+  - 시트4 원천 필드 (Parser 채움) + WBS 매핑 (Mapper) + 분배 결과 (`_prorate_mh`) + HIL 1 플래그
+- **관련**:
+  - 모든 노드 통과 (mapper → atomizer → forecaster → optimizer)
+- **Suspected related**:
+  - mapper.py `map_activity` — wa/l6_main/conf/source/review 채움
+  - mapper.py `_prorate_mh` — assigned_workers/plan_mh/cum_actual_mh_today 채움
+
+---
+
+## 변경 사항 정리 (cf3c143..HEAD, orchestration 3 hotfix)
+
+| Commit | 날짜 | 메시지 | 파일 | 주요 변경 |
+|---|---|---|---|---|
+| cf2a791 | 2026-05-19 | fix(graph): import normalize_company — close #31 | graph.py | line 23: `from pipeline.agents.parser_post import normalize_company` |
+| e163e1a | 2026-05-19 | fix(graph,scripts): POC 3사 + 정규화 타이밍 버그 | graph.py | line 67~68: fetch_bp_candidates 전 정규화 추가 |
+| 844d4c3 | 2026-05-20 | fix(graph,cycle): full cycle 진행 — HIL bypass + pipeline_runs + HIL2 auto-select | graph.py | line 238~246: CPIA_HIL_AUTO_BYPASS env 추가 |
+| ef7c6cd | 2026-05-20 | (반영) reporter_node 의 PG 처리 강화 | (db.py 직접) | site_id PG fallback graph.py:458~462 흡수됨 |
+
+## Full cycle 5 검증 (844d4c3 commit msg)
+
+| 항목 | 측정 | 상태 |
 |---|---|---|
-| `mapper_node` | graph.py:47 | G24 parser_job_allocations / parser_equipment_allocations INSERT 호출 추가 (graph.py:121 + graph.py:127). G23 alternatives 는 map_activity 안에서 채워져 mapper_activities INSERT 시 jsonb 컬럼에 흘러감 (mapper.py:393). |
-| `reporter_node` | graph.py:411 | G8 sites.last_run_id UPDATE (graph.py:440) + G2 sites.hours_saved_cum UPDATE (graph.py:441-445). state.site_id 누락 시 pipeline_runs 에서 fallback fetch (graph.py:434-438). |
+| mapper_activities | 146 row, mapping_source `auto_bp_zone_match` 74% / hil 1.4% | ✅ |
+| atomized_ids | 64 | ✅ |
+| forecasts | 27 | ✅ |
+| optimizer_advice | 13 (risky 12 → 13 keys auto-select) | ✅ |
+| daily_reports JSONB 6/9 (contractor_bars / trade_bars / s_curve / scenarios / optimizer_view / productivity) | 채워짐 | ✅ |
+| daily_reports JSONB 3/9 (kpi / wp_summary / quadrant) | 빈 dict | ❌ Phase 2 |
+| Schema validation | bp_code 100% / yesterday_cum_qty 100% / today_cum_qty 100% / plan_mh 100% / cum_actual_mh_today 99% / assigned_workers 95% / zone 16% | partial |
 
-### T2 신규 카드
+## POC 데이터셋 변경 (e163e1a)
 
-#### O-G24 — mapper_node 안 parser_job/equipment_allocations INSERT 호출 위치
+| Before | After | activity_master rows |
+|---|---|---|
+| 4 BP사 | 3 BP사 (에스티엠 제거 — 0 row 불안정) | |
+| | 남웅건설 | 179 |
+| | 세보엠이씨 | 561 |
+| | 창원기전 | 319 |
 
-- **위치**: `pipeline/graph.py:121-134` (insert_parser_activities_batch 직후, insert_mapper_activities_batch 직전)
-- **이슈**:
-  - 본 cycle 직전까지 `ParsedDailyReport` TypedDict (`pipeline/state.py:74-94`) 의 `job_allocations` / `equipment_allocations` 키는 정의되어 있고 parser_node 가 채워 state 에 넣었으나, graph 가 PG INSERT 함수를 호출하지 않아 `parser_job_allocations` / `parser_equipment_allocations` 두 테이블의 row count 가 항상 0 이었음.
-  - 본 cycle 검증 (run_id=627e2c4d): parser_job_allocations=15 rows, parser_equipment_allocations=0 rows (남웅 일보 시트3 비어있음 — 정상).
-- **설계 의도**:
-  - 시트2 (BP × 직종) + 시트3 (BP × 장비) 정규화 row 의 BI / Dashboard SELECT 가능성 확보.
-  - 호출 위치 = `insert_parser_activities_batch` (시트1·4 통합 row) 직후 = parser 결과 묶음 단위로 PG 1 transaction 안에서 처리.
-- **대응 패턴**:
-  - 발동: mapper_node 가 parsed activities INSERT 끝낸 직후
-  - 입력: `parsed.get("job_allocations") or []` / `parsed.get("equipment_allocations") or []` (None-safe, 빈 list 면 0 row INSERT)
-  - 처리: `insert_parser_job_allocations_batch` / `insert_parser_equipment_allocations_batch` (db.py 시그니처 `rows=` 키워드 — plan 초안의 `job_allocations=` 시그니처 아님, 본 cycle 통일)
-  - 출력: 두 테이블 row count 증가
-- **관련**:
-  - PG helper: `pipeline/db.py:insert_parser_job_allocations_batch` / `insert_parser_equipment_allocations_batch`
-  - 상위 데이터 소스: parser_node 가 채운 `state.parsed.job_allocations` / `state.parsed.equipment_allocations` (state.py:74-94)
-- **Suspected related** (2026-05-19 stale):
-  - 시트2 의 `_is_trade_job` 필터 (mapper.py:64) 와 동일 데이터지만 정규화 row 는 필터 전 raw — 직종 noise 포함. BI SELECT 시 후처리 필요.
+## 미해결 / Backlog
 
-#### O-G8 — reporter_node 의 sites.last_run_id UPDATE 시점
-
-- **위치**: `pipeline/graph.py:440` (`update_site_last_run` 호출)
-- **이슈**:
-  - FE dashboard 의 "최근 cycle" / "마지막 실행" 표시 데이터 소스. 본 cycle 직전엔 sites.last_run_id 가 항상 NULL.
-  - 본 cycle 검증 (run_id=627e2c4d): sites.last_run_id 가 cycle run_id 와 일치.
-- **설계 의도**:
-  - reporter_node 가 END 진입 직전의 마지막 PG write — 본 노드가 cycle 완주 신호 (실패 시 last_run_id 안 갱신, 이전 cycle 가시).
-  - 호출 위치 = `report()` 의 daily_reports INSERT 호출 직후 (graph.py:419 → graph.py:440), END edge 직전.
-- **대응 패턴**:
-  - 발동: reporter_node 가 report() 호출 후, return 직전
-  - 입력: site_id (state 또는 pipeline_runs fallback) + run_id
-  - 처리: `UPDATE sites SET last_run_id = $1, updated_at = now() WHERE site_id = $2` (db.py:1017-1025)
-  - 출력: sites 1 row UPDATE
-- **관련**:
-  - helper: `pipeline/db.py:update_site_last_run:1017`
-  - 페어 카드: `design_intent_reporter.md` R-G8
-  - FE 소비처: `web/app/page.tsx` (B_Track) — sites.last_run_id SELECT 후 cycle 시각 표시
-
-#### O-G2 — reporter_node 의 sites.hours_saved_cum 누적 UPDATE
-
-- **위치**: `pipeline/graph.py:441-445` (`update_site_hours_saved_cum` 호출)
-- **이슈**:
-  - Spec §6 의 "사람 수작업 절감 시간" 누적 지표. 본 cycle 직전엔 컬럼 자체가 없었음 (마이그 `2026-05-19_sites_hours_saved_cum.sql`).
-  - 산식: `((AS_IS_MIN - TO_BE_MIN) / 60.0) * atomized_count` — `AS_IS_MIN=120`, `TO_BE_MIN=5` (db.py:1029-1030 상수).
-  - 본 cycle 검증 (run_id=627e2c4d): atomized_count=4 → delta = ((120-5)/60)*4 = 7.667h. sites.hours_saved_cum=7.67h 확인.
-- **설계 의도**:
-  - cycle 별 누적 — UPDATE 가 `hours_saved_cum + $1` 형태, 같은 site 의 매 cycle 마다 더해짐 (멱등 X — re-run 시 중복 누적, drift backlog).
-  - `atomized_count` source = `len(state.get("atomized_ids", []) or [])` — atomizer_node 가 return 한 `atomized_ids` 길이 (graph.py:272). dedup 후 atom 수.
-- **대응 패턴**:
-  - 발동: reporter_node 가 G8 직후 (graph.py:441-445)
-  - 입력: site_id + atomized_count
-  - 처리: delta_h 계산 → `UPDATE sites SET hours_saved_cum = hours_saved_cum + $1 WHERE site_id = $2` (db.py:1043-1049)
-  - 출력: sites.hours_saved_cum 누적
-- **관련**:
-  - helper: `pipeline/db.py:update_site_hours_saved_cum:1033`
-  - 페어 카드: `design_intent_reporter.md` R-G2
-  - source data: atomizer_node return `atomized_ids` (graph.py:272)
-- **Suspected related** (2026-05-19 stale):
-  - re-run 중복 누적 — 동일 run_id 재실행 시 hours_saved_cum 이 추가로 더해짐. 멱등 보장 필요 (UPDATE WHERE last_run_id != run_id 등 가드, drift backlog).
-  - cycle 부분 실패 시점 (reporter 직전 노드 fail) 에는 atomized_ids 가 state 에 있어도 G2 호출 안 됨 — atomized 만 되고 절감 시간 누락 가능성 (drift backlog).
-
-#### O-N6 — state.site_id propagate 누락 대비 pipeline_runs fallback fetch
-
-- **위치**: `pipeline/graph.py:434-438` (reporter_node 안)
-- **이슈**:
-  - LangGraph state reducer 가 일부 cycle path (HIL 2 resume 직후 등) 에서 `site_id` 키를 누락 → G8 / G2 호출에서 UPDATE 대상 None 으로 실패 가능.
-  - 본 cycle 실 재현 (run_id=627e2c4d 직전 dev run): `state.get("site_id")` 가 None 인 path 1건 발견 → fallback 으로 pipeline_runs SELECT.
-- **설계 의도**:
-  - hotfix — 본 cycle 안에서 root cause (LangGraph state propagation drift) 추적 보류. reporter_node 가 자체 보호.
-  - `pipeline_runs.site_id` 는 cycle 시작 시 collector / api 가 INSERT — 항상 존재 (PK = run_id).
-  - fallback: `SELECT site_id FROM pipeline_runs WHERE run_id = $1` (graph.py:437).
-  - site_id 가 여전히 None (PG row 자체 부재) 이면 G8/G2 skip — fail-loud 회피.
-- **대응 패턴**:
-  - 발동: `state.get("site_id")` falsy
-  - 입력: run_id
-  - 처리: PG fetchrow → site_id 추출
-  - 출력: site_id str 또는 None (None 시 G8/G2 skip)
-- **관련**:
-  - 같은 PGClient 인스턴스 재사용 (graph.py:431 의 PGClient 가 G8/G2 호출에도 그대로)
-  - state schema: `pipeline/state.py` `CPIAState` (site_id 키 정의 확인 필요 — drift backlog)
-- **Suspected related** (2026-05-19 stale):
-  - LangGraph state propagation drift — collector_node 가 site_id 를 set 하는 시점과 LangGraph reducer merge 패턴 검증 필요 (별 cycle).
-  - PGClient `_pool.acquire()` 직접 사용 — db.py 의 공식 helper 없이 reporter_node 가 inline SQL. 향후 `pg.fetch_run_site_id(run_id)` helper 추출 후보.
+- `daily_reports.kpi_jsonb` / `wp_summary_jsonb` / `quadrant_jsonb` view_builder gap (issue #N4) — Phase 2
+- `LangGraph Command(resume=dict)` key int → str 변환 룰 명문화 미흡 (issue #N5)
+- PoC 제약: `Activity.wbs_activity_id` / `l7_sub` / `l7_5_activity` / `sub_work_area` 항상 None (issue #N11)
+- Reporter LLM 모델 (Azure gpt-5.1 고비용) — 후속 plan 저비용 모델 전환 검토
+- HIL 1 PG INSERT: cfg=None + corrections={} 시 skip 정상 동작 (이전 cycle "mapping_corrections row count 0" 문제 해소)

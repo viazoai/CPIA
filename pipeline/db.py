@@ -409,28 +409,28 @@ class PGClient:
         report_md: str,
         history_csv_row: dict | None,
         bp_name: str | None = None,
+        site_id: str | None = None,
     ) -> None:
         """daily_reports 테이블 INSERT 1 row.
 
-        실 schema (infra/postgres/init.sql:33) = id, run_id, report_date,
-        bp_name (nullable), report_md, history_csv_row (jsonb, nullable),
-        created_at. postgres.md §5 의 'date' / 'summary' 필드명 mismatch
-        (drift backlog 별 cycle).
-
-        종합 보고서 (Reporter 위치 = Optimizer 다음 drift) → bp_name=None.
-        Reporter 의 summary dict (total_workers / risk_counts / advice_count)
-        는 history_csv_row 컬럼에 박음.
+        site_id 가 None 이면 pipeline_runs 에서 fetch (upsert_daily_report_view_col
+        의 partial unique index `(run_id, site_id, report_date) WHERE site_id IS NOT NULL`
+        매칭 위해 NOT NULL 보장).
         """
         import json as _json
 
         assert self._pool is not None, "connect() 미호출"
         async with self._pool.acquire() as conn:
+            if site_id is None:
+                row = await conn.fetchrow("SELECT site_id FROM pipeline_runs WHERE run_id=$1", run_id)
+                site_id = row["site_id"] if row else None
             await conn.execute(
                 """
-                INSERT INTO daily_reports (run_id, report_date, bp_name, report_md, history_csv_row)
-                VALUES ($1, $2, $3, $4, $5::jsonb)
+                INSERT INTO daily_reports (run_id, site_id, report_date, bp_name, report_md, history_csv_row)
+                VALUES ($1, $2, $3, $4, $5, $6::jsonb)
                 """,
                 run_id,
+                site_id,
                 report_date,
                 bp_name,
                 report_md,
@@ -1028,6 +1028,7 @@ class PGClient:
         "s_curve_jsonb",
         "optimizer_view_jsonb",
         "productivity_jsonb",
+        "scenarios_jsonb",
     )
 
     async def upsert_daily_report_view_col(
@@ -1048,18 +1049,33 @@ class PGClient:
             raise ValueError(f"col '{col}' not in whitelist {self._VIEW_JSONB_COLS}")
         assert self._pool is not None, "connect() 미호출"
         async with self._pool.acquire() as con:
-            await con.execute(
+            # UPDATE 우선 — partial unique index `(run_id, site_id, report_date)
+            # WHERE site_id IS NOT NULL` 가 ON CONFLICT 와 안정 매칭 안 됨.
+            # row 이미 존재 (reporter 가 INSERT) 보장 → UPDATE 만.
+            row_count = await con.fetchval(
                 f"""
-                INSERT INTO daily_reports (run_id, site_id, report_date, {col})
-                VALUES ($1, $2, $3, $4::jsonb)
-                ON CONFLICT (run_id, site_id, report_date)
-                DO UPDATE SET {col} = EXCLUDED.{col}
+                UPDATE daily_reports
+                SET {col} = $4::jsonb
+                WHERE run_id = $1 AND site_id = $2 AND report_date = $3
+                RETURNING id
                 """,
                 run_id,
                 site_id,
                 report_date,
                 _json.dumps(value, ensure_ascii=False, default=str),
             )
+            if row_count is None:
+                # 신규 INSERT (reporter 가 row 안 만든 경우만)
+                await con.execute(
+                    f"""
+                    INSERT INTO daily_reports (run_id, site_id, report_date, report_md, {col})
+                    VALUES ($1, $2, $3, '', $4::jsonb)
+                    """,
+                    run_id,
+                    site_id,
+                    report_date,
+                    _json.dumps(value, ensure_ascii=False, default=str),
+                )
 
 
 async def update_site_last_run(pg: PGClient, site_id: str, run_id: uuid.UUID) -> None:

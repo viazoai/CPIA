@@ -1,8 +1,10 @@
 # Design Intent — forecaster
 
 - **Generated**: 2026-05-17 (git SHA: f9a695f5315eba97b2686f55a72bc91ef6cae6b2, branch A_Track)
+- **Last checked**: 2026-05-20 (git SHA: `ef7c6cd`) — **코드 변경 없음** (cf3c143 이후 commit 0). T1/T2 카드 그대로 유효.
 - **Pair file**: `../architecture_overview.md`
-- **Range**: `pipeline/agents/forecaster/` 8 파일 (agent / prompt / classify / rerank / aggregate / synthetic / constants / __init__) + 9 테스트 — 합계 ~898 LOC
+- **Range**: `pipeline/agents/forecaster/` 8 파일 (agent 279 / prompt 134 / classify 114 / rerank 50 / aggregate 119 / synthetic 189 / constants 8 / __init__ 8) + 9+ 테스트 — 합계 **893 LOC**
+- **Note**: `classify.py:34` PM 원안 v2 정합 (저하 분류 의도) — drift #2 root cause 는 #3 input over-산출이었고 이미 해소됨.
 
 Mapper 출력 + Chroma 유사 과거 일일 활동 retrieval → 공종별 생산성 진단 (정상/주의/이상). 임계값 hardcoding (RAG_NORMAL_BOUND=0.15, RAG_WARN_BOUND=0.25, PLAN_NORMAL_RATIO=0.85, PLAN_WARN_RATIO=0.65). PG `forecasts` 27 컬럼 INSERT. **audit drift #2 (assessment "정상" bias)** + **drift #3 (synthetic productivity_ratio bug)** 대상.
 

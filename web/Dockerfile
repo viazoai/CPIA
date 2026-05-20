@@ -2,14 +2,14 @@
 # CPIA web — Next.js 14 standalone container
 
 # ---------- deps ----------
-FROM node:20-alpine AS deps
+FROM node:24-alpine AS deps
 WORKDIR /app/web
 RUN apk add --no-cache libc6-compat
 COPY web/package.json web/package-lock.json* ./
 RUN npm ci --no-audit --no-fund
 
 # ---------- builder ----------
-FROM node:20-alpine AS builder
+FROM node:24-alpine AS builder
 WORKDIR /app/web
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/web/node_modules ./node_modules
@@ -17,7 +17,7 @@ COPY web/ ./
 RUN npm run build
 
 # ---------- runner ----------
-FROM node:20-alpine AS runner
+FROM node:24-alpine AS runner
 WORKDIR /app/web
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \

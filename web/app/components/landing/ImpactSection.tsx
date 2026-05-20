@@ -6,7 +6,7 @@ const KPIS = [
     label: "보고 리드타임",
     value: "D+0",
     unit: "당일",
-    body: "D+2~3일 → 동일한 날 보고",
+    body: "D+2~3일 후 보고 → 당일 보고",
   },
   {
     icon: CalendarClock,
@@ -194,7 +194,7 @@ export function ImpactSection() {
         <div className="mt-12">
           <h3 className="flex items-center gap-2.5 font-display text-h5 text-ink">
             인력 재배치 효과
-            <span className="inline-flex items-center rounded-full bg-brand-light px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-[0.12em] text-brand-text">
+            <span className="inline-flex items-center rounded-full bg-brand-light px-3 py-1 text-sm font-semibold uppercase tracking-[0.12em] text-brand-text">
               핵심 임팩트
             </span>
           </h3>
@@ -234,6 +234,11 @@ export function ImpactSection() {
               <strong className="text-brand-text">약 23 억 원 / 연간</strong>
             </div>
           </div>
+
+          {/* FTE 개념 각주 */}
+          <p className="mt-3 text-xs text-ink-light">
+            ※ FTE (Full-Time Equivalent, 전일제 환산 인원) — 절감된 업무 시간을 1인 월 표준 근무 140h 로 나눠 환산한 인력 규모
+          </p>
         </div>
 
       </div>

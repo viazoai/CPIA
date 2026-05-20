@@ -1,38 +1,35 @@
-import { Building2, Cpu, Globe, Package } from "lucide-react";
+import { Cpu, Globe, Layers } from "lucide-react";
 
-const HORIZONS = [
+const AXES = [
   {
-    icon: Building2,
-    phase: "Horizon 1",
-    period: "0 ~ 6 개월",
-    title: "Hi-tech 사업부 전 현장",
-    body: "파일럿 6개 현장 → Hi-tech 전체로 순차 확산. 발주처(하이닉스·삼성) 보고 포맷 모듈화, 현장간 생산성 벤치마크 표준화.",
-    target: "2,155h / 월 절감",
+    icon: Cpu,
+    axis: "AXIS 01",
+    category: "MODULAR ADAPTATION",
+    title: "현장별 양식이 달라도, 노드 교체로 즉시 적용",
+    body:
+      "유지보수가 간편한 LangGraph 기술로 설계하여 현장마다 다른 작업일보 양식에 Parser·Exporter 같은 일부 노드만 교체하면 그 현장에 맞춰 즉시 동작.",
+    target: "2~3일 내 신속한 커스터마이징 가능",
     active: true,
   },
   {
-    icon: Cpu,
-    phase: "Horizon 2",
-    period: "6 ~ 12 개월",
-    title: "AI Solution 사업부 적용",
-    body: "에너지사업관리팀 QG 품의 자동 작성 144h/월, AI DC Infra Pre-con 주간보고 35h/월. 에너지 현장 특화 파서 추가.",
-    target: "+179h / 월",
-  },
-  {
     icon: Globe,
-    phase: "Horizon 2",
-    period: "6 ~ 12 개월",
-    title: "글로벌 사업부 적용",
-    body: "Indiana Fab HAC(미국) 파일럿 진행. 영문 작업일보 Semantic Mapping 모듈 추가. 글로벌 Deal Sourcing MI 자동화 연계.",
-    target: "월 4,200h+ 통합",
+    axis: "AXIS 02",
+    category: "CROSS-PRODUCT REACH",
+    title: "Hi-tech → AI DC · 인프라 · 주택 까지",
+    body:
+      "작업일보와 생산성 분석은 현장 종류와 무관한 공통 업무로 Hi-tech 에서 검증한 동일 Agent 를 모든 사업 프로덕트에 그대로 적용.",
+    target: "전 EPC 사업 프로덕트 공통 적용",
+    active: true,
   },
   {
-    icon: Package,
-    phase: "Horizon 3",
-    period: "18 개월+",
-    title: "AI Solution 상품화",
-    body: "CPIA 를 AI Infra Solution Provider 자체 솔루션으로 SaaS 화. 타 건설사·발주처 대상 외부 수익화. Hi-tech 레퍼런스 활용.",
-    target: "외부 수익화",
+    icon: Layers,
+    axis: "AXIS 03",
+    category: "VALUE CHAIN EXPANSION",
+    title: "MPRS 관점에서의 확장 가능성",
+    body:
+      "CPIA는 시공(P) 단계의 최적화를 지향하고 있으나, 누적 데이터·패턴을 설계(R)과 구매/조달(S) 단계로 확장해 예측 가능성을 높히고, 전체 EPC value chain 의 공기 단축 레버 확보.",
+    target: "PRS 영역의 예상공기 검토시간 50% 절감",
+    active: true,
   },
 ];
 
@@ -45,24 +42,24 @@ export function ScalabilitySection() {
       <div className="mx-auto max-w-wrap px-6 md:px-10">
         <div className="max-w-3xl">
           <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-brand-text">
-            / 04 — Roadmap
+            / 04 — Scalability · 확장성
           </span>
           <h2 className="mt-3 font-display text-h3 text-ink">
-            BP 작업일보 → 공정 관리 패턴은 건설 산업 전체의 공통 Pain
+            하나의 현장 패턴이, 다른 현장·다른 영역의 출발점이 된다
           </h2>
           <p className="mt-6 text-body text-ink-mid">
-            Hi-tech 사업부 내재화 후 SK ecosystem · 글로벌 · 상품화로 단계 확장.
+            Hi-tech 시공 현장에서 검증한 패턴을, 다른 현장과 다른 사업 영역으로 빠르게 확장합니다.
           </p>
         </div>
 
-        <ol className="mt-14 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {HORIZONS.map((h, i) => {
-            const Icon = h.icon;
+        <ol className="mt-14 grid gap-4 md:grid-cols-3">
+          {AXES.map((a) => {
+            const Icon = a.icon;
             return (
               <li
-                key={i}
-                className={`relative rounded-card-lg border p-6 transition-all ${
-                  h.active
+                key={a.axis}
+                className={`relative flex h-full flex-col rounded-card-lg border p-6 transition-all ${
+                  a.active
                     ? "border-brand bg-gradient-to-br from-brand-light/60 via-card to-card shadow-md"
                     : "border-border-soft bg-surface-soft/40"
                 }`}
@@ -70,36 +67,34 @@ export function ScalabilitySection() {
                 <div className="flex items-center gap-2">
                   <span
                     className={`inline-flex h-9 w-9 items-center justify-center rounded-md ${
-                      h.active
-                        ? "bg-brand text-white"
-                        : "bg-card text-ink-mid"
+                      a.active ? "bg-brand text-white" : "bg-card text-ink-mid"
                     }`}
                   >
                     <Icon className="h-4 w-4" />
                   </span>
                   <span
                     className={`text-[11px] font-medium uppercase tracking-[0.12em] ${
-                      h.active ? "text-brand-text" : "text-ink-light"
+                      a.active ? "text-brand-text" : "text-ink-light"
                     }`}
                   >
-                    {h.phase}
+                    {a.axis}
                   </span>
                 </div>
                 <div className="mt-5 text-[11px] font-medium uppercase tracking-[0.08em] text-ink-light">
-                  {h.period}
+                  {a.category}
                 </div>
-                <h3 className="mt-2 font-display text-h6 text-ink">{h.title}</h3>
-                <p className="mt-3 text-body-sm text-ink-mid">{h.body}</p>
+                <h3 className="mt-2 font-display text-h6 text-ink">{a.title}</h3>
+                <p className="mt-3 grow text-body-sm text-ink-mid">{a.body}</p>
                 <div className="mt-5 border-t border-border-soft pt-4">
                   <span className="text-[11px] font-medium uppercase tracking-wider text-ink-light">
-                    Target
+                    Impact
                   </span>
                   <div
                     className={`mt-0.5 font-display text-base font-semibold ${
-                      h.active ? "text-brand-text" : "text-ink"
+                      a.active ? "text-brand-text" : "text-ink"
                     }`}
                   >
-                    {h.target}
+                    {a.target}
                   </div>
                 </div>
               </li>

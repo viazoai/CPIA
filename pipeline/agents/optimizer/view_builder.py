@@ -133,9 +133,10 @@ async def _evm_by_group(
 ) -> dict[str, dict[str, Any]]:
     """group_key (company / l6_main / wa_l6_company) 별 EVM dict.
 
-    컨셉 (2026-05-19): 분모 = activity_master 전체, 분자 = mapper_activities 전체.
-    company / l6_main 은 FULL OUTER JOIN — plan/actual 한 쪽에만 있는 group 도 포함.
-    wa_l6_company 는 wa 가 mapper 만 가진 키라 mapper anchor 유지.
+    컨셉 (2026-05-20, spec §8.1): actual anchor. mapper_activities 에 등장한 group 만 표시.
+    company / l6_main 모두 FROM actual_agg LEFT JOIN plan_agg — 매핑 안 된 plan-only 업체/공종 제외.
+    plan 만 있고 actual 없으면 그 group 은 결과에서 빠짐 — 시연 시 노이즈 제거.
+    site 전체 EVM (_evm_for_group) 은 별도 함수, 분모=계획 유지.
     """
     if group_key == "company":
         plan_gkey = "am.company"
@@ -166,17 +167,18 @@ async def _evm_by_group(
             FROM mapper_activities ma
             JOIN pipeline_runs pr USING (run_id)
             WHERE pr.site_id = $1 AND pr.report_date = $2 AND {actual_gkey} IS NOT NULL
+              AND ma.is_mock = FALSE
             GROUP BY {actual_gkey}
         )
-        SELECT COALESCE(p.gkey, a.gkey) AS gkey,
+        SELECT a.gkey AS gkey,
                COALESCE(p.cum_plan_qty, 0)::float AS cum_plan_qty,
                COALESCE(p.cum_plan_mh, 0)::float AS cum_plan_mh,
                COALESCE(p.plan_qty_full, 0)::float AS plan_qty_full,
                COALESCE(p.plan_mh_full, 0)::float AS plan_mh_full,
-               COALESCE(a.cum_actual_qty, 0)::float AS cum_actual_qty,
-               COALESCE(a.cum_actual_mh, 0)::float AS cum_actual_mh
-        FROM plan_agg p
-        FULL OUTER JOIN actual_agg a USING (gkey)
+               a.cum_actual_qty::float AS cum_actual_qty,
+               a.cum_actual_mh::float AS cum_actual_mh
+        FROM actual_agg a
+        LEFT JOIN plan_agg p USING (gkey)
     """
     async with pg._pool.acquire() as con:
         rows = await con.fetch(sql, site_id, today)
@@ -221,6 +223,7 @@ async def _evm_by_wa_l6_company(
           AND am.l6_main = ma.l6_main
           AND am.site_id = pr.site_id
         WHERE pr.site_id = $1 AND pr.report_date = $2
+          AND ma.is_mock = FALSE
         GROUP BY ma.wa, ma.l6_main, ma.company
     """
     async with pg._pool.acquire() as con:

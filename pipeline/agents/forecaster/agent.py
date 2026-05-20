@@ -105,12 +105,20 @@ async def _forecast_one_group(
             {"l6_main": l6_main},
         ]
     }
-    rag_result = coll.query(
-        query_embeddings=[today_embed],
-        where=where_filter,
-        n_results=cfg.rag_n_candidates,
-    )
-    similar_cases_raw = _format_chroma_result(rag_result)
+    # 필터로 좁혀진 공간이 요청 개수보다 작으면 chroma HNSW 가
+    # 'ef or M too small' 에러 던짐. 사전에 docs 수 count 후 n_results clamp.
+    preflight = coll.get(where=where_filter, include=[])
+    n_filtered = len(preflight.get("ids", []) or [])
+    safe_n = min(cfg.rag_n_candidates, n_filtered)
+    if safe_n == 0:
+        similar_cases_raw: list[dict[str, Any]] = []
+    else:
+        rag_result = coll.query(
+            query_embeddings=[today_embed],
+            where=where_filter,
+            n_results=safe_n,
+        )
+        similar_cases_raw = _format_chroma_result(rag_result)
     window_start_iso = (today - timedelta(days=cfg.rag_window_days)).isoformat()
     today_iso = today.isoformat()
     similar_cases_in_window = [

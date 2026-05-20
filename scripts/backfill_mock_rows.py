@@ -118,6 +118,76 @@ async def backfill_review_cards(pg: PGClient) -> int:
         return inserted
 
 
+def _wrap_optimizer_view(opt: dict) -> dict:
+    """mock_report 의 optimizer (single wp dict) → daily_reports.optimizer_view_jsonb shape.
+
+    view_builder._build_optimizer_view 산출은 {by_wp: {wp_id: {...}}, default_wp_id}.
+    mock 은 single wp 만 있으므로 by_wp dict 에 wp_id key 1개로 적재.
+    """
+    if not opt:
+        return {"by_wp": {}, "default_wp_id": None}
+    wp_id = opt.get("wp_id") or "default"
+    advice = {
+        "diagnosis": opt.get("diagnosis", ""),
+        "similar_cases": opt.get("similar_cases", []),
+        "recommendations": opt.get("recommendations", []),
+        "details": opt.get("details", []),
+    }
+    return {"by_wp": {wp_id: advice}, "default_wp_id": wp_id}
+
+
+async def backfill_report(pg: PGClient) -> int:
+    report = json.loads((ROOT / "data" / "mock_report.json").read_text())
+    daily = report.get("daily", [])
+    details = report.get("details", {})
+
+    inserted = 0
+    async with pg._pool.acquire() as con:
+        for d in daily:
+            d_date = date.fromisoformat(d["date"])
+            detail = details.get(d["date"], {})
+
+            # date 기반 deterministic UUID (충돌 회피)
+            run_id = uuid.UUID(int=(d_date.toordinal() << 96) | 0xDEAD)
+
+            await con.execute(
+                """
+                INSERT INTO pipeline_runs (run_id, site_id, report_date, status, is_mock)
+                VALUES ($1, $2, $3, 'completed', TRUE)
+                """,
+                run_id,
+                MOCK_SITE_ID,
+                d_date,
+            )
+
+            await con.execute(
+                """
+                INSERT INTO daily_reports
+                  (run_id, site_id, report_date, report_md,
+                   kpi_jsonb, s_curve_jsonb, contractor_bars_jsonb, trade_bars_jsonb,
+                   quadrant_jsonb, wp_summary_jsonb, optimizer_view_jsonb,
+                   scenarios_jsonb, productivity_jsonb, is_mock)
+                VALUES ($1, $2, $3, '',
+                        $4::jsonb, $5::jsonb, $6::jsonb, $7::jsonb,
+                        $8::jsonb, $9::jsonb, $10::jsonb,
+                        $11::jsonb, '{}'::jsonb, TRUE)
+                """,
+                run_id,
+                MOCK_SITE_ID,
+                d_date,
+                json.dumps(detail.get("kpi") or {}),
+                json.dumps(detail.get("s_curve") or []),
+                json.dumps(detail.get("contractor_bars") or []),
+                json.dumps(detail.get("trade_bars") or []),
+                json.dumps(detail.get("quadrant") or []),
+                json.dumps(detail.get("wp_summary") or []),
+                json.dumps(_wrap_optimizer_view(detail.get("optimizer") or {})),
+                json.dumps({}),
+            )
+            inserted += 1
+    return inserted
+
+
 async def main() -> None:
     url = os.environ.get(
         "POSTGRES_URL", "postgresql://cpia:K7mP2xQ9nR4v@localhost:5532/cpia"
@@ -129,6 +199,10 @@ async def main() -> None:
         n_cards = await backfill_review_cards(pg)
         print(
             f"✅ mock_review_cards: {n_cards} mapper+parser rows (is_mock=TRUE, site={MOCK_SITE_ID})"
+        )
+        n_reports = await backfill_report(pg)
+        print(
+            f"✅ mock_report: {n_reports} daily_reports rows (is_mock=TRUE, site={MOCK_SITE_ID})"
         )
     finally:
         await pg.close()

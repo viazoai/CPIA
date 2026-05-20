@@ -45,7 +45,7 @@ export function ScalabilitySection() {
             / 04 — Scalability · 확장성
           </span>
           <h2 className="mt-3 font-display text-h3 text-ink">
-            세 방향의 확장 — 현장 · 사업 · 가치사슬
+            조직의 변화로 이어지는 확장 가능성
           </h2>
           <p className="mt-6 text-body text-ink-mid">
             현장별 양식엔 노드 교체로 즉시 대응. 동일 Agent 는 모든 사업 프로덕트에 그대로 적용. 시공의 학습은 설계·구매 영역까지 확장되어 EPC value chain 전반의 공기 단축으로 이어집니다.

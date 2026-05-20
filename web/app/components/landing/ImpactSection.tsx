@@ -3,7 +3,7 @@ import { Clock4, UsersRound, CalendarClock, Gauge } from "lucide-react";
 const KPIS = [
   {
     icon: Gauge,
-    label: "보고 리드타임",
+    label: "검토 시간 최소화",
     value: "D+0",
     unit: "당일",
     body: "D+2~3일 후 보고 → 당일 보고",
@@ -17,14 +17,14 @@ const KPIS = [
   },
   {
     icon: Clock4,
-    label: "월간 절감",
+    label: "업무 투입시간 절감",
     value: "2,155",
     unit: "h / 월",
     body: "2,506h → 351h · 대체율 86%",
   },
   {
     icon: UsersRound,
-    label: "FTE 대체",
+    label: "재배치 인력 확보",
     value: "15.4",
     unit: "명",
     body: "2,155h ÷ 140h/명 기준",
@@ -84,10 +84,10 @@ export function ImpactSection() {
             / 03 — Impact
           </span>
           <h2 className="mt-3 font-display text-h3 text-ink">
-            Hi-tech 6개 현장 정량 효과
+            Hi-tech 현장을 최적화 하다
           </h2>
           <p className="mt-6 text-body text-ink-mid">
-            사업 내 전수 조사 결과 Activity 321개 데이터를 재구성하여 산출하였으며, 현업에서 제시한 수치입니다.
+            사업 내 전수 조사 결과 Activity 321개 데이터를 재구성하여 산출하였으며, 검토 시간, 공기 단축, 업무시간 절감, 재배치 인원 확보를 제공하는 현장 최적화 Agent 입니다.
           </p>
         </div>
 

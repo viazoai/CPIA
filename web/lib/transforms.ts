@@ -184,20 +184,39 @@ export async function deriveStageProgress(date: string): Promise<AgentStageProgr
 // G22: WBS 4 레벨 트리 (site → wa → l5_disc → l6_main)
 // ──────────────────────────────────────────────
 export async function wbsTreeBuild(siteId: string): Promise<WBSNode> {
-  // ma 와 am 둘 다 l6_main 을 갖고 있고, f 도 l6_main 을 갖고 있어
-  // USING (run_id, l6_main, company) 가 "common column appears more than once" 충돌.
-  // → ON 절로 명시 매핑 (ma 의 l6_main 기준 forecasts join).
+  // spec §6.2 — 기존 LEFT JOIN 체인은 cartesian product 로 review_count 233배 폭발 (14736 vs 실 63).
+  // CTE 로 review_count / worst_risk 를 미리 집계 후 activity_master 에 JOIN.
+  // is_mock=FALSE 만 (mock 카드는 CPIA_DEMO_FALLBACK 분기 — 여기는 wbs 트리, 항상 real).
+  const useMock = process.env.CPIA_DEMO_FALLBACK === "on";
   const rows = (await (sql as any)`
-    SELECT
-      am.site_id, am.wa, am.l5_disc, am.l6_main,
-      COUNT(*) FILTER (WHERE ma.requires_review) AS review_count,
-      MIN(CASE f.risk_level WHEN '이상' THEN 1 WHEN '주의' THEN 2 ELSE 3 END) AS worst_risk
-    FROM activity_master am
-    LEFT JOIN mapper_activities ma ON ma.wa = am.wa AND ma.l6_main = am.l6_main
-    LEFT JOIN forecasts f
-      ON f.run_id = ma.run_id AND f.l6_main = ma.l6_main AND f.company = ma.company
-    WHERE am.site_id = ${siteId}
-    GROUP BY am.site_id, am.wa, am.l5_disc, am.l6_main
+    WITH am_combos AS (
+      SELECT DISTINCT site_id, wa, l5_disc, l6_main
+      FROM activity_master
+      WHERE site_id = ${siteId}
+    ),
+    review_agg AS (
+      SELECT ma.wa, ma.l6_main, COUNT(*) AS review_count
+      FROM mapper_activities ma
+      JOIN pipeline_runs pr USING (run_id)
+      WHERE pr.site_id = ${siteId}
+        AND ma.requires_review = TRUE
+        AND ma.is_mock = ${useMock}
+      GROUP BY ma.wa, ma.l6_main
+    ),
+    forecast_agg AS (
+      SELECT f.l6_main, MIN(CASE f.risk_level WHEN '이상' THEN 1 WHEN '주의' THEN 2 ELSE 3 END) AS worst_risk
+      FROM forecasts f
+      JOIN pipeline_runs pr USING (run_id)
+      WHERE pr.site_id = ${siteId}
+        AND f.is_mock = ${useMock}
+      GROUP BY f.l6_main
+    )
+    SELECT am.site_id, am.wa, am.l5_disc, am.l6_main,
+           COALESCE(ra.review_count, 0) AS review_count,
+           fa.worst_risk
+    FROM am_combos am
+    LEFT JOIN review_agg ra ON ra.wa = am.wa AND ra.l6_main = am.l6_main
+    LEFT JOIN forecast_agg fa ON fa.l6_main = am.l6_main
   `) as Array<{
     wa: string;
     l5_disc: string;

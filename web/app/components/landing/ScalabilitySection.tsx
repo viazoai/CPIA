@@ -4,30 +4,32 @@ const AXES = [
   {
     icon: Cpu,
     axis: "AXIS 01",
-    category: "FOUNDATION",
-    title: "노드만 교체하면 새 현장에 적용",
+    category: "MODULAR ADAPTATION",
+    title: "현장별 양식이 달라도, 노드 교체로 즉시 적용",
     body:
-      "Agent 가 독립 노드로 구성되어, 현장 특성에 맞는 일부만 교체하면 동작. LangGraph 로 설계해 재학습 없이 빠르게 확장.",
-    target: "노드 교체 only · 코어 재학습 불요",
+      "유지보수가 간편한 LangGraph 기술로 설계하여 현장마다 다른 작업일보 양식에 Parser·Exporter 같은 일부 노드만 교체하면 그 현장에 맞춰 즉시 동작.",
+    target: "2~3일 내 신속한 커스터마이징 가능",
     active: true,
   },
   {
     icon: Globe,
     axis: "AXIS 02",
-    category: "HORIZONTAL SCALE-OUT",
-    title: "Hi-tech 6개 → SK ecosystem 전체",
+    category: "CROSS-PRODUCT REACH",
+    title: "Hi-tech → AI DC · 인프라 · 주택 까지",
     body:
-      "Hi-tech 6개 현장에서 검증 후 AI Solution·글로벌 사업부로 확산. 발주처 포맷·언어만 맞추면 신규 적용.",
-    target: "월 4,200h+ 통합 절감",
+      "작업일보와 생산성 분석은 현장 종류와 무관한 공통 업무로 Hi-tech 에서 검증한 동일 Agent 를 모든 사업 프로덕트에 그대로 적용.",
+    target: "전 EPC 사업 프로덕트 공통 적용",
+    active: true,
   },
   {
     icon: Layers,
     axis: "AXIS 03",
-    category: "UPSTREAM IMPACT",
-    title: "시공 진단이 설계·지원 의사결정으로 사전 이동",
+    category: "VALUE CHAIN EXPANSION",
+    title: "MPRS 관점에서의 확장 가능성",
     body:
-      "지금까지의 P-시공 단계는 사후 진단. 누적 데이터·패턴을 R-설계와 S-지원 단계로 환류해 사후 발견을 사전 차단으로 전환 → 전체 EPC value chain 의 공기 단축 레버 확보.",
-    target: "예상공기 검토시간 50% 절감 (R-설계 첫 진입)",
+      "CPIA는 시공(P) 단계의 최적화를 지향하고 있으나, 누적 데이터·패턴을 설계(R)과 구매/조달(S) 단계로 확장해 예측 가능성을 높히고, 전체 EPC value chain 의 공기 단축 레버 확보.",
+    target: "PRS 영역의 예상공기 검토시간 50% 절감",
+    active: true,
   },
 ];
 
@@ -56,7 +58,7 @@ export function ScalabilitySection() {
             return (
               <li
                 key={a.axis}
-                className={`relative rounded-card-lg border p-6 transition-all ${
+                className={`relative flex h-full flex-col rounded-card-lg border p-6 transition-all ${
                   a.active
                     ? "border-brand bg-gradient-to-br from-brand-light/60 via-card to-card shadow-md"
                     : "border-border-soft bg-surface-soft/40"
@@ -82,10 +84,10 @@ export function ScalabilitySection() {
                   {a.category}
                 </div>
                 <h3 className="mt-2 font-display text-h6 text-ink">{a.title}</h3>
-                <p className="mt-3 text-body-sm text-ink-mid">{a.body}</p>
+                <p className="mt-3 grow text-body-sm text-ink-mid">{a.body}</p>
                 <div className="mt-5 border-t border-border-soft pt-4">
                   <span className="text-[11px] font-medium uppercase tracking-wider text-ink-light">
-                    Target
+                    Impact
                   </span>
                   <div
                     className={`mt-0.5 font-display text-base font-semibold ${

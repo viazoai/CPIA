@@ -52,6 +52,12 @@ PROJECT = "M15X Ph-3 IBL"
 ANCHOR_DATE = date(2025, 9, 25)
 DEFAULT_PG_URL = "postgresql://cpia:K7mP2xQ9nR4v@43.200.85.209:5532/cpia"
 
+# 9-25 anchor 실측 site mh/qty 비율. 모든 Case B + Case A fallback row 의 cum_actual_mh
+# 산출에 이 상수를 사용하면 view_builder 의 site EVM CPI 가 86.1% 근처로 자연 정합된다
+# (anchor mh_per_qty=5.1747, plan mh_per_qty=4.4552, CPI = 4.4552/5.1747 ≈ 0.861).
+# 초기 일자에 active wbs 가 1-2 개만 있어도 CPI outlier 가 발생하지 않는다.
+ANCHOR_SITE_MH_PER_QTY = 5.1747
+
 DIAGNOSIS_PATTERNS: list[dict[str, Any]] = [
     {
         "tag": "weather_rain",
@@ -234,21 +240,16 @@ def _build_mapper_row(
             return None
         ratio = min(1.0, days_elapsed / days_to_anchor)
         today_cum_qty = anchor_cum * ratio * _noise(rng, qty_noise_scale)
-        # cum_actual_mh — anchor 기반 또는 plan 기반
-        if anchor_cum_mh > 0:
-            cum_actual_mh = anchor_cum_mh * ratio * _noise(rng, qty_noise_scale)
-        else:
-            cum_actual_mh = plan_mh * 0.95 * ratio * _noise(rng, qty_noise_scale)
-        # Fix 2 (수정): cap 제거 — anchor 진정값 비율 유지가 today_prod ≈ anchor (86.1%) 와 일치.
-        # 단 극단 over (plan_mh × 3+) 만 안전망 cap (numeric overflow 방지)
-        if plan_mh > 0:
-            safety_cap = plan_mh * 3.0
-            if cum_actual_mh > safety_cap:
-                cum_actual_mh = safety_cap
-        if plan_total > 0:
-            qty_safety = plan_total * 3.0
-            if today_cum_qty > qty_safety:
-                today_cum_qty = qty_safety
+        # cum_actual_mh — 일관성 위해 항상 site mh/qty 비율 사용 (ANCHOR_SITE_MH_PER_QTY = 5.1747).
+        # row 의 anchor_cum_mh 그대로 사용하면 row 의 mh/qty 편차가 site EVM 에 outlier 로 노출
+        # (예: 토공사 wa=FAB 의 anchor mh/qty=0.09 → 1주차 적재 시 prod 4698%).
+        # 모든 row 가 같은 mh/qty 비율 사용 → site EVM CPI ≈ 86.1% 자동 정합.
+        cum_actual_mh = (
+            today_cum_qty * ANCHOR_SITE_MH_PER_QTY * _noise(rng, qty_noise_scale)
+        )
+        # cap 제거 — cum_actual_mh = today_cum_qty × ANCHOR_SITE_MH_PER_QTY 통일이라
+        # row plan_mh 기반 safety cap 이 over-progress row 에서 ac 를 잘라 prod inflate (198%) 발생.
+        # qty_safety 도 anchor over-progress 가 정상이라 제거.
         base_daily_qty = (
             max(anchor_cum - anchor_today_qty, 0.0) / max(1, days_to_anchor - 1)
             if days_to_anchor > 1
@@ -262,13 +263,17 @@ def _build_mapper_row(
         scope = anchor_row.get("scope") or ""
         work_content = anchor_row.get("work_content") or f"{am_row['l6_main']} 진행"
     else:
-        # Case B — plan 분배
+        # Case B — plan 분배. cum_actual_mh 는 row plan_mh 가 아니라
+        # site mh/qty 비율 (ANCHOR_SITE_MH_PER_QTY = 5.1747) 기반 → site EVM CPI ≈ 86.1% 자동.
+        # row plan_mh 기반으로 산출하면 초기 일자 active=1-2 시 view_builder CPI outlier (4698% 등) 발생.
         plan_total = float(am_row.get("plan_total_qty") or 0)
         plan_mh = float(am_row.get("plan_mh_rev2") or 0)
         base_daily_qty = plan_total / total_days if total_days > 0 else 0
         today_qty = base_daily_qty * _noise(rng, qty_noise_scale)
         today_cum_qty = plan_total * progress_ratio * _noise(rng, qty_noise_scale)
-        cum_actual_mh = plan_mh * progress_ratio * _noise(rng, qty_noise_scale)
+        cum_actual_mh = (
+            today_cum_qty * ANCHOR_SITE_MH_PER_QTY * _noise(rng, qty_noise_scale)
+        )
         company = am_row["company"]
         trade = am_row.get("trade") or "건축"
         unit = am_row.get("unit") or "EA"

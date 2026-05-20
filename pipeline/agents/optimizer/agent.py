@@ -176,6 +176,22 @@ async def optimize(
             try:
                 productivity = await _build_productivity_views(pg, run_id, site_id, today, forecast, mapped)
                 quadrant = await _build_quadrant(pg, site_id, today, productivity)
+                # wa_lookup: (l6_main, company) → DISTINCT wa list (NULL 제외).
+                # spec §8.3 — quadrant dot 의 wp_id 와 by_wp key 매칭 보장 (fan-out).
+                wa_rows = await pg._pool.fetch(
+                    """
+                    SELECT l6_main, company,
+                           array_agg(DISTINCT wa) FILTER (WHERE wa IS NOT NULL) AS wa_list
+                    FROM mapper_activities
+                    WHERE run_id = $1
+                    GROUP BY l6_main, company
+                    """,
+                    run_id,
+                )
+                wa_lookup = {
+                    (r["l6_main"], r["company"]): list(r["wa_list"] or [])
+                    for r in wa_rows
+                }
                 view_jsonbs = {
                     "productivity_jsonb": productivity,
                     "kpi_jsonb": await _build_kpi(pg, site_id, today, productivity),
@@ -184,7 +200,9 @@ async def optimize(
                     "quadrant_jsonb": quadrant,
                     "wp_summary_jsonb": await _build_wp_summary(pg, site_id, today, productivity, quadrant),
                     "s_curve_jsonb": await _build_s_curve(pg, site_id, today),
-                    "optimizer_view_jsonb": _build_optimizer_view(advice_rows, forecast, mapped),
+                    "optimizer_view_jsonb": _build_optimizer_view(
+                        advice_rows, forecast, mapped, wa_lookup=wa_lookup
+                    ),
                     "scenarios_jsonb": _build_scenarios(advice_rows, forecast),
                 }
                 for col, val in view_jsonbs.items():

@@ -550,11 +550,18 @@ def _build_optimizer_view(
     advice_rows: list[dict[str, Any]],
     forecast: list[dict[str, Any]],
     mapped: list[dict[str, Any]],
+    wa_lookup: Optional[dict[tuple[str, str], list[str]]] = None,
 ) -> dict[str, Any]:
     """§ 02 by_wp dict — 진단/유사사례/권고/상세 6칸.
 
     advice = optimizer_advice 의 row. forecast = forecasts 의 row (wa lookup).
+
+    wa_lookup: (l6_main, company) → DISTINCT wa list. fan-out 용.
+                전달되면 한 advice 를 wa list 의 각 wa 마다 by_wp 에 복사.
+                None / 빈 dict 면 forecasts.wa 1개 기준 단일 key (기존 동작).
+                spec §8.3 — quadrant dot 의 wp_id (mapper_activities 기반) 와 매칭 보장.
     """
+    wa_lookup = wa_lookup or {}
     by_wp: dict[str, dict[str, Any]] = {}
     for advice in advice_rows:
         # wa lookup — forecast 에서 (company, l6_main) 매칭
@@ -566,8 +573,11 @@ def _build_optimizer_view(
         )
         if matched_f is None:
             continue
-        wa = matched_f.get("wa")
-        wp_id = _wp_id_of(wa, advice.get("l6_main"), advice.get("company"))
+        # fan-out: wa_lookup 의 모든 wa 마다 같은 advice 적재.
+        # lookup miss → forecasts.wa 1개 fallback (기존 동작).
+        wa_list = wa_lookup.get(
+            (advice.get("l6_main"), advice.get("company"))
+        ) or [matched_f.get("wa")]
 
         # 유사 사례 자연어 변환
         similar_cases = []
@@ -608,12 +618,15 @@ def _build_optimizer_view(
             {"label": "일정 영향", "value": f"{round(matched_f.get('delay_days') or 0)}일 지연"},
         ]
 
-        by_wp[wp_id] = {
+        advice_dict = {
             "diagnosis": advice.get("diagnosis") or "",
             "similar_cases": similar_cases,
             "recommendations": recommendations,
             "details": details,
         }
+        for wa in wa_list:
+            wp_id = _wp_id_of(wa, advice.get("l6_main"), advice.get("company"))
+            by_wp[wp_id] = advice_dict
 
     default_wp_id = next(iter(by_wp.keys()), None)
     return {"by_wp": by_wp, "default_wp_id": default_wp_id}

@@ -17,11 +17,11 @@ const AS_IS = [
 const TO_BE: { agent: string; step: string; ai?: boolean }[] = [
   { agent: "Collector",  step: "이메일·카톡 자동 수집·파싱 (0분)" },
   { agent: "Parser",     step: "비정형 작업일보 → WBS 구조화 (0분)" },
-  { agent: "Mapper",     step: "AI 기반 공정표 의미 기반 자동 매핑 (검증 10분)", ai: true },
+  { agent: "Mapper",     step: "공정표 의미 기반 자동 매핑 (검증 10분)", ai: true },
   { agent: "Atomizer",   step: "작업 기록 현장 지식 DB 적재 (0분)" },
   { agent: "Exporter",   step: "통합 작업일보 자동 생성·출력 (검토 10분)" },
-  { agent: "Forecaster", step: "AI 기반 생산성 현장 이력 대비 진단", ai: true },
-  { agent: "Optimizer",  step: "AI 기반 catch-up 시나리오 자동 생성", ai: true },
+  { agent: "Forecaster", step: "생산성 현장 이력 대비 진단", ai: true },
+  { agent: "Optimizer",  step: "atch-up 시나리오 자동 생성", ai: true },
 ];
 
 export function AsIsToBeSection() {
@@ -103,11 +103,11 @@ export function AsIsToBeSection() {
                   </span>
                   {it.ai && (
                     <span
-                      title="AI 핵심 판단"
+                      title="Core AI — 핵심 판단"
                       className="mt-0.5 inline-flex h-5 shrink-0 items-center gap-1 rounded-full bg-sky px-2 font-mono text-[10px] font-semibold uppercase tracking-wider text-white shadow-sm"
                     >
                       <Sparkles className="h-3 w-3" />
-                      AI
+                      CORE AI
                     </span>
                   )}
                 </li>

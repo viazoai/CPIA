@@ -408,6 +408,8 @@ def _llm_extract_sync(
 
     input_rows_count = len(user_payload.get("rows", [])) if isinstance(user_payload, dict) else 0
 
+    input_rows_count = len(user_payload.get("rows", [])) if isinstance(user_payload, dict) else 0
+
     last_err: Exception | None = None
     last_result: Any = None
     for attempt in range(retries + 1):

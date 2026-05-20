@@ -9,6 +9,7 @@ import {
   deriveStageProgress,
   wbsTreeBuild,
   deriveChatSequence,
+  filterAndPickBars,
 } from "../transforms";
 
 describe("G12 deriveProgressPercent", () => {
@@ -287,6 +288,48 @@ describe("G4 deriveChatSequence", () => {
     const r = await deriveChatSequence("run-2");
     expect(r[2].type).toBe("hil_request");
     expect(r[6].type).toBe("result");
+  });
+});
+
+describe("filterAndPickBars", () => {
+  it("빈 입력 → 빈 배열", () => {
+    expect(filterAndPickBars([])).toEqual([]);
+  });
+
+  it("입력 5건 (모두 ≤150) → 5건 desc 정렬", () => {
+    const items = [
+      { label: "A", value: 50 },
+      { label: "B", value: 100 },
+      { label: "C", value: 80 },
+      { label: "D", value: 30 },
+      { label: "E", value: 120 },
+    ];
+    const r = filterAndPickBars(items);
+    expect(r).toHaveLength(5);
+    expect(r.map((b) => b.label)).toEqual(["E", "B", "C", "A", "D"]);
+  });
+
+  it("입력 78건 (over150=14) → 10건 (top3+bot7) 모두 ≤150", () => {
+    const items: { label: string; value: number }[] = [];
+    for (let i = 0; i < 14; i++) items.push({ label: `over_${i}`, value: 200 + i });
+    for (let i = 0; i < 64; i++) items.push({ label: `ok_${i}`, value: 30 + i * 2 });
+    const r = filterAndPickBars(items);
+    expect(r).toHaveLength(10);
+    expect(r.every((b) => b.value <= 150)).toBe(true);
+    expect(r[0].value).toBe(150);
+    expect(r[1].value).toBe(148);
+    expect(r[2].value).toBe(146);
+    expect(r[r.length - 1].value).toBe(30);
+  });
+
+  it("입력 11건 (모두 ≤150) → top3+bot7=10건", () => {
+    const items: { label: string; value: number }[] = [];
+    for (let i = 0; i < 11; i++) items.push({ label: `x_${i}`, value: 10 + i * 10 });
+    const r = filterAndPickBars(items);
+    expect(r).toHaveLength(10);
+    // sorted desc: 110,100,90,80,70,60,50,40,30,20,10
+    // top3 = [110,100,90], bot7 = [70,60,50,40,30,20,10]  (80 빠짐)
+    expect(r.map((b) => b.value)).toEqual([110, 100, 90, 70, 60, 50, 40, 30, 20, 10]);
   });
 });
 

@@ -2,7 +2,7 @@
 import { useMemo, useState } from "react";
 import { BarChartH } from "@/app/components/charts/BarChartH";
 import { cn } from "@/lib/utils";
-import { filterAndPickBars } from "@/lib/transforms";
+import { filterAndPickBars } from "@/lib/bar-filters";
 import type { BarItem } from "@/lib/types";
 
 type Mode = "contractor" | "trade";

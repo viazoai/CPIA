@@ -10,7 +10,7 @@ import { ProductivityTrendChart } from "@/app/components/charts/ProductivityTren
 import { QuadrantScatter } from "@/app/components/charts/QuadrantScatter";
 import { diagnose } from "@/lib/diagnosis";
 import { toDiagnosisInput } from "@/lib/diagnosis-adapter";
-import { filterAndPickBars } from "@/lib/transforms";
+import { filterAndPickBars } from "@/lib/bar-filters";
 import type { ReportDaily, OptimizerOutput } from "@/lib/types";
 import type { ReportDetail } from "@/lib/fixtures";
 

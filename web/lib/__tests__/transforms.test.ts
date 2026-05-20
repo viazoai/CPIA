@@ -9,8 +9,8 @@ import {
   deriveStageProgress,
   wbsTreeBuild,
   deriveChatSequence,
-  filterAndPickBars,
 } from "../transforms";
+import { filterAndPickBars } from "../bar-filters";
 
 describe("G12 deriveProgressPercent", () => {
   it.each([

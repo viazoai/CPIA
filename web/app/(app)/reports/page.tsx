@@ -10,6 +10,7 @@ import { ProductivityTrendChart } from "@/app/components/charts/ProductivityTren
 import { QuadrantScatter } from "@/app/components/charts/QuadrantScatter";
 import { diagnose } from "@/lib/diagnosis";
 import { toDiagnosisInput } from "@/lib/diagnosis-adapter";
+import { filterAndPickBars } from "@/lib/transforms";
 import type { ReportDaily, OptimizerOutput } from "@/lib/types";
 import type { ReportDetail } from "@/lib/fixtures";
 
@@ -62,6 +63,24 @@ export default function ReportPage() {
   }, [selectedDate, details]);
 
   const detail = details[selectedDate];
+
+  // spec 2026-05-21-cpia-ui-4-fixes-design.md §② — daily(530일 desc) 에서 selectedDate -89~0 window 슬라이스.
+  const trend90 = useMemo<{ date: string; value: number }[]>(() => {
+    if (!selectedDate || daily.length === 0) return [];
+    const idx = daily.findIndex((d) => d.date === selectedDate);
+    if (idx === -1) return [];
+    return daily
+      .slice(idx, idx + 90)
+      .reverse()
+      .map((d) => ({ date: d.date, value: d.productivity_today }));
+  }, [selectedDate, daily]);
+
+  // spec §④ — trade_bars 의 필터 결과 (top3+bot7) 와 동일 trade 만 WP 표에 노출.
+  const visibleTrades = useMemo(() => {
+    if (!detail) return new Set<string>();
+    return new Set(filterAndPickBars(detail.trade_bars).map((b) => b.label));
+  }, [detail]);
+
   const diagnosis = useMemo(() => {
     if (!detail) return null;
     const base = diagnose(toDiagnosisInput(detail.kpi, detail.s_curve, REPORT_SITE_ID));
@@ -91,10 +110,14 @@ export default function ReportPage() {
     safe: "normal",
   };
   const wpStatusFilter = filterToStatus[filter];
+  // spec §④ — 위 trade bar 매칭된 trade 만 + dead row (impact=0 AND prod=0) 제외.
+  const filteredWpRowsBase = detail.wp_summary.filter(
+    (w) => visibleTrades.has(w.trade) && (w.impact > 0 || w.productivity > 0),
+  );
   const filteredWpRows =
     wpStatusFilter === "all"
-      ? detail.wp_summary
-      : detail.wp_summary.filter((w) => w.status === wpStatusFilter);
+      ? filteredWpRowsBase
+      : filteredWpRowsBase.filter((w) => w.status === wpStatusFilter);
 
   return (
     <div className="flex flex-col">
@@ -122,7 +145,7 @@ export default function ReportPage() {
 
             <Section eyebrow="/ 01 — 생산성 지표" title="현장 생산성 진단">
               <ProductivityTrendChart
-                siteId={REPORT_SITE_ID}
+                trend={trend90}
                 todayValue={detail.kpi.productivity_today}
                 endDate={selectedDate}
               />

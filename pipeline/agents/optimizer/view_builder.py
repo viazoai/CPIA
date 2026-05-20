@@ -292,13 +292,18 @@ def _bar_status(cpi: float) -> str:
 
 
 def _build_contractor_bars(productivity: dict[str, Any]) -> list[dict[str, Any]]:
-    """by_contractor dict → BarItem[] sorted by CPI desc."""
+    """by_contractor dict → BarItem[] sorted by CPI desc.
+
+    baseline=90: _bar_status 의 normal/caution 경계와 일치. spec §8.2.
+    FE ProductivityBarToggle 의 underCount = value < baseline 카운트.
+    """
     by_c = productivity.get("by_contractor", {}) or {}
     return sorted(
         [
             {
                 "label": c,
                 "value": round(d.get("cpi") or 0, 1),
+                "baseline": 90,
                 "status": _bar_status(d.get("cpi") or 0),
             }
             for c, d in by_c.items()
@@ -308,13 +313,14 @@ def _build_contractor_bars(productivity: dict[str, Any]) -> list[dict[str, Any]]
 
 
 def _build_trade_bars(productivity: dict[str, Any]) -> list[dict[str, Any]]:
-    """by_l6 dict -> BarItem[]."""
+    """by_l6 dict -> BarItem[]. baseline=90 — spec §8.2."""
     by_l = productivity.get("by_l6", {}) or {}
     return sorted(
         [
             {
                 "label": l,
                 "value": round(d.get("cpi") or 0, 1),
+                "baseline": 90,
                 "status": _bar_status(d.get("cpi") or 0),
             }
             for l, d in by_l.items()

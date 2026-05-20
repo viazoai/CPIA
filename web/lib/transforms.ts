@@ -183,7 +183,7 @@ export async function deriveStageProgress(date: string): Promise<AgentStageProgr
 // ──────────────────────────────────────────────
 // G22: WBS 4 레벨 트리 (site → wa → l5_disc → l6_main)
 // ──────────────────────────────────────────────
-export async function wbsTreeBuild(siteId: string): Promise<WBSNode> {
+export async function wbsTreeBuild(siteId: string, siteName?: string): Promise<WBSNode> {
   // spec §6.2 — 기존 LEFT JOIN 체인은 cartesian product 로 review_count 233배 폭발 (14736 vs 실 63).
   // CTE 로 review_count / worst_risk 를 미리 집계 후 activity_master 에 JOIN.
   // is_mock=FALSE 만 (mock 카드는 CPIA_DEMO_FALLBACK 분기 — 여기는 wbs 트리, 항상 real).
@@ -228,7 +228,7 @@ export async function wbsTreeBuild(siteId: string): Promise<WBSNode> {
   const root: WBSNode = {
     id: siteId,
     type: "building",
-    name: siteId,
+    name: siteName ?? siteId,
     parent_id: null,
     review_count: 0,
     status: "normal",

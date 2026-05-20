@@ -21,7 +21,7 @@ export async function GET() {
   const siteId = siteRow[0]?.site_id ?? "m15x-ph3-ibl";
   const siteName = siteRow[0]?.name ?? siteId;
 
-  const wbs = await wbsTreeBuild(siteId);
+  const wbs = await wbsTreeBuild(siteId, siteName);
 
   const cardRows = (await (sql as any)`
     SELECT

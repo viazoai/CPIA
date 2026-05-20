@@ -6,8 +6,11 @@ import sql from "@/lib/pg";
 export async function GET() {
   const useMock = process.env.CPIA_DEMO_FALLBACK === "on";
 
+  // DISTINCT ON (report_date) — 같은 (site, date) 에 여러 cycle run_id row 가 있을 때
+  // 가장 최신 created_at 만 표시. 사용자 신고 'reports 같은 날짜 3개' fix.
   const rows = await (sql as any)`
-    SELECT pr.report_date,
+    SELECT DISTINCT ON (pr.report_date)
+           pr.report_date,
            dr.kpi_jsonb, dr.contractor_bars_jsonb, dr.trade_bars_jsonb,
            dr.quadrant_jsonb, dr.wp_summary_jsonb, dr.s_curve_jsonb,
            dr.optimizer_view_jsonb, dr.productivity_jsonb,
@@ -17,7 +20,7 @@ export async function GET() {
     JOIN sites s ON s.site_id = pr.site_id
     WHERE s.is_mock = FALSE
       AND dr.is_mock = ${useMock}
-    ORDER BY pr.report_date DESC
+    ORDER BY pr.report_date DESC, dr.created_at DESC
   `;
 
   const isoDate = (v: any): string =>

@@ -23,17 +23,21 @@ export async function GET() {
 
   const wbs = await wbsTreeBuild(siteId, siteName);
 
+  // LIMIT 50 → 300, site 제약 추가 (wbs 노드 옆 숫자와 클릭 시 카드 수 일치).
+  // site 필터 없으면 orphan ma row (pipeline_runs 매칭 없는) 까지 포함되어 wbs review_count 와 mismatch.
   const cardRows = (await (sql as any)`
     SELECT
       ma.id, ma.run_id, ma.idx, ma.company, ma.today_qty, ma.unit,
       ma.wa, ma.l6_main, ma.mapping_conf, ma.requires_review, ma.alternatives,
       pa.work_content
     FROM mapper_activities ma
+    JOIN pipeline_runs pr USING (run_id)
     LEFT JOIN parser_activities pa ON pa.run_id = ma.run_id AND pa.idx = ma.idx
-    WHERE ma.requires_review = TRUE
+    WHERE pr.site_id = ${siteId}
+      AND ma.requires_review = TRUE
       AND ma.is_mock = ${useMock}
     ORDER BY ma.mapping_conf ASC NULLS FIRST
-    LIMIT 50
+    LIMIT 300
   `) as Array<{
     id: number | string;
     run_id: string;

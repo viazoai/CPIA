@@ -51,11 +51,11 @@ export function ScalabilitySection() {
         </div>
 
         <ol className="mt-14 grid gap-4 md:grid-cols-3">
-          {AXES.map((a, i) => {
+          {AXES.map((a) => {
             const Icon = a.icon;
             return (
               <li
-                key={i}
+                key={a.axis}
                 className={`relative rounded-card-lg border p-6 transition-all ${
                   a.active
                     ? "border-brand bg-gradient-to-br from-brand-light/60 via-card to-card shadow-md"

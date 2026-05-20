@@ -424,18 +424,36 @@ class PGClient:
             if site_id is None:
                 row = await conn.fetchrow("SELECT site_id FROM pipeline_runs WHERE run_id=$1", run_id)
                 site_id = row["site_id"] if row else None
-            await conn.execute(
+            # 2026-05-20: UPDATE-first 패턴 — optimizer 가 먼저 daily_reports row 만들고 9 jsonb 채운 후
+            # reporter 가 호출되므로 INSERT 시 UniqueViolation. upsert_daily_report_view_col 의 패턴 모방.
+            hcsv = _json.dumps(history_csv_row, ensure_ascii=False) if history_csv_row is not None else None
+            result = await conn.execute(
                 """
-                INSERT INTO daily_reports (run_id, site_id, report_date, bp_name, report_md, history_csv_row)
-                VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+                UPDATE daily_reports
+                   SET bp_name = $4, report_md = $5, history_csv_row = $6::jsonb
+                 WHERE run_id = $1 AND site_id = $2 AND report_date = $3
                 """,
                 run_id,
                 site_id,
                 report_date,
                 bp_name,
                 report_md,
-                _json.dumps(history_csv_row, ensure_ascii=False) if history_csv_row is not None else None,
+                hcsv,
             )
+            if result.endswith(" 0"):
+                # row 없음 → INSERT (optimizer 가 view 산출 못 한 경우 새 row)
+                await conn.execute(
+                    """
+                    INSERT INTO daily_reports (run_id, site_id, report_date, bp_name, report_md, history_csv_row)
+                    VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+                    """,
+                    run_id,
+                    site_id,
+                    report_date,
+                    bp_name,
+                    report_md,
+                    hcsv,
+                )
 
     async def insert_mapped_history_batch(
         self,

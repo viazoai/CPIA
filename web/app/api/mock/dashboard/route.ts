@@ -1,41 +1,17 @@
+// /api/mock/dashboard — Dashboard 페이지 응답 contract.
+// dashboard/page.tsx 는 { sites: Site[], dashboard: DashboardFixture } shape 을 기대.
+// DashboardFixture = { performance: { fleet_kpi, fleet_trend?, site_sparklines? }, impact: {...} }
+//
+// 시연 fixture (data/mock_dashboard.json + data/mock_sites.json) 반환.
+// fleet_trend / site_sparklines 가 비면 컴포넌트가 mulberry32 로 deterministic 생성.
+
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import sql from "@/lib/pg";
+import { loadFixture } from "@/lib/fixtures";
 
 export async function GET() {
-  const useMock = process.env.CPIA_DEMO_FALLBACK === "on";
-
-  // DISTINCT ON (report_date) — 같은 date 의 중복 cycle row 정리 (report 와 동일 패턴)
-  const trend = await (sql as any)`
-    SELECT DISTINCT ON (pr.report_date)
-           pr.report_date,
-           (dr.kpi_jsonb->>'cpi')::float AS cpi
-    FROM daily_reports dr
-    JOIN pipeline_runs pr USING (run_id)
-    JOIN sites s ON s.site_id = pr.site_id
-    WHERE s.is_mock = FALSE
-      AND dr.is_mock = ${useMock}
-    ORDER BY pr.report_date DESC, dr.created_at DESC
-    LIMIT 90
-  `;
-
-  const isoDate = (v: any): string =>
-    v instanceof Date ? v.toISOString().slice(0, 10) : String(v).slice(0, 10);
-
-  const trendOut = trend.map((r: any) => ({
-    date: isoDate(r.report_date),
-    cpi: r.cpi ?? 0,
-  }));
-
-  const latest = trendOut[0];
-  return NextResponse.json({
-    fleet: {
-      kpi: { productivity_today: latest?.cpi ?? 0 },
-      trend: trendOut,
-    },
-    sites: [
-      { site_id: "m15x-ph3-ibl", name: "M15X Ph-3 IBL", status: "normal" },
-    ],
-  });
+  const dashboard = await loadFixture("dashboard");
+  const sites = await loadFixture("sites");
+  return NextResponse.json({ sites, dashboard });
 }

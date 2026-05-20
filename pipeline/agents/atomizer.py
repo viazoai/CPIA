@@ -8,6 +8,7 @@ doc_id = sha256(date|company|l6_main|work_content)[:16] (결정성 upsert).
 
 from __future__ import annotations
 
+import asyncio  # noqa: F401 — used by ChromaClient init retry wrap (L110)
 import hashlib
 import uuid
 from dataclasses import dataclass
@@ -107,9 +108,32 @@ async def atomize(
             resp = azure.embeddings.create(model=cfg.embedding_model, input=chunk)
             embeddings.extend([d.embedding for d in resp.data])
 
-        chroma = ChromaClient(host=cfg.chroma_host, port=cfg.chroma_port, ssl=cfg.chroma_ssl)
-        coll = chroma.get_or_create_daily_activities()
-        coll.upsert(ids=ids, embeddings=embeddings, documents=documents, metadatas=metadatas)
+        # 2026-05-20: ChromaClient init 의 user_identity HTTP 호출 timeout (Errno 60) 방어.
+        # mapper 의 동시 init 문제와 다르게 atomizer 는 단일 호출이지만, 첫 init 의 cold start
+        # latency + network 변동을 위해 3 retry + exponential backoff.
+        coll = None
+        _last_err: Exception | None = None
+        for _attempt in range(3):
+            try:
+                chroma = ChromaClient(host=cfg.chroma_host, port=cfg.chroma_port, ssl=cfg.chroma_ssl)
+                coll = chroma.get_or_create_daily_activities()
+                break
+            except Exception as _e:  # noqa: BLE001
+                _last_err = _e
+                if _attempt < 2:
+                    await asyncio.sleep(2**_attempt)
+        if coll is None:
+            raise RuntimeError(f"Chroma init failed after 3 retries: {type(_last_err).__name__}: {_last_err}")
+        # 2026-05-20 hang 방지: Chroma 0.5.20 batch 권장 100 doc. 1000+ doc 통째 upsert 시
+        # HNSW build hang 위험 (이전 cycle 153bfa17/d38605f9 atomizer 4시간 stuck 사례).
+        _CHROMA_UPSERT_BATCH = 100
+        for _j in range(0, len(ids), _CHROMA_UPSERT_BATCH):
+            coll.upsert(
+                ids=ids[_j : _j + _CHROMA_UPSERT_BATCH],
+                embeddings=embeddings[_j : _j + _CHROMA_UPSERT_BATCH],
+                documents=documents[_j : _j + _CHROMA_UPSERT_BATCH],
+                metadatas=metadatas[_j : _j + _CHROMA_UPSERT_BATCH],
+            )
 
         # mapped_history INSERT (wa + l6_main 둘 다 not None 활동만 — Phase 3 결정)
         # Chroma 적재 대상(valid) 은 l6_main is not None 만 — 기존 유지.

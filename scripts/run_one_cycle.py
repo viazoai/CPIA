@@ -59,30 +59,39 @@ async def main():
         f"act={len(parsed['activities'])}"
     )
 
-    # POC 3사 필터 (tmp/run_prod_cycle.py 패턴) — 회사명 비어있는 BP row 제거 →
-    # mapper_activities.company NOT NULL constraint 위반 방지.
-    POC_KEYWORDS = ("남웅", "세보", "창원기전")
-
-    def _pass(c):
-        return bool(c) and any(k in c for k in POC_KEYWORDS)
-
-    parsed["bp_summaries"] = [
-        s for s in parsed["bp_summaries"] if _pass(s.get("company"))
-    ]
-    parsed["activities"] = [a for a in parsed["activities"] if _pass(a.get("company"))]
+    # 2026-05-20: PoC 3사 필터 제거 — 통합일보 시트4 의 78사 전체 적재.
+    # 회사명 None/빈 row 만 제외 (mapper_activities.company NOT NULL constraint 보호).
+    parsed["activities"] = [a for a in parsed["activities"] if a.get("company")]
+    parsed["bp_summaries"] = [s for s in parsed["bp_summaries"] if s.get("company")]
     parsed["job_allocations"] = [
-        j for j in (parsed.get("job_allocations") or []) if _pass(j.get("company"))
+        j for j in (parsed.get("job_allocations") or []) if j.get("company")
     ]
     parsed["equipment_allocations"] = [
-        e
-        for e in (parsed.get("equipment_allocations") or [])
-        if _pass(e.get("company"))
+        e for e in (parsed.get("equipment_allocations") or []) if e.get("company")
     ]
+
+    # 2026-05-20: 빠른 fix 검증용 1 업체 sample 옵션. env CPIA_SAMPLE_COMPANY="남웅건설" 같이 지정.
+    _SAMPLE = os.environ.get("CPIA_SAMPLE_COMPANY", "").strip()
+    if _SAMPLE:
+        parsed["activities"] = [
+            a for a in parsed["activities"] if a.get("company") == _SAMPLE
+        ]
+        parsed["bp_summaries"] = [
+            s for s in parsed["bp_summaries"] if s.get("company") == _SAMPLE
+        ]
+        parsed["job_allocations"] = [
+            j for j in parsed["job_allocations"] if j.get("company") == _SAMPLE
+        ]
+        parsed["equipment_allocations"] = [
+            e for e in parsed["equipment_allocations"] if e.get("company") == _SAMPLE
+        ]
+        _log(f"SAMPLE_COMPANY={_SAMPLE} filter 적용")
     _log(
-        f"3사 필터 후: bp={len(parsed['bp_summaries'])} act={len(parsed['activities'])} job={len(parsed['job_allocations'])} eq={len(parsed['equipment_allocations'])}"
+        f"after filter: bp={len(parsed['bp_summaries'])} act={len(parsed['activities'])} "
+        f"job={len(parsed['job_allocations'])} eq={len(parsed['equipment_allocations'])}"
     )
     if not parsed["activities"]:
-        _log("STOP: 3사 필터 후 activities 0 — cycle 진행 불가")
+        _log("STOP: activities 0 — 통합 일보 파싱 실패")
         sys.exit(2)
 
     # Phase B: Graph

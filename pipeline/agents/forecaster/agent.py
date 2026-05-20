@@ -6,12 +6,15 @@ Spec: docs/superpowers/specs/2026-05-16-cpia-forecaster-design.md §10
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
 
 from openai import AzureOpenAI
+
+logger = logging.getLogger(__name__)
 
 from pipeline.chroma_client import ChromaClient
 from pipeline.db import PGClient
@@ -107,18 +110,29 @@ async def _forecast_one_group(
     }
     # 필터로 좁혀진 공간이 요청 개수보다 작으면 chroma HNSW 가
     # 'ef or M too small' 에러 던짐. 사전에 docs 수 count 후 n_results clamp.
+    # 2026-05-20: AWS Chroma 의 ef_search=10 boundary case 회피 — n_results < ef_search 보장.
+    # cycle 6차 fail (forecaster fc=86 까지 진행 후 "ef or M too small") 의 root cause.
     preflight = coll.get(where=where_filter, include=[])
     n_filtered = len(preflight.get("ids", []) or [])
-    safe_n = min(cfg.rag_n_candidates, n_filtered)
-    if safe_n == 0:
-        similar_cases_raw: list[dict[str, Any]] = []
-    else:
-        rag_result = coll.query(
-            query_embeddings=[today_embed],
-            where=where_filter,
-            n_results=safe_n,
-        )
-        similar_cases_raw = _format_chroma_result(rag_result)
+    safe_n = min(cfg.rag_n_candidates, n_filtered, 5)
+    similar_cases_raw: list[dict[str, Any]] = []
+    if safe_n > 0:
+        try:
+            rag_result = coll.query(
+                query_embeddings=[today_embed],
+                where=where_filter,
+                n_results=safe_n,
+            )
+            similar_cases_raw = _format_chroma_result(rag_result)
+        except Exception as _e:  # noqa: BLE001
+            # 2026-05-20: HNSW "ef or M too small" (cycle 8차 재발) 또는 기타 Chroma error.
+            # cap=5 만으로 부족 — n_filtered 가 작거나 HNSW 내부 상태로 fail 가능. Plan fallback.
+            logger.warning(
+                "Chroma query fail (n_results=%d, filter=%s): %s — Plan fallback",
+                safe_n,
+                where_filter,
+                _e,
+            )
     window_start_iso = (today - timedelta(days=cfg.rag_window_days)).isoformat()
     today_iso = today.isoformat()
     similar_cases_in_window = [

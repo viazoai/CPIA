@@ -100,17 +100,21 @@ export async function loadReal(name: "chat_sequence"): Promise<Record<string, Ch
 export async function loadReal(name: string): Promise<unknown> {
   switch (name) {
     case "sites_summary": {
+      const useMock = process.env.CPIA_DEMO_FALLBACK === "on";
+
       const [agg] = (await (sql as any)`
         SELECT
           COALESCE(SUM(atomized_count), 0) AS total_processed,
           MAX(started_at) AS last_started
         FROM pipeline_runs
+        WHERE is_mock = ${useMock}
       `) as Array<{ total_processed: string | number; last_started: Date | string | null }>;
 
       const [today] = (await (sql as any)`
         SELECT COALESCE(atomized_count, 0) AS today_count
         FROM pipeline_runs
         WHERE status = 'completed'
+          AND is_mock = ${useMock}
         ORDER BY started_at DESC
         LIMIT 1
       `) as Array<{ today_count: string | number }>;
@@ -122,18 +126,21 @@ export async function loadReal(name: string): Promise<unknown> {
           COALESCE(SUM(hours_saved_cum), 0) AS total_hours_saved_cum,
           COALESCE(SUM(headcount), 0) AS total_headcount
         FROM sites
+        WHERE is_mock = ${useMock}
       `) as Array<Record<string, string | number>>;
 
       const [review] = (await (sql as any)`
         SELECT COUNT(*) AS review_pending
         FROM mapper_activities
         WHERE requires_review = true
+          AND is_mock = ${useMock}
       `) as Array<{ review_pending: string | number }>;
 
       const [abnormal] = (await (sql as any)`
         SELECT COUNT(*) AS abnormal_count
         FROM forecasts
         WHERE risk_level <> '정상'
+          AND is_mock = ${useMock}
       `) as Array<{ abnormal_count: string | number }>;
 
       const lastStarted = agg?.last_started ?? null;
@@ -164,6 +171,7 @@ export async function loadReal(name: string): Promise<unknown> {
     }
 
     case "agent_status": {
+      const useMock = process.env.CPIA_DEMO_FALLBACK === "on";
       const AGENT_META: Array<Omit<AgentStatus, "active_count" | "state">> = [
         { step: 1, name: "Collector",  korean_name: "수집", description: "작업일보 자동 수집",      model: "규칙 기반",     group: "collect" },
         { step: 2, name: "Parser",     korean_name: "파싱", description: "엑셀 → 구조화 JSON",       model: "gpt-5.1",       group: "collect" },
@@ -178,6 +186,7 @@ export async function loadReal(name: string): Promise<unknown> {
         SELECT current_node, COUNT(*) AS n
         FROM pipeline_runs
         WHERE status = 'running'
+          AND is_mock = ${useMock}
         GROUP BY current_node
       `) as Array<{ current_node: string | null; n: string | number }>;
 
@@ -201,10 +210,12 @@ export async function loadReal(name: string): Promise<unknown> {
     }
 
     case "chat_sequence": {
+      const useMock = process.env.CPIA_DEMO_FALLBACK === "on";
       const [latest] = (await (sql as any)`
         SELECT run_id, report_date
         FROM pipeline_runs
         WHERE status = 'completed'
+          AND is_mock = ${useMock}
         ORDER BY started_at DESC
         LIMIT 1
       `) as Array<{ run_id: string; report_date: Date | string }>;

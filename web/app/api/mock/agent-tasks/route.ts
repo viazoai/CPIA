@@ -6,10 +6,13 @@ import { deriveStageProgress, deriveProgressPercent, deriveItemStatus } from "@/
 import type { DailyTask, AgentStageProgress, AgentTaskItem } from "@/lib/types";
 
 export async function GET() {
+  const useMock = process.env.CPIA_DEMO_FALLBACK === "on";
+
   const dateRows = (await (sql as any)`
     SELECT DISTINCT report_date
     FROM pipeline_runs
     WHERE report_date >= CURRENT_DATE - INTERVAL '1 year'
+      AND is_mock = ${useMock}
     ORDER BY report_date DESC
   `) as Array<{ report_date: Date | string }>;
 
@@ -27,6 +30,7 @@ export async function GET() {
       SELECT status, current_node
       FROM pipeline_runs
       WHERE report_date = ${dStr}
+        AND is_mock = ${useMock}
       ORDER BY started_at DESC
       LIMIT 1
     `) as Array<{ status: string | null; current_node: string | null }>;
@@ -55,6 +59,7 @@ export async function GET() {
       FROM mapper_activities ma
       JOIN pipeline_runs pr USING (run_id)
       WHERE pr.report_date = ${dStr}
+        AND ma.is_mock = ${useMock}
       ORDER BY ma.mapping_conf ASC NULLS FIRST
       LIMIT 12
     `) as Array<{

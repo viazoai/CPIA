@@ -12,7 +12,9 @@ import { wbsTreeBuild, deriveWpIdAndPath } from "@/lib/transforms";
 import type { ReviewItem } from "@/lib/types";
 
 export async function GET() {
-  // 실 PoC 현장 1 개 — sites.is_mock = false.
+  const useMock = process.env.CPIA_DEMO_FALLBACK === "on";
+
+  // 실 PoC 현장 1 개 — sites.is_mock = false (useMock 무관, wbs 빌드용 site_id 식별).
   const siteRow = (await (sql as any)`
     SELECT site_id, name FROM sites WHERE is_mock = FALSE ORDER BY site_id LIMIT 1
   `) as Array<{ site_id: string; name: string }>;
@@ -29,6 +31,7 @@ export async function GET() {
     FROM mapper_activities ma
     LEFT JOIN parser_activities pa ON pa.run_id = ma.run_id AND pa.idx = ma.idx
     WHERE ma.requires_review = TRUE
+      AND ma.is_mock = ${useMock}
     ORDER BY ma.mapping_conf ASC NULLS FIRST
     LIMIT 50
   `) as Array<{

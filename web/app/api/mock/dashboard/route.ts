@@ -4,6 +4,8 @@ import { NextResponse } from "next/server";
 import sql from "@/lib/pg";
 
 export async function GET() {
+  const useMock = process.env.CPIA_DEMO_FALLBACK === "on";
+
   const trend = await (sql as any)`
     SELECT pr.report_date,
            (dr.kpi_jsonb->>'cpi')::float AS cpi
@@ -11,6 +13,7 @@ export async function GET() {
     JOIN pipeline_runs pr USING (run_id)
     JOIN sites s ON s.site_id = pr.site_id
     WHERE s.is_mock = FALSE
+      AND dr.is_mock = ${useMock}
     ORDER BY pr.report_date DESC
     LIMIT 90
   `;

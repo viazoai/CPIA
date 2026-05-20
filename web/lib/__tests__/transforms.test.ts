@@ -138,6 +138,70 @@ describe("G10 deriveStageProgress", () => {
     expect(r[3].waiting_hil).toBe(true);
     expect(r[3].is_hil).toBe(true);
   });
+
+  it("anchor 9-25 시뮬레이션 — HIL Review 0% (462/0, waiting), Optimizer 100% (25/25)", async () => {
+    (sql as any).mockResolvedValueOnce([
+      {
+        parser_reports: 1, parser_acts: 1162, mapper_acts: 1162,
+        hil_received: 462, hil_done: 0,
+        atomized: 747, exporter: 1, forecasts_done: 293,
+        opt_received: 25, opt_done: 25,
+      },
+    ]);
+    const r = await deriveStageProgress("2025-09-25");
+    expect(r.find((s) => s.agent === "Collector")?.percent).toBe(100);
+    expect(r.find((s) => s.agent === "Parser")?.percent).toBe(100);
+    expect(r.find((s) => s.agent === "Mapper")?.percent).toBe(100);
+    const hil = r.find((s) => s.agent === "HIL Review")!;
+    expect(hil.percent).toBe(0);
+    expect(hil.waiting_hil).toBe(true);
+    expect(r.find((s) => s.agent === "Atomizer")?.percent).toBe(100);
+    expect(r.find((s) => s.agent === "Exporter")?.percent).toBe(100);
+    expect(r.find((s) => s.agent === "Forecaster")?.percent).toBe(100);
+    expect(r.find((s) => s.agent === "Optimizer")?.percent).toBe(100);
+  });
+
+  it("더미 9-24 시뮬레이션 — 8 stage 모두 100% (hil_received=0, opt_received>0 but pct=32)", async () => {
+    (sql as any).mockResolvedValueOnce([
+      {
+        parser_reports: 1, parser_acts: 798, mapper_acts: 798,
+        hil_received: 0, hil_done: 0,
+        atomized: 798, exporter: 1, forecasts_done: 304,
+        opt_received: 137, opt_done: 44,
+      },
+    ]);
+    const r = await deriveStageProgress("2025-09-24");
+    expect(r.find((s) => s.agent === "Collector")?.percent).toBe(100);
+    expect(r.find((s) => s.agent === "Parser")?.percent).toBe(100);
+    expect(r.find((s) => s.agent === "Mapper")?.percent).toBe(100);
+    expect(r.find((s) => s.agent === "HIL Review")?.percent).toBe(100);
+    expect(r.find((s) => s.agent === "HIL Review")?.waiting_hil).toBe(false);
+    expect(r.find((s) => s.agent === "Atomizer")?.percent).toBe(100);
+    expect(r.find((s) => s.agent === "Exporter")?.percent).toBe(100);
+    expect(r.find((s) => s.agent === "Forecaster")?.percent).toBe(100);
+    // opt_received=137 > 0 → pct = round(44/137*100) = 32
+    expect(r.find((s) => s.agent === "Optimizer")?.percent).toBe(32);
+  });
+
+  it("빈 일자 — Collector/Parser/Mapper/Atom/Exp/Fore=0, HIL/Opt=100 (carve-out: received=0=완료)", async () => {
+    (sql as any).mockResolvedValueOnce([
+      {
+        parser_reports: 0, parser_acts: 0, mapper_acts: 0,
+        hil_received: 0, hil_done: 0,
+        atomized: 0, exporter: 0, forecasts_done: 0,
+        opt_received: 0, opt_done: 0,
+      },
+    ]);
+    const r = await deriveStageProgress("2024-01-01");
+    expect(r.find((s) => s.agent === "Collector")?.percent).toBe(0);
+    expect(r.find((s) => s.agent === "Parser")?.percent).toBe(0);
+    expect(r.find((s) => s.agent === "Mapper")?.percent).toBe(0);
+    expect(r.find((s) => s.agent === "HIL Review")?.percent).toBe(100);
+    expect(r.find((s) => s.agent === "Atomizer")?.percent).toBe(0);
+    expect(r.find((s) => s.agent === "Exporter")?.percent).toBe(0);
+    expect(r.find((s) => s.agent === "Forecaster")?.percent).toBe(0);
+    expect(r.find((s) => s.agent === "Optimizer")?.percent).toBe(100);
+  });
 });
 
 

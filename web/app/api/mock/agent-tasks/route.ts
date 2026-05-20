@@ -44,15 +44,18 @@ export async function GET() {
           ? "completed"
           : "running";
 
+    const stages = await deriveStageProgress(dStr);
+    progressByDate[dStr] = stages;
+
+    // spec §5.3 — total_count = parser_activities 처리 건수 (parser 가 받아 mapper 로 넘긴 수).
+    const totalCount = stages.find((s) => s.agent === "Parser")?.processed ?? 0;
     tasks.push({
       date: dStr,
-      total_count: 0,
+      total_count: totalCount,
       progress_percent: deriveProgressPercent(statusRaw, run?.current_node ?? null),
       status,
       has_anomaly: false,
     });
-
-    progressByDate[dStr] = await deriveStageProgress(dStr);
 
     const mapperItems = (await (sql as any)`
       SELECT ma.id, ma.wa, ma.l6_main, ma.company, ma.mapping_conf, ma.requires_review
@@ -61,7 +64,7 @@ export async function GET() {
       WHERE pr.report_date = ${dStr}
         AND ma.is_mock = ${useMock}
       ORDER BY ma.mapping_conf ASC NULLS FIRST
-      LIMIT 12
+      LIMIT 200
     `) as Array<{
       id: number | string;
       wa: string | null;
@@ -69,6 +72,22 @@ export async function GET() {
       company: string | null;
       mapping_conf: number | string | null;
       requires_review: boolean | null;
+    }>;
+
+    // spec §5.1 — Parser 클릭 시 빈 화면 fix. parser_activities 그대로 펼침.
+    const parserItems = (await (sql as any)`
+      SELECT pa.id, pa.trade, pa.company, pa.work_content
+      FROM parser_activities pa
+      JOIN pipeline_runs pr USING (run_id)
+      WHERE pr.report_date = ${dStr}
+        AND pa.is_mock = ${useMock}
+      ORDER BY pa.id
+      LIMIT 200
+    `) as Array<{
+      id: number | string;
+      trade: string | null;
+      company: string | null;
+      work_content: string | null;
     }>;
 
     const items: Record<string, AgentTaskItem[]> = {};
@@ -81,7 +100,13 @@ export async function GET() {
         mapping_conf: r.mapping_conf != null ? Number(r.mapping_conf) : 0,
       }),
     }));
-    for (const agent of ["Collector", "Parser", "HIL Review", "Atomizer", "Exporter", "Forecaster", "Optimizer"]) {
+    items["Parser"] = parserItems.map((r) => ({
+      id: `parser-${r.id}`,
+      trade: r.trade ?? r.work_content ?? "—",
+      contractor: r.company ?? "—",
+      status: "done" as const,
+    }));
+    for (const agent of ["Collector", "HIL Review", "Atomizer", "Exporter", "Forecaster", "Optimizer"]) {
       items[agent] = [];
     }
     itemsByDate[dStr] = items;

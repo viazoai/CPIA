@@ -845,3 +845,12 @@ def _normalize_impact(impacts: list[float]) -> list[float]:
     if mx <= 0:
         return [0.0] * len(impacts)
     return [round(x / mx * 100, 2) for x in impacts]
+
+
+def _make_display_label(
+    productivity_pct: float, perperson: float | None, unit: str | None
+) -> str:
+    """UI 표시 라벨. '98.9% (3.20 ton/인)' 형식, perperson/unit 없으면 '%만'."""
+    if perperson is None or unit is None:
+        return f"{productivity_pct:.1f}%"
+    return f"{productivity_pct:.1f}% ({perperson:.2f} {unit}/인)"

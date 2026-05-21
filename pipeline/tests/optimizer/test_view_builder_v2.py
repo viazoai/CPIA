@@ -10,6 +10,7 @@ import pytest
 from pipeline.agents.optimizer.view_builder import (
     _compute_daily_quota,
     _compute_productivity,
+    _make_display_label,
     _normalize_impact,
     _simulate_today_qty,
     _weighted_median,
@@ -67,3 +68,12 @@ def test_normalize_impact():
     assert impacts == pytest.approx([33.33, 66.67, 100.0], abs=0.01)
     assert _normalize_impact([]) == []
     assert _normalize_impact([0, 0, 0]) == [0.0, 0.0, 0.0]
+
+
+def test_display_label_format():
+    """'98.9% (3.20 ton/인)' 형식 — perperson/unit 있으면 풀, 없으면 % 만."""
+    assert _make_display_label(98.9, 3.2, "ton") == "98.9% (3.20 ton/인)"
+    assert _make_display_label(81.3, 0.06, "m2") == "81.3% (0.06 m2/인)"
+    assert _make_display_label(50, None, None) == "50.0%"
+    assert _make_display_label(50, 1.5, None) == "50.0%"
+    assert _make_display_label(50, None, "ton") == "50.0%"

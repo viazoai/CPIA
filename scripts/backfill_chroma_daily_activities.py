@@ -48,15 +48,26 @@ async def fetch_rows(conn: asyncpg.Connection, the_date) -> list[dict]:
         SELECT DISTINCT ON (pr.report_date, ma.l7_5_activity, ma.l6_main, ma.company)
                pr.report_date, ma.l7_5_activity, ma.l6_main, ma.company,
                ma.today_qty, ma.assigned_workers, ma.unit, ma.conditions,
-               am.daily_qty AS master_daily_qty, am.daily_workers AS master_daily_workers
+               m.total_qty / NULLIF((m.pf - m.ps + 1), 0)::float AS master_daily_qty,
+               m.total_mh / NULLIF((m.pf - m.ps + 1) * 8.0, 0)::float AS master_daily_workers
         FROM mapper_activities ma
         JOIN pipeline_runs pr USING (run_id)
-        LEFT JOIN activity_master am
-               ON am.site_id = pr.site_id AND am.company = ma.company
-              AND am.l6_main = ma.l6_main AND am.l7_5_activity = ma.l7_5_activity
+        LEFT JOIN LATERAL (
+            SELECT SUM(am.plan_total_qty) AS total_qty,
+                   SUM(am.plan_mh_rev2) AS total_mh,
+                   MIN(am.plan_start) AS ps,
+                   MAX(am.plan_finish) AS pf
+            FROM activity_master am
+            WHERE am.site_id = pr.site_id
+              AND am.company = ma.company
+              AND am.l6_main = ma.l6_main
+              AND am.l7_5_activity = ma.l7_5_activity
+        ) m ON TRUE
         WHERE ma.is_mock = false
           AND ma.l7_5_activity IS NOT NULL
           AND ma.trade IN ('건축', '토목')
+          AND ma.today_qty IS NOT NULL AND ma.today_qty > 0
+          AND ma.assigned_workers IS NOT NULL AND ma.assigned_workers > 0
           AND ($1::date IS NULL OR pr.report_date = $1::date)
         """,
         the_date,
@@ -83,10 +94,21 @@ async def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--date", default=None)
     ap.add_argument("--all-dates", action="store_true")
+    ap.add_argument(
+        "--clean",
+        action="store_true",
+        help="ChromaDB 의 기존 run_id='backfill_v2' 전체 삭제 후 재적재 (stale 0-qty row 정리)",
+    )
     args = ap.parse_args()
     the_date = (
         None if args.all_dates else _date.fromisoformat(args.date or "2025-09-25")
     )
+
+    if args.clean:
+        chroma = ChromaClient(host=CHROMA_HOST, port=CHROMA_PORT)
+        col = chroma.client.get_or_create_collection("daily_activities")
+        col.delete(where={"run_id": RUN_ID})
+        print(f"cleaned: ChromaDB daily_activities (run_id={RUN_ID})")
 
     conn = await asyncpg.connect(DSN)
     try:

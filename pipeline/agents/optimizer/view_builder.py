@@ -449,7 +449,7 @@ def _build_deterministic_cold_start(
     unit_full = q.get("perperson_unit") or "단위미상/인"
     unit = unit_full.split("/")[0] if "/" in unit_full else "단위미상"
     impact = float(q.get("impact", 0))
-    trade = q.get("trade", "")
+    trade = q.get("actual_trade") or q.get("trade", "")  # actual_trade = '건축'/'토목', trade = l6_main
 
     if master is None or not master.get("daily_workers"):
         diagnosis = _compose_diagnosis_no_master(pp_today, unit)
@@ -464,28 +464,37 @@ def _build_deterministic_cold_start(
         diagnosis = _compose_diagnosis(pp_master, pp_today, pct, unit, cause)
         source = "deterministic_cold_start"
 
+    # backfill metadata 실 키 (perperson, productivity_pct) 기반.
+    # recovery_days 키 부재 — outcome 은 단일 평가 텍스트.
+    def _case_unit(c: dict) -> str:
+        u = c.get("unit") or unit
+        return u if u else "단위미상"
+
     similar_cases = [
         {
             "date": c.get("date") or "",
             "description": (
                 f"{c.get('company') or ''} · {c.get('l7_5_activity') or ''} · "
-                f"{(c.get('pp_then') or 0):.2f} {unit} ({(c.get('pct_then') or 0):.0f}%)"
+                f"{float(c.get('perperson') or 0):.2f} {_case_unit(c)}/인 "
+                f"({float(c.get('productivity_pct') or 0):.0f}%)"
             ),
             "outcome": (
-                f"{c.get('recovery_days')}일 후 {(c.get('pp_recovered') or 0):.2f} {unit} "
-                f"({(c.get('pct_recovered') or 0):.0f}%) 회복"
-            ) if c.get("recovery_days") else "미회복",
+                "정상 페이스" if float(c.get("productivity_pct") or 0) >= 90
+                else "주의 페이스" if float(c.get("productivity_pct") or 0) >= 70
+                else "저하 사례"
+            ),
         }
         for c in (chroma_cases or [])[:3]
     ]
 
     recommendations = _pick_recommendations(pct, impact, delay_days, workers, trade)
 
-    avg_recovery = (
-        f"{sum((c.get('recovery_days') or 0) for c in (chroma_cases or []))/max(len(chroma_cases or []),1):.1f}일"
-        if chroma_cases
-        else "—"
-    )
+    # recovery_days 정보 metadata 에 부재 — 평균 회복 일수 항목 대신 평균 페이스 표시.
+    if chroma_cases:
+        avg_pct = sum(float(c.get("productivity_pct") or 0) for c in chroma_cases) / len(chroma_cases)
+        avg_recovery = f"평균 {avg_pct:.0f}%"
+    else:
+        avg_recovery = "—"
     details = [
         {"label": "위험 평가", "value": risk_level or "—"},
         {"label": "마스터 인당", "value": f"{pp_master:.2f} {unit}" if pp_master else "—"},
@@ -497,7 +506,7 @@ def _build_deterministic_cold_start(
             ),
         },
         {"label": "유사 사례", "value": f"{len(chroma_cases or [])}건"},
-        {"label": "평균 회복 일수", "value": avg_recovery},
+        {"label": "평균 페이스", "value": avg_recovery},
         {"label": "일정 영향", "value": f"+{delay_days}일"},
     ]
     return {
@@ -1116,7 +1125,7 @@ async def _build_productivity_views_v2(
     rows = await pg.fetch_all(
         """
         SELECT ma.id, pr.site_id, ma.run_id, ma.company, ma.l6_main, ma.l7_5_activity,
-               ma.unit, ma.zone, ma.wa, ma.today_qty, ma.assigned_workers,
+               ma.unit, ma.zone, ma.wa, ma.today_qty, ma.assigned_workers, ma.trade,
                m.ps AS plan_start, m.pf AS plan_finish,
                m.qty AS plan_total_qty, m.mh AS plan_mh
         FROM mapper_activities ma
@@ -1174,6 +1183,7 @@ async def _build_productivity_views_v2(
                 "l7_5_activity": r["l7_5_activity"],
                 "unit": r["unit"],
                 "wa": r["wa"],
+                "actual_trade": r["trade"],
                 "assigned_workers": r["assigned_workers"],
                 "today_qty": sim["today_qty"],
                 "workers": sim["workers"],
@@ -1285,6 +1295,7 @@ async def _build_productivity_views_v2(
             "l7_5_activity": it["l7_5_activity"],
             "company": it["company"],
             "l6_main": it["l6_main"],
+            "actual_trade": it.get("actual_trade") or "",
             "workers": int(it.get("assigned_workers") or 1),
             "trade": it["l6_main"],
             "productivity": round(it["productivity"], 1),

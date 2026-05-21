@@ -73,7 +73,7 @@ export function AgentWorkflowList({ stages, selectedAgent, onSelect }: Props) {
           const active = selectedAgent === s.agent;
           const isLast = i === stages.length - 1;
           const isDone = s.received > 0 && s.processed === s.received && !s.waiting_hil;
-          const barColor = s.waiting_hil ? "bg-sun" : isDone ? "bg-mint" : "bg-sky";
+          const barColor = s.waiting_hil ? "bg-sun" : "bg-mint";
 
           return (
             <Fragment key={s.agent}>
@@ -127,7 +127,7 @@ export function AgentWorkflowList({ stages, selectedAgent, onSelect }: Props) {
                       </span>
                       <span className={cn(
                         "font-mono text-[11px] font-bold w-9 text-right",
-                        s.waiting_hil ? "text-sun-text" : isDone ? "text-mint-text" : "text-brand-text"
+                        s.waiting_hil ? "text-sun-text" : "text-mint-text"
                       )}>
                         {s.percent}%
                       </span>

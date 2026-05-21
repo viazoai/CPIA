@@ -1,0 +1,11 @@
+{
+  "taken_at": "2026-05-21T16:44:51.495687",
+  "counts": {
+    "mapper_activities": 239344,
+    "parser_activities": 239344,
+    "pipeline_runs": 535,
+    "parser_reports": 530,
+    "daily_reports": 535,
+    "forecasts": 48992
+  }
+}

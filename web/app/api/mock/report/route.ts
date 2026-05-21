@@ -34,7 +34,11 @@ export async function GET() {
       : "normal",
     productivity_today: r.kpi_jsonb?.productivity_today ?? 0,
     delay_days: r.kpi_jsonb?.delay_days ?? 0,
-    recovery_days: r.kpi_jsonb?.recovery_days ?? 0,
+    // reports 상세 페이지와 동일: scenarios.site.base_p50 우선, kpi 는 fallback.
+    recovery_days:
+      r.scenarios_jsonb?.site?.base_p50?.recovery_days
+      ?? r.kpi_jsonb?.recovery_days
+      ?? 0,
   }));
 
   const details: Record<string, any> = {};

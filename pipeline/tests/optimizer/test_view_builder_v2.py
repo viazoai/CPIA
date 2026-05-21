@@ -77,3 +77,60 @@ def test_display_label_format():
     assert _make_display_label(50, None, None) == "50.0%"
     assert _make_display_label(50, 1.5, None) == "50.0%"
     assert _make_display_label(50, None, "ton") == "50.0%"
+
+
+# ─── Integration test (real PG, 9-25 prototype) ───
+import pytest_asyncio  # noqa: E402
+
+from datetime import date  # noqa: E402
+
+from pipeline.agents.optimizer.view_builder import (  # noqa: E402
+    _build_productivity_views_v2,
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_build_productivity_views_v2_9_25(pg_client):
+    """9-25 prototype 적용된 mapper_activities + master 위에서 산식 검증.
+    Phase B/C/D 가 530일 적용된 상태. 9-25 site_id m15x-ph3-ibl."""
+    result = await _build_productivity_views_v2(
+        pg=pg_client,
+        site_id="m15x-ph3-ibl",
+        today=date(2025, 9, 25),
+    )
+    # 구조
+    for key in ["kpi", "productivity", "contractor_bars", "trade_bars", "quadrant", "wp_summary"]:
+        assert key in result
+    # KPI
+    assert result["kpi"]["productivity_today"] > 0
+    assert result["kpi"]["productivity_today"] <= 150
+    assert "productivity_today_display" in result["kpi"]
+    # 모든 row 에 display_label
+    assert len(result["contractor_bars"]) > 0
+    for b in result["contractor_bars"]:
+        assert "display_label" in b
+    assert len(result["trade_bars"]) > 0
+    for b in result["trade_bars"]:
+        assert "display_label" in b
+    assert len(result["quadrant"]) > 0
+    for q in result["quadrant"]:
+        assert "display_label" in q
+        assert q["productivity"] >= 0 and q["productivity"] <= 150
+    assert len(result["wp_summary"]) > 0
+    for w in result["wp_summary"]:
+        assert "display_label" in w
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_build_productivity_views_v2_empty(pg_client):
+    """plan 기간 밖 일자 -> empty dict 구조."""
+    result = await _build_productivity_views_v2(
+        pg=pg_client,
+        site_id="m15x-ph3-ibl",
+        today=date(2020, 1, 1),  # 데이터 전혀 없음
+    )
+    assert result["kpi"] == {}
+    assert result["contractor_bars"] == []
+    assert result["wp_summary"] == []

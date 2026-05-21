@@ -92,9 +92,6 @@ export const OUTPUT_MANPOWER_COLS: readonly SheetColumn<OutputManpowerRow>[] = [
   { key: "prev_work",  label: "전일 작업사항", cellClass: "max-w-[160px] truncate" },
   { key: "today_work", label: "금일 작업사항", cellClass: "max-w-[200px] whitespace-normal text-ink" },
   { key: "next_work",  label: "명일 작업사항", cellClass: "max-w-[160px] truncate" },
-  { key: "early",      label: "조출", align: "right", format: num },
-  { key: "day",        label: "주간", align: "right", format: num },
-  { key: "overtime",   label: "연장", align: "right", format: num },
 ] as const;
 
 export const OCCUPATION_COLS: readonly SheetColumn<OccupationManpowerRow>[] = [

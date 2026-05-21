@@ -18,7 +18,7 @@ interface Props {
 }
 
 const TAB_LABELS: Record<SheetTab, string> = {
-  output_manpower:     "1. 출력인원 현황",
+  output_manpower:     "1. 작업사항",
   occupation_manpower: "2. 직종별 인원현황",
   equipment:           "3. 장비현황",
   quantity:            "4. 물량",

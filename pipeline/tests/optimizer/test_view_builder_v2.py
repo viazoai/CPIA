@@ -187,3 +187,97 @@ def test_apply_augmentation_weight():
     assert w[1][1] == 1.0
     assert w[2][1] == 1.0
     assert w[3][1] == 1.0
+
+
+# ─── Task 12 atomizer 가독 형식 ───
+
+
+def test_atomizer_format_document_live_mode():
+    """live (perperson=None) -> 짧은 형식 (마스터 비교값 없음)."""
+    from pipeline.agents.atomizer import _format_document
+
+    a = {
+        "company": "광건",
+        "l6_main": "수장공사",
+        "l7_5_activity": "풍도벽체 설치",
+        "today_qty": 15,
+        "unit": "m2",
+        "assigned_workers": 265,
+        "conditions": [],
+    }
+    doc = _format_document(a, date="2025-09-25")
+    assert "광건" in doc
+    assert "수장공사" in doc
+    assert "풍도벽체 설치" in doc
+    assert "15.0 m2" in doc
+    assert "265 명" in doc
+    assert "정상" in doc
+    assert "/인" not in doc
+    assert "%" not in doc
+
+
+def test_atomizer_format_document_backfill_mode():
+    """backfill (perperson + productivity_pct) -> 풀 형식."""
+    from pipeline.agents.atomizer import _format_document
+
+    a = {
+        "company": "광건",
+        "l6_main": "수장공사",
+        "l7_5_activity": "풍도벽체 설치",
+        "today_qty": 15,
+        "unit": "m2",
+        "assigned_workers": 265,
+        "conditions": [],
+    }
+    doc = _format_document(
+        a, date="2025-09-25", perperson=0.06, productivity_pct=98.9
+    )
+    assert "0.06 m2/인" in doc
+    assert "98.9%" in doc
+
+
+def test_atomizer_build_metadata_has_new_fields():
+    """metadata 에 l7_5_activity + perperson + productivity_pct."""
+    from pipeline.agents.atomizer import _build_metadata
+
+    a = {
+        "company": "광건",
+        "l5_disc": "건축",
+        "l6_main": "수장공사",
+        "wa": "FAB",
+        "unit": "m2",
+        "today_qty": 15.0,
+        "assigned_workers": 265.0,
+        "worker_source": "mh_prorated",
+        "mapping_conf": 1.0,
+        "conditions": [],
+        "l7_5_activity": "풍도벽체 설치",
+        "perperson": 0.06,
+        "productivity_pct": 98.9,
+    }
+    md = _build_metadata(a, date="2025-09-25", run_id="test-run")
+    assert md["l7_5_activity"] == "풍도벽체 설치"
+    assert md["perperson"] == 0.06
+    assert md["productivity_pct"] == 98.9
+
+
+def test_atomizer_build_metadata_live_placeholders():
+    """live 시점 (perperson 키 없음) -> 0 placeholder."""
+    from pipeline.agents.atomizer import _build_metadata
+
+    a = {
+        "company": "광건",
+        "l5_disc": "건축",
+        "l6_main": "수장공사",
+        "wa": "FAB",
+        "unit": "m2",
+        "today_qty": 15.0,
+        "assigned_workers": 265.0,
+        "worker_source": "mh_prorated",
+        "mapping_conf": 1.0,
+        "conditions": [],
+    }
+    md = _build_metadata(a, date="2025-09-25", run_id="test-run")
+    assert md["perperson"] == 0.0
+    assert md["productivity_pct"] == 0.0
+    assert md["l7_5_activity"] == ""

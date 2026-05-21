@@ -150,6 +150,10 @@ export interface ReportKpi {
   target_productivity: number;       // 97
   recovery_days: number;             // 9
   recovered_completion: string;      // 2026-08-03
+  productivity_today_simple_mean?: number; // Phase 1 — wv-median 외 simple mean 병렬
+  productivity_today_perperson?: number;   // 인당 원본값 (예: 3.2)
+  productivity_today_unit?: string;        // 단위 (예: "ton/인")
+  productivity_today_display?: string;     // 합본 라벨 (예: "98.9% (3.2 ton/인)")
 }
 
 export interface SCurvePoint {
@@ -165,6 +169,9 @@ export interface BarItem {
   value: number;            // 생산성 %
   status: Status;
   baseline?: number;        // 자체 기준값 (이력 평균 등). showBaseline 시 Line 시리즈 dot 으로 표시.
+  display_label?: string;   // Phase 1 (2026-05-21) BE 산출 — 예: "98.9% (3.20 ton/인)"
+  perperson?: number;       // 인당 원본값 (예: 3.20)
+  perperson_unit?: string;  // 단위 (예: "ton/인")
 }
 
 export interface QuadrantPoint {
@@ -175,6 +182,9 @@ export interface QuadrantPoint {
   impact: number;           // 0..100 (Y축)
   quadrant: "risk" | "caution" | "watch" | "safe";
   size: number;             // 잔여 물량 비례
+  display_label?: string;
+  perperson?: number;
+  perperson_unit?: string;
 }
 
 export interface OptimizerOutput {
@@ -210,6 +220,9 @@ export interface WPSummaryRow {
   impact: number;        // 0..100 — WV (Work Volume), Quadrant 의 impact 와 동일 값
   baseline: number;      // 이력 평균 (목표 productivity). 회복 폭 = baseline − productivity.
   status: "normal" | "caution" | "risk";
+  display_label?: string;
+  perperson?: number;
+  perperson_unit?: string;
 }
 
 // ────── Dashboard Fleet Performance ──────

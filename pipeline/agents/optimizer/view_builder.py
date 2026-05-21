@@ -962,12 +962,14 @@ async def _build_productivity_views_v2(
             continue
         daily_qty_master = _compute_daily_quota(plan_qty, total_days)
         daily_workers_master = max(1.0, plan_mh / total_days / 8.0)
-        # 결정성: ordinal ^ hash(l7_5_activity ^ company)
-        seed = (
-            int(today.toordinal())
-            ^ hash(r["l7_5_activity"])
-            ^ hash(r["company"])
-        ) & 0x7FFFFFFF
+        # 결정성: hashlib.sha256 (built-in hash() 는 PYTHONHASHSEED 마다 다름).
+        # 같은 (date, l7_5, company) -> 항상 같은 seed -> backfill idempotent.
+        import hashlib as _hashlib
+
+        _key = f"{today.toordinal()}|{r['l7_5_activity']}|{r['company']}"
+        seed = int.from_bytes(
+            _hashlib.sha256(_key.encode("utf-8")).digest()[:4], "big"
+        )
         sim = _simulate_today_qty(daily_qty_master, daily_workers_master, seed)
         perperson = sim["today_qty"] / sim["workers"]
         master_perperson = daily_qty_master / daily_workers_master

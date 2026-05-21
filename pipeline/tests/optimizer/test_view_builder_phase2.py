@@ -207,3 +207,21 @@ def test_pick_recommendations_combinations(
     assert len(recs) == expected_count, f"got {recs}"
     for sub in expected_substrs:
         assert any(sub in r for r in recs), f"missing {sub!r} in {recs}"
+
+
+@pytest.mark.integration
+async def test_fetch_chroma_cases_lookup_returns_dict():
+    """C6 — ChromaDB daily_activities lookup. 빈 컬렉션이라도 dict[wp_id → list] 반환."""
+    from pipeline.agents.optimizer.view_builder import _fetch_chroma_cases_lookup
+
+    items = [
+        {
+            "wp_id": "fab-x-방수-남웅",
+            "l7_5_activity": "방수 시공",
+            "l6_main": "방수공사",
+            "company": "남웅건설",
+        }
+    ]
+    lookup = await _fetch_chroma_cases_lookup(items, date(2025, 9, 25))
+    assert "fab-x-방수-남웅" in lookup
+    assert isinstance(lookup["fab-x-방수-남웅"], list)

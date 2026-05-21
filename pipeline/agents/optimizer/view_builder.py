@@ -509,6 +509,54 @@ def _build_deterministic_cold_start(
     }
 
 
+async def _fetch_chroma_cases_lookup(
+    items: list[dict], today: date,
+) -> dict[str, list[dict]]:
+    """quadrant items 의 wp_id 별 ChromaDB daily_activities 검색.
+
+    Fallback chain: (company, l6, l7_5) → (company, l6) → (l6, l7_5) → 빈 list.
+    """
+    import os
+    from pipeline.chroma_client import ChromaClient
+
+    chroma = ChromaClient(
+        host=os.environ["CHROMA_HOST"],
+        port=int(os.environ["CHROMA_PORT"]),
+    )
+    col = chroma.client.get_or_create_collection("daily_activities")
+    out: dict[str, list[dict]] = {}
+    for it in items:
+        wp_id = it["wp_id"]
+        l7_5 = it.get("l7_5_activity")
+        l6 = it.get("l6_main")
+        company = it.get("company")
+        cases: list[dict] = []
+        where_chain: list[dict] = []
+        if l7_5:
+            where_chain.append({
+                "$and": [
+                    {"company": company},
+                    {"l6_main": l6},
+                    {"l7_5_activity": l7_5},
+                ]
+            })
+        where_chain.append({"$and": [{"company": company}, {"l6_main": l6}]})
+        if l7_5:
+            where_chain.append({
+                "$and": [{"l6_main": l6}, {"l7_5_activity": l7_5}]
+            })
+        for where in where_chain:
+            try:
+                r = col.get(where=where, limit=5, include=["metadatas"])
+            except Exception:
+                continue
+            if r.get("metadatas"):
+                cases = r["metadatas"]
+                break
+        out[wp_id] = cases
+    return out
+
+
 async def _build_quadrant(
     pg: PGClient,
     site_id: str,

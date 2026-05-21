@@ -1174,3 +1174,39 @@ async def _build_productivity_views_v2(
         "quadrant": quadrant,
         "wp_summary": wp_summary,
     }
+
+
+# ─────────────────────────────────────────────────────────────────
+# Task 10: ChromaDB augmentation (backfill 전용)
+# ─────────────────────────────────────────────────────────────────
+
+
+def _augment_history_if_sparse(items: list[dict], min_count: int = 5) -> list[dict]:
+    """그룹 (company, l6_main) row 수 < min_count 면 동일 l6 다른 company 에서 보충.
+    augment 된 row 는 metadata.augmented=True + augmented_from_company 적재.
+    backfill 시점에만 호출 — live atomizer 는 사용 X."""
+    from collections import defaultdict
+
+    by_group: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    for it in items:
+        by_group[(it["company"], it["l6_main"])].append(it)
+    augmented = list(items)
+    for (co, l6), rs in by_group.items():
+        if len(rs) >= min_count:
+            continue
+        need = min_count - len(rs)
+        donors = [
+            it
+            for it in items
+            if it.get("l6_main") == l6 and it.get("company") != co
+        ]
+        for donor in donors[:need]:
+            aug = dict(donor)
+            aug["company"] = co
+            aug["metadata"] = {
+                **donor.get("metadata", {}),
+                "augmented": True,
+                "augmented_from_company": donor["company"],
+            }
+            augmented.append(aug)
+    return augmented

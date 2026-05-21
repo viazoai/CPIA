@@ -80,7 +80,6 @@ def test_display_label_format():
 
 
 # ─── Integration test (real PG, 9-25 prototype) ───
-import pytest_asyncio  # noqa: E402
 
 from datetime import date  # noqa: E402
 
@@ -134,3 +133,24 @@ async def test_build_productivity_views_v2_empty(pg_client):
     assert result["kpi"] == {}
     assert result["contractor_bars"] == []
     assert result["wp_summary"] == []
+
+
+def test_augment_history_if_sparse():
+    """그룹 row < min_count 면 동일 l6 다른 company 에서 augment."""
+    from pipeline.agents.optimizer.view_builder import _augment_history_if_sparse
+
+    items = [
+        {"company": "광건", "l6_main": "수장공사", "v": 1},
+        {"company": "신성", "l6_main": "수장공사", "v": 10},
+        {"company": "신성", "l6_main": "수장공사", "v": 11},
+        {"company": "신성", "l6_main": "수장공사", "v": 12},
+        {"company": "신성", "l6_main": "수장공사", "v": 13},
+    ] + [{"company": "OTIS", "l6_main": "승강기", "v": i} for i in range(6)]
+    aug = _augment_history_if_sparse(items, min_count=5)
+    # 광건 수장공사 row + augmented 4 = 5 (원본 1건 그대로 + 4개 augment)
+    kw = [a for a in aug if a["company"] == "광건"]
+    augmented = [a for a in kw if a.get("metadata", {}).get("augmented")]
+    assert len(augmented) >= 4
+    for a in augmented:
+        assert "augmented_from_company" in a["metadata"]
+        assert a["metadata"]["augmented_from_company"] == "신성"

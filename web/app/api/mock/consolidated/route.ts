@@ -149,7 +149,7 @@ export async function GET(req: Request) {
     pjt: PJT,
     zone: String(s.zone ?? s.scope ?? "—"),
     trade: String(s.disc_abbrev ?? ""),
-    bp_code: String(s.bp_code ?? s.company ?? ""),
+    bp_code: String(s.company ?? s.bp_code ?? ""),  // "BP사" 라벨 = 업체이름
     scope: String(s.scope ?? ""),
     main_work: String(s.work_text_today ?? ""),
     prev_work: String(s.work_text_yesterday ?? ""),
@@ -163,7 +163,7 @@ export async function GET(req: Request) {
   // 시트2 — 직종별 인원: parser_reports.job_allocations jsonb 펼침.
   const occupation_manpower: OccupationManpowerRow[] = job_allocations.map((j: any) => ({
     trade: String(j.disc_abbrev ?? ""),
-    bp_code: String(j.bp_code ?? j.company ?? ""),
+    bp_code: String(j.company ?? j.bp_code ?? ""),  // "BP사" 라벨 = 업체이름
     manager_code: String(j.manager_code ?? ""),
     skilled_code: String(j.worker_code ?? ""),
     occupation: String(j.job_type ?? ""),
@@ -179,7 +179,7 @@ export async function GET(req: Request) {
   // 시트3 — 장비: parser_reports.equipment_allocations jsonb 펼침.
   const equipment: EquipmentRow[] = equipment_allocations.map((e: any) => ({
     trade: String(e.disc_abbrev ?? ""),
-    bp_code: String(e.bp_code ?? e.company ?? ""),
+    bp_code: String(e.company ?? e.bp_code ?? ""),  // "BP사" 라벨 = 업체이름
     eq_major: String(e.equipment_big ?? ""),
     eq_mid: String(e.equipment_mid ?? ""),
     eq_spec: String(e.equipment_spec ?? ""),

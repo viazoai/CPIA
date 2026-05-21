@@ -89,8 +89,8 @@ export async function deriveStageProgress(date: string): Promise<AgentStageProgr
     SELECT
       (SELECT COUNT(*) FROM parser_reports WHERE report_date = ${date}) AS parser_reports,
       (SELECT COUNT(*) FROM parser_activities pa JOIN pipeline_runs pr USING (run_id) WHERE pr.report_date = ${date}) AS parser_acts,
-      (SELECT COUNT(*) FROM mapper_activities ma JOIN pipeline_runs pr USING (run_id) WHERE pr.report_date = ${date}) AS mapper_acts,
-      (SELECT COUNT(*) FROM mapper_activities ma JOIN pipeline_runs pr USING (run_id) WHERE pr.report_date = ${date} AND ma.requires_review) AS hil_received,
+      (SELECT COUNT(*) FROM mapper_activities ma JOIN pipeline_runs pr USING (run_id) WHERE pr.report_date = ${date} AND ma.trade IN ('건축', '토목')) AS mapper_acts,
+      (SELECT COUNT(*) FROM mapper_activities ma JOIN pipeline_runs pr USING (run_id) WHERE pr.report_date = ${date} AND ma.requires_review AND ma.trade IN ('건축', '토목')) AS hil_received,
       (SELECT COUNT(*) FROM mapping_corrections WHERE report_date = ${date}) AS hil_done,
       (SELECT COALESCE(SUM(atomized_count), 0) FROM pipeline_runs WHERE report_date = ${date}) AS atomized,
       (SELECT COUNT(*) FROM daily_reports WHERE report_date = ${date}) AS exporter,
@@ -201,6 +201,7 @@ export async function wbsTreeBuild(siteId: string, siteName?: string): Promise<W
       WHERE pr.site_id = ${siteId}
         AND ma.requires_review = TRUE
         AND ma.is_mock = ${useMock}
+        AND ma.trade IN ('건축', '토목')
       GROUP BY ma.wa, ma.l6_main
     ),
     forecast_agg AS (
@@ -306,8 +307,8 @@ export async function deriveChatSequence(runId: string): Promise<ChatMessage[]> 
     SELECT
       pr.started_at, pr.status,
       (SELECT COUNT(*) FROM parser_activities WHERE run_id = pr.run_id) AS parser_count,
-      (SELECT COUNT(*) FROM mapper_activities WHERE run_id = pr.run_id) AS mapper_count,
-      (SELECT COUNT(*) FROM mapper_activities WHERE run_id = pr.run_id AND requires_review) AS hil_count,
+      (SELECT COUNT(*) FROM mapper_activities ma WHERE ma.run_id = pr.run_id AND ma.trade IN ('건축', '토목')) AS mapper_count,
+      (SELECT COUNT(*) FROM mapper_activities ma WHERE ma.run_id = pr.run_id AND ma.requires_review AND ma.trade IN ('건축', '토목')) AS hil_count,
       pr.atomized_count,
       (SELECT COUNT(*) FROM daily_reports WHERE run_id = pr.run_id) AS reporter_count,
       (SELECT COUNT(*) FROM forecasts WHERE run_id = pr.run_id) AS forecast_count,

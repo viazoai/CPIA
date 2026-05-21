@@ -1181,6 +1181,8 @@ async def _build_productivity_views_v2(
                 "plan_mh": plan_mh,
                 "perperson": perperson,
                 "master_perperson": master_perperson,
+                "master_daily_qty": daily_qty_master,
+                "master_daily_workers": daily_workers_master,
                 "productivity": productivity,
                 "impact_raw": impact_raw,
             }
@@ -1364,6 +1366,68 @@ async def _build_productivity_views_v2(
             for l6, v in l6_prod.items()
         },
     }
+
+    # Phase 2 — optimizer_view 통합 (advice 매칭 + cold_start fallback).
+    advice_rows = await pg.fetch_all(
+        "SELECT * FROM optimizer_advice WHERE run_id IN "
+        "(SELECT run_id FROM pipeline_runs WHERE site_id=$1 AND report_date=$2)",
+        site_id,
+        today,
+    )
+    forecast_rows = await pg.fetch_all(
+        "SELECT * FROM forecasts WHERE run_id IN "
+        "(SELECT run_id FROM pipeline_runs WHERE site_id=$1 AND report_date=$2)",
+        site_id,
+        today,
+    )
+    # asyncpg 는 jsonb 를 str 로 반환 — list/dict 로 inflate.
+    import json as _json
+    _JSONB_KEYS = (
+        "degradation_cases", "recommendations", "recovery_pattern",
+        "recovery_distribution", "work_context",
+    )
+    for row in advice_rows:
+        for k in _JSONB_KEYS:
+            v = row.get(k)
+            if isinstance(v, str):
+                try:
+                    row[k] = _json.loads(v)
+                except Exception:
+                    row[k] = None
+    wa_lookup = _build_wa_lookup(items)
+    optimizer_view = _build_optimizer_view(
+        advice_rows, forecast_rows, items, wa_lookup,
+    )
+
+    # advice 없는 WP → deterministic cold_start.
+    master_lookup = {
+        (it["l7_5_activity"], it["company"]): {
+            "daily_qty": it["master_daily_qty"],
+            "daily_workers": it["master_daily_workers"],
+            "unit": it["unit"],
+        }
+        for it in items
+    }
+    forecast_by_wp = {
+        (f.get("company"), f.get("l6_main")): f for f in forecast_rows
+    }
+    chroma_cases_lookup = await _fetch_chroma_cases_lookup(quadrant, today)
+    for q in quadrant:
+        if q["wp_id"] in optimizer_view["by_wp"]:
+            continue
+        master = master_lookup.get((q["l7_5_activity"], q["company"]))
+        f = forecast_by_wp.get((q["company"], q["l6_main"]), {})
+        optimizer_view["by_wp"][q["wp_id"]] = _build_deterministic_cold_start(
+            q,
+            master,
+            chroma_cases_lookup.get(q["wp_id"], []),
+            workers=int(q.get("workers") or 1),
+            risk_level=f.get("risk_level"),
+            delay_days=int(f.get("delay_days") or 0),
+        )
+    if optimizer_view.get("default_wp_id") is None and optimizer_view["by_wp"]:
+        optimizer_view["default_wp_id"] = next(iter(optimizer_view["by_wp"].keys()))
+
     return {
         "kpi": kpi,
         "productivity": productivity_dict,
@@ -1371,7 +1435,7 @@ async def _build_productivity_views_v2(
         "trade_bars": trade_bars,
         "quadrant": quadrant,
         "wp_summary": wp_summary,
-        "optimizer_view": {"by_wp": {}, "default_wp_id": None},
+        "optimizer_view": optimizer_view,
         "scenarios": {"site": {}, "by_wp": {}},
         "s_curve": [],
     }

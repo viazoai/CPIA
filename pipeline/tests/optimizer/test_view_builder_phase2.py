@@ -225,3 +225,16 @@ async def test_fetch_chroma_cases_lookup_returns_dict():
     lookup = await _fetch_chroma_cases_lookup(items, date(2025, 9, 25))
     assert "fab-x-방수-남웅" in lookup
     assert isinstance(lookup["fab-x-방수-남웅"], list)
+
+
+@pytest.mark.integration
+async def test_optimizer_view_all_quadrant_filled(pg_client):
+    """C7 — quadrant 모든 WP 가 optimizer_view.by_wp 에 채워짐 (advice or cold_start)."""
+    from pipeline.agents.optimizer.view_builder import _build_productivity_views_v2
+
+    result = await _build_productivity_views_v2(pg_client, "m15x-ph3-ibl", date(2025, 9, 25))
+    q_ids = {q["wp_id"] for q in result["quadrant"]}
+    bw_keys = set(result["optimizer_view"]["by_wp"].keys())
+    assert q_ids <= bw_keys, f"누락 WP: {q_ids - bw_keys}"
+    for k, v in result["optimizer_view"]["by_wp"].items():
+        assert v.get("diagnosis"), f"diagnosis 빔: {k}"

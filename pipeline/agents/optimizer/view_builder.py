@@ -520,7 +520,8 @@ def _build_deterministic_cold_start(
     }
 
 
-_chroma_singleton: Any = None  # ChromaClient 인스턴스 (matter-level cache).
+_chroma_singleton: Any = None  # ChromaClient 인스턴스 (module-level cache).
+_chroma_metas_cache: Optional[list[dict]] = None  # backfill_v2 전체 metadata cache.
 
 
 def _get_chroma_collection():
@@ -537,13 +538,67 @@ def _get_chroma_collection():
     return _chroma_singleton.client.get_or_create_collection("daily_activities")
 
 
+def _get_all_backfill_metas() -> list[dict]:
+    """backfill_v2 전체 metadata 1번에 fetch + 모듈 캐시.
+    530일 × 80k+ chroma 호출 (각 wp 별 3 fallback) 누적 timeout 해소."""
+    global _chroma_metas_cache
+    if _chroma_metas_cache is None:
+        col = _get_chroma_collection()
+        try:
+            r = col.get(where={"worker_source": "backfill_v2"}, include=["metadatas"])
+            metas = r.get("metadatas") or []
+        except Exception:
+            metas = []
+        # perperson > 0 만 (사용자 화면 quality).
+        _chroma_metas_cache = [m for m in metas if float(m.get("perperson") or 0) > 0]
+    return _chroma_metas_cache
+
+
 async def _fetch_chroma_cases_lookup(
     items: list[dict], today: date,
 ) -> dict[str, list[dict]]:
     """quadrant items 의 wp_id 별 ChromaDB daily_activities 검색.
 
     Fallback chain: (company, l6, l7_5) → (company, l6) → (l6, l7_5) → 빈 list.
+    전체 metadata 1번 fetch + 메모리 bucket lookup.
     """
+    all_metas = _get_all_backfill_metas()
+    today_iso = today.isoformat()
+    # date < today 만 (미래 사례 제외).
+    valid = [m for m in all_metas if (m.get("date") or "") < today_iso]
+    full_b: dict = {}
+    co_l6_b: dict = {}
+    l6_l7_b: dict = {}
+    for m in valid:
+        comp, l6, l7 = m.get("company"), m.get("l6_main"), m.get("l7_5_activity")
+        if comp and l6 and l7:
+            full_b.setdefault((comp, l6, l7), []).append(m)
+        if comp and l6:
+            co_l6_b.setdefault((comp, l6), []).append(m)
+        if l6 and l7:
+            l6_l7_b.setdefault((l6, l7), []).append(m)
+    for bucket in (full_b, co_l6_b, l6_l7_b):
+        for k in bucket:
+            bucket[k].sort(key=lambda mm: mm.get("date") or "", reverse=True)
+    out: dict[str, list[dict]] = {}
+    for it in items:
+        wp_id = it["wp_id"]
+        l7_5 = it.get("l7_5_activity")
+        l6 = it.get("l6_main")
+        company = it.get("company")
+        cases: list[dict] = []
+        if l7_5 and (company, l6, l7_5) in full_b:
+            cases = full_b[(company, l6, l7_5)][:5]
+        elif (company, l6) in co_l6_b:
+            cases = co_l6_b[(company, l6)][:5]
+        elif l7_5 and (l6, l7_5) in l6_l7_b:
+            cases = l6_l7_b[(l6, l7_5)][:5]
+        out[wp_id] = cases
+    return out
+
+
+async def _fetch_chroma_cases_lookup_legacy(items, today):
+    """deprecated: 개별 wp 별 col.get 호출 — backfill 시 timeout. _fetch_chroma_cases_lookup 사용."""
     col = _get_chroma_collection()
     out: dict[str, list[dict]] = {}
     for it in items:
@@ -1380,29 +1435,33 @@ async def _build_productivity_views_v2(
         }
         for it in grouped_items
     ]
-    wp_summary = [
-        {
-            "wp_id": it["wp_id"],
-            "wp_name": _wp_name_with_wa(it),
-            "trade": it["l6_main"],
-            "bp_name": it["company"],
-            "start_date": str(today.replace(day=1)),  # placeholder
-            "end_date": str(today),
-            "progress_pct": round(
-                min(100, (it["today_qty"] / max(it["plan_total_qty"], 1)) * 100), 1
-            ),
-            "productivity": round(it["productivity"], 1),
-            "impact": round(it["impact"], 1),
-            "baseline": 100,
-            "status": _status_of(it["productivity"]),
-            "perperson": round(it["perperson"], 2),
-            "perperson_unit": f"{it['unit']}/인" if it["unit"] else None,
-            "display_label": _make_display_label(
-                it["productivity"], it["perperson"], it["unit"]
-            ),
-        }
-        for it in grouped_items
-    ]
+    # WP 목록 = impact 내림차순 (사용자: 임팩트 높은순).
+    wp_summary = sorted(
+        (
+            {
+                "wp_id": it["wp_id"],
+                "wp_name": _wp_name_with_wa(it),
+                "trade": it["l6_main"],
+                "bp_name": it["company"],
+                "start_date": str(today.replace(day=1)),  # placeholder
+                "end_date": str(today),
+                "progress_pct": round(
+                    min(100, (it["today_qty"] / max(it["plan_total_qty"], 1)) * 100), 1
+                ),
+                "productivity": round(it["productivity"], 1),
+                "impact": round(it["impact"], 1),
+                "baseline": 100,
+                "status": _status_of(it["productivity"]),
+                "perperson": round(it["perperson"], 2),
+                "perperson_unit": f"{it['unit']}/인" if it["unit"] else None,
+                "display_label": _make_display_label(
+                    it["productivity"], it["perperson"], it["unit"]
+                ),
+            }
+            for it in grouped_items
+        ),
+        key=lambda w: -float(w.get("impact") or 0),
+    )
     kpi = {
         "productivity_today": round(site_wv_median, 1),
         "productivity_today_simple_mean": round(site_simple_mean, 1),

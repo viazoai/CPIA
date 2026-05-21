@@ -147,7 +147,7 @@ export async function GET(req: Request) {
   // 시트1 — 출력인원: parser_reports.bp_summaries jsonb 펼침.
   const output_manpower: OutputManpowerRow[] = bp_summaries.map((s: any) => ({
     pjt: PJT,
-    zone: String(s.zone ?? ""),
+    zone: String(s.zone ?? s.scope ?? "—"),
     trade: String(s.disc_abbrev ?? ""),
     bp_code: String(s.bp_code ?? s.company ?? ""),
     scope: String(s.scope ?? ""),

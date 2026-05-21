@@ -772,3 +772,76 @@ def _build_scenarios(advice_rows: list[dict], forecast: list[dict]) -> dict:
         }
 
     return {"site": site_scenarios, "by_wp": by_wp}
+
+
+# ─────────────────────────────────────────────────────────────────
+# Phase 1 (2026-05-21) v2 helper: 4단 산식 + display_label
+# ─────────────────────────────────────────────────────────────────
+
+import random as _random
+
+
+def _compute_daily_quota(plan_total_qty: float, total_days: int) -> float:
+    """마스터 plan_total_qty 를 일일 quota 로 환산."""
+    if total_days <= 0 or plan_total_qty <= 0:
+        return 0.0
+    return plan_total_qty / total_days
+
+
+def _simulate_today_qty(
+    daily_qty: float, daily_workers: float, seed: int
+) -> dict[str, float]:
+    """productivity 분포 = 중심 85% + ±20% 일반 + 5%/5% outlier (60%/150%).
+
+    today_qty noise 가 직접 productivity 에 반영됨 (workers ±5% 만 — 영향 최소).
+    분기:
+      roll < 0.05: high outlier 1.40~1.55 (productivity ~140~155%, 산식에서 150 clamp)
+      roll < 0.10: low outlier  0.55~0.65 (productivity 55~65%)
+      else:       일반          0.65~1.05 (productivity 65~105%, 중심 85%)
+    """
+    rng = _random.Random(seed)
+    roll = rng.random()
+    if roll < 0.05:
+        noise_q = 1.40 + 0.15 * rng.random()
+    elif roll < 0.10:
+        noise_q = 0.55 + 0.10 * rng.random()
+    else:
+        noise_q = 0.65 + 0.40 * rng.random()
+    noise_w = 0.95 + 0.10 * rng.random()
+    return {
+        "today_qty": daily_qty * noise_q,
+        "workers": max(1.0, daily_workers * noise_w),
+    }
+
+
+def _compute_productivity(perperson: float, master_perperson: float) -> float:
+    """인당 / 마스터 인당 * 100. master <= 0 면 0."""
+    if master_perperson <= 0:
+        return 0.0
+    return perperson / master_perperson * 100
+
+
+def _weighted_median(values: list[float], weights: list[float]) -> float:
+    """가중치 누적 50% 지점 값. 빈 list -> 0, weights 합 0 -> 단순 평균."""
+    if not values:
+        return 0
+    pairs = sorted(zip(values, weights))
+    total = sum(weights)
+    if total == 0:
+        return sum(values) / len(values)
+    cum = 0.0
+    for v, w in pairs:
+        cum += w
+        if cum >= total / 2:
+            return v
+    return pairs[-1][0]
+
+
+def _normalize_impact(impacts: list[float]) -> list[float]:
+    """impact_raw / max(impact_raw) * 100 → 0..100. 빈 list -> []."""
+    if not impacts:
+        return []
+    mx = max(impacts)
+    if mx <= 0:
+        return [0.0] * len(impacts)
+    return [round(x / mx * 100, 2) for x in impacts]

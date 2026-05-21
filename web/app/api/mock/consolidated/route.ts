@@ -51,6 +51,7 @@ export async function GET(req: Request) {
       FROM pipeline_runs pr
       WHERE pr.report_date >= CURRENT_DATE - INTERVAL '1 year'
         AND pr.is_mock = ${useMock}
+        AND pr.site_id = 'm15x-ph3-ibl'
       ORDER BY pr.report_date DESC
       LIMIT 365
     `) as Array<{ report_date: Date | string }>;
@@ -61,17 +62,17 @@ export async function GET(req: Request) {
       const counts = (await (sql as any)`
         SELECT
           COALESCE((
-            SELECT jsonb_array_length(bp_summaries)
+            SELECT jsonb_array_length(jsonb_path_query_array(bp_summaries, '$[*] ? (@.disc_abbrev == "건축" || @.disc_abbrev == "토목")'))
             FROM parser_reports WHERE report_date = ${dStr} AND is_mock = ${useMock}
             ORDER BY created_at DESC LIMIT 1
           ), 0) AS output_count,
           COALESCE((
-            SELECT jsonb_array_length(job_allocations)
+            SELECT jsonb_array_length(jsonb_path_query_array(job_allocations, '$[*] ? (@.disc_abbrev == "건축" || @.disc_abbrev == "토목")'))
             FROM parser_reports WHERE report_date = ${dStr} AND is_mock = ${useMock}
             ORDER BY created_at DESC LIMIT 1
           ), 0) AS occupation_count,
           COALESCE((
-            SELECT jsonb_array_length(equipment_allocations)
+            SELECT jsonb_array_length(jsonb_path_query_array(equipment_allocations, '$[*] ? (@.disc_abbrev == "건축" || @.disc_abbrev == "토목")'))
             FROM parser_reports WHERE report_date = ${dStr} AND is_mock = ${useMock}
             ORDER BY created_at DESC LIMIT 1
           ), 0) AS equipment_count,
@@ -79,8 +80,10 @@ export async function GET(req: Request) {
             SELECT COUNT(*)
             FROM parser_activities pa
             JOIN pipeline_runs pr USING (run_id)
+            JOIN mapper_activities ma ON ma.run_id = pa.run_id AND ma.idx = pa.idx
             WHERE pr.report_date = ${dStr}
               AND pa.is_mock = ${useMock}
+              AND ma.trade IN ('건축', '토목')
           ) AS quantity_count
       `) as Array<Record<string, number | string | null>>;
       const c = counts[0] ?? {};
@@ -101,7 +104,10 @@ export async function GET(req: Request) {
 
   // ────── 단건 detail — 4 시트 raw ──────
   const reportRows = (await (sql as any)`
-    SELECT bp_summaries, job_allocations, equipment_allocations
+    SELECT
+      jsonb_path_query_array(bp_summaries,          '$[*] ? (@.disc_abbrev == "건축" || @.disc_abbrev == "토목")') AS bp_summaries,
+      jsonb_path_query_array(job_allocations,       '$[*] ? (@.disc_abbrev == "건축" || @.disc_abbrev == "토목")') AS job_allocations,
+      jsonb_path_query_array(equipment_allocations, '$[*] ? (@.disc_abbrev == "건축" || @.disc_abbrev == "토목")') AS equipment_allocations
     FROM parser_reports
     WHERE report_date = ${date}
       AND is_mock = ${useMock}
@@ -117,12 +123,16 @@ export async function GET(req: Request) {
   const equipment_allocations = asArray(reportRows[0]?.equipment_allocations);
 
   const acts = (await (sql as any)`
-    SELECT pa.zone, pa.trade, pa.bp_code, pa.company, pa.scope,
+    SELECT COALESCE(NULLIF(pa.zone, ''), split_part(ma.wa, '-', 1), '—') AS zone,
+           pa.trade, pa.bp_code, pa.company, pa.scope,
            pa.work_content, pa.unit, pa.plan_total_qty, pa.yesterday_cum_qty, pa.today_qty
     FROM parser_activities pa
     JOIN pipeline_runs pr USING (run_id)
+    JOIN mapper_activities ma ON ma.run_id = pa.run_id AND ma.idx = pa.idx
     WHERE pr.report_date = ${date}
       AND pa.is_mock = ${useMock}
+      AND ma.trade IN ('건축', '토목')
+      AND pr.site_id = 'm15x-ph3-ibl'
   `) as Array<{
     zone: string | null;
     trade: string | null;

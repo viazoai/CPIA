@@ -1183,6 +1183,9 @@ async def _build_productivity_views_v2(
         "trade_bars": trade_bars,
         "quadrant": quadrant,
         "wp_summary": wp_summary,
+        "optimizer_view": {"by_wp": {}, "default_wp_id": None},
+        "scenarios": {"site": {}, "by_wp": {}},
+        "s_curve": [],
     }
 
 

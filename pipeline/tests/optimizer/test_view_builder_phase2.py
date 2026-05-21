@@ -31,3 +31,23 @@ async def test_quadrant_has_new_keys(pg_client):
         assert isinstance(q["workers"], int)
         # wp_id kebab 형식 (정수 prefix WP- 아님)
         assert not q["wp_id"].startswith("WP-")
+
+
+@pytest.mark.integration
+async def test_returns_9_keys(pg_client):
+    """C3 — _build_productivity_views_v2 가 optimizer_view/scenarios/s_curve 포함 9 key 반환."""
+    from pipeline.agents.optimizer.view_builder import _build_productivity_views_v2
+
+    result = await _build_productivity_views_v2(pg_client, "m15x-ph3-ibl", date(2025, 9, 25))
+    expected = {
+        "kpi",
+        "productivity",
+        "contractor_bars",
+        "trade_bars",
+        "quadrant",
+        "wp_summary",
+        "optimizer_view",
+        "scenarios",
+        "s_curve",
+    }
+    assert set(result.keys()) >= expected, f"missing: {expected - set(result.keys())}"

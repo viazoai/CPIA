@@ -22,7 +22,7 @@
 - Create `scripts/audit_phase2_where_filter.sh` — WHERE 절 grep guard
 - Create `scripts/rollback_phase2_jsonb.sh` — L2 rollback (UPDATE daily_reports FROM backup)
 
-**BE Routes / Lib (TypeScript) — 9 위치 정확한 line**
+**BE Routes / Lib (TypeScript) — 7 파일 / 11 hit (transforms 5 + 나머지 6) 정확한 line**
 - Modify `web/lib/transforms.ts:92, 93, 199, 309, 310` — mapper SQL 5 곳 WHERE
 - Modify `web/app/api/mock/agent-tasks/route.ts:62` — JOIN mapper WHERE
 - Modify `web/app/api/mock/review/route.ts:33` — mapper SELECT WHERE
@@ -184,7 +184,7 @@ for f in "${!EXPECTED[@]}"; do
 done
 
 [ $fail -eq 0 ] || exit 1
-echo "verified: 9 위치 모두 'trade IN' 필터 적용"
+echo "verified: 11 hit (7 파일) 모두 'trade IN' 필터 적용"
 ```
 
 - [ ] **Step 2: 권한 부여 + 즉시 실행 (Phase B 전 — 모두 FAIL 기대)**
@@ -1761,10 +1761,10 @@ git commit -m "feat(phase2): dashboard loadFixture → loadReal swap (Task G2)"
 
 ### Task H1: 전 검증
 
-- [ ] **Step 1: WHERE filter grep guard (9 위치)**
+- [ ] **Step 1: WHERE filter grep guard (11 hit / 7 파일)**
 
 Run: `./scripts/audit_phase2_where_filter.sh`
-Expected: `verified: 9 위치 모두 'trade IN' 필터 적용`
+Expected: `verified: 11 hit (7 파일) 모두 'trade IN' 필터 적용`
 
 - [ ] **Step 2: backup_20260521 snapshot verify**
 

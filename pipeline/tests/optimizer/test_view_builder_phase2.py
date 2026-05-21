@@ -238,3 +238,32 @@ async def test_optimizer_view_all_quadrant_filled(pg_client):
     assert q_ids <= bw_keys, f"누락 WP: {q_ids - bw_keys}"
     for k, v in result["optimizer_view"]["by_wp"].items():
         assert v.get("diagnosis"), f"diagnosis 빔: {k}"
+
+
+def test_build_scenarios_schema_with_empty_input():
+    """C8 — 기존 _build_scenarios([], []) 도 site/by_wp + 4 키 schema 만족 (advice 없을 때 fallback)."""
+    from pipeline.agents.optimizer.view_builder import _build_scenarios
+
+    s = _build_scenarios([], [])
+    assert "site" in s and "by_wp" in s
+    for k in ("no_action", "optimistic_p25", "base_p50", "pessimistic_p75"):
+        assert k in s["site"], f"missing {k}"
+    assert s["by_wp"] == {}
+
+
+@pytest.mark.integration
+async def test_phase2_views_v2_scenarios_and_s_curve_non_null(pg_client):
+    """C8 통합 — _build_productivity_views_v2 의 scenarios / s_curve 가 빈 stub 이 아님."""
+    from pipeline.agents.optimizer.view_builder import _build_productivity_views_v2
+
+    result = await _build_productivity_views_v2(pg_client, "m15x-ph3-ibl", date(2025, 9, 25))
+    assert isinstance(result["scenarios"], dict)
+    assert "site" in result["scenarios"]
+    assert "by_wp" in result["scenarios"]
+    # site scenarios = 4 키 만족
+    for k in ("no_action", "optimistic_p25", "base_p50", "pessimistic_p75"):
+        assert k in result["scenarios"]["site"]
+    # s_curve = list[dict]
+    assert isinstance(result["s_curve"], list)
+    assert len(result["s_curve"]) > 0, "s_curve 빈 list — 실 SQL 미호출"
+    assert isinstance(result["s_curve"][0], dict)

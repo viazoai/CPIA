@@ -1428,6 +1428,9 @@ async def _build_productivity_views_v2(
     if optimizer_view.get("default_wp_id") is None and optimizer_view["by_wp"]:
         optimizer_view["default_wp_id"] = next(iter(optimizer_view["by_wp"].keys()))
 
+    scenarios = _build_scenarios(advice_rows, forecast_rows)
+    s_curve = await _build_s_curve(pg, site_id, today)
+
     return {
         "kpi": kpi,
         "productivity": productivity_dict,
@@ -1436,8 +1439,8 @@ async def _build_productivity_views_v2(
         "quadrant": quadrant,
         "wp_summary": wp_summary,
         "optimizer_view": optimizer_view,
-        "scenarios": {"site": {}, "by_wp": {}},
-        "s_curve": [],
+        "scenarios": scenarios,
+        "s_curve": s_curve,
     }
 
 

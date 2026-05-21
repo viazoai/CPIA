@@ -63,6 +63,7 @@ export async function GET() {
       JOIN pipeline_runs pr USING (run_id)
       WHERE pr.report_date = ${dStr}
         AND ma.is_mock = ${useMock}
+        AND ma.trade IN ('건축', '토목')
       ORDER BY ma.mapping_conf ASC NULLS FIRST
       LIMIT 200
     `) as Array<{

@@ -131,9 +131,10 @@ export async function loadReal(name: string): Promise<unknown> {
 
       const [review] = (await (sql as any)`
         SELECT COUNT(*) AS review_pending
-        FROM mapper_activities
-        WHERE requires_review = true
-          AND is_mock = ${useMock}
+        FROM mapper_activities ma
+        WHERE ma.requires_review = true
+          AND ma.is_mock = ${useMock}
+          AND ma.trade IN ('건축', '토목')
       `) as Array<{ review_pending: string | number }>;
 
       const [abnormal] = (await (sql as any)`

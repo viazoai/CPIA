@@ -62,17 +62,17 @@ export async function GET(req: Request) {
       const counts = (await (sql as any)`
         SELECT
           COALESCE((
-            SELECT jsonb_array_length(jsonb_path_query_array(bp_summaries, '$[*] ? (@.disc_abbrev == "건축" || @.disc_abbrev == "토목")'))
+            SELECT jsonb_array_length(bp_summaries)
             FROM parser_reports WHERE report_date = ${dStr} AND is_mock = ${useMock}
             ORDER BY created_at DESC LIMIT 1
           ), 0) AS output_count,
           COALESCE((
-            SELECT jsonb_array_length(jsonb_path_query_array(job_allocations, '$[*] ? (@.disc_abbrev == "건축" || @.disc_abbrev == "토목")'))
+            SELECT jsonb_array_length(job_allocations)
             FROM parser_reports WHERE report_date = ${dStr} AND is_mock = ${useMock}
             ORDER BY created_at DESC LIMIT 1
           ), 0) AS occupation_count,
           COALESCE((
-            SELECT jsonb_array_length(jsonb_path_query_array(equipment_allocations, '$[*] ? (@.disc_abbrev == "건축" || @.disc_abbrev == "토목")'))
+            SELECT jsonb_array_length(equipment_allocations)
             FROM parser_reports WHERE report_date = ${dStr} AND is_mock = ${useMock}
             ORDER BY created_at DESC LIMIT 1
           ), 0) AS equipment_count,
@@ -103,11 +103,9 @@ export async function GET(req: Request) {
   }
 
   // ────── 단건 detail — 4 시트 raw ──────
+  // disc_abbrev 가 PG 데이터에 모두 null — 필터 제거 (RC4 의도는 탭 이름 + 컬럼 숨김).
   const reportRows = (await (sql as any)`
-    SELECT
-      jsonb_path_query_array(bp_summaries,          '$[*] ? (@.disc_abbrev == "건축" || @.disc_abbrev == "토목")') AS bp_summaries,
-      jsonb_path_query_array(job_allocations,       '$[*] ? (@.disc_abbrev == "건축" || @.disc_abbrev == "토목")') AS job_allocations,
-      jsonb_path_query_array(equipment_allocations, '$[*] ? (@.disc_abbrev == "건축" || @.disc_abbrev == "토목")') AS equipment_allocations
+    SELECT bp_summaries, job_allocations, equipment_allocations
     FROM parser_reports
     WHERE report_date = ${date}
       AND is_mock = ${useMock}

@@ -66,3 +66,144 @@ def test_build_wa_lookup():
     lookup = _build_wa_lookup(items)
     assert lookup[("철근콘크리트공사", "남웅건설")] == ["FAB", "CUB"]
     assert lookup[("방수공사", "동성건업")] == ["FAB"]
+
+
+# ─── C5 — deterministic cold_start (8 cause × 5 rule + edge) ───
+
+
+def test_deterministic_cold_start_diagnosis_format_and_length():
+    from pipeline.agents.optimizer.view_builder import _build_deterministic_cold_start
+
+    q = {
+        "wp_id": "fab-x-y",
+        "perperson": 1.70,
+        "perperson_unit": "m³/인",
+        "impact": 65.0,
+        "trade": "건축",
+        "workers": 3,
+        "company": "남웅건설",
+        "l7_5_activity": "무근 콘크리트 타설",
+        "l6_main": "철근콘크리트공사",
+    }
+    master = {"daily_qty": 25.0, "daily_workers": 10, "unit": "m³"}
+    result = _build_deterministic_cold_start(
+        q,
+        master,
+        [],
+        workers=3,
+        risk_level="이상",
+        delay_days=2,
+    )
+    assert "보통 인당 2.50 m³" in result["diagnosis"]
+    assert "오늘은 인당 1.70 m³ (68.0%)" in result["diagnosis"]
+    assert len(result["diagnosis"]) <= 140
+    assert result["source"] == "deterministic_cold_start"
+
+
+def test_deterministic_cold_start_master_none_fallback():
+    from pipeline.agents.optimizer.view_builder import _build_deterministic_cold_start
+
+    q = {
+        "wp_id": "fab-x",
+        "perperson": 1.70,
+        "perperson_unit": "m³/인",
+        "impact": 50.0,
+        "trade": "건축",
+        "workers": 3,
+        "company": "남웅",
+        "l7_5_activity": "X",
+        "l6_main": "Y",
+    }
+    result = _build_deterministic_cold_start(
+        q,
+        None,
+        [],
+        workers=3,
+        risk_level="—",
+        delay_days=0,
+    )
+    assert "마스터 데이터 없음" in result["diagnosis"]
+    assert "1.70 m³/인" in result["diagnosis"]
+    assert result["source"] == "deterministic_cold_start_no_master"
+
+
+def test_deterministic_cold_start_unit_none_safe():
+    from pipeline.agents.optimizer.view_builder import _build_deterministic_cold_start
+
+    q = {
+        "wp_id": "x",
+        "perperson": 1.0,
+        "perperson_unit": None,
+        "impact": 30.0,
+        "trade": "건축",
+        "workers": 2,
+        "company": "X",
+        "l7_5_activity": "Y",
+        "l6_main": "Z",
+    }
+    master = {"daily_qty": 10, "daily_workers": 10, "unit": None}
+    result = _build_deterministic_cold_start(
+        q,
+        master,
+        [],
+        workers=2,
+        risk_level="정상",
+        delay_days=0,
+    )
+    assert "단위미상" in result["diagnosis"]
+    assert result["source"] in (
+        "deterministic_cold_start",
+        "deterministic_cold_start_no_master",
+    )
+
+
+@pytest.mark.parametrize(
+    "pct,impact,delay,trade,expected_substr",
+    [
+        (45, 90, 6, "건축", "후속 양생 의존성"),
+        (50, 70, 3, "건축", "장비 가용성"),
+        (65, 40, 5, "토목", "선행 작업 지연"),
+        (65, 60, 0, "건축", "인력 분산"),
+        (75, 30, 0, "토목", "기상 영향"),
+        (75, 30, 0, "건축", "동시 작업 간섭"),
+        (85, 20, 0, "건축", "자재 대기"),
+        (95, 10, 0, "건축", ""),
+    ],
+)
+def test_pick_cause_8_branches(pct, impact, delay, trade, expected_substr):
+    from pipeline.agents.optimizer.view_builder import _pick_cause
+
+    cause = _pick_cause(pct, impact, delay, trade)
+    if expected_substr:
+        assert expected_substr in cause, f"({pct},{impact},{delay},{trade}) → {cause!r}"
+    else:
+        assert cause == ""
+
+
+@pytest.mark.parametrize(
+    "pct,impact,delay,workers,trade,expected_count,expected_substrs",
+    [
+        # 각 룰 독립 평가 (R3 = trade=건축 + pct<80 → 광범위 trigger).
+        (65, 60, 0, 3, "건축", 2, ["인력 +1", "선행 토목"]),  # R1+R3
+        (65, 60, 3, 3, "건축", 3, ["인력 +1", "후속 작업", "선행 토목"]),  # R1+R2+R3
+        (75, 20, 0, 3, "건축", 1, ["선행 토목"]),  # R3 only
+        (50, 25, 0, 3, "건축", 2, ["선행 토목", "장비"]),  # R3+R4
+        (95, 5, 0, 3, "건축", 1, ["현 페이스 유지"]),  # R5 only
+        (40, 90, 5, 2, "건축", 4, ["인력 +1", "후속 작업", "선행 토목", "장비"]),  # R1+R2+R3+R4
+    ],
+)
+def test_pick_recommendations_combinations(
+    pct,
+    impact,
+    delay,
+    workers,
+    trade,
+    expected_count,
+    expected_substrs,
+):
+    from pipeline.agents.optimizer.view_builder import _pick_recommendations
+
+    recs = _pick_recommendations(pct, impact, delay, workers, trade)
+    assert len(recs) == expected_count, f"got {recs}"
+    for sub in expected_substrs:
+        assert any(sub in r for r in recs), f"missing {sub!r} in {recs}"

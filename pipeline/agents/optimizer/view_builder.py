@@ -383,6 +383,132 @@ def _build_wa_lookup(items: list[dict]) -> dict[tuple[str, str], list[str]]:
     return out
 
 
+def _pick_cause(pct: float, impact: float, delay_days: int, trade: str) -> str:
+    """8 cause 분기 — productivity × impact × delay × trade."""
+    if pct < 50 and impact > 80:
+        return "인력 분산 + 후속 양생 의존성"
+    if pct < 60 and impact > 60:
+        return "장비 가용성 저하 + 후속 작업 영향"
+    if pct < 70 and delay_days > 2:
+        return "선행 작업 지연 파급"
+    if pct < 70 and impact > 50:
+        return "인력 분산 또는 후속 작업 의존성에 따른 페이스 저하 가능성"
+    if 70 <= pct < 80 and trade == "토목":
+        return "기상 영향 또는 토공 진행 조건 저하"
+    if 70 <= pct < 80:
+        return "동시 작업 간섭 또는 자재 대기에 따른 일시적 감소 가능성"
+    if 80 <= pct < 90:
+        return "자재 대기 또는 양생 sequence 영향"
+    return ""  # pct >= 90 정상
+
+
+def _pick_recommendations(
+    pct: float, impact: float, delay_days: int, workers: int, trade: str,
+) -> list[str]:
+    """5 rule 조합형 — 각 룰 독립 평가."""
+    recs: list[str] = []
+    if pct < 70 and impact > 50:
+        recs.append(f"인력 +1명 검토 (현 {workers}명 → {workers + 1}명, 회복 단축 기대)")
+    if delay_days > 2:
+        recs.append("후속 작업 일정 영향 확인")
+    if trade == "건축" and pct < 80:
+        recs.append("선행 토목 인터페이스 점검")
+    if pct < 60 and impact >= 20:
+        recs.append("장비 가용성 / 자재 수급 확인")
+    if 90 <= pct < 100 and delay_days == 0:
+        recs.append("현 페이스 유지 — 검증 완료")
+    return recs
+
+
+def _compose_diagnosis(
+    pp_master: float, pp_today: float, pct: float, unit: str, cause: str,
+) -> str:
+    """진단 한 단락 (≤140자) — cause 절 trim 으로 보장."""
+    base = (
+        f"이 작업은 보통 인당 {pp_master:.2f} {unit} 작업하는데, "
+        f"오늘은 인당 {pp_today:.2f} {unit} ({pct:.1f}%) 로 작업했습니다."
+    )
+    full = base + (f" {cause}" if cause else "")
+    return full if len(full) <= 140 else base
+
+
+def _compose_diagnosis_no_master(pp_today: float, unit: str) -> str:
+    """master 없음 — 단순 진단."""
+    return (
+        f"마스터 데이터 없음. 오늘 인당 {pp_today:.2f} {unit}/인 작업. "
+        f"비교 기준 미생성 — 후속 마스터 적재 후 진단 재산출."
+    )
+
+
+def _build_deterministic_cold_start(
+    q: dict, master: Optional[dict], chroma_cases: list[dict],
+    *, workers: int, risk_level: Optional[str], delay_days: int,
+) -> dict:
+    """advice 없는 WP 마다 deterministic 4 슬롯 (LLM 호출 0)."""
+    pp_today = float(q.get("perperson") or 0)
+    unit_full = q.get("perperson_unit") or "단위미상/인"
+    unit = unit_full.split("/")[0] if "/" in unit_full else "단위미상"
+    impact = float(q.get("impact", 0))
+    trade = q.get("trade", "")
+
+    if master is None or not master.get("daily_workers"):
+        diagnosis = _compose_diagnosis_no_master(pp_today, unit)
+        pp_master = 0.0
+        pct = 0.0
+        cause = ""
+        source = "deterministic_cold_start_no_master"
+    else:
+        pp_master = master["daily_qty"] / max(master["daily_workers"], 1)
+        pct = (pp_today / pp_master * 100) if pp_master else 0
+        cause = _pick_cause(pct, impact, delay_days, trade)
+        diagnosis = _compose_diagnosis(pp_master, pp_today, pct, unit, cause)
+        source = "deterministic_cold_start"
+
+    similar_cases = [
+        {
+            "date": c.get("date") or "",
+            "description": (
+                f"{c.get('company') or ''} · {c.get('l7_5_activity') or ''} · "
+                f"{(c.get('pp_then') or 0):.2f} {unit} ({(c.get('pct_then') or 0):.0f}%)"
+            ),
+            "outcome": (
+                f"{c.get('recovery_days')}일 후 {(c.get('pp_recovered') or 0):.2f} {unit} "
+                f"({(c.get('pct_recovered') or 0):.0f}%) 회복"
+            ) if c.get("recovery_days") else "미회복",
+        }
+        for c in (chroma_cases or [])[:3]
+    ]
+
+    recommendations = _pick_recommendations(pct, impact, delay_days, workers, trade)
+
+    avg_recovery = (
+        f"{sum((c.get('recovery_days') or 0) for c in (chroma_cases or []))/max(len(chroma_cases or []),1):.1f}일"
+        if chroma_cases
+        else "—"
+    )
+    details = [
+        {"label": "위험 평가", "value": risk_level or "—"},
+        {"label": "마스터 인당", "value": f"{pp_master:.2f} {unit}" if pp_master else "—"},
+        {
+            "label": "오늘 인당",
+            "value": (
+                f"{pp_today:.2f} {unit} ({pct:.1f}%)" if pp_master
+                else f"{pp_today:.2f} {unit}"
+            ),
+        },
+        {"label": "유사 사례", "value": f"{len(chroma_cases or [])}건"},
+        {"label": "평균 회복 일수", "value": avg_recovery},
+        {"label": "일정 영향", "value": f"+{delay_days}일"},
+    ]
+    return {
+        "diagnosis": diagnosis,
+        "similar_cases": similar_cases,
+        "recommendations": recommendations,
+        "details": details,
+        "source": source,
+    }
+
+
 async def _build_quadrant(
     pg: PGClient,
     site_id: str,

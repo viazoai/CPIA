@@ -8,12 +8,14 @@ import type { DailyTask, AgentStageProgress, AgentTaskItem } from "@/lib/types";
 export async function GET() {
   const useMock = process.env.CPIA_DEMO_FALLBACK === "on";
 
+  // Phase 2: 530일 backfill 후 매 date 별 8 SQL 호출 시 page Loading 누적 timeout.
+  // 시연 위주 최근 14일만 fetch.
   const dateRows = (await (sql as any)`
     SELECT DISTINCT report_date
     FROM pipeline_runs
-    WHERE report_date >= CURRENT_DATE - INTERVAL '1 year'
-      AND is_mock = ${useMock}
+    WHERE is_mock = ${useMock}
     ORDER BY report_date DESC
+    LIMIT 14
   `) as Array<{ report_date: Date | string }>;
 
   const tasks: DailyTask[] = [];

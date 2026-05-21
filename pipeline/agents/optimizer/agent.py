@@ -73,17 +73,46 @@ def _compute_recovery_distribution(cases: list[dict]) -> dict[str, int]:
 
 
 def _compose_cold_start_row(r: dict, cases: list[dict], run_id: uuid.UUID) -> dict:
+    """history 3건 미만 — LLM skip 하되 UI 평이함 회피.
+    Phase 1 (2026-05-21): diagnosis 라벨 + master baseline 권고 1건 채움 (C9).
+    """
+    company = r["company"]
+    l6 = r["l6_main"]
+    diagnosis = (
+        f"신규 작업 — {company} {l6} 의 과거 유사 이력 부족. "
+        "마스터 baseline 기준 일일 quota 권고로 갈음."
+    )
+    recommendations = [
+        {
+            "rank": 1,
+            "action": (
+                f"{l6} 마스터 일일 quota 페이스 유지. 1주 누적 후 "
+                "ChromaDB 유사 이력 재조회로 진단 정밀화."
+            ),
+            "rationale": (
+                "history 3건 미만 -> LLM bypass. baseline 기반 진행 후 데이터 누적 대기."
+            ),
+        }
+    ]
     return {
         "run_id": run_id,
-        "company": r["company"],
-        "l6_main": r["l6_main"],
+        "company": company,
+        "l6_main": l6,
         "forecast_assessment": r["assessment"],
-        "diagnosis": "cold_start",
+        "diagnosis": diagnosis,
         "degradation_cases": cases,
         "recovery_pattern": [],
         "recovery_distribution": _compute_recovery_distribution(cases),
-        "recommendations": [],
+        "recommendations": recommendations,
     }
+
+
+def _apply_augmentation_weight(rows: list[dict]) -> list[tuple[dict, float]]:
+    """augment 된 case 는 0.5 가중치, 일반 1.0. backfill 산출물 활용."""
+    return [
+        (r, 0.5 if r.get("metadata", {}).get("augmented") else 1.0)
+        for r in rows
+    ]
 
 
 def _compose_row(r: dict, cases: list[dict], llm_output: dict, run_id: uuid.UUID) -> dict:

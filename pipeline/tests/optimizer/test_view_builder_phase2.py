@@ -51,3 +51,18 @@ async def test_returns_9_keys(pg_client):
         "s_curve",
     }
     assert set(result.keys()) >= expected, f"missing: {expected - set(result.keys())}"
+
+
+def test_build_wa_lookup():
+    """C4 — (l6_main, company) → DISTINCT wa list."""
+    from pipeline.agents.optimizer.view_builder import _build_wa_lookup
+
+    items = [
+        {"wa": "FAB", "l6_main": "철근콘크리트공사", "company": "남웅건설"},
+        {"wa": "CUB", "l6_main": "철근콘크리트공사", "company": "남웅건설"},
+        {"wa": "FAB", "l6_main": "방수공사", "company": "동성건업"},
+        {"wa": None, "l6_main": "방수공사", "company": "동성건업"},
+    ]
+    lookup = _build_wa_lookup(items)
+    assert lookup[("철근콘크리트공사", "남웅건설")] == ["FAB", "CUB"]
+    assert lookup[("방수공사", "동성건업")] == ["FAB"]

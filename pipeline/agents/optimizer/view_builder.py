@@ -369,6 +369,20 @@ def _wp_id_of(
     return f"{_kebab(wa)}-{_kebab(l6_main)}-{_kebab(company)}"
 
 
+def _build_wa_lookup(items: list[dict]) -> dict[tuple[str, str], list[str]]:
+    """(l6_main, company) → DISTINCT wa list (_build_optimizer_view fan-out 용)."""
+    out: dict[tuple[str, str], list[str]] = {}
+    for it in items:
+        wa = it.get("wa")
+        if not wa:
+            continue
+        key = (it["l6_main"], it["company"])
+        out.setdefault(key, [])
+        if wa not in out[key]:
+            out[key].append(wa)
+    return out
+
+
 async def _build_quadrant(
     pg: PGClient,
     site_id: str,

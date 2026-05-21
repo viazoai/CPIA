@@ -945,6 +945,7 @@ async def _build_productivity_views_v2(
           AND pr.site_id = $2
           AND ma.l7_5_activity IS NOT NULL
           AND m.ps IS NOT NULL AND $1 BETWEEN m.ps AND m.pf
+          AND ma.trade IN ('건축', '토목')
         """,
         today,
         site_id,

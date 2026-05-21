@@ -470,29 +470,27 @@ def _build_deterministic_cold_start(
         u = c.get("unit") or unit
         return u if u else "단위미상"
 
+    # backfill 의 productivity_pct 는 sum/total 기반 master 와 실 today_qty 비교 → view_builder 의 sim 기반과 다른 scale.
+    # 사용자는 description 의 perperson 값 + details 의 "마스터 인당" 으로 직관 비교. pct 제거.
     similar_cases = [
         {
             "date": c.get("date") or "",
             "description": (
                 f"{c.get('company') or ''} · {c.get('l7_5_activity') or ''} · "
                 f"{float(c.get('perperson') or 0):.2f} {_case_unit(c)}/인 "
-                f"({float(c.get('productivity_pct') or 0):.0f}%)"
+                f"(인원 {int(float(c.get('assigned_workers') or 0))}명)"
             ),
-            "outcome": (
-                "정상 페이스" if float(c.get("productivity_pct") or 0) >= 90
-                else "주의 페이스" if float(c.get("productivity_pct") or 0) >= 70
-                else "저하 사례"
-            ),
+            "outcome": (c.get("conditions") or "").strip("[]\"' ") or "정상 조건",
         }
         for c in (chroma_cases or [])[:3]
     ]
 
     recommendations = _pick_recommendations(pct, impact, delay_days, workers, trade)
 
-    # recovery_days 정보 metadata 에 부재 — 평균 회복 일수 항목 대신 평균 페이스 표시.
+    # recovery_days 정보 metadata 에 부재 — 평균 페이스 (perperson) 표시.
     if chroma_cases:
-        avg_pct = sum(float(c.get("productivity_pct") or 0) for c in chroma_cases) / len(chroma_cases)
-        avg_recovery = f"평균 {avg_pct:.0f}%"
+        avg_pp = sum(float(c.get("perperson") or 0) for c in chroma_cases) / len(chroma_cases)
+        avg_recovery = f"평균 {avg_pp:.2f} {unit}/인"
     else:
         avg_recovery = "—"
     details = [

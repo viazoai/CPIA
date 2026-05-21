@@ -928,7 +928,8 @@ async def _build_productivity_views_v2(
     rows = await pg.fetch_all(
         """
         SELECT ma.id, pr.site_id, ma.run_id, ma.company, ma.l6_main, ma.l7_5_activity,
-               ma.unit, ma.zone, m.ps AS plan_start, m.pf AS plan_finish,
+               ma.unit, ma.zone, ma.wa, ma.today_qty, ma.assigned_workers,
+               m.ps AS plan_start, m.pf AS plan_finish,
                m.qty AS plan_total_qty, m.mh AS plan_mh
         FROM mapper_activities ma
         JOIN pipeline_runs pr USING (run_id)
@@ -984,6 +985,8 @@ async def _build_productivity_views_v2(
                 "l6_main": r["l6_main"],
                 "l7_5_activity": r["l7_5_activity"],
                 "unit": r["unit"],
+                "wa": r["wa"],
+                "assigned_workers": r["assigned_workers"],
                 "today_qty": sim["today_qty"],
                 "workers": sim["workers"],
                 "plan_total_qty": plan_qty,
@@ -1087,8 +1090,12 @@ async def _build_productivity_views_v2(
     ]
     quadrant = [
         {
-            "wp_id": f"WP-{it['id']}",
+            "wp_id": _wp_id_of(it["wa"], it["l6_main"], it["company"]),
             "wp_name": it["l7_5_activity"],
+            "l7_5_activity": it["l7_5_activity"],
+            "company": it["company"],
+            "l6_main": it["l6_main"],
+            "workers": int(it.get("assigned_workers") or 1),
             "trade": it["l6_main"],
             "productivity": round(it["productivity"], 1),
             "impact": round(it["impact"], 1),
@@ -1104,7 +1111,7 @@ async def _build_productivity_views_v2(
     ]
     wp_summary = [
         {
-            "wp_id": f"WP-{it['id']}",
+            "wp_id": _wp_id_of(it["wa"], it["l6_main"], it["company"]),
             "wp_name": it["l7_5_activity"],
             "trade": it["l6_main"],
             "bp_name": it["company"],

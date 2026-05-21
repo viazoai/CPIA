@@ -42,7 +42,7 @@ export function QuadrantScatter({ points, selectedWpId, onSelect, filter = "all"
                   <div className="font-bold text-ink">{p.wp_name}</div>
                   <div className="text-ink-light">{p.trade}</div>
                   <div className="mt-1 grid grid-cols-2 gap-x-3">
-                    <span>Productivity:</span><b>{p.productivity}%</b>
+                    <span>Productivity:</span><b>{p.display_label ?? `${p.productivity}%`}</b>
                     <span>Impact:</span><b>{p.impact}%</b>
                   </div>
                 </div>

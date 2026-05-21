@@ -8,10 +8,14 @@
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { loadFixture } from "@/lib/fixtures";
+import { loadFixture, loadReal } from "@/lib/fixtures";
 
 export async function GET() {
-  const dashboard = await loadFixture("dashboard");
+  // Phase 2 (RC5): performance.fleet_kpi 를 PG 530일 평균으로 swap.
+  // impact 는 fixture 유지 (hours_saved / fte_saved 는 PG 에 데이터 없음 — 후속 plan).
+  const performance = await loadReal("dashboard_performance");
+  const impactFixture = await loadFixture("dashboard");
+  const dashboard = { performance, impact: impactFixture.impact };
   const sites = await loadFixture("sites");
   return NextResponse.json({ sites, dashboard });
 }

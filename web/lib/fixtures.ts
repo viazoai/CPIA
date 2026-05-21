@@ -97,6 +97,7 @@ export async function loadFixture<K extends keyof FixtureMap>(name: K): Promise<
 export async function loadReal(name: "sites_summary"): Promise<SitesSummary>;
 export async function loadReal(name: "agent_status"): Promise<AgentStatus[]>;
 export async function loadReal(name: "chat_sequence"): Promise<Record<string, ChatMessage[]>>;
+export async function loadReal(name: "dashboard_performance"): Promise<DashboardFixture["performance"]>;
 export async function loadReal(name: string): Promise<unknown> {
   switch (name) {
     case "sites_summary": {
@@ -228,6 +229,57 @@ export async function loadReal(name: string): Promise<unknown> {
         ? latest.report_date.slice(0, 10)
         : latest.report_date.toISOString().slice(0, 10);
       return { [dStr]: messages };
+    }
+
+    case "dashboard_performance": {
+      const useMock = process.env.CPIA_DEMO_FALLBACK === "on";
+      // fleet_kpi — 530일 daily_reports 의 kpi_jsonb 평균/카운트.
+      const [agg] = (await (sql as any)`
+        SELECT
+          COALESCE(AVG((dr.kpi_jsonb->>'productivity_today')::numeric), 0)::float AS avg_productivity,
+          COALESCE(AVG((dr.kpi_jsonb->>'delay_days')::numeric), 0)::float          AS avg_delay,
+          COUNT(*) FILTER (WHERE dr.kpi_jsonb->>'risk_level' <> '정상')::int        AS abnormal_total,
+          COALESCE(SUM((dr.kpi_jsonb->>'recovery_days')::numeric), 0)::int          AS recoverable_days
+        FROM daily_reports dr JOIN pipeline_runs pr USING (run_id)
+        WHERE dr.is_mock = ${useMock}
+      `) as Array<{ avg_productivity: number; avg_delay: number; abnormal_total: number; recoverable_days: number }>;
+
+      // fleet_trend — 최근 60일 (mean = 평균 productivity, min/max 는 실 site 1개라 동일 값으로 placeholder).
+      const trendRows = (await (sql as any)`
+        SELECT pr.report_date,
+               (dr.kpi_jsonb->>'productivity_today')::numeric AS productivity
+        FROM daily_reports dr JOIN pipeline_runs pr USING (run_id)
+        WHERE dr.is_mock = ${useMock}
+        ORDER BY pr.report_date DESC LIMIT 60
+      `) as Array<{ report_date: Date | string; productivity: number }>;
+      const fleet_trend = trendRows
+        .reverse()
+        .map((r) => {
+          const v = Number(r.productivity ?? 0);
+          const dateStr = r.report_date instanceof Date
+            ? r.report_date.toISOString().slice(0, 10)
+            : String(r.report_date).slice(0, 10);
+          return { date: dateStr, mean: v, min: v, max: v };
+        });
+
+      // site_sparklines — m15x-ph3-ibl 최근 30일.
+      const sparkRows = (await (sql as any)`
+        SELECT pr.report_date,
+               (dr.kpi_jsonb->>'productivity_today')::numeric AS productivity
+        FROM daily_reports dr JOIN pipeline_runs pr USING (run_id)
+        WHERE dr.is_mock = ${useMock}
+          AND pr.site_id = 'm15x-ph3-ibl'
+        ORDER BY pr.report_date DESC LIMIT 30
+      `) as Array<{ report_date: Date | string; productivity: number }>;
+      const sparkValues = sparkRows.reverse().map((r) => Number(r.productivity ?? 0));
+
+      return {
+        fleet_kpi: agg ?? {
+          avg_productivity: 0, avg_delay: 0, abnormal_total: 0, recoverable_days: 0,
+        },
+        fleet_trend,
+        site_sparklines: { "m15x-ph3-ibl": sparkValues },
+      };
     }
 
     default:

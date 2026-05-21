@@ -563,12 +563,12 @@ async def _fetch_chroma_cases_lookup(
             ]})
         for where in where_chain:
             try:
-                r = col.get(where=where, include=["metadatas"])
+                # limit 50 (cap) — backfill 시 무한 row fetch timeout 방지. Python sort 로 결정성 보장.
+                r = col.get(where=where, limit=50, include=["metadatas"])
             except Exception:
                 continue
             metas = r.get("metadatas") or []
             if metas:
-                # 결정성: date desc 정렬 후 상위 5 (col.get 의 limit 순서가 비보장).
                 metas_sorted = sorted(metas, key=lambda m: m.get("date") or "", reverse=True)
                 cases = metas_sorted[:5]
                 break

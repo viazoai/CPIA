@@ -203,6 +203,14 @@ export async function wbsTreeBuild(siteId: string, siteName?: string): Promise<W
         AND ma.is_mock = ${useMock}
       GROUP BY ma.wa, ma.l6_main
     ),
+    activity_agg AS (
+      SELECT ma.wa, ma.l6_main, COUNT(*) AS total_count
+      FROM mapper_activities ma
+      JOIN pipeline_runs pr USING (run_id)
+      WHERE pr.site_id = ${siteId}
+        AND ma.is_mock = ${useMock}
+      GROUP BY ma.wa, ma.l6_main
+    ),
     forecast_agg AS (
       SELECT f.l6_main, MIN(CASE f.risk_level WHEN '이상' THEN 1 WHEN '주의' THEN 2 ELSE 3 END) AS worst_risk
       FROM forecasts f
@@ -213,15 +221,18 @@ export async function wbsTreeBuild(siteId: string, siteName?: string): Promise<W
     )
     SELECT am.site_id, am.wa, am.l5_disc, am.l6_main,
            COALESCE(ra.review_count, 0) AS review_count,
+           COALESCE(aa.total_count, 0) AS total_count,
            fa.worst_risk
     FROM am_combos am
     LEFT JOIN review_agg ra ON ra.wa = am.wa AND ra.l6_main = am.l6_main
+    LEFT JOIN activity_agg aa ON aa.wa = am.wa AND aa.l6_main = am.l6_main
     LEFT JOIN forecast_agg fa ON fa.l6_main = am.l6_main
   `) as Array<{
     wa: string;
     l5_disc: string;
     l6_main: string;
     review_count: number | string;
+    total_count: number | string;
     worst_risk: number | null;
   }>;
 
@@ -231,6 +242,7 @@ export async function wbsTreeBuild(siteId: string, siteName?: string): Promise<W
     name: siteName ?? siteId,
     parent_id: null,
     review_count: 0,
+    total_count: 0,
     status: "normal",
     children: [],
   };
@@ -246,6 +258,7 @@ export async function wbsTreeBuild(siteId: string, siteName?: string): Promise<W
 
   for (const r of rows) {
     const reviewCount = Number(r.review_count);
+    const totalCount = Number(r.total_count);
 
     let waNode = waMap.get(r.wa);
     if (!waNode) {
@@ -255,6 +268,7 @@ export async function wbsTreeBuild(siteId: string, siteName?: string): Promise<W
         name: r.wa,
         parent_id: root.id,
         review_count: 0,
+        total_count: 0,
         status: "normal",
         children: [],
       };
@@ -271,6 +285,7 @@ export async function wbsTreeBuild(siteId: string, siteName?: string): Promise<W
         name: r.l5_disc,
         parent_id: waNode.id,
         review_count: 0,
+        total_count: 0,
         status: "normal",
         children: [],
       };
@@ -286,6 +301,7 @@ export async function wbsTreeBuild(siteId: string, siteName?: string): Promise<W
       name: r.l6_main,
       parent_id: discNode.id,
       review_count: reviewCount,
+      total_count: totalCount,
       status: riskToStatus(r.worst_risk),
       children: [],
     };
@@ -293,6 +309,9 @@ export async function wbsTreeBuild(siteId: string, siteName?: string): Promise<W
     discNode.review_count += reviewCount;
     waNode.review_count += reviewCount;
     root.review_count += reviewCount;
+    discNode.total_count += totalCount;
+    waNode.total_count += totalCount;
+    root.total_count += totalCount;
   }
 
   return root;

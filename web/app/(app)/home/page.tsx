@@ -59,12 +59,14 @@ export default async function HomePage() {
       </section>
 
       {/* Agent + HIL 세로 워크플로우 + Agent Chat Log */}
-      <section className="mt-10 grid grid-cols-12 items-start gap-6">
+      <section className="mt-10 grid grid-cols-12 gap-6">
         <div className="col-span-12 xl:col-span-8">
           <AgentWorkflow agents={agents} />
         </div>
-        <div className="col-span-12 xl:col-span-4 flex h-[720px] flex-col overflow-hidden rounded-card-lg border border-border bg-card xl:sticky xl:top-20 xl:h-[calc(100vh-140px)]">
-          <AgentChatLog messages={chat} />
+        <div className="col-span-12 xl:relative xl:col-span-4">
+          <div className="flex h-[720px] flex-col overflow-hidden rounded-card-lg border border-border bg-card xl:absolute xl:inset-0 xl:h-auto">
+            <AgentChatLog messages={chat} />
+          </div>
         </div>
       </section>
     </div>

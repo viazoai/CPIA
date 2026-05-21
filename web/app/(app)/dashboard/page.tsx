@@ -32,7 +32,7 @@ export default function DashboardPage() {
         </p>
       </div>
 
-      <section className="mx-auto w-full max-w-screen-2xl px-6 pb-20 md:px-10">
+      <section className="mx-auto w-full max-w-screen-2xl px-6 pb-20 pt-8 md:px-10 md:pt-10">
         <Tabs defaultValue="performance" className="w-full">
           <TabsList className="w-fit">
             <TabsTrigger value="performance">Performance</TabsTrigger>

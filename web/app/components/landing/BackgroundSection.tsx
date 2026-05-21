@@ -6,6 +6,7 @@ import {
   Users,
   Bot,
   Archive,
+  ArrowLeft,
   ArrowRight,
 } from "lucide-react";
 
@@ -236,7 +237,7 @@ export function BackgroundSection() {
               <div className="font-display text-body-sm font-semibold text-ink">협력사 / 현장관리자</div>
               <div className="mt-0.5 text-xs text-ink-mid">Middle Office 인력 재배치</div>
             </div>
-            <ArrowRight className="h-4 w-4 text-ink-light" />
+            <ArrowLeft className="h-4 w-4 text-ink-light" />
             <div className="rounded-card border border-brand/40 bg-brand-light/60 px-3 py-2 text-center shadow-inner">
               <div className="font-display text-body-sm font-semibold text-ink line-through decoration-rose decoration-2">
                 현장사무직 / 계약직

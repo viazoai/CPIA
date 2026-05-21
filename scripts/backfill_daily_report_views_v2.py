@@ -44,6 +44,9 @@ _JSONB_COLS = (
     "trade_bars_jsonb",
     "quadrant_jsonb",
     "wp_summary_jsonb",
+    "optimizer_view_jsonb",
+    "scenarios_jsonb",
+    "s_curve_jsonb",
 )
 
 

@@ -360,3 +360,21 @@ def test_group_baseline_l7_5_filter():
     # 필터 = "방수 시공": 10/2 = 5.0
     filtered = _group_baseline(metadatas, "남웅", "방수공사", "m2", l7_5_activity="방수 시공")
     assert filtered == 5.0
+
+
+def test_backfill_jsonb_cols_has_9():
+    """C10 — backfill_v2 의 _JSONB_COLS 가 9 컬럼 (optimizer_view/scenarios/s_curve 포함)."""
+    from scripts.backfill_daily_report_views_v2 import _JSONB_COLS
+
+    expected = {
+        "kpi_jsonb",
+        "productivity_jsonb",
+        "contractor_bars_jsonb",
+        "trade_bars_jsonb",
+        "quadrant_jsonb",
+        "wp_summary_jsonb",
+        "optimizer_view_jsonb",
+        "scenarios_jsonb",
+        "s_curve_jsonb",
+    }
+    assert set(_JSONB_COLS) == expected, f"diff: {expected ^ set(_JSONB_COLS)}"

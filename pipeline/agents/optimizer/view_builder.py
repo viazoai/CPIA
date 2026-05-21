@@ -505,7 +505,11 @@ def _build_deterministic_cold_start(
         },
         {"label": "유사 사례", "value": f"{len(chroma_cases or [])}건"},
         {"label": "유사 사례 생산성", "value": avg_recovery},
-        {"label": "일정 영향", "value": f"+{delay_days}일"},
+        {"label": "공기 단축", "value": (
+            (lambda r: f"-{r}일" if r > 0 else "계획 동일")(
+                max(0, round((100 - float(q.get("productivity") or 0)) / 100 * impact * 0.3))
+            )
+        )},
     ]
     return {
         "diagnosis": diagnosis,
@@ -573,11 +577,12 @@ async def _fetch_chroma_cases_lookup(
             ]})
         for where in where_chain:
             try:
-                # limit 50 (cap) — backfill 시 무한 row fetch timeout 방지. Python sort 로 결정성 보장.
                 r = col.get(where=where, limit=50, include=["metadatas"])
             except Exception:
                 continue
             metas = r.get("metadatas") or []
+            # perperson = 0 row exclude (사용자 화면 quality — 의미 없는 0.00 표시 방지).
+            metas = [m for m in metas if float(m.get("perperson") or 0) > 0]
             if metas:
                 metas_sorted = sorted(metas, key=lambda m: m.get("date") or "", reverse=True)
                 cases = metas_sorted[:5]

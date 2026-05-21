@@ -234,14 +234,18 @@ export async function loadReal(name: string): Promise<unknown> {
     case "dashboard_performance": {
       const useMock = process.env.CPIA_DEMO_FALLBACK === "on";
       // fleet_kpi — 530일 daily_reports 의 kpi_jsonb 평균/카운트.
+      // avg_productivity: daily_reports.kpi_jsonb 평균
+      // avg_delay / abnormal_total / recoverable_days: forecasts 테이블 (kpi_jsonb 에 풍부한 키 부재).
       const [agg] = (await (sql as any)`
         SELECT
-          COALESCE(AVG((dr.kpi_jsonb->>'productivity_today')::numeric), 0)::float AS avg_productivity,
-          COALESCE(AVG((dr.kpi_jsonb->>'delay_days')::numeric), 0)::float          AS avg_delay,
-          COUNT(*) FILTER (WHERE dr.kpi_jsonb->>'risk_level' <> '정상')::int        AS abnormal_total,
-          COALESCE(SUM((dr.kpi_jsonb->>'recovery_days')::numeric), 0)::int          AS recoverable_days
-        FROM daily_reports dr JOIN pipeline_runs pr USING (run_id)
-        WHERE dr.is_mock = ${useMock}
+          (SELECT ROUND(COALESCE(AVG((dr.kpi_jsonb->>'productivity_today')::numeric), 0), 1)::float
+            FROM daily_reports dr WHERE dr.is_mock = ${useMock})                              AS avg_productivity,
+          (SELECT ROUND(COALESCE(AVG(f.delay_days), 0)::numeric, 1)::float
+            FROM forecasts f WHERE f.is_mock = ${useMock})                                    AS avg_delay,
+          (SELECT COUNT(*)::int FROM forecasts f
+            WHERE f.is_mock = ${useMock} AND f.risk_level <> '정상')                          AS abnormal_total,
+          (SELECT COALESCE(SUM(CASE WHEN f.delay_days > 0 THEN f.delay_days ELSE 0 END), 0)::int
+            FROM forecasts f WHERE f.is_mock = ${useMock})                                    AS recoverable_days
       `) as Array<{ avg_productivity: number; avg_delay: number; abnormal_total: number; recoverable_days: number }>;
 
       // fleet_trend — 최근 60일 (mean = 평균 productivity, min/max 는 실 site 1개라 동일 값으로 placeholder).

@@ -9,13 +9,13 @@ export async function GET() {
   const useMock = process.env.CPIA_DEMO_FALLBACK === "on";
 
   // Phase 2: 530일 backfill 후 매 date 별 8 SQL 호출 시 page Loading 누적 timeout.
-  // 시연 위주 최근 14일만 fetch.
+  // 시연 위주 최근 90일만 fetch (timeout 회피, lazy load refactor 는 후속 plan).
   const dateRows = (await (sql as any)`
     SELECT DISTINCT report_date
     FROM pipeline_runs
     WHERE is_mock = ${useMock}
     ORDER BY report_date DESC
-    LIMIT 14
+    LIMIT 90
   `) as Array<{ report_date: Date | string }>;
 
   const tasks: DailyTask[] = [];

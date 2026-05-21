@@ -498,11 +498,26 @@ def test_daily_quota_from_master():
     assert _compute_daily_quota(100.0, 10) == pytest.approx(10.0)
 
 def test_today_qty_simulation_noise_deterministic():
-    """seed 고정 -> 동일 결과"""
+    """seed 고정 -> 동일 결과. noise 분포: 85% 중심 + ±20% + 5%/5% outlier (60%/150%)."""
     a = _simulate_today_qty(daily_qty=10.0, daily_workers=2.0, seed=42)
     b = _simulate_today_qty(daily_qty=10.0, daily_workers=2.0, seed=42)
     assert a == b
-    assert 0.85 * 10.0 <= a["today_qty"] <= 1.15 * 10.0
+    # noise_q 전체 range: 0.55 ~ 1.55 (low outlier + high outlier 합집합)
+    assert 0.55 * 10.0 <= a["today_qty"] <= 1.55 * 10.0
+
+
+def test_today_qty_distribution_central_tendency():
+    """100회 호출 평균 noise_q ≈ 0.85 (±0.05) — 경향성 검증.
+    outlier (< 0.65 or > 1.40) 비율 5~25%."""
+    samples = [
+        _simulate_today_qty(daily_qty=10.0, daily_workers=2.0, seed=s)["today_qty"]
+        for s in range(200)
+    ]
+    noises = [s / 10.0 for s in samples]
+    avg_noise = sum(noises) / len(noises)
+    assert 0.80 <= avg_noise <= 0.90, f"avg noise {avg_noise:.3f} not near 0.85"
+    outliers = [n for n in noises if n < 0.65 or n > 1.40]
+    assert 10 <= len(outliers) <= 50, f"outliers {len(outliers)}/200 out of [10,50]"
 
 def test_productivity_calc():
     """perperson / master_perperson * 100"""
@@ -542,9 +557,23 @@ def _compute_daily_quota(plan_total_qty: float, total_days: int) -> float:
     return plan_total_qty / total_days
 
 def _simulate_today_qty(daily_qty: float, daily_workers: float, seed: int) -> dict:
+    """productivity 분포 = 중심 85% + ±20% 일반 변동 + 5%/5% outlier (60% / 150%).
+
+    today_qty noise 가 직접 productivity 에 반영됨 (workers 변동은 ±5% 만 — 영향 최소).
+    분기:
+      roll < 0.05: high outlier 1.40 ~ 1.55  (productivity ~140~155%, 150 clamp)
+      roll < 0.10: low outlier  0.55 ~ 0.65  (productivity 55~65%)
+      else:       일반          0.65 ~ 1.05  (productivity 65~105%, 중심 85%)
+    """
     rng = random.Random(seed)
-    noise_q = 0.85 + 0.30 * rng.random()  # 0.85 ~ 1.15
-    noise_w = 0.90 + 0.20 * rng.random()  # 0.90 ~ 1.10
+    roll = rng.random()
+    if roll < 0.05:
+        noise_q = 1.40 + 0.15 * rng.random()
+    elif roll < 0.10:
+        noise_q = 0.55 + 0.10 * rng.random()
+    else:
+        noise_q = 0.65 + 0.40 * rng.random()  # 중심 0.85
+    noise_w = 0.95 + 0.10 * rng.random()  # 0.95 ~ 1.05
     return {
         "today_qty": daily_qty * noise_q,
         "workers": max(1.0, daily_workers * noise_w),
@@ -581,7 +610,7 @@ def _normalize_impact(impacts: list[float]) -> list[float]:
 ```bash
 pipeline/.venv/bin/python -m pytest pipeline/tests/optimizer/test_view_builder_v2.py -v
 ```
-Expected: 5 passed
+Expected: 6 passed (5 기본 + 1 distribution central tendency)
 
 - [ ] **Step 5: Commit**
 

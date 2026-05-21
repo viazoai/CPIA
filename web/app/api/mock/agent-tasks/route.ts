@@ -107,9 +107,99 @@ export async function GET() {
       contractor: r.company ?? "—",
       status: "done" as const,
     }));
-    for (const agent of ["Collector", "HIL Review", "Atomizer", "Exporter", "Forecaster", "Optimizer"]) {
-      items[agent] = [];
-    }
+
+    // Collector — 통합 작업일보 수신 1건.
+    const collectorItems = (await (sql as any)`
+      SELECT id, report_date
+      FROM parser_reports
+      WHERE report_date = ${dStr} AND is_mock = ${useMock}
+      ORDER BY created_at DESC LIMIT 1
+    `) as Array<{ id: number | string; report_date: Date | string }>;
+    items["Collector"] = collectorItems.map((r) => ({
+      id: `collector-${r.id}`,
+      trade: "통합 작업일보",
+      contractor: "—",
+      status: "done" as const,
+    }));
+
+    // HIL Review — mapper_activities WHERE requires_review = TRUE + 건축+토목.
+    const hilItems = (await (sql as any)`
+      SELECT ma.id, ma.l6_main, ma.company, ma.requires_review
+      FROM mapper_activities ma JOIN pipeline_runs pr USING (run_id)
+      WHERE pr.report_date = ${dStr} AND ma.is_mock = ${useMock}
+        AND ma.requires_review = TRUE
+        AND ma.trade IN ('건축', '토목')
+      ORDER BY ma.mapping_conf ASC NULLS FIRST
+      LIMIT 200
+    `) as Array<{ id: number | string; l6_main: string | null; company: string | null }>;
+    items["HIL Review"] = hilItems.map((r) => ({
+      id: `hil-${r.id}`,
+      trade: r.l6_main ?? "—",
+      contractor: r.company ?? "—",
+      status: "hil_pending" as const,
+    }));
+
+    // Atomizer — 매핑 완료 (l7_5_activity 있음) row.
+    const atomItems = (await (sql as any)`
+      SELECT ma.id, ma.l6_main, ma.company
+      FROM mapper_activities ma JOIN pipeline_runs pr USING (run_id)
+      WHERE pr.report_date = ${dStr} AND ma.is_mock = ${useMock}
+        AND ma.l7_5_activity IS NOT NULL
+        AND ma.trade IN ('건축', '토목')
+      ORDER BY ma.id
+      LIMIT 200
+    `) as Array<{ id: number | string; l6_main: string | null; company: string | null }>;
+    items["Atomizer"] = atomItems.map((r) => ({
+      id: `atom-${r.id}`,
+      trade: r.l6_main ?? "—",
+      contractor: r.company ?? "—",
+      status: "done" as const,
+    }));
+
+    // Exporter — 통합 작업일보 출력 (daily_reports 1건).
+    const exportItems = (await (sql as any)`
+      SELECT dr.id
+      FROM daily_reports dr JOIN pipeline_runs pr USING (run_id)
+      WHERE pr.report_date = ${dStr} AND dr.is_mock = ${useMock}
+      ORDER BY dr.created_at DESC LIMIT 1
+    `) as Array<{ id: number | string }>;
+    items["Exporter"] = exportItems.map((r) => ({
+      id: `export-${r.id}`,
+      trade: "통합 작업일보",
+      contractor: "—",
+      status: "done" as const,
+    }));
+
+    // Forecaster — forecasts row 별 (company × l6_main 단위 진단).
+    const forecasterItems = (await (sql as any)`
+      SELECT f.id, f.l6_main, f.company, f.risk_level
+      FROM forecasts f JOIN pipeline_runs pr USING (run_id)
+      WHERE pr.report_date = ${dStr} AND f.is_mock = ${useMock}
+      ORDER BY (CASE f.risk_level WHEN '이상' THEN 1 WHEN '주의' THEN 2 ELSE 3 END), f.id
+      LIMIT 200
+    `) as Array<{ id: number | string; l6_main: string | null; company: string | null; risk_level: string | null }>;
+    items["Forecaster"] = forecasterItems.map((r) => ({
+      id: `forecaster-${r.id}`,
+      trade: r.l6_main ?? "—",
+      contractor: r.company ?? "—",
+      status: "done" as const,
+    }));
+
+    // Optimizer — optimizer_advice row 별 (조언 생성된 그룹).
+    const optimizerItems = (await (sql as any)`
+      SELECT oa.id, oa.l6_main, oa.company
+      FROM optimizer_advice oa JOIN pipeline_runs pr USING (run_id)
+      WHERE pr.report_date = ${dStr} AND oa.is_mock = ${useMock}
+      ORDER BY oa.id
+      LIMIT 200
+    `) as Array<{ id: number | string; l6_main: string | null; company: string | null }>;
+    items["Optimizer"] = optimizerItems.map((r) => ({
+      id: `optimizer-${r.id}`,
+      trade: r.l6_main ?? "—",
+      contractor: r.company ?? "—",
+      status: "done" as const,
+    }));
+
     itemsByDate[dStr] = items;
   }
 

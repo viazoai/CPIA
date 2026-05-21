@@ -1298,10 +1298,55 @@ async def _build_productivity_views_v2(
         }
         for l6, v in sorted(l6_prod.items(), key=lambda x: -x[1]["wv_median"])
     ]
+    # wp_id 별 group by — 같은 (wa, l6_main, company) 에 여러 mapper row 가 있을 때
+    # quadrant/wp_summary 가 row 마다 중복되지 않도록 통합. wp_name 에 wa 추가하여 구역 구분.
+    from collections import defaultdict
+    import statistics as _stats
+
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for it in items:
+        wp_id = _wp_id_of(it["wa"], it["l6_main"], it["company"])
+        groups[wp_id].append(it)
+
+    grouped_items: list[dict] = []
+    for wp_id, grp in groups.items():
+        head = grp[0]
+        agg_today_qty = sum((it.get("today_qty") or 0) for it in grp)
+        agg_workers = sum((it.get("workers") or 0) for it in grp)
+        agg_assigned_workers = sum((it.get("assigned_workers") or 0) for it in grp)
+        agg_plan_qty = sum((it.get("plan_total_qty") or 0) for it in grp)
+        agg_plan_mh = sum((it.get("plan_mh") or 0) for it in grp)
+        prods = [it["productivity"] for it in grp if it.get("productivity") is not None]
+        impacts = [it.get("impact") or 0 for it in grp]
+        agg_prod = _stats.median(prods) if prods else 0.0
+        agg_impact = _stats.median(impacts) if impacts else 0.0
+        agg_pp = (agg_today_qty / agg_workers) if agg_workers else 0.0
+        agg_master_dq = head.get("master_daily_qty") or 0
+        agg_master_dw = head.get("master_daily_workers") or 0
+        grouped_items.append({
+            **head,
+            "wp_id": wp_id,
+            "today_qty": agg_today_qty,
+            "workers": agg_workers,
+            "assigned_workers": agg_assigned_workers,
+            "plan_total_qty": agg_plan_qty,
+            "plan_mh": agg_plan_mh,
+            "perperson": agg_pp,
+            "productivity": agg_prod,
+            "impact": agg_impact,
+            "master_daily_qty": agg_master_dq,
+            "master_daily_workers": agg_master_dw,
+            "row_count": len(grp),
+        })
+
+    def _wp_name_with_wa(it: dict) -> str:
+        wa = it.get("wa")
+        return f"{it['l7_5_activity']} · {wa}" if wa else it["l7_5_activity"]
+
     quadrant = [
         {
-            "wp_id": _wp_id_of(it["wa"], it["l6_main"], it["company"]),
-            "wp_name": it["l7_5_activity"],
+            "wp_id": it["wp_id"],
+            "wp_name": _wp_name_with_wa(it),
             "l7_5_activity": it["l7_5_activity"],
             "company": it["company"],
             "l6_main": it["l6_main"],
@@ -1318,12 +1363,12 @@ async def _build_productivity_views_v2(
                 it["productivity"], it["perperson"], it["unit"]
             ),
         }
-        for it in items
+        for it in grouped_items
     ]
     wp_summary = [
         {
-            "wp_id": _wp_id_of(it["wa"], it["l6_main"], it["company"]),
-            "wp_name": it["l7_5_activity"],
+            "wp_id": it["wp_id"],
+            "wp_name": _wp_name_with_wa(it),
             "trade": it["l6_main"],
             "bp_name": it["company"],
             "start_date": str(today.replace(day=1)),  # placeholder
@@ -1341,7 +1386,7 @@ async def _build_productivity_views_v2(
                 it["productivity"], it["perperson"], it["unit"]
             ),
         }
-        for it in items
+        for it in grouped_items
     ]
     kpi = {
         "productivity_today": round(site_wv_median, 1),
@@ -1420,14 +1465,14 @@ async def _build_productivity_views_v2(
         advice_rows, forecast_rows, items, wa_lookup,
     )
 
-    # advice 없는 WP → deterministic cold_start.
+    # advice 없는 WP → deterministic cold_start. grouped_items 사용 (wp_id 단위 통합).
     master_lookup = {
         (it["l7_5_activity"], it["company"]): {
             "daily_qty": it["master_daily_qty"],
             "daily_workers": it["master_daily_workers"],
             "unit": it["unit"],
         }
-        for it in items
+        for it in grouped_items
     }
     forecast_by_wp = {
         (f.get("company"), f.get("l6_main")): f for f in forecast_rows

@@ -193,7 +193,6 @@ export async function wbsTreeBuild(siteId: string, siteName?: string): Promise<W
       SELECT DISTINCT site_id, wa, l5_disc, l6_main
       FROM activity_master
       WHERE site_id = ${siteId}
-        AND l5_disc IN ('건축', '토목')
     ),
     review_agg AS (
       SELECT ma.wa, ma.l6_main, COUNT(*) AS review_count

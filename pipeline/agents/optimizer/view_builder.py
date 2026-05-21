@@ -415,7 +415,7 @@ def _pick_recommendations(
         recs.append("선행 토목 인터페이스 점검")
     if pct < 60 and impact >= 20:
         recs.append("장비 가용성 / 자재 수급 확인")
-    if 90 <= pct < 100 and delay_days == 0:
+    if pct >= 90 and delay_days == 0:
         recs.append("현 페이스 유지 — 검증 완료")
     return recs
 

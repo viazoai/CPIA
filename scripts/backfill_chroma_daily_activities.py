@@ -75,17 +75,27 @@ async def fetch_rows(conn: asyncpg.Connection, the_date) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def _normalize_workers(raw: float) -> float:
+    """assigned_workers 가 mh (man-hour) 단위 추정 시 day (8h) 단위 환산.
+    raw > 50 면 mh 가능성 (실 현장 인력 ≤ 50명/일이 일반)."""
+    return raw / 8.0 if raw > 50 else raw
+
+
 def _compute_perperson(r: dict) -> tuple[float | None, float | None]:
     qty = float(r["today_qty"] or 0)
-    workers = float(r["assigned_workers"] or 0)
+    workers_raw = float(r["assigned_workers"] or 0)
+    if workers_raw == 0:
+        return None, None
+    workers = _normalize_workers(workers_raw)
     if workers == 0:
         return None, None
     pp_today = qty / workers
     m_qty = float(r["master_daily_qty"] or 0)
-    m_workers = float(r["master_daily_workers"] or 0)
-    if m_workers == 0 or m_qty == 0:
+    m_workers_raw = float(r["master_daily_workers"] or 0)
+    if m_workers_raw == 0 or m_qty == 0:
         return pp_today, None
-    pp_master = m_qty / m_workers
+    m_workers = _normalize_workers(m_workers_raw)
+    pp_master = m_qty / m_workers if m_workers else 0
     pct = pp_today / pp_master * 100 if pp_master else None
     return pp_today, pct
 
@@ -157,7 +167,9 @@ async def main() -> None:
                     "company": r["company"],
                     "date": date_str,
                     "today_qty": float(r["today_qty"] or 0),
-                    "assigned_workers": float(r["assigned_workers"] or 0),
+                    "assigned_workers": _normalize_workers(
+                        float(r["assigned_workers"] or 0)
+                    ),
                     "unit": r["unit"] or "",
                     "conditions": r["conditions"] or "",
                     "perperson": float(pp_today or 0),

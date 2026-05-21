@@ -495,16 +495,16 @@ def _build_deterministic_cold_start(
         avg_recovery = "—"
     details = [
         {"label": "위험 평가", "value": risk_level or "—"},
-        {"label": "마스터 인당", "value": f"{pp_master:.2f} {unit}" if pp_master else "—"},
+        {"label": "계획 생산성", "value": f"{pp_master:.2f} {unit}/인" if pp_master else "—"},
         {
-            "label": "오늘 인당",
+            "label": "금일 생산성",
             "value": (
-                f"{pp_today:.2f} {unit} ({pct:.1f}%)" if pp_master
-                else f"{pp_today:.2f} {unit}"
+                f"{pp_today:.2f} {unit}/인 ({pct:.1f}%)" if pp_master
+                else f"{pp_today:.2f} {unit}/인"
             ),
         },
         {"label": "유사 사례", "value": f"{len(chroma_cases or [])}건"},
-        {"label": "평균 페이스", "value": avg_recovery},
+        {"label": "유사 사례 생산성", "value": avg_recovery},
         {"label": "일정 영향", "value": f"+{delay_days}일"},
     ]
     return {

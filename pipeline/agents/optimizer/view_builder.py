@@ -563,11 +563,14 @@ async def _fetch_chroma_cases_lookup(
             ]})
         for where in where_chain:
             try:
-                r = col.get(where=where, limit=5, include=["metadatas"])
+                r = col.get(where=where, include=["metadatas"])
             except Exception:
                 continue
-            if r.get("metadatas"):
-                cases = r["metadatas"]
+            metas = r.get("metadatas") or []
+            if metas:
+                # 결정성: date desc 정렬 후 상위 5 (col.get 의 limit 순서가 비보장).
+                metas_sorted = sorted(metas, key=lambda m: m.get("date") or "", reverse=True)
+                cases = metas_sorted[:5]
                 break
         out[wp_id] = cases
     return out

@@ -126,14 +126,6 @@ export default function ReportPage() {
                 todayValue={detail.kpi.productivity_today}
                 endDate={selectedDate}
               />
-              <div className="flex gap-2 mt-2">
-                <span className="inline-flex items-center rounded-full bg-[var(--mint)] px-3 py-1 text-xs font-semibold text-[var(--mint-text)]">
-                  SPI {typeof (detail.kpi as any).spi === "number" ? ((detail.kpi as any).spi as number).toFixed(1) : "—"}% (시공 진척률)
-                </span>
-                <span className="inline-flex items-center rounded-full bg-[var(--brand)] px-3 py-1 text-xs font-semibold text-[var(--brand-text)]">
-                  CPI {typeof (detail.kpi as any).cpi === "number" ? ((detail.kpi as any).cpi as number).toFixed(1) : "—"}% (mh 효율)
-                </span>
-              </div>
               <ProductivityBarToggle
                 contractorBars={detail.contractor_bars}
                 tradeBars={detail.trade_bars}
@@ -156,7 +148,7 @@ export default function ReportPage() {
                       filter={filter}
                     />
                   </div>
-                  <div className="flex-1">
+                  <div className="mt-auto h-[345px]">
                     <WPSummaryTable
                       rows={filteredWpRows}
                       selectedWpId={selectedWpId}

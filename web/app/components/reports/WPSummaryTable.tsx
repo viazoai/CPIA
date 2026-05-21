@@ -34,14 +34,14 @@ export function recoveryDays(productivity: number, baseline: number, impact: num
 
 export function WPSummaryTable({ rows, selectedWpId, onSelect }: Props) {
   return (
-    <div className="h-full rounded-card border border-border-soft bg-card shadow-xs overflow-hidden">
-      <div className="border-b border-border-soft px-4 py-3">
+    <div className="flex h-full flex-col rounded-card border border-border-soft bg-card shadow-xs overflow-hidden">
+      <div className="border-b border-border-soft px-4 py-3 shrink-0">
         <div className="font-display text-h6 text-ink">Work Package 목록</div>
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="flex-1 overflow-auto">
         <table className="w-full border-collapse">
-          <thead className="bg-surface-soft/80 text-[11px] text-ink-mid">
+          <thead className="sticky top-0 z-10 bg-surface-soft/95 text-[11px] text-ink-mid backdrop-blur-sm">
             <tr className="border-b border-border-soft text-left">
               <th className="px-3 py-1.5 font-medium">WP명</th>
               <th className="px-3 py-1.5 font-medium">공종</th>

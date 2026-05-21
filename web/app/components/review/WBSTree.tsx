@@ -1,8 +1,8 @@
 "use client";
 import { useState } from "react";
-import { AlertTriangle, CheckCircle2 } from "lucide-react";
+import { AlertCircle, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { WBSNode, Status } from "@/lib/types";
+import type { WBSNode } from "@/lib/types";
 
 interface Props {
   root: WBSNode;
@@ -72,10 +72,7 @@ function Branch({ node, depth, selectedId, onSelect, onDrop }: BranchProps) {
           dragOver && "ring-2 ring-mint"
         )}
         style={{ paddingLeft: 8 + indentPx(depth) }}
-        onClick={() => {
-          if (hasChildren) setOpen(!open);
-          onSelect(node.id);
-        }}
+        onClick={() => onSelect(node.id)}
         onDragOver={isWP ? (e) => { e.preventDefault(); setDragOver(true); } : undefined}
         onDragLeave={isWP ? () => setDragOver(false) : undefined}
         onDrop={isWP ? (e) => {
@@ -85,17 +82,34 @@ function Branch({ node, depth, selectedId, onSelect, onDrop }: BranchProps) {
           if (cardId && onDrop) onDrop(cardId, node.id);
         } : undefined}
       >
-        <StatusDot status={node.status} />
+        {hasChildren ? (
+          <button
+            type="button"
+            aria-label={open ? "접기" : "펼치기"}
+            aria-expanded={open}
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen(!open);
+            }}
+            className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-sm text-ink-mid hover:bg-surface-soft hover:text-ink"
+          >
+            {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+          </button>
+        ) : (
+          <span className="inline-block h-4 w-4 shrink-0" aria-hidden />
+        )}
         <span className={cn("flex-1 truncate", levelTextClass(depth))}>{node.name}</span>
-        {node.review_count > 0 && (
-          <span className="inline-flex items-center gap-0.5 rounded-sm bg-sun-light px-1.5 py-0.5 text-[11px] font-bold text-sun-text shrink-0">
-            <AlertTriangle className="h-2.5 w-2.5" />
-            {node.review_count}
+        <div className="ml-auto flex items-center gap-1 shrink-0 tabular-nums">
+          {node.review_count > 0 && (
+            <AlertCircle
+              className="h-3 w-3 text-sun-text"
+              aria-label={`미확정 ${node.review_count}건`}
+            />
+          )}
+          <span className="font-mono text-[11px] text-ink-mid">
+            {node.total_count}
           </span>
-        )}
-        {isWP && node.review_count === 0 && (
-          <CheckCircle2 className="h-3 w-3 text-mint/70 shrink-0" />
-        )}
+        </div>
       </div>
 
       {open && hasChildren && node.children!.map((c) => (
@@ -112,7 +126,3 @@ function Branch({ node, depth, selectedId, onSelect, onDrop }: BranchProps) {
   );
 }
 
-function StatusDot({ status }: { status: Status }) {
-  const color = status === "risk" ? "bg-rose" : status === "caution" ? "bg-sun" : status === "normal" ? "bg-mint" : "bg-ink-light/30";
-  return <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", color)} />;
-}

@@ -137,11 +137,6 @@ export function Sidebar() {
           </span>
         )}
         <PersonaToggle compact={collapsed} />
-        {!collapsed && (
-          <span className="font-mono text-[10px] uppercase tracking-wider text-ink-light/70">
-            v0.1 · PoC · B_Track
-          </span>
-        )}
       </div>
     </aside>
   );

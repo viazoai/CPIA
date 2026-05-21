@@ -114,7 +114,8 @@ export interface WBSNode {
   type: "building" | "trade" | "work_package";
   name: string;
   parent_id: string | null;
-  review_count: number;         // 검토 필요 건수 (집계)
+  review_count: number;         // 검토 필요(미확정) 건수 — 집계
+  total_count: number;          // 총 작업(매핑 활동) 건수 — 집계
   status: Status;
   children?: WBSNode[];
 }

@@ -46,8 +46,6 @@ export default function HumanReviewPage() {
     return filtered;
   }, [cards, wbs, selectedNodeId, onlyUnconfirmed]);
 
-  const totalUnconfirmed = cards.filter((c) => c.status === "unconfirmed").length;
-
   const handleConfirm = (id: string) => {
     setCards((cs) => cs.map((c) => c.id === id ? { ...c, status: "confirmed" as const } : c));
   };
@@ -93,13 +91,11 @@ export default function HumanReviewPage() {
           </div>
 
           <div className="col-span-12 md:col-span-8 rounded-card border border-border-soft bg-card shadow-xs flex flex-col lg:h-[calc(100vh-260px)]">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border-soft shrink-0">
+            <div className="flex items-center justify-between px-5 py-3 border-b border-border-soft shrink-0">
+              <span className="font-display text-h6 font-bold text-ink">작업물량</span>
               <div className="flex items-center gap-2">
-                <Switch checked={onlyUnconfirmed} onCheckedChange={setOnlyUnconfirmed} />
                 <span className="text-xs font-medium text-ink">신규 확정 필요만 보기</span>
-              </div>
-              <div className="font-mono text-xs text-ink-mid">
-                {visibleCards.filter((c) => c.status === "unconfirmed").length} / {totalUnconfirmed}
+                <Switch checked={onlyUnconfirmed} onCheckedChange={setOnlyUnconfirmed} />
               </div>
             </div>
 

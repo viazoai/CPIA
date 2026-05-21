@@ -540,20 +540,29 @@ async def _fetch_chroma_cases_lookup(
         l6 = it.get("l6_main")
         company = it.get("company")
         cases: list[dict] = []
+        # Phase 2: worker_source='backfill_v2' 필터로 perperson/productivity_pct 키 있는 row 만.
+        # 기존 ChromaDB 의 synthetic_v2/mh_prorated/dummy_seed 데이터는 key 부재 → exclude.
         where_chain: list[dict] = []
         if l7_5:
             where_chain.append({
                 "$and": [
+                    {"worker_source": "backfill_v2"},
                     {"company": company},
                     {"l6_main": l6},
                     {"l7_5_activity": l7_5},
                 ]
             })
-        where_chain.append({"$and": [{"company": company}, {"l6_main": l6}]})
+        where_chain.append({"$and": [
+            {"worker_source": "backfill_v2"},
+            {"company": company},
+            {"l6_main": l6},
+        ]})
         if l7_5:
-            where_chain.append({
-                "$and": [{"l6_main": l6}, {"l7_5_activity": l7_5}]
-            })
+            where_chain.append({"$and": [
+                {"worker_source": "backfill_v2"},
+                {"l6_main": l6},
+                {"l7_5_activity": l7_5},
+            ]})
         for where in where_chain:
             try:
                 r = col.get(where=where, limit=5, include=["metadatas"])

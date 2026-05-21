@@ -267,3 +267,96 @@ async def test_phase2_views_v2_scenarios_and_s_curve_non_null(pg_client):
     assert isinstance(result["s_curve"], list)
     assert len(result["s_curve"]) > 0, "s_curve 빈 list — 실 SQL 미호출"
     assert isinstance(result["s_curve"][0], dict)
+
+
+def test_fetch_degradation_cases_l7_5_filter():
+    """C9 — l7_5_activity 인자 추가, 동일 activity 만 남김."""
+    from pipeline.agents.optimizer.retrieve import fetch_degradation_cases
+
+    metadatas = [
+        {
+            "company": "남웅",
+            "l6_main": "방수공사",
+            "l7_5_activity": "방수 시공",
+            "unit": "m2",
+            "today_qty": 10,
+            "assigned_workers": 5,
+            "conditions": "장비대기",
+            "date": "2025-09-20",
+            "worker_source": "synthetic_v2",
+        },
+        {
+            "company": "남웅",
+            "l6_main": "방수공사",
+            "l7_5_activity": "방수 보수",
+            "unit": "m2",
+            "today_qty": 8,
+            "assigned_workers": 4,
+            "conditions": "장비대기",
+            "date": "2025-09-20",
+            "worker_source": "synthetic_v2",
+        },
+    ]
+    documents = ["d1", "d2"]
+
+    # 필터 없음 → 2 cases (같은 날짜 → 그룹핑되어 1 case 일 수도)
+    no_filter = fetch_degradation_cases(
+        metadatas,
+        documents,
+        "남웅",
+        "방수공사",
+        date(2025, 9, 25),
+        "m2",
+        100.0,
+        n=10,
+    )
+    # 필터 = "방수 시공" → row1 만 (row2 제외)
+    filtered = fetch_degradation_cases(
+        metadatas,
+        documents,
+        "남웅",
+        "방수공사",
+        date(2025, 9, 25),
+        "m2",
+        100.0,
+        n=10,
+        l7_5_activity="방수 시공",
+    )
+    # 필터 후 documents 가 row1 ("d1") 만 포함
+    if filtered:
+        assert all("d1" in c.get("activities", []) for c in filtered)
+        assert all("d2" not in c.get("activities", []) for c in filtered)
+    # 필터 시 case 수 <= no_filter 의 case 수
+    assert len(filtered) <= len(no_filter)
+
+
+def test_group_baseline_l7_5_filter():
+    """C9 — _group_baseline 의 l7_5_activity 필터."""
+    from pipeline.agents.optimizer.retrieve import _group_baseline
+
+    metadatas = [
+        {
+            "company": "남웅",
+            "l6_main": "방수공사",
+            "l7_5_activity": "방수 시공",
+            "unit": "m2",
+            "today_qty": 10,
+            "assigned_workers": 2,
+            "conditions": "",
+        },
+        {
+            "company": "남웅",
+            "l6_main": "방수공사",
+            "l7_5_activity": "방수 보수",
+            "unit": "m2",
+            "today_qty": 8,
+            "assigned_workers": 4,
+            "conditions": "",
+        },
+    ]
+    # 필터 없음: 평균 (10/2 + 8/4) / 2 = (5 + 2) / 2 = 3.5
+    no_filter = _group_baseline(metadatas, "남웅", "방수공사", "m2")
+    assert no_filter == 3.5
+    # 필터 = "방수 시공": 10/2 = 5.0
+    filtered = _group_baseline(metadatas, "남웅", "방수공사", "m2", l7_5_activity="방수 시공")
+    assert filtered == 5.0

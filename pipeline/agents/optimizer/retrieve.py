@@ -48,15 +48,20 @@ def _group_baseline(
     company: str,
     l6_main: str,
     baseline_unit: str,
+    *,
+    l7_5_activity: Optional[str] = None,
 ) -> Optional[float]:
-    """같은 (company, l6_main, unit) 의 conditions 에 incident 없는 row productivity 평균.
+    """같은 (company, l6_main, unit[, l7_5_activity]) 의 conditions 에 incident 없는 row productivity 평균.
 
     0 row → None (cold_start 신호 — 호출자가 pre_cases[key]=[] 분기).
     incident 키워드: 장비대기 / 자재미입고 / 우천 / 돌관 / 야간연장.
+    l7_5_activity 가 주어지면 동일 activity 만 남김 (phase 2).
     """
     prods: list[float] = []
     for m in metadatas:
         if m["company"] != company or m["l6_main"] != l6_main or m["unit"] != baseline_unit:
+            continue
+        if l7_5_activity and m.get("l7_5_activity") != l7_5_activity:
             continue
         raw = m.get("conditions") or ""
         if any(c in raw for c in _ALL_INCIDENTS):
@@ -75,6 +80,8 @@ def fetch_degradation_cases(
     baseline_unit: str,
     baseline_value: float,
     n: int = 5,
+    *,
+    l7_5_activity: Optional[str] = None,
 ) -> list[dict]:
     """Step 1 — 같은 (company, l6_main) 의 저하 case top-N recency.
 
@@ -86,6 +93,8 @@ def fetch_degradation_cases(
     by_date: dict[str, list] = defaultdict(list)
     for m, d in zip(metadatas, documents):
         if m["company"] != company or m["l6_main"] != l6_main:
+            continue
+        if l7_5_activity and m.get("l7_5_activity") != l7_5_activity:
             continue
         if m["date"] >= today.isoformat():
             continue
@@ -123,6 +132,8 @@ def fetch_recovery_trajectory(
     baseline_unit: str,
     baseline_value: float,
     window: int = 7,
+    *,
+    l7_5_activity: Optional[str] = None,
 ) -> dict:
     """Step 2 — case_date+1 ~ +window 의 group productivity trajectory.
 
@@ -132,8 +143,11 @@ def fetch_recovery_trajectory(
     """
     by_date: dict[str, list] = defaultdict(list)
     for m in metadatas:
-        if m["company"] == company and m["l6_main"] == l6_main:
-            by_date[m["date"]].append(m)
+        if m["company"] != company or m["l6_main"] != l6_main:
+            continue
+        if l7_5_activity and m.get("l7_5_activity") != l7_5_activity:
+            continue
+        by_date[m["date"]].append(m)
 
     case_d = date.fromisoformat(case_date)
     trajectory: list[dict] = []

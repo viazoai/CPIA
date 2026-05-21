@@ -516,6 +516,23 @@ def _build_deterministic_cold_start(
     }
 
 
+_chroma_singleton: Any = None  # ChromaClient 인스턴스 (matter-level cache).
+
+
+def _get_chroma_collection():
+    """ChromaDB client + daily_activities collection — module-level cache.
+    backfill 530일 호출 시 매번 HttpClient init 하면 socket 누적 timeout."""
+    global _chroma_singleton
+    if _chroma_singleton is None:
+        import os
+        from pipeline.chroma_client import ChromaClient
+        _chroma_singleton = ChromaClient(
+            host=os.environ["CHROMA_HOST"],
+            port=int(os.environ["CHROMA_PORT"]),
+        )
+    return _chroma_singleton.client.get_or_create_collection("daily_activities")
+
+
 async def _fetch_chroma_cases_lookup(
     items: list[dict], today: date,
 ) -> dict[str, list[dict]]:
@@ -523,14 +540,7 @@ async def _fetch_chroma_cases_lookup(
 
     Fallback chain: (company, l6, l7_5) → (company, l6) → (l6, l7_5) → 빈 list.
     """
-    import os
-    from pipeline.chroma_client import ChromaClient
-
-    chroma = ChromaClient(
-        host=os.environ["CHROMA_HOST"],
-        port=int(os.environ["CHROMA_PORT"]),
-    )
-    col = chroma.client.get_or_create_collection("daily_activities")
+    col = _get_chroma_collection()
     out: dict[str, list[dict]] = {}
     for it in items:
         wp_id = it["wp_id"]

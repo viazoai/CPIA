@@ -15,70 +15,27 @@ import {
 import { cn } from "@/lib/utils";
 
 interface Props {
-  /** PRNG 시드 — 같은 site 면 같은 트렌드. */
-  siteId: string;
-  /** 금일 생산성 (KPI #1 productivity_today). 차트 마지막 점에 강제 매핑. */
+  /** [{date, value}] 90일 시계열 — 호출 측이 PG daily 에서 잘라 전달. */
+  trend: { date: string; value: number }[];
+  /** 끝점 강조 — 보통 trend[trend.length-1].value 와 같음. */
   todayValue: number;
-  /** 차트의 끝 날짜 (ISO "YYYY-MM-DD"). 가로축 라벨을 절대 날짜로 표현. */
+  /** 끝 날짜 (ISO "YYYY-MM-DD") — 헤더 보조 라벨용. */
   endDate: string;
-  /** 표현 일수 (default 90). */
-  daysWindow?: number;
 }
 
-/* ───── 결정적 PRNG (lib/diagnosis.ts 와 동일 패턴, 사본) ───── */
-function hashString(s: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
-}
-
-function mulberry32(seed: number): () => number {
-  return () => {
-    let t = (seed += 0x6d2b79f5);
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-/* 90일 일별 생산성 시계열 — base 92 random walk + 후반 30일 감소 trend.
- *  결과의 마지막 값을 todayValue 로 강제, 가로축 라벨은 endDate 기준
- *  절대 날짜 "MM-DD". 같은 siteId+endDate+todayValue → 같은 시계열. */
-function generateTrend(siteId: string, days: number, todayValue: number, endDate: string) {
-  const rand = mulberry32(hashString(siteId));
-  const endMs = new Date(endDate).getTime();
-  const data: { idx: number; label: string; value: number }[] = [];
-  let v = 92;
-  for (let i = 0; i < days; i++) {
-    const drift = (rand() - 0.5) * 4;
-    const trend = i > days - 30 ? -(i - (days - 30)) * 0.2 : 0;
-    v = Math.max(70, Math.min(105, v + drift + trend));
-    const ms = endMs - (days - 1 - i) * 86400000;
-    const d = new Date(ms);
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
-    const dd = String(d.getDate()).padStart(2, "0");
-    data.push({
-      idx: i,
-      label: `${mm}-${dd}`,
-      value: Math.round(v * 10) / 10,
-    });
-  }
-  if (data.length > 0) {
-    data[data.length - 1].value = todayValue;
-  }
-  return data;
-}
-
-export function ProductivityTrendChart({ siteId, todayValue, endDate, daysWindow = 90 }: Props) {
+export function ProductivityTrendChart({ trend, todayValue, endDate }: Props) {
   const data = useMemo(
-    () => generateTrend(siteId, daysWindow, todayValue, endDate),
-    [siteId, daysWindow, todayValue, endDate],
+    () =>
+      trend.map((p, i) => {
+        const d = new Date(p.date);
+        const mm = String(d.getMonth() + 1).padStart(2, "0");
+        const dd = String(d.getDate()).padStart(2, "0");
+        return { idx: i, label: `${mm}-${dd}`, value: p.value };
+      }),
+    [trend],
   );
   const avg = useMemo(
-    () => data.reduce((s, p) => s + p.value, 0) / data.length,
+    () => (data.length ? data.reduce((s, p) => s + p.value, 0) / data.length : 0),
     [data],
   );
   const gap = todayValue - avg;
@@ -156,14 +113,16 @@ export function ProductivityTrendChart({ siteId, todayValue, endDate, daysWindow
               fontWeight={700}
             />
           </ReferenceLine>
-          <ReferenceDot
-            x={data[data.length - 1].label}
-            y={todayValue}
-            r={6}
-            fill="#0d1117"
-            stroke="#1a56db"
-            strokeWidth={2}
-          />
+          {data.length > 0 && (
+            <ReferenceDot
+              x={data[data.length - 1].label}
+              y={todayValue}
+              r={6}
+              fill="#0d1117"
+              stroke="#1a56db"
+              strokeWidth={2}
+            />
+          )}
         </ComposedChart>
       </ResponsiveContainer>
     </div>

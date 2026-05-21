@@ -44,20 +44,48 @@ def _make_doc_id(date: str, company: str, l6_main: str, work_content: str) -> st
 
 
 def _build_metadata(a: Activity, date: str, run_id: str) -> dict[str, Any]:
+    """ChromaDB 메타데이터. Phase 1 (2026-05-21): l7_5_activity + perperson +
+    productivity_pct 추가. live atomize 시점엔 perperson/productivity_pct=0 placeholder,
+    backfill (Task 13) 에서 view_builder 산식 결과로 풀 값 채움."""
     return {
         "date": date,
         "run_id": run_id,
         "company": a["company"],
         "l5_disc": a["l5_disc"],
         "l6_main": a["l6_main"] or "",
+        "l7_5_activity": a.get("l7_5_activity") or "",
         "wa": a["wa"] or "",
         "unit": a["unit"],
         "today_qty": float(a["today_qty"]),
         "assigned_workers": float(a["assigned_workers"]),
+        "perperson": float(a.get("perperson", 0) or 0),
+        "productivity_pct": float(a.get("productivity_pct", 0) or 0),
         "worker_source": a["worker_source"],
         "mapping_conf": float(a["mapping_conf"] or 0.0),
         "conditions": ",".join(a.get("conditions") or []),
     }
+
+
+def _format_document(
+    a: dict,
+    date: str,
+    perperson: float | None = None,
+    productivity_pct: float | None = None,
+) -> str:
+    """ChromaDB 문서 텍스트. 2 모드 분기 (C6):
+    - live (atomize 호출): perperson=None -> 짧은 형식 (마스터 비교값 없음)
+    - backfill (Task 13 호출): perperson=값 -> 풀 형식 (인당 + %)
+    """
+    qty = float(a.get("today_qty") or 0)
+    unit = a.get("unit") or ""
+    workers = float(a.get("assigned_workers") or 0)
+    conds = ", ".join(a.get("conditions") or []) or "정상"
+    head = f"[{date}] {a['company']} · {a.get('l6_main') or ''} · {a.get('l7_5_activity') or ''}".rstrip(" ·")
+    body_basic = f"시공량 {qty:.1f} {unit} / 인원 {workers:.0f} 명"
+    if perperson is None or productivity_pct is None or not unit:
+        return f"{head}\n{body_basic}\n조건: {conds}"
+    body_full = f"{body_basic} -> 인당 {perperson:.2f} {unit}/인 ({productivity_pct:.1f}%)"
+    return f"{head}\n{body_full}\n조건: {conds}"
 
 
 async def atomize(
@@ -99,7 +127,8 @@ async def atomize(
             seen[doc_id] = i  # 같은 id 면 뒤 index 가 덮어쓴다 (Chroma upsert semantics 와 동일).
 
         ids = list(seen.keys())
-        documents = [valid[i]["work_content"] for i in seen.values()]
+        # Phase 1: 가독 형식 (C6). live 호출이라 perperson/productivity_pct None.
+        documents = [_format_document(dict(valid[i]), date) for i in seen.values()]
         metadatas = [_build_metadata(valid[i], date, str(run_id)) for i in seen.values()]
 
         embeddings: list[list[float]] = []

@@ -1,7 +1,8 @@
 "use client";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { BarChartH } from "@/app/components/charts/BarChartH";
 import { cn } from "@/lib/utils";
+import { filterAndPickBars } from "@/lib/bar-filters";
 import type { BarItem } from "@/lib/types";
 
 type Mode = "contractor" | "trade";
@@ -56,7 +57,11 @@ const STATUS_CHIP = {
 
 export function ProductivityBarToggle({ contractorBars, tradeBars, historyMean, date }: Props) {
   const [mode, setMode] = useState<Mode>("contractor");
-  const items = mode === "contractor" ? contractorBars : tradeBars;
+  // spec 2026-05-21-cpia-ui-4-fixes-design.md §④ — 150% 초과 제거 + top3+bot7 (최대 10).
+  const items = useMemo(
+    () => filterAndPickBars(mode === "contractor" ? contractorBars : tradeBars),
+    [mode, contractorBars, tradeBars],
+  );
   const modeLabel = mode === "contractor" ? "업체별" : "공종별";
 
   const avg = items.length

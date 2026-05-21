@@ -10,6 +10,7 @@ import {
   wbsTreeBuild,
   deriveChatSequence,
 } from "../transforms";
+import { filterAndPickBars } from "../bar-filters";
 
 describe("G12 deriveProgressPercent", () => {
   it.each([
@@ -138,6 +139,70 @@ describe("G10 deriveStageProgress", () => {
     expect(r[3].waiting_hil).toBe(true);
     expect(r[3].is_hil).toBe(true);
   });
+
+  it("anchor 9-25 시뮬레이션 — HIL Review 0% (462/0, waiting), Optimizer 100% (25/25)", async () => {
+    (sql as any).mockResolvedValueOnce([
+      {
+        parser_reports: 1, parser_acts: 1162, mapper_acts: 1162,
+        hil_received: 462, hil_done: 0,
+        atomized: 747, exporter: 1, forecasts_done: 293,
+        opt_received: 25, opt_done: 25,
+      },
+    ]);
+    const r = await deriveStageProgress("2025-09-25");
+    expect(r.find((s) => s.agent === "Collector")?.percent).toBe(100);
+    expect(r.find((s) => s.agent === "Parser")?.percent).toBe(100);
+    expect(r.find((s) => s.agent === "Mapper")?.percent).toBe(100);
+    const hil = r.find((s) => s.agent === "HIL Review")!;
+    expect(hil.percent).toBe(0);
+    expect(hil.waiting_hil).toBe(true);
+    expect(r.find((s) => s.agent === "Atomizer")?.percent).toBe(100);
+    expect(r.find((s) => s.agent === "Exporter")?.percent).toBe(100);
+    expect(r.find((s) => s.agent === "Forecaster")?.percent).toBe(100);
+    expect(r.find((s) => s.agent === "Optimizer")?.percent).toBe(100);
+  });
+
+  it("더미 9-24 시뮬레이션 — 8 stage 모두 100% (hil_received=0, opt_received>0 but pct=32)", async () => {
+    (sql as any).mockResolvedValueOnce([
+      {
+        parser_reports: 1, parser_acts: 798, mapper_acts: 798,
+        hil_received: 0, hil_done: 0,
+        atomized: 798, exporter: 1, forecasts_done: 304,
+        opt_received: 137, opt_done: 44,
+      },
+    ]);
+    const r = await deriveStageProgress("2025-09-24");
+    expect(r.find((s) => s.agent === "Collector")?.percent).toBe(100);
+    expect(r.find((s) => s.agent === "Parser")?.percent).toBe(100);
+    expect(r.find((s) => s.agent === "Mapper")?.percent).toBe(100);
+    expect(r.find((s) => s.agent === "HIL Review")?.percent).toBe(100);
+    expect(r.find((s) => s.agent === "HIL Review")?.waiting_hil).toBe(false);
+    expect(r.find((s) => s.agent === "Atomizer")?.percent).toBe(100);
+    expect(r.find((s) => s.agent === "Exporter")?.percent).toBe(100);
+    expect(r.find((s) => s.agent === "Forecaster")?.percent).toBe(100);
+    // opt_received=137 > 0 → pct = round(44/137*100) = 32
+    expect(r.find((s) => s.agent === "Optimizer")?.percent).toBe(32);
+  });
+
+  it("빈 일자 — Collector/Parser/Mapper/Atom/Exp/Fore=0, HIL/Opt=100 (carve-out: received=0=완료)", async () => {
+    (sql as any).mockResolvedValueOnce([
+      {
+        parser_reports: 0, parser_acts: 0, mapper_acts: 0,
+        hil_received: 0, hil_done: 0,
+        atomized: 0, exporter: 0, forecasts_done: 0,
+        opt_received: 0, opt_done: 0,
+      },
+    ]);
+    const r = await deriveStageProgress("2024-01-01");
+    expect(r.find((s) => s.agent === "Collector")?.percent).toBe(0);
+    expect(r.find((s) => s.agent === "Parser")?.percent).toBe(0);
+    expect(r.find((s) => s.agent === "Mapper")?.percent).toBe(0);
+    expect(r.find((s) => s.agent === "HIL Review")?.percent).toBe(100);
+    expect(r.find((s) => s.agent === "Atomizer")?.percent).toBe(0);
+    expect(r.find((s) => s.agent === "Exporter")?.percent).toBe(0);
+    expect(r.find((s) => s.agent === "Forecaster")?.percent).toBe(0);
+    expect(r.find((s) => s.agent === "Optimizer")?.percent).toBe(100);
+  });
 });
 
 
@@ -223,6 +288,48 @@ describe("G4 deriveChatSequence", () => {
     const r = await deriveChatSequence("run-2");
     expect(r[2].type).toBe("hil_request");
     expect(r[6].type).toBe("result");
+  });
+});
+
+describe("filterAndPickBars", () => {
+  it("빈 입력 → 빈 배열", () => {
+    expect(filterAndPickBars([])).toEqual([]);
+  });
+
+  it("입력 5건 (모두 ≤150) → 5건 desc 정렬", () => {
+    const items = [
+      { label: "A", value: 50 },
+      { label: "B", value: 100 },
+      { label: "C", value: 80 },
+      { label: "D", value: 30 },
+      { label: "E", value: 120 },
+    ];
+    const r = filterAndPickBars(items);
+    expect(r).toHaveLength(5);
+    expect(r.map((b) => b.label)).toEqual(["E", "B", "C", "A", "D"]);
+  });
+
+  it("입력 78건 (over150=14) → 10건 (top3+bot7) 모두 ≤150", () => {
+    const items: { label: string; value: number }[] = [];
+    for (let i = 0; i < 14; i++) items.push({ label: `over_${i}`, value: 200 + i });
+    for (let i = 0; i < 64; i++) items.push({ label: `ok_${i}`, value: 30 + i * 2 });
+    const r = filterAndPickBars(items);
+    expect(r).toHaveLength(10);
+    expect(r.every((b) => b.value <= 150)).toBe(true);
+    expect(r[0].value).toBe(150);
+    expect(r[1].value).toBe(148);
+    expect(r[2].value).toBe(146);
+    expect(r[r.length - 1].value).toBe(30);
+  });
+
+  it("입력 11건 (모두 ≤150) → top3+bot7=10건", () => {
+    const items: { label: string; value: number }[] = [];
+    for (let i = 0; i < 11; i++) items.push({ label: `x_${i}`, value: 10 + i * 10 });
+    const r = filterAndPickBars(items);
+    expect(r).toHaveLength(10);
+    // sorted desc: 110,100,90,80,70,60,50,40,30,20,10
+    // top3 = [110,100,90], bot7 = [70,60,50,40,30,20,10]  (80 빠짐)
+    expect(r.map((b) => b.value)).toEqual([110, 100, 90, 70, 60, 50, 40, 30, 20, 10]);
   });
 });
 

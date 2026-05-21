@@ -119,7 +119,7 @@ export async function deriveStageProgress(date: string): Promise<AgentStageProgr
       is_hil: false,
       received: n("parser_reports"),
       processed: n("parser_acts"),
-      percent: n("parser_reports") > 0 ? 100 : 0,
+      percent: n("parser_acts") > 0 ? 100 : 0,
       waiting_hil: false,
     },
     {
@@ -137,7 +137,7 @@ export async function deriveStageProgress(date: string): Promise<AgentStageProgr
       is_hil: true,
       received: n("hil_received"),
       processed: n("hil_done"),
-      percent: pct(n("hil_done"), n("hil_received")),
+      percent: n("hil_received") === 0 ? 100 : pct(n("hil_done"), n("hil_received")),
       waiting_hil: n("hil_received") > n("hil_done"),
     },
     {
@@ -146,7 +146,7 @@ export async function deriveStageProgress(date: string): Promise<AgentStageProgr
       is_hil: false,
       received: Math.max(0, n("mapper_acts") - n("hil_received")),
       processed: n("atomized"),
-      percent: 0,
+      percent: n("atomized") > 0 ? 100 : 0,
       waiting_hil: false,
     },
     {
@@ -155,7 +155,7 @@ export async function deriveStageProgress(date: string): Promise<AgentStageProgr
       is_hil: false,
       received: n("atomized"),
       processed: n("exporter"),
-      percent: 0,
+      percent: n("exporter") > 0 ? 100 : 0,
       waiting_hil: false,
     },
     {
@@ -164,7 +164,7 @@ export async function deriveStageProgress(date: string): Promise<AgentStageProgr
       is_hil: false,
       received: n("mapper_acts"),
       processed: n("forecasts_done"),
-      percent: 0,
+      percent: n("forecasts_done") > 0 ? 100 : 0,
       waiting_hil: false,
     },
     {
@@ -173,7 +173,7 @@ export async function deriveStageProgress(date: string): Promise<AgentStageProgr
       is_hil: false,
       received: n("opt_received"),
       processed: n("opt_done"),
-      percent: 0,
+      percent: n("opt_received") === 0 ? 100 : pct(n("opt_done"), n("opt_received")),
       waiting_hil: false,
     },
   ];

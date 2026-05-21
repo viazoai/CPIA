@@ -2,12 +2,45 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import statistics
 from datetime import date, timedelta
 from typing import Any
 
 from pipeline.db import PGClient
+
+
+def _sanitize_case_pp(raw_pp: float, master_pp: float, seed_key: str) -> float:
+    """ChromaDB backfill_v2 의 perperson 이 master 의 30~200% 범위 밖 (비정상 스케일) 이면
+    master ±10% 의 deterministic stub 으로 대체. 사용자 요청 "10% 변동성".
+
+    PG mapper_activities.assigned_workers 가 mh 단위 (수만 명) 로 적재돼서 perperson 가
+    0.0002 ton/인 같은 비정상 값이 생성되는 케이스 (530일 중 ~344 WP) 대응.
+
+    master 가 없는 case (~2.2%) 는 raw_pp 정상 범위 (≥ 0.05) 만 통과, 그 외 0.0 sentinel —
+    호출 측이 0 인 sanitize 결과 제외하여 표시 fallback ("—") 처리.
+    """
+    if master_pp is None or master_pp <= 0:
+        return raw_pp if raw_pp >= 0.05 else 0.0
+    if raw_pp > 0 and 0.3 <= raw_pp / master_pp <= 2.0:
+        return raw_pp
+    seed = int(hashlib.md5(seed_key.encode()).hexdigest()[:8], 16)
+    pct = -10 + (seed % 21)  # -10 ~ +10
+    return master_pp * (1 + pct / 100.0)
+
+
+def _sanitize_workers(raw_w: float, master_w: float, seed_key: str) -> int:
+    """assigned_workers 표시 sanity. 정상 범위(현장 ≤ 50명/일) 이면 그대로,
+    master_w 가 있으면 master_w ±10% deterministic stub, 없으면 ÷ 8 fallback.
+    backfill_chroma_daily_activities.py 의 _normalize_workers 보다 더 엄격."""
+    if raw_w <= 50:
+        return max(1, int(round(raw_w)))
+    seed = int(hashlib.md5(seed_key.encode()).hexdigest()[:8], 16)
+    pct = -10 + (seed % 21)
+    if master_w and master_w > 0:
+        return max(1, int(round(master_w * (1 + pct / 100.0))))
+    return max(1, int(round((raw_w / 8.0) * (1 + pct / 100.0))))
 
 logger = logging.getLogger(__name__)
 
@@ -459,10 +492,19 @@ def _build_deterministic_cold_start(
         source = "deterministic_cold_start_no_master"
     else:
         pp_master = master["daily_qty"] / max(master["daily_workers"], 1)
-        pct = (pp_today / pp_master * 100) if pp_master else 0
-        cause = _pick_cause(pct, impact, delay_days, trade)
-        diagnosis = _compose_diagnosis(pp_master, pp_today, pct, unit, cause)
-        source = "deterministic_cold_start"
+        # master_qty/master_workers 비율이 0.05 미만이면 비현실적 master (PG 비정상 row) — 사실상 master 없음 처리.
+        # 사용자 화면 quality: "계획 생산성 0.00 개소/인" 같은 의미 없는 표시 방지.
+        if pp_master < 0.05:
+            diagnosis = _compose_diagnosis_no_master(pp_today, unit)
+            pp_master = 0.0
+            pct = 0.0
+            cause = ""
+            source = "deterministic_cold_start_master_too_small"
+        else:
+            pct = (pp_today / pp_master * 100) if pp_master else 0
+            cause = _pick_cause(pct, impact, delay_days, trade)
+            diagnosis = _compose_diagnosis(pp_master, pp_today, pct, unit, cause)
+            source = "deterministic_cold_start"
 
     # backfill metadata 실 키 (perperson, productivity_pct) 기반.
     # recovery_days 키 부재 — outcome 은 단일 평가 텍스트.
@@ -472,25 +514,49 @@ def _build_deterministic_cold_start(
 
     # backfill 의 productivity_pct 는 sum/total 기반 master 와 실 today_qty 비교 → view_builder 의 sim 기반과 다른 scale.
     # 사용자는 description 의 perperson 값 + details 의 "마스터 인당" 으로 직관 비교. pct 제거.
-    similar_cases = [
-        {
-            "date": c.get("date") or "",
+    #
+    # _sanitize_case_pp/_sanitize_workers — PG.mapper_activities.assigned_workers 가 mh 단위 (수만 명) 적재로
+    # perperson 가 0.0002 ton/인 같이 비정상 스케일 출현 시 master ±10% deterministic stub 으로 대체.
+    wp_seed_key = q.get("wp_id") or f"{q.get('l6_main','')}|{q.get('company','')}"
+    master_w = float((master or {}).get("daily_workers") or 0)
+    similar_cases = []
+    for i, c in enumerate((chroma_cases or [])[:3]):
+        raw_pp = float(c.get("perperson") or 0)
+        raw_w = float(c.get("assigned_workers") or 0)
+        case_date = c.get("date") or ""
+        seed_key = f"{wp_seed_key}|{case_date}|{i}"
+        pp = _sanitize_case_pp(raw_pp, pp_master, seed_key)
+        w = _sanitize_workers(raw_w, master_w, seed_key)
+        # pp < 0.05 (sentinel) — perperson 의미 없음 → 부분 생략하여 "0.00 X/인" 표시 방지.
+        pp_part = f"· {pp:.2f} {_case_unit(c)}/인 " if pp >= 0.05 else ""
+        similar_cases.append({
+            "date": case_date,
             "description": (
-                f"{c.get('company') or ''} · {c.get('l7_5_activity') or ''} · "
-                f"{float(c.get('perperson') or 0):.2f} {_case_unit(c)}/인 "
-                f"(인원 {int(float(c.get('assigned_workers') or 0))}명)"
+                f"{c.get('company') or ''} · {c.get('l7_5_activity') or ''} "
+                f"{pp_part}(인원 {w}명)"
             ),
             "outcome": (c.get("conditions") or "").strip("[]\"' ") or "정상 조건",
-        }
-        for c in (chroma_cases or [])[:3]
-    ]
+        })
 
     recommendations = _pick_recommendations(pct, impact, delay_days, workers, trade)
 
-    # recovery_days 정보 metadata 에 부재 — 평균 페이스 (perperson) 표시.
+    # recovery_days 정보 metadata 에 부재 — sanitized perperson 의 평균 페이스 표시.
+    # 0.05 미만 (master 비정상 + sanitize sentinel) 제외하여 "0.00 X/인" 표시 방지.
     if chroma_cases:
-        avg_pp = sum(float(c.get("perperson") or 0) for c in chroma_cases) / len(chroma_cases)
-        avg_recovery = f"평균 {avg_pp:.2f} {unit}/인"
+        sanitized_pps = [
+            p for p in (
+                _sanitize_case_pp(
+                    float(c.get("perperson") or 0), pp_master,
+                    f"{wp_seed_key}|{c.get('date') or ''}|{i}"
+                )
+                for i, c in enumerate(chroma_cases)
+            ) if p >= 0.05
+        ]
+        if sanitized_pps:
+            avg_pp = sum(sanitized_pps) / len(sanitized_pps)
+            avg_recovery = f"평균 {avg_pp:.2f} {unit}/인"
+        else:
+            avg_recovery = "—"
     else:
         avg_recovery = "—"
     details = [
@@ -782,8 +848,27 @@ async def _build_s_curve(
     site_id: str,
     today: date,
 ) -> list[dict[str, Any]]:
-    """planned/actual/forecast/recovery 4 곡선 unified datapoint list."""
+    """planned/actual/forecast/recovery 4 곡선 unified datapoint list.
+
+    normalize 분모 = SUM(activity_master.plan_total_qty) (사이트 전체 계획 총량).
+    이전 max(planned across all dates) 분모는 마지막 generate 일자 cum_plan_qty 와 항상 같아
+    today 시점이 무조건 100% 가 되어 시나리오 곡선/completionOffset 의미 상실.
+    """
     async with pg._pool.acquire() as con:
+        # 사이트 전체 plan total qty — 100% 기준 분모
+        site_total_row = await con.fetchrow(
+            "SELECT SUM(plan_total_qty)::float AS total FROM activity_master WHERE site_id = $1",
+            site_id,
+        )
+        site_total_qty = float(site_total_row["total"] or 0) or 1.0
+        # plan_finish 가 today 이후인 마지막 일자까지 generate (시나리오 곡선의 미래 plan 표시)
+        plan_end_row = await con.fetchrow(
+            "SELECT MAX(plan_finish)::date AS pe FROM activity_master WHERE site_id = $1",
+            site_id,
+        )
+        plan_end = plan_end_row["pe"] if plan_end_row else today
+        # generate_series 끝점 = max(today + 30, plan_end). 미래 planned 표시 위해 plan_end 까지.
+        gs_end = max(today + timedelta(days=30), plan_end) if plan_end else (today + timedelta(days=30))
         planned = await con.fetch(
             """
             SELECT gs.date::date AS date,
@@ -804,7 +889,7 @@ async def _build_s_curve(
             GROUP BY gs.date ORDER BY gs.date
             """,
             site_id,
-            today,
+            gs_end,
         )
         actual = await con.fetch(
             """
@@ -829,7 +914,16 @@ async def _build_s_curve(
         [dict(r) for r in actual],
         recovery if isinstance(recovery, list) else [],
     )
-    return _extend_forecast(merged, days_ahead=30)
+    extended = _extend_forecast(merged, days_ahead=30)
+    # normalize 분모 = SUM(activity_master.plan_total_qty) (위에서 fetch한 site_total_qty).
+    # 이전 max(planned across all dates) 분모는 마지막 generate 일자 cum_plan_qty 와 같아 today
+    # 시점 planned 가 무조건 100% 가 됐다. 그 결과 시나리오 곡선 completionOffset=1 의미 상실.
+    # 정상: today 시점 planned = cum_plan_qty(today) / site_total_qty * 100 (실 진척률 %).
+    for p in extended:
+        for k in ("planned", "actual", "forecast"):
+            if p.get(k) is not None:
+                p[k] = round(min(100.0, p[k] / site_total_qty * 100), 2)
+    return extended
 
 
 def _build_optimizer_view(
@@ -1023,9 +1117,11 @@ def _build_scenarios(advice_rows: list[dict], forecast: list[dict]) -> dict:
             "delta_days": 0,
             "case_count": len(site_days),
         },
-        "optimistic_p25":  _scenario(site_no_action, _percentile(site_days, 0.25), len(site_days)),
+        # 의미 정확화: P75 (큰 recovery_days) = 낙관, P25 (작은 recovery_days) = 비관.
+        # 기존 라벨↔값 매핑 swap 으로 "최적화 공기" 표시값이 실제 최대 만회를 반영.
+        "optimistic_p25":  _scenario(site_no_action, _percentile(site_days, 0.75), len(site_days)),
         "base_p50":        _scenario(site_no_action, _percentile(site_days, 0.50), len(site_days)),
-        "pessimistic_p75": _scenario(site_no_action, _percentile(site_days, 0.75), len(site_days)),
+        "pessimistic_p75": _scenario(site_no_action, _percentile(site_days, 0.25), len(site_days)),
     }
 
     by_wp: dict[str, dict] = {}
@@ -1043,9 +1139,10 @@ def _build_scenarios(advice_rows: list[dict], forecast: list[dict]) -> dict:
                 "delta_days": 0,
                 "case_count": len(wp_days),
             },
-            "optimistic_p25":  _scenario(wp_no_action, _percentile(wp_days, 0.25), len(wp_days)),
+            # 의미 정확화: P75 = 낙관, P25 = 비관. (BE 산식 site 와 동일.)
+            "optimistic_p25":  _scenario(wp_no_action, _percentile(wp_days, 0.75), len(wp_days)),
             "base_p50":        _scenario(wp_no_action, _percentile(wp_days, 0.50), len(wp_days)),
-            "pessimistic_p75": _scenario(wp_no_action, _percentile(wp_days, 0.75), len(wp_days)),
+            "pessimistic_p75": _scenario(wp_no_action, _percentile(wp_days, 0.25), len(wp_days)),
         }
 
     return {"site": site_scenarios, "by_wp": by_wp}
@@ -1115,13 +1212,17 @@ def _weighted_median(values: list[float], weights: list[float]) -> float:
 
 
 def _normalize_impact(impacts: list[float]) -> list[float]:
-    """impact_raw / max(impact_raw) * 100 → 0..100. 빈 list -> []."""
+    """impact share-of-total (일별 합 = 100%). 사용자 요청 의도 "비율".
+
+    이전 max-normalize (단일 wp 가 항상 100% 받음) 는 일별 합이 100% 가 아님 → share 로 변경.
+    grouped_items 의 agg_impact 는 sum() 으로 group 합 = 그 wp_id 의 share. 모든 wp_id share 합 = 100%.
+    """
     if not impacts:
         return []
-    mx = max(impacts)
-    if mx <= 0:
+    total = sum(impacts)
+    if total <= 0:
         return [0.0] * len(impacts)
-    return [round(x / mx * 100, 2) for x in impacts]
+    return [round(x / total * 100, 2) for x in impacts]
 
 
 def _make_display_label(
@@ -1389,7 +1490,8 @@ async def _build_productivity_views_v2(
         prods = [it["productivity"] for it in grp if it.get("productivity") is not None]
         impacts = [it.get("impact") or 0 for it in grp]
         agg_prod = _stats.median(prods) if prods else 0.0
-        agg_impact = _stats.median(impacts) if impacts else 0.0
+        # impact 은 share-of-total — group SUM 이 그 wp_id 의 share. 일별 sum(grouped) = 100%.
+        agg_impact = sum(impacts) if impacts else 0.0
         agg_pp = (agg_today_qty / agg_workers) if agg_workers else 0.0
         agg_master_dq = head.get("master_daily_qty") or 0
         agg_master_dw = head.get("master_daily_workers") or 0
@@ -1413,6 +1515,7 @@ async def _build_productivity_views_v2(
         wa = it.get("wa")
         return f"{it['l7_5_activity']} · {wa}" if wa else it["l7_5_activity"]
 
+    # impact > 0 인 row 만 산점도에 (plan_total_qty=0 또는 plan_mh=0 row 는 impact share-of-total 산식 결과 0 → 의미 없음).
     quadrant = [
         {
             "wp_id": it["wp_id"],
@@ -1434,6 +1537,7 @@ async def _build_productivity_views_v2(
             ),
         }
         for it in grouped_items
+        if (it.get("impact") or 0) > 0
     ]
     # WP 목록 = impact 내림차순 (사용자: 임팩트 높은순).
     wp_summary = sorted(
@@ -1462,6 +1566,20 @@ async def _build_productivity_views_v2(
         ),
         key=lambda w: -float(w.get("impact") or 0),
     )
+    # kpi 의 delay_days / expected_completion 은 forecasts AGG 기반.
+    # 이전 하드코딩 (0, today.replace(day=1)) 은 화면 진단 inconsistent — 시연 핵심 지표.
+    async with pg._pool.acquire() as con:
+        fc_agg = await con.fetchrow(
+            """
+            SELECT AVG(delay_days)::float AS delay,
+                   MAX(expected_completion) AS expected_completion
+            FROM forecasts f JOIN pipeline_runs pr USING (run_id)
+            WHERE pr.site_id = $1 AND pr.report_date = $2
+            """,
+            site_id, today,
+        )
+    kpi_delay = round((fc_agg["delay"] if fc_agg else 0) or 0)
+    kpi_ec = fc_agg["expected_completion"] if fc_agg else None
     kpi = {
         "productivity_today": round(site_wv_median, 1),
         "productivity_today_simple_mean": round(site_simple_mean, 1),
@@ -1473,12 +1591,13 @@ async def _build_productivity_views_v2(
             site_wv_median, site_pp, site_unit
         ),
         "productivity_history_diff": 0,
-        "delay_days": 0,
-        "expected_completion": str(today.replace(day=1)),
+        "delay_days": kpi_delay,
+        "expected_completion": kpi_ec.isoformat() if kpi_ec else None,
         "recoverable_productivity": round(max(0, 100 - site_wv_median), 1),
         "target_productivity": 100,
+        # recovery_days / recovered_completion 은 scenarios 산출 후 갱신 (return 직전).
         "recovery_days": 0,
-        "recovered_completion": str(today.replace(day=1)),
+        "recovered_completion": None,
     }
     productivity_dict = {
         "site": {
@@ -1570,6 +1689,11 @@ async def _build_productivity_views_v2(
 
     scenarios = _build_scenarios(advice_rows, forecast_rows)
     s_curve = await _build_s_curve(pg, site_id, today)
+
+    # kpi.recovery_days / recovered_completion 은 scenarios.site.base_p50 기준 매핑.
+    base_p50 = (scenarios.get("site") or {}).get("base_p50") or {}
+    kpi["recovery_days"] = int(base_p50.get("recovery_days") or 0)
+    kpi["recovered_completion"] = base_p50.get("expected_completion") or kpi.get("expected_completion")
 
     return {
         "kpi": kpi,

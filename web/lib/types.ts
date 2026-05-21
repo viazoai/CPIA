@@ -271,6 +271,12 @@ export interface DiagnosisInput {
   history_std: number;        // σ
   sample_size: number;        // N — 유사 과거 케이스 수
   s_curve: SCurvePoint[];     // 기존 시계열 재사용
+  // BE scenarios.site 산출값 — 곡선 slope 계산용 (recovery_days_p25/p50/p75, delay_days).
+  // 미전달 시 deterministic fallback (이전 동작).
+  recovery_days_p25?: number;
+  recovery_days_p50?: number;
+  recovery_days_p75?: number;
+  delay_days?: number;
 }
 
 export interface RecoveryEstimate {

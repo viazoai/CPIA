@@ -49,8 +49,9 @@ export async function GET() {
     const stages = await deriveStageProgress(dStr);
     progressByDate[dStr] = stages;
 
-    // spec §5.3 — total_count = parser_activities 처리 건수 (parser 가 받아 mapper 로 넘긴 수).
-    const totalCount = stages.find((s) => s.agent === "Parser")?.processed ?? 0;
+    // spec §5.3 갱신 — total_count = 일자별 작업일보 건수 (parser_reports 1 row 기준).
+    // 기존 stages.Parser.processed (~1k/일) 누적은 94k 건 비현실. UI 의도 "접수 N건" = 작업일보 N건.
+    const totalCount = (stages.find((s) => s.agent === "Collector")?.received ?? 0) > 0 ? 1 : 0;
     tasks.push({
       date: dStr,
       total_count: totalCount,

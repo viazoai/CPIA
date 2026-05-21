@@ -136,6 +136,7 @@ export async function loadReal(name: string): Promise<unknown> {
         WHERE ma.requires_review = true
           AND ma.is_mock = ${useMock}
           AND ma.trade IN ('건축', '토목')
+          AND ma.today_qty > 0
       `) as Array<{ review_pending: string | number }>;
 
       const [abnormal] = (await (sql as any)`

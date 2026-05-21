@@ -83,7 +83,7 @@ export default function ReportPage() {
 
   const diagnosis = useMemo(() => {
     if (!detail) return null;
-    const base = diagnose(toDiagnosisInput(detail.kpi, detail.s_curve, REPORT_SITE_ID));
+    const base = diagnose(toDiagnosisInput(detail.kpi, detail.s_curve, REPORT_SITE_ID, detail.scenarios?.site));
     const beP50 = detail.scenarios?.site?.base_p50;
     if (beP50 && typeof beP50.recovery_days === "number") {
       return {

@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import date
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -170,6 +171,18 @@ async def test_optimize_cold_start_when_cases_less_than_3():
 
     # LLM 호출 발생 확인 (cold_start 이어도)
     azure_mock.chat.completions.create.assert_called_once()
+
+    # 옵션 B invariant: degradation_cases=[] 가 LLM payload 에 그대로 전달됐는지 검증
+    # messages = [system, *FEW_SHOT_MESSAGES, actual_user_input] — 마지막 user 메시지가 실 입력
+    call_args = azure_mock.chat.completions.create.call_args
+    messages_sent = call_args.kwargs.get("messages") or call_args[1].get("messages")
+    user_msgs = [m for m in messages_sent if m["role"] == "user"]
+    actual_user_msg = user_msgs[-1]  # FEW_SHOT user 메시지 제외, 실 입력은 마지막
+    payload = json.loads(actual_user_msg["content"])
+    assert payload.get("degradation_cases") == [], (
+        f"옵션 B: cases=[] 가 LLM 에 그대로 전달돼야 함, got {payload.get('degradation_cases')!r}"
+    )
+
     assert len(advice) == 1
     row = advice[0]
     assert row["company"] == "남웅건설"

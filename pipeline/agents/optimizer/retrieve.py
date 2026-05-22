@@ -91,8 +91,12 @@ def fetch_degradation_cases(
     """Step 1 — 같은 (l6_main[, company]) 의 저하 case top-N recency.
 
     company is None → 회사 무관 (l6_main 만 매칭) — 동종 공사 cross-company case.
-    저하 정의: conditions ∋ {장비대기, 자재미입고, 돌관} AND group productivity < baseline*0.85.
-    worker_source ∈ {"synthetic_v2", "mh_prorated"} 만 허용 (단순 synthetic 노이즈 회피).
+    저하 정의 (옵션 C, 2026-05-22):
+      conditions ∋ {장비대기, 자재미입고, 돌관, 우천, 야간연장} 등 incident keyword OR
+      group productivity < baseline*0.85 (둘 중 하나만 만족해도 case).
+    worker_source 화이트리스트 제거 — synthetic 포함 모든 source 채택
+      (이전: synthetic_v2 + mh_prorated 만; backfill_v2 의 conditions=[] row 가
+      과도 차단되던 문제 해소).
     date < today (미래 행 제외).
     conditions 는 comma-joined str → `substring in` 검사.
     """

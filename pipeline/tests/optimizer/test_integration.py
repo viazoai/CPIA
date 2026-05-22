@@ -143,7 +143,9 @@ def test_synthetic_v2_baseline_recheck_after_load(chroma_data):
         baseline_unit="m3",
     )
     assert baseline is not None, "baseline_v2 = None (정상 row 0건) — Task 3 적재 미실행 의심"
-    assert 3.0 <= baseline <= 35.0, f"baseline_v2 남웅|철콘|m3 = {baseline:.3f} (expected 3~35 범위)"
+    assert 1.0 <= baseline <= 15.0, (
+        f"baseline = {baseline:.3f}: A1 backfill 이후 ~3.987 예상 (T1 이전 잔재 31 제거)"
+    )
 
 
 # ---------------------------------------------------------------------------

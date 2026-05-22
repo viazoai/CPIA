@@ -63,7 +63,7 @@ def test_weighted_median_basic():
     assert _weighted_median([10, 20, 30], [0, 0, 0]) == pytest.approx(20.0)
 
 
-def test_normalize_impact():
+def test_normalize_impact_share_and_scalar_coexist():
     """A3: _normalize_impact_share — share-of-total (합=100%). 기존 scalar _normalize_impact 와 coexist."""
     # share-of-total: 100+200+300=600 → [16.67, 33.33, 50.0]
     shares = _normalize_impact_share([100, 200, 300])

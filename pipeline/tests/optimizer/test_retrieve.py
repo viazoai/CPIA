@@ -176,8 +176,8 @@ def test_fetch_degradation_cases_excludes_legacy_synthetic():
         baseline_unit=UNIT,
         baseline_value=baseline,
     )
-    sources = {c["date"] for c in cases}
-    assert sources == {"2025-09-20", "2025-09-19", "2025-09-18", "2025-09-17"}  # 4건 전부 포함
+    dates = {c["date"] for c in cases}
+    assert dates == {"2025-09-20", "2025-09-19", "2025-09-18", "2025-09-17"}  # 4건 전부 포함
 
 
 # ── 5. recency 내림차순 + top_n cap ─────────────────────────────────────

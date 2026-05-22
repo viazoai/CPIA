@@ -129,7 +129,7 @@ def test_compute_delay_on_schedule_behind():
     assert result["plan_mh_per_day"] == pytest.approx(10.0, abs=0.1)
     assert result["mh_gap"] == pytest.approx(180.0, abs=1.0)  # reference 컬럼 유지
     assert isinstance(result["delay_days"], int)
-    assert result["delay_days"] > 0  # 잔여물량이 많아 지연
+    assert 50 <= result["delay_days"] <= 80, f"기댓값 ~65 (rem_days~172), got {result['delay_days']}"
 
 
 def test_compute_delay_early_before_start():
@@ -195,7 +195,9 @@ def test_compute_delay_ahead():
         actual_cum_qty=90.0,
         plan_total_qty_main=100.0,
     )
-    assert result["delay_days"] < 0  # 잔여물량 적어 앞당김
+    assert -100 <= result["delay_days"] <= -5, (
+        f"기댓값 ~-78 (rem_days~29, pace~0.349), got {result['delay_days']}"
+    )
     assert result["mh_gap"] < 0  # reference 컬럼: mh 도 expected 초과
 
 
@@ -221,7 +223,7 @@ def test_fetch_chroma_actual_with_data():
     ws, mh, qty = fetch_chroma_actual(coll, "X", "Y", date(2025, 9, 25), 100)
     assert ws == date(2025, 9, 20)
     assert mh == pytest.approx(4 * 100 * WORK_HOURS_PER_DAY)  # 4일 (20,21,22,25)
-    assert qty >= 0.0  # unit 미지정 → 0.0 (main_unit=None 이라 qty 집계 없음)
+    assert qty == 0.0  # unit 미지정 → 정확히 0.0 (main_unit=None 이라 qty 집계 없음)
 
 
 def test_fetch_chroma_actual_empty():
@@ -283,8 +285,8 @@ def test_compute_delay_plan_mh_zero():
         plan_total_qty_main=100.0,
     )
     assert result["plan_mh_per_day"] == pytest.approx(0.0)  # mh reference
-    assert result["delay_days"] is not None  # qty 산식 작동 (mh=0 이어도)
     assert isinstance(result["delay_days"], int)
+    assert 10 <= result["delay_days"] <= 25, f"기댓값 ~+15 (pace=0.263, rem~228), got {result['delay_days']}"
 
 
 def test_compute_delay_no_qty_returns_none():

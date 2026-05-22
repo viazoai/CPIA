@@ -1129,3 +1129,91 @@ async def update_site_hours_saved_cum(
             delta_h,
             site_id,
         )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Collector inbox — Spec §5.3 (2026-05-19)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def insert_collector_inbox(
+    pg: PGClient,
+    *,
+    message_id: str,
+    site_id: str,
+    report_date: _date,
+    bp_name: str,
+    attachment_filename: str,
+    attachment_path: str,
+) -> None:
+    """신규 메일 첨부 1건 INSERT. PRIMARY KEY 위반 시 ON CONFLICT DO NOTHING — dedup race safety."""
+    assert pg._pool is not None, "connect() 미호출"
+    async with pg._pool.acquire() as con:
+        await con.execute(
+            """
+            INSERT INTO collector_inbox
+                (message_id, site_id, report_date, bp_name,
+                 attachment_filename, attachment_path)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (message_id) DO NOTHING
+            """,
+            message_id,
+            site_id,
+            report_date,
+            bp_name,
+            attachment_filename,
+            attachment_path,
+        )
+
+
+async def update_collector_inbox_status(
+    pg: PGClient,
+    message_id: str,
+    *,
+    run_id: uuid.UUID | None = None,
+    parse_status: str,
+    error: str | None = None,
+) -> None:
+    """parse_status / run_id / error 갱신. updated_at 자동."""
+    assert pg._pool is not None, "connect() 미호출"
+    async with pg._pool.acquire() as con:
+        await con.execute(
+            """
+            UPDATE collector_inbox
+            SET parse_status = $2,
+                run_id       = COALESCE($3, run_id),
+                error        = $4,
+                updated_at   = NOW()
+            WHERE message_id = $1
+            """,
+            message_id,
+            parse_status,
+            run_id,
+            error,
+        )
+
+
+async def fetch_collector_inbox_by_message_id(
+    pg: PGClient,
+    message_id: str,
+) -> dict | None:
+    """dedup 체크용. 없으면 None."""
+    assert pg._pool is not None, "connect() 미호출"
+    async with pg._pool.acquire() as con:
+        row = await con.fetchrow(
+            "SELECT * FROM collector_inbox WHERE message_id = $1",
+            message_id,
+        )
+    return dict(row) if row else None
+
+
+async def fetch_site_by_id(pg: PGClient, site_id: str) -> dict | None:
+    """sites 테이블 1 row. 없으면 None."""
+    assert pg._pool is not None, "connect() 미호출"
+    async with pg._pool.acquire() as con:
+        row = await con.fetchrow(
+            "SELECT site_id, name, plan_progress, actual_progress, status, location "
+            "FROM sites WHERE site_id = $1",
+            site_id,
+        )
+    return dict(row) if row else None

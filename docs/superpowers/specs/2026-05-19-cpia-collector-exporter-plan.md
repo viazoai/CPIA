@@ -657,6 +657,7 @@ import logging
 import os
 import uuid
 from asyncio import create_task  # monkeypatch target 분리 — 테스트 patch 안정성
+from datetime import date as _date  # insert_collector_inbox.report_date 는 datetime.date 기대
 from email.message import Message
 from pathlib import Path
 
@@ -841,7 +842,8 @@ async def _process_one(imap, uid: str, cfg: CollectorConfig) -> None:
                 pg,
                 message_id=sub_message_id,
                 site_id=site_id,
-                report_date=meta.date,
+                # meta.date 는 ISO str — asyncpg DATE 컬럼 바인딩에 datetime.date 필요
+                report_date=_date.fromisoformat(meta.date),
                 bp_name=meta.bp_name or "_integrated",
                 attachment_filename=att_name,
                 attachment_path=str(path),
@@ -949,31 +951,27 @@ pipeline/.venv/bin/python -c "
 from pipeline.state import CPIAState
 import typing
 hints = typing.get_type_hints(CPIAState)
-for k in ('bp_name','report_date','project','parsed_reports','message_id','postgres_url'):
+for k in ('parsed','date','site_id','bp_name','project','message_id','postgres_url'):
     print(k, '✓' if k in hints else '✗')
 "
 ```
 
-기대: `parsed_reports ✓` (mapper 가 이미 사용 중일 가능성). `bp_name`/`report_date`/`project`/`message_id`/`postgres_url` 중 ✗ 항목만 Step 2 에서 추가.
+기대: `parsed`/`date`/`site_id` 는 이미 ✓ (mapper / atomizer 가 이미 사용 중 — 기존 contract). `bp_name`/`project`/`message_id`/`postgres_url` 중 ✗ 항목만 Step 2 에서 추가.
 
 - [ ] **Step 2: state.py 누락 필드 추가**
 
-`pipeline/state.py` 의 `CPIAState` TypedDict 안에 (Step 1 에서 ✗ 인 것만):
+`pipeline/state.py` 의 `CPIAState` TypedDict 안에 (Step 1 에서 ✗ 인 것만). 기존 키 `parsed` / `date` / `site_id` / `input_files` 는 위에 이미 정의되어 있어 collector/parser 가 동일 키로 박음 (mapper contract 유지):
 
 ```python
 class CPIAState(TypedDict, total=False):
     # ... 기존 필드 유지 (수정 0) ...
 
     # D-12 — collector_node / parser_node 산출 + listener invoke 인자
-    bp_name: str                              # 첨부 파일명에서 분해된 BP 명 ('_integrated' 가능)
-    report_date: str                          # YYYY-MM-DD
-    project: str                              # 파일명 prefix
-    parsed_reports: list["ParsedDailyReport"] # 1-element list (D-3 — 1 첨부 = 1 invoke)
-    message_id: str                           # listener invoke 시 박힘. CLI 진입 시 absent
-    postgres_url: str                         # collector_node 가 collector_inbox UPDATE 용
+    bp_name: str        # 첨부 파일명에서 분해된 BP 명 ('_integrated' 가능)
+    project: str        # 파일명 prefix
+    message_id: str     # listener invoke 시 박힘. CLI 진입 시 absent
+    postgres_url: str   # collector_node 가 collector_inbox UPDATE 용
 ```
-
-`ParsedDailyReport` 는 이미 state.py 에 정의되어 있음 (재import 불필요).
 
 - [ ] **Step 3: parser_node TDD — 실패 테스트 먼저**
 
@@ -990,17 +988,22 @@ import pytest
 from pipeline.agents.parser_node import parser_node
 
 
-SAMPLE_XLSX = Path("/Users/kyungseoplee/Project Agent/CPIA/docs/sample/통합작업일보_DUMMY_20250926.xlsx")
+SAMPLE_XLSX = (
+    Path(__file__).resolve().parents[2]
+    / "docs" / "sample"
+    / "통합작업일보_M15X Ph-3 IBL PJT 작업일보_20250925.xlsx"
+)
 
 
-def test_parser_node_returns_single_element_list() -> None:
+def test_parser_node_returns_parsed_report() -> None:
     state = {"input_files": [str(SAMPLE_XLSX)]}
     out = parser_node(state)
-    assert "parsed_reports" in out
-    assert len(out["parsed_reports"]) == 1
-    report = out["parsed_reports"][0]
-    assert report.bp_summaries  # 비어있지 않음
-    assert report.activities
+    # mapper 가 state["parsed"] (singular dict) 로 읽음
+    assert "parsed" in out
+    report = out["parsed"]
+    # ParsedDailyReport 는 TypedDict — dict-style 접근
+    assert report["bp_summaries"]  # 비어있지 않음
+    assert report["activities"]
 
 
 def test_parser_node_raises_on_missing_input_files() -> None:
@@ -1034,14 +1037,15 @@ log = logging.getLogger("cpia.parser_node")
 
 
 def parser_node(state: CPIAState) -> dict[str, Any]:
-    """1 첨부 = 1 ParsedDailyReport (D-3 유지). mapper 가 list 를 받으므로 1-element list."""
+    """1 첨부 = 1 ParsedDailyReport (D-3 유지). mapper 가 state["parsed"] (singular) 로 읽음."""
     path = Path(state["input_files"][0])
     report = parse_daily_report(path)
+    # ParsedDailyReport 는 TypedDict — dict-style 접근
     log.info(
         "parser_node: %s 파싱 완료 (bp_summaries=%d, activities=%d)",
-        path.name, len(report.bp_summaries), len(report.activities),
+        path.name, len(report["bp_summaries"]), len(report["activities"]),
     )
-    return {"parsed_reports": [report]}
+    return {"parsed": report}
 ```
 
 Run:
@@ -1085,7 +1089,8 @@ async def test_collector_node_extracts_meta(integrated_xlsx: Path) -> None:
     }
     out = await collector_node(state)
     assert out["bp_name"] == "_integrated"
-    assert out["report_date"] == "2025-09-25"
+    # mapper 가 state["date"] 로 읽음 (graph.py:64 등) — 기존 contract 와 일치
+    assert out["date"] == "2025-09-25"
     assert out["project"] == "M15X Ph-3 IBL PJT 작업일보"
 
 
@@ -1192,7 +1197,7 @@ async def collector_node(state: CPIAState) -> dict[str, Any]:
     )
     return {
         "bp_name": meta.bp_name or "_integrated",
-        "report_date": meta.date,
+        "date": meta.date,           # mapper 가 state["date"] 로 읽음
         "project": meta.project,
     }
 ```
@@ -1249,7 +1254,7 @@ entry edge from START: [('__start__', 'collector')]
 ```bash
 .venv/bin/python -m pytest tests/test_graph_e2e.py tests/test_each_agent.py -v 2>&1 | tail -20
 ```
-Expected: 기존 PASS 유지 (단 외부에서 `parsed_reports` 를 직접 박던 fixture 가 있다면 `input_files` 만 박도록 변경 — 별도 cleanup PR 후보).
+Expected: 기존 PASS 유지 (단 외부에서 `parsed` 를 직접 박던 fixture 가 있다면 `input_files` 만 박도록 변경 — 별도 cleanup PR 후보).
 
 - [ ] **Step 10: 커밋**
 

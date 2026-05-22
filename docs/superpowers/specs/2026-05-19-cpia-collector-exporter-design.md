@@ -111,7 +111,7 @@ PoC 데모 마감 = 2026-06-05 (목), D-17.
    ─ 신규 노드 ─
      collector_node : 첨부 경로 검증 + filename_parser → (site_id, date, bp_name) state 박기
                       + collector_inbox UPDATE (parse_status=running)
-     parser_node    : 기존 `parse_daily_report(xlsx_path)` 래퍼 → state.parsed_reports
+     parser_node    : 기존 `parse_daily_report(xlsx_path)` 래퍼 → state["parsed"] (singular)
    ─ graph.py 변경 ─
      graph.add_node("collector", _collector); graph.add_node("parser", _parser)
      graph.add_edge(START, "collector"); graph.add_edge("collector", "parser")
@@ -138,13 +138,13 @@ PoC 데모 마감 = 2026-06-05 (목), D-17.
 |---|---|---|---|
 | `pipeline/collector/idle_worker.py` | 신규 | IMAP IDLE 루프 + 첨부 추출 + dedup + `graph.ainvoke({input_files=[path], message_id, site_id, ...})` 호출 (D-5 — graph 밖). 명칭 "idle_worker" 는 listener 동의어로 본 spec 일관 사용 | aioimaplib, db.py (collector_inbox), graph.py |
 | `pipeline/collector/filename_parser.py` | 신규 | 첨부 파일명 정규식 → `ParsedFilename(site_id, date, bp_name, project)` — 순수 함수 (listener + collector 노드 양쪽 import) | 없음 |
-| `pipeline/agents/collector_node.py` | 신규 (D-12) | graph 노드 — state.input_files[0] 경로 검증 + filename_parser 호출 + state 박기 (`bp_name`, `report_date`, `project`, `site_id`) + collector_inbox UPDATE (parse_status=running, run_id) | filename_parser, db.py |
-| `pipeline/agents/parser_node.py` | 신규 (D-12) | graph 노드 — 기존 `pipeline/agents/parser.py:parse_daily_report` 호출 래퍼 → state.parsed_reports (list[ParsedDailyReport]) | parser.py |
+| `pipeline/agents/collector_node.py` | 신규 (D-12) | graph 노드 — state.input_files[0] 경로 검증 + filename_parser 호출 + state 박기 (`bp_name`, `date`, `project`) + collector_inbox UPDATE (parse_status=running, run_id) | filename_parser, db.py |
+| `pipeline/agents/parser_node.py` | 신규 (D-12) | graph 노드 — 기존 `pipeline/agents/parser.py:parse_daily_report` 호출 래퍼 → state["parsed"] (ParsedDailyReport, singular — 기존 mapper contract 와 일치) | parser.py |
 | `pipeline/graph.py` | 수정 (~6줄, D-12) | `add_node("collector", ...)` + `add_node("parser", ...)` + edge 3개 (START→collector→parser→mapper, 기존 `START→mapper` 교체) | — |
 | `pipeline/agents/exporter.py` | 신규 | PG SELECT → 4 시트 row → openpyxl 템플릿 fill → bytes | db.py, openpyxl |
 | `pipeline/exporter_routes.py` | 신규 | FastAPI APIRouter — `GET /export/run` | exporter.py |
 | `pipeline/api.py` | 수정 (3줄) | startup hook + shutdown hook + `include_router` | — |
-| `pipeline/state.py` | 수정 (~3줄, D-12) | `CPIAState` 에 `bp_name`, `report_date`, `project`, `parsed_reports` 필드 추가 (mapper 가 이미 parsed_reports 기대 — 기존 외부 invoke 시 직접 박았던 것이 collector/parser 노드 산출로 변경) | — |
+| `pipeline/state.py` | 수정 (~4줄, D-12) | `CPIAState` 에 `bp_name`, `project`, `message_id`, `postgres_url` 4 필드 추가. `parsed` / `date` / `site_id` / `input_files` 는 위에 이미 정의되어 있어 재사용 (mapper / atomizer contract 와 일치) | — |
 
 **기존 `pipeline/agents/collector.py` 운명**: `discover_daily_reports()` / `collect_and_parse()` 는 CLI / 회귀 테스트용으로 유지하되 deprecation 주석 추가 — 실 운영 경로는 graph 노드 collector_node + parser_node 가 담당. CLI 가 `collect_and_parse` 호출 시 내부적으로 `graph.ainvoke` 로 위임하도록 후속 정리 (별 cycle 가능).
 
@@ -157,7 +157,7 @@ PoC 데모 마감 = 2026-06-05 (목), D-17.
 
 **변경 가능 — D-12 추가 라인 최소**:
 - `pipeline/graph.py` — `add_node("collector", _collector)` + `add_node("parser", _parser)` + edge 3개 (START→collector→parser→mapper, 기존 `START→mapper` 교체) = **총 ~6줄 변경**. 기존 노드 / edge 0 수정.
-- `pipeline/state.py` — `CPIAState` TypedDict 에 필드 4개 추가 (`bp_name`, `report_date`, `project`, `parsed_reports`) = **~4 줄 추가**. 기존 필드 0 수정.
+- `pipeline/state.py` — `CPIAState` TypedDict 에 필드 4개 추가 (`bp_name`, `project`, `message_id`, `postgres_url`) = **~4 줄 추가**. 기존 필드 0 수정 — `parsed`/`date`/`site_id` 는 이미 있어 collector/parser 가 그대로 재사용.
 - `pipeline/agents/collector.py` — `discover_daily_reports` / `collect_and_parse` 위에 deprecation docstring 추가 (~3 줄). 함수 시그니처 / 본문 변경 0.
 
 **신규 only (충돌 0)**: §4.1 의 신규 파일들 + 템플릿 xlsx + 마이그레이션 SQL + 테스트 6 종 (parser_node + collector_node 단위 테스트 + graph wiring 통합 테스트 추가)
@@ -485,13 +485,21 @@ async def _process_one(imap, uid: str, cfg: CollectorConfig) -> None:
             await _to_dead_letter(att_name, att_bytes, cfg)
             continue
         path = _save_to_input_dir(att_name, att_bytes, meta.date, cfg)
-        async with PGClient(cfg.postgres_url) as pg:
-            await pg.insert_collector_inbox(
+        # PGClient 는 connect()/close() 패턴 (async with 미지원). insert helper 는 module-level.
+        pg = PGClient(cfg.postgres_url)
+        await pg.connect()
+        try:
+            await insert_collector_inbox(
+                pg,
                 message_id=f"{message_id}#{att_name}",  # 1 메일 N 첨부 dedup
-                site_id=site_id, report_date=meta.date,
+                site_id=site_id,
+                # meta.date 는 ISO str — asyncpg DATE 컬럼 바인딩에 필요
+                report_date=_date.fromisoformat(meta.date),
                 bp_name=meta.bp_name or "_integrated",
                 attachment_filename=att_name, attachment_path=str(path),
             )
+        finally:
+            await pg.close()
         asyncio.create_task(
             run_for_attachment(path, meta, site_id, f"{message_id}#{att_name}", cfg)
         )
@@ -552,14 +560,20 @@ async def collector_node(state: CPIAState) -> dict[str, Any]:
         raise ValueError(f"collector_node: 파일명 규약 불일치 {path.name}")
     message_id = state.get("message_id")
     if message_id and state.get("postgres_url"):
-        async with PGClient(state["postgres_url"]) as pg:
-            await pg.update_collector_inbox_status(
-                message_id, run_id=state["run_id"], parse_status="running",
+        # PGClient 는 async with 미지원 — connect()/close() 패턴 사용 (pipeline/db.py:15+).
+        pg = PGClient(state["postgres_url"])
+        await pg.connect()
+        try:
+            await update_collector_inbox_status(
+                pg, message_id, run_id=state["run_id"], parse_status="running",
             )
+        finally:
+            await pg.close()
     log.info("collector_node: %s → bp=%s date=%s", path.name, meta.bp_name, meta.date)
+    # mapper 가 state["date"] / state["parsed"] 키로 읽음 (graph.py:62 등) — 기존 contract 와 일치
     return {
         "bp_name": meta.bp_name or "_integrated",
-        "report_date": meta.date,
+        "date": meta.date,
         "project": meta.project,
     }
 ```
@@ -581,12 +595,13 @@ log = logging.getLogger("cpia.parser_node")
 
 
 def parser_node(state: CPIAState) -> dict[str, Any]:
-    """1 첨부 = 1 ParsedDailyReport (D-3 유지). mapper 가 list 를 받으므로 1-element list."""
+    """1 첨부 = 1 ParsedDailyReport (D-3 유지). mapper 가 state["parsed"] 로 읽음 (singular)."""
     path = Path(state["input_files"][0])
     report = parse_daily_report(path)
+    # ParsedDailyReport 는 TypedDict — dict-style 접근
     log.info("parser_node: %s 파싱 완료 (bp_summaries=%d, activities=%d)",
-             path.name, len(report.bp_summaries), len(report.activities))
-    return {"parsed_reports": [report]}
+             path.name, len(report["bp_summaries"]), len(report["activities"]))
+    return {"parsed": report}
 ```
 
 #### graph.py 변경 (~6 줄, D-12)
@@ -613,13 +628,13 @@ graph.add_edge("parser", "mapper")
 ```python
 # pipeline/state.py — CPIAState TypedDict 에 필드 추가
 class CPIAState(TypedDict, total=False):
-    # ... 기존 필드 유지 ...
-    # D-12 추가 — collector_node / parser_node 산출
+    # ... 기존 필드 유지 — `parsed`, `date`, `site_id`, `input_files` 는 이미 정의되어 있어
+    # collector_node / parser_node 가 동일 키 재사용 (mapper / atomizer contract 와 일치).
+    # D-12 추가 — collector_node / parser_node 산출 + listener invoke 인자
     bp_name: str             # 첨부 파일명에서 분해된 BP 명 ('_integrated' 가능)
-    report_date: str         # YYYY-MM-DD
     project: str             # 파일명 prefix
-    parsed_reports: list[ParsedDailyReport]  # 1-element list (D-3, 1 첨부 = 1 invoke)
     message_id: str          # listener invoke 시 박힘. CLI 진입 시 absent
+    postgres_url: str        # collector_node 가 collector_inbox UPDATE 용
 ```
 
 #### listener (§6.3) 의 ainvoke 인자 — D-12 반영
@@ -641,7 +656,7 @@ await build_graph(cfg.graph_cfg).ainvoke(
 
 #### CLI 진입 호환 (`pipeline/main.py` 또는 외부 caller)
 
-기존 CLI: `python3 main.py 20250925` → `discover_daily_reports + collect_and_parse + graph.ainvoke({parsed_reports=...})` 패턴. D-12 이후엔 CLI 도 `input_files=[xlsx_path]` 만 박으면 collector_node + parser_node 가 알아서 처리. 단 `message_id` 없으면 collector_inbox UPDATE skip — listener 외 진입 경로는 invariant 깨지 않음.
+기존 CLI: `python3 main.py 20250925` → `discover_daily_reports + collect_and_parse + graph.ainvoke({parsed=..., date=..., site_id=...})` 패턴. D-12 이후엔 CLI 도 `input_files=[xlsx_path]` 만 박으면 collector_node + parser_node 가 알아서 처리. 단 `message_id` 없으면 collector_inbox UPDATE skip — listener 외 진입 경로는 invariant 깨지 않음.
 
 ---
 

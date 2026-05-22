@@ -16,6 +16,7 @@ dependencies = [
     "pydantic>=2.9.0",
     "langgraph-checkpoint-postgres>=2.0.0",
     "psycopg[binary]>=3.3.4",
+    "aioimaplib>=1.1.0",
 ]
 
 [project.optional-dependencies]

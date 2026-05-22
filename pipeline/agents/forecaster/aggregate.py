@@ -72,7 +72,13 @@ def compute_delay(
       delay_days      = (expected_completion − plan_finish).days
                         (양수 = 지연, 음수 = 앞당김, 0 = 일정 충족)
 
-    부수 (mh) 값은 컬럼 유지 — reference 로만 (PG schema 영향 회피).
+    부수 (mh) 컬럼 (reference only — delay 산출 사용 X, PG schema 영향 회피):
+      - plan_mh_per_day        plan_mh_sum / total_days (기준 일 평균 인시)
+      - expected_in_window_mh  plan_mh_per_day × window_days (window 누적 기준)
+      - actual_in_window_mh    actual_cum_mh (Chroma window 누적 실 인시)
+      - mh_gap                 expected_in_window_mh − actual_in_window_mh (참고용)
+      위 4값은 forecast row jsonb 에 박혀 UI 미사용. 향후 mh 기반 KPI 위한 잠재 자산.
+
     schedule_state:
       plan 없음            → "unknown"
       today < plan_start   → "early"
@@ -159,6 +165,12 @@ def fetch_chroma_actual(
     main_unit: Optional[str] = None,
 ) -> tuple[Optional[date], float, float]:
     """Chroma daily_activities 에서 (company, l6_main) date 별 workers + main_unit qty 누적.
+
+    반환: (window_start, actual_cum_mh, actual_cum_qty)
+      - window_start: Chroma 내 (company, l6_main) 첫 적재 일자 (None = 데이터 없음)
+      - actual_cum_mh: window 내 워커 일수 × WORK_HOURS_PER_DAY 누적 (compute_delay 의
+        reference mh 산출 input)
+      - actual_cum_qty: 보조 reference (사용 X) — 아래 NOTE 참조
 
     2026-05-22 NOTE: Chroma 는 mapper_activities 의 일부만 backfill 되어 있어
     (광건 수장공사 22% 만 적재 케이스 확인) actual_cum_qty 산출에는 부적합.

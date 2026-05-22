@@ -1,0 +1,17 @@
+
+=== B5 통과 기준 (site=m15x-ph3-ibl, 2025-09-25 ~ 2025-09-25) ===
+
+  1. [PASS] diagnosis 평균 >= 50자, placeholder 0%
+      {'n': 12, 'avg_len': 110.0, 'placeholder_n': 0, 'placeholder_pct': 0.0}
+  2. [PASS] degradation_cases 4필드 >= 90%
+      {'total': 60, 'complete': 60, 'pct': 100.0}
+  3. [PASS] recommendations text empty 0%
+      {'total': 48, 'empty': 0, 'empty_pct': 0.0}
+  4. [PASS] details 6칸 non-'-' >= 80%
+      {'total_cells': 60, 'non_dash': 60, 'pct': 100.0}
+  5. [PASS] quadrant <-> by_wp wp_id 교집합 >= 80%
+      {'union': 10, 'intersect': 10, 'pct': 100.0}
+  6. [PASS] delay_days 분포 (음수 + 양수 모두 존재)
+      {'n': 10, 'neg': 5, 'pos': 5, 'zero': 0}
+
+전체 결과: PASS

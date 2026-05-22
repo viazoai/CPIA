@@ -12,6 +12,7 @@ from pipeline.agents.optimizer.view_builder import (
     _compute_productivity,
     _make_display_label,
     _normalize_impact,
+    _normalize_impact_share,
     _simulate_today_qty,
     _weighted_median,
 )
@@ -63,11 +64,15 @@ def test_weighted_median_basic():
 
 
 def test_normalize_impact():
-    """impact_raw / max(impact_raw) * 100 -> 0..100."""
-    impacts = _normalize_impact([100, 200, 300])
-    assert impacts == pytest.approx([33.33, 66.67, 100.0], abs=0.01)
-    assert _normalize_impact([]) == []
-    assert _normalize_impact([0, 0, 0]) == [0.0, 0.0, 0.0]
+    """A3: _normalize_impact_share — share-of-total (합=100%). 기존 scalar _normalize_impact 와 coexist."""
+    # share-of-total: 100+200+300=600 → [16.67, 33.33, 50.0]
+    shares = _normalize_impact_share([100, 200, 300])
+    assert shares == pytest.approx([16.67, 33.33, 50.0], abs=0.01)
+    assert sum(shares) == pytest.approx(100.0, abs=0.01)
+    assert _normalize_impact_share([]) == []
+    assert _normalize_impact_share([0, 0, 0]) == [0.0, 0.0, 0.0]
+    # 기존 scalar 2-arg 함수 (_normalize_impact) 는 그대로 유지 (coexist 검증)
+    assert _normalize_impact(100.0, 200.0) == pytest.approx(50.0)
 
 
 def test_display_label_format():
@@ -229,9 +234,7 @@ def test_atomizer_format_document_backfill_mode():
         "assigned_workers": 265,
         "conditions": [],
     }
-    doc = _format_document(
-        a, date="2025-09-25", perperson=0.06, productivity_pct=98.9
-    )
+    doc = _format_document(a, date="2025-09-25", perperson=0.06, productivity_pct=98.9)
     assert "0.06 m2/인" in doc
     assert "98.9%" in doc
 

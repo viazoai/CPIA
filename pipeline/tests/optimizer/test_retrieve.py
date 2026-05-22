@@ -60,14 +60,18 @@ def _row(
 
 # ── 1. fetch_degradation_cases: conditions str substring 검사 ───────────
 def test_fetch_degradation_cases_filters_incident_str_substring():
-    """conditions = comma-joined str. '우천,장비대기' 같은 multi-token 도 substring 으로 매칭."""
+    """A6/옵션 C: OR 완화 — incident OR is_degraded 둘 중 하나만 충족해도 case 포함.
+
+    '맑음' 만인 row (incident 없음) 이라도 prod=10 < baseline×0.85=17 이면 is_degraded=True → 포함.
+    conditions substring matching 은 그대로 작동.
+    """
     baseline = 20.0  # 저하 threshold = 17.0
     metas = [
-        # incident 있음 + 저하 → 포함
+        # incident 있음 + 저하 → 포함 (OR)
         _row(date_iso="2025-09-20", today_qty=10.0 * 88, conditions="우천,장비대기"),
-        # 단일 incident '장비대기'
+        # 단일 incident '장비대기' → 포함 (OR)
         _row(date_iso="2025-09-19", today_qty=8.0 * 88, conditions="장비대기"),
-        # '맑음' 만 (incident 없음) → 제외
+        # '맑음' 만 — incident 없지만 prod=10 < 17 → is_degraded=True → OR 완화로 포함
         _row(date_iso="2025-09-18", today_qty=10.0 * 88, conditions="맑음"),
     ]
     docs = ["doc20", "doc19", "doc18"]
@@ -81,9 +85,9 @@ def test_fetch_degradation_cases_filters_incident_str_substring():
         baseline_value=baseline,
         n=5,
     )
-    assert len(cases) == 2
+    assert len(cases) == 3  # OR 완화 — 맑음 row 도 prod 저하로 포함
     dates = {c["date"] for c in cases}
-    assert dates == {"2025-09-20", "2025-09-19"}
+    assert dates == {"2025-09-20", "2025-09-19", "2025-09-18"}
 
 
 # ── 2. 미래 date 제외 ─────────────────────────────────────────────────
@@ -111,13 +115,18 @@ def test_fetch_degradation_cases_excludes_future_date():
     assert cases[0]["date"] == "2025-09-24"
 
 
-# ── 3. baseline*0.85 이상 (회복) 제외 ─────────────────────────────────
+# ── 3. OR 완화 — incident 있으면 prod 회복 여부 무관하게 포함 ────────────
 def test_fetch_degradation_cases_excludes_recovered():
-    baseline = 20.0  # threshold = 17.0
+    """A6/옵션 C: OR 완화 — incident ∈ {장비대기,자재미입고,돌관} 이면 prod 회복 여부 무관 포함.
+
+    이전: AND (incident + prod < baseline×0.85) → prod 18 > 17 는 제외.
+    이제: OR → incident=True 이면 prod 무관 포함. 둘 다 충족해도 포함.
+    """
+    baseline = 20.0  # 저하 threshold = 17.0
     metas = [
-        # productivity = 18.0 (> 17.0) → 회복으로 간주 → 제외
+        # prod=18 > 17 (not degraded) + incident=장비대기 → has_incident=True → OR → 포함
         _row(date_iso="2025-09-20", today_qty=18.0 * 88, conditions="장비대기"),
-        # productivity = 10.0 (< 17.0) → 저하 → 포함
+        # prod=10 < 17 (degraded) + incident=장비대기 → 포함
         _row(date_iso="2025-09-19", today_qty=10.0 * 88, conditions="장비대기"),
     ]
     docs = ["d1", "d2"]
@@ -130,17 +139,23 @@ def test_fetch_degradation_cases_excludes_recovered():
         baseline_unit=UNIT,
         baseline_value=baseline,
     )
-    assert len(cases) == 1
-    assert cases[0]["date"] == "2025-09-19"
+    assert len(cases) == 2  # OR 완화 — prod 회복 row 도 incident 있으면 포함
+    dates = {c["date"] for c in cases}
+    assert dates == {"2025-09-20", "2025-09-19"}
 
 
-# ── 4. legacy "synthetic" 제외, "synthetic_v2" + "mh_prorated" 만 ───────
+# ── 4. worker_source 화이트리스트 제거 — 모든 source 포함 ────────────────
 def test_fetch_degradation_cases_excludes_legacy_synthetic():
+    """A1: worker_source 화이트리스트 제거. 'synthetic' / 'user_corrected' 도 포함.
+
+    이전: worker_source ∈ {'synthetic_v2','mh_prorated'} 만 허용 → legacy/user_corrected 제외.
+    이제: worker_source 무관 — incident 또는 is_degraded 면 모든 source 포함.
+    """
     baseline = 20.0
     metas = [
         _row(
             date_iso="2025-09-20", today_qty=5.0 * 88, conditions="장비대기", worker_source="synthetic"
-        ),  # legacy → 제외
+        ),  # 이전엔 legacy 제외, 이제 포함
         _row(
             date_iso="2025-09-19", today_qty=5.0 * 88, conditions="장비대기", worker_source="synthetic_v2"
         ),  # 포함
@@ -149,7 +164,7 @@ def test_fetch_degradation_cases_excludes_legacy_synthetic():
         ),  # 포함
         _row(
             date_iso="2025-09-17", today_qty=5.0 * 88, conditions="장비대기", worker_source="user_corrected"
-        ),  # 제외
+        ),  # 이전엔 제외, 이제 포함
     ]
     docs = ["d20", "d19", "d18", "d17"]
     cases = fetch_degradation_cases(
@@ -162,7 +177,7 @@ def test_fetch_degradation_cases_excludes_legacy_synthetic():
         baseline_value=baseline,
     )
     sources = {c["date"] for c in cases}
-    assert sources == {"2025-09-19", "2025-09-18"}
+    assert sources == {"2025-09-20", "2025-09-19", "2025-09-18", "2025-09-17"}  # 4건 전부 포함
 
 
 # ── 5. recency 내림차순 + top_n cap ─────────────────────────────────────
@@ -196,16 +211,22 @@ def test_fetch_degradation_cases_top_n_recency():
     ]
 
 
-# ── 6. 돌관 incident 포함 ────────────────────────────────────────────
+# ── 6. 돌관 incident 포함 + OR 완화 ─────────────────────────────────
 def test_fetch_degradation_cases_includes_dolgwan():
-    """spec §5.1 — 저하 incident 3종 (장비대기 / 자재미입고 / 돌관) 모두 포함."""
+    """A6/옵션 C: 돌관/자재미입고/장비대기 + OR 완화 — 우천/야간연장 도 is_degraded 면 포함.
+
+    우천/야간연장 은 _DEGRADATION_INCIDENTS 에 없어 has_incident=False.
+    이전(AND): is_degraded 만으로는 불충분 → 제외.
+    이제(OR): prod=5 < baseline×0.85=17 → is_degraded=True → 포함.
+    """
     baseline = 20.0
     metas = [
         _row(date_iso="2025-09-20", today_qty=5.0 * 88, conditions="돌관"),
         _row(date_iso="2025-09-19", today_qty=5.0 * 88, conditions="자재미입고"),
         _row(date_iso="2025-09-18", today_qty=5.0 * 88, conditions="장비대기"),
-        # 우천 / 야간연장 단독은 저하 트리거 incident 아님 (spec §5.1)
+        # 우천 — has_incident=False 이지만 prod=5 < 17 → is_degraded=True → OR → 포함
         _row(date_iso="2025-09-17", today_qty=5.0 * 88, conditions="우천"),
+        # 야간연장 — 동일 이유로 포함
         _row(date_iso="2025-09-16", today_qty=5.0 * 88, conditions="야간연장"),
     ]
     docs = [f"doc{i}" for i in range(5)]
@@ -219,7 +240,7 @@ def test_fetch_degradation_cases_includes_dolgwan():
         baseline_value=baseline,
     )
     dates = {c["date"] for c in cases}
-    assert dates == {"2025-09-20", "2025-09-19", "2025-09-18"}
+    assert dates == {"2025-09-20", "2025-09-19", "2025-09-18", "2025-09-17", "2025-09-16"}  # 5건 전부
 
 
 # ── 7. recovery window today 절단 ────────────────────────────────────

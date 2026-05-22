@@ -127,25 +127,32 @@ async def test_optimize_skip_when_not_in_selection():
 
 @pytest.mark.asyncio
 async def test_optimize_cold_start_when_cases_less_than_3():
-    """spec §7: cases length < 3 → diagnosis='cold_start', LLM 호출 X.
+    """옵션 B: cases=[] (cold_start) 이어도 LLM 호출 발생. _compose_cold_start_row bypass 제거.
 
-    Azure chat.completions.create 가 호출되지 않음을 검증.
+    2026-05-22: cases < 3 분기 삭제 → 모든 그룹이 LLM 호출. degradation_cases=[] 를 그대로 LLM 에 전달.
+    검증: LLM 호출 1회 + advice row 1건 + company/l6_main 보존.
     """
     forecast = [_forecast_row()]
     key = "남웅건설|철근콘크리트공사"
     hil_2_selection = [key]
-    # 2 건만 — < 3 threshold
-    pre_optimizer_cases = {key: [_case("2025-09-22", 1), _case("2025-09-06", 1)]}
+    # 0 건 — cold_start 시나리오
+    pre_optimizer_cases: dict[str, list[dict]] = {key: []}
 
     pg_mock = MagicMock()
     pg_mock.connect = AsyncMock(return_value=None)
     pg_mock.close = AsyncMock(return_value=None)
     pg_mock.insert_optimizer_advice = AsyncMock(return_value=None)
 
+    llm_response = {
+        "diagnosis": "이력 없음 — 마스터 baseline 기준 진단",
+        "recommendations": [{"rank": 1, "text": "데이터 누적 후 재조회 권장"}],
+        "recovery_distribution": {},
+    }
     azure_mock = MagicMock()
-    # LLM 호출 시 즉시 fail 하도록 — 호출되면 테스트 fail
     azure_mock.chat.completions.create = MagicMock(
-        side_effect=AssertionError("cold_start path 에서 LLM 호출 발생")
+        return_value=MagicMock(
+            choices=[MagicMock(message=MagicMock(content=__import__("json").dumps(llm_response)))]
+        )
     )
 
     with (
@@ -161,16 +168,15 @@ async def test_optimize_cold_start_when_cases_less_than_3():
             cfg=_make_cfg(),
         )
 
+    # LLM 호출 발생 확인 (cold_start 이어도)
+    azure_mock.chat.completions.create.assert_called_once()
     assert len(advice) == 1
     row = advice[0]
-    assert row["diagnosis"] == "cold_start"
     assert row["company"] == "남웅건설"
     assert row["l6_main"] == "철근콘크리트공사"
-    assert row["recommendations"] == []
-    # cold_start row 도 PG INSERT 보장 (cold_start signal 보존)
+    assert row["degradation_cases"] == []  # 빈 cases 그대로 보존
+    # PG INSERT 보장
     pg_mock.insert_optimizer_advice.assert_awaited_once()
-    # LLM 호출 X
-    azure_mock.chat.completions.create.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

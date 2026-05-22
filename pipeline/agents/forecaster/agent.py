@@ -146,7 +146,22 @@ async def _forecast_one_group(
     # ④ assessment
     rag_n = len(similar_cases)
     rag_avg_prod = sum(c["metadata"]["productivity"] for c in similar_cases) / rag_n if rag_n > 0 else 0.0
-    plan_main_qty = plan["plan_total_qty_by_unit"].get(main_unit) if plan and main_unit else None
+    # atomic 1:1 매칭 — group 안 mapper row 의 main_unit plan_total_qty distinct SUM.
+    # 이전: plan["plan_total_qty_by_unit"][main_unit] (activity_master 의 l6_main SUM).
+    # 문제: 매칭 안 된 atomic 까지 분모 합산 -> pace 작은 그룹의 remaining_days 폭주
+    # (진특수 방수 9/25 case: l6=10,523 m2 vs atomic=194 m2 -> delay 26,517 일).
+    # Fix: mapper_activities.plan_total_qty 가 atomic 매칭 결과 broadcast 라
+    #      group 안 distinct value 의 SUM 만 사용. 같은 wbs 가 multiple mapper row
+    #      로 들어와도 double count 방지.
+    if main_unit:
+        plan_qtys = {
+            round(float(a["plan_total_qty"]), 4)
+            for a in activities
+            if a.get("unit") == main_unit and a.get("plan_total_qty") is not None
+        }
+        plan_main_qty = sum(plan_qtys) if plan_qtys else None
+    else:
+        plan_main_qty = None
     assessment = classify_assessment(
         rag_n=rag_n,
         today_prod=today_productivity,

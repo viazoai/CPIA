@@ -286,18 +286,37 @@ async def _run_one_date(
     }
 
 
-def _call_backfill_v2(d: date) -> None:
-    """각 일자 완료 후 backfill_v2.py 자동 호출. 없으면 warn + skip."""
-    script = ROOT / "scripts" / "backfill_v2.py"
+def _call_backfill_v2(d: date, site_id: str) -> None:
+    """각 일자 완료 후 daily_reports jsonb 재산출 (kpi/quadrant/optimizer_view 등).
+
+    2026-05-23: backfill_v2.py (legacy) 가 아니라 backfill_daily_report_views_v2.py
+    호출. --with-summary 옵션으로 Optimizer site_summary LLM (21c10f7) 까지
+    같이 호출 -> daily_reports.site_summary_text 박힘 -> FE narrative 표시.
+
+    PYTHONPATH 설정 필요 (script 가 pipeline.* import).
+    """
+    script = ROOT / "scripts" / "backfill_daily_report_views_v2.py"
     if not script.exists():
-        print(f"  [warn] backfill_v2.py not found — skip ({d})")
+        print(f"  [warn] backfill_daily_report_views_v2.py not found — skip ({d})")
         return
+    env = {**os.environ, "PYTHONPATH": str(ROOT)}
     result = subprocess.run(
-        [sys.executable, str(script), "--date", d.isoformat()],
+        [
+            sys.executable,
+            str(script),
+            "--date",
+            d.isoformat(),
+            "--site",
+            site_id,
+            "--with-summary",
+        ],
         capture_output=False,
+        env=env,
     )
     if result.returncode != 0:
-        print(f"  [warn] backfill_v2.py exited {result.returncode} for {d}")
+        print(
+            f"  [warn] backfill_daily_report_views_v2 exited {result.returncode} for {d}"
+        )
 
 
 def _call_verify_backfill(start: date, end: date, site_id: str) -> None:
@@ -393,7 +412,7 @@ async def main() -> None:
             results.append(r)
 
             # 각 일자 완료 후 backfill_v2.py 호출
-            _call_backfill_v2(d)
+            _call_backfill_v2(d, site_id)
 
         print("\n=== 요약 ===")
         for r in results:

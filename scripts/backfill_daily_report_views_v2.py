@@ -88,6 +88,11 @@ async def main() -> None:
     parser.add_argument(
         "--site", default=None, help="단일 site_id 만 (기본 mock=false 전체)"
     )
+    parser.add_argument(
+        "--with-summary",
+        action="store_true",
+        help="LLM site_summary_text 도 같이 산출 (Azure OpenAI 호출, 일자 N 회).",
+    )
     args = parser.parse_args()
 
     pg = PGClient(DSN)
@@ -133,6 +138,38 @@ async def main() -> None:
                 else:
                     stat["ok"] += 1
                     upd = await update_one(raw, site, d, result)
+                    if args.with_summary:
+                        # lazy import — formatter unused-import 휴리스틱 회피
+                        from pipeline.agents.optimizer.site_summary import (
+                            build_site_summary_payload,
+                            generate_site_summary,
+                        )
+
+                        try:
+                            payload = build_site_summary_payload(
+                                report_date=d.isoformat(),
+                                site_id=site,
+                                kpi=result.get("kpi", {}),
+                                scenarios=result.get("scenarios", {}),
+                                wp_summary=result.get("wp_summary", []),
+                                optimizer_view=result.get("optimizer_view", {}),
+                                s_curve=result.get("s_curve", []),
+                            )
+                            summary = await asyncio.to_thread(
+                                generate_site_summary, payload
+                            )
+                            await raw.execute(
+                                "UPDATE daily_reports SET site_summary_text = $1 "
+                                "WHERE site_id = $2 AND report_date = $3::date AND is_mock = false",
+                                summary,
+                                site,
+                                d,
+                            )
+                            stat["summary_ok"] += 1
+                            print(f"    [llm] summary: {summary[:80]}...")
+                        except Exception as exc:
+                            stat["summary_fail"] += 1
+                            print(f"    [warn] site_summary failed for {d}: {exc}")
                 if upd == "UPDATE 0":
                     stat["no_target"] += 1
             print(

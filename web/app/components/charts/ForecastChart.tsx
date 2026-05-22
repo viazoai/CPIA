@@ -36,6 +36,8 @@ interface Props {
     diagnosis?: string;
     recommendations: string[];
   }>;
+  /** BE Optimizer LLM 산출 — site 수준 1~2단락 진척 요약. 룰베이스 narrative 대체. */
+  aiSummaryText?: string | null;
 }
 
 interface ToggleState {
@@ -51,6 +53,7 @@ export function ForecastChart({
   scenarios,
   reportDate,
   aiAdvice,
+  aiSummaryText,
 }: Props) {
   // default on — 3선 동시 비교가 기본. 사용자가 끄고 싶을 때만 끔.
   const [toggles, setToggles] = useState<ToggleState>({
@@ -370,10 +373,16 @@ export function ForecastChart({
       )}
 
       <div className="mt-4 space-y-3 rounded-md bg-surface-soft/50 px-4 py-3 text-sm leading-relaxed">
-        {/* 현황 요약 — 룰베이스 1줄 + LLM 진단 (있는 경우) */}
+        {/* 현황 요약 — Optimizer LLM 산출 (BE site_summary_text). 없으면 룰베이스 fallback. */}
         <div className="text-ink-mid">
-          <p>{situationNarrative(delayDays)}</p>
-          <p>{outlookNarrative(delayDays, recoveryDays)}</p>
+          {aiSummaryText ? (
+            <p>{aiSummaryText}</p>
+          ) : (
+            <>
+              <p>{situationNarrative(delayDays)}</p>
+              <p>{outlookNarrative(delayDays, recoveryDays)}</p>
+            </>
+          )}
         </div>
 
         {/* LLM 산출 권고사항 — 공기 단축 가능한 공종 + 조치 (Optimizer agent) */}

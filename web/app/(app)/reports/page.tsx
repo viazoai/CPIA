@@ -243,6 +243,7 @@ export default function ReportPage() {
                 }
                 scenarios={detail.scenarios?.site}
                 reportDate={selectedDate}
+                aiSummaryText={detail.site_summary_text}
                 aiAdvice={(() => {
                   // wp_summary impact desc top 3 → optimizer.by_wp[wp_id] 의 diagnosis + recommendations 추출.
                   // 룰베이스 fallback (cold_start) 인 wp 는 제외 — LLM 산출 텍스트만.

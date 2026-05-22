@@ -57,6 +57,8 @@ export interface ReportDetail {
     site?: Partial<ScenarioSet>;
     by_wp?: Record<string, ScenarioSet>;
   };
+  /** BE Optimizer LLM 산출 site 수준 narrative (없을 수 있음 — 룰베이스 fallback). */
+  site_summary_text?: string | null;
   raw_data: RawDataRow[];
   wp_summary: WPSummaryRow[];
 }

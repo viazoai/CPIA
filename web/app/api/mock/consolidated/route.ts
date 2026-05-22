@@ -44,59 +44,68 @@ export async function GET(req: Request) {
   const date = searchParams.get("date");
   const useMock = process.env.CPIA_DEMO_FALLBACK === "on";
 
-  // ────── 일자 리스트 ──────
+  // ────── 일자 리스트 — 단일 CTE 로 N+1 제거 ──────
   if (!date) {
-    const dates = (await (sql as any)`
-      SELECT DISTINCT pr.report_date
-      FROM pipeline_runs pr
-      WHERE pr.report_date >= CURRENT_DATE - INTERVAL '1 year'
-        AND pr.is_mock = ${useMock}
-      ORDER BY pr.report_date DESC
+    // latest_reports: 같은 (date) 의 parser_reports 중 최신 created_at 만 → jsonb_array_length.
+    // act_counts: 날짜별 parser_activities 총건수.
+    const rows = (await (sql as any)`
+      WITH latest_reports AS (
+        SELECT DISTINCT ON (report_date)
+          report_date,
+          jsonb_array_length(bp_summaries) AS output_count,
+          jsonb_array_length(job_allocations) AS occupation_count,
+          jsonb_array_length(equipment_allocations) AS equipment_count
+        FROM parser_reports
+        WHERE report_date >= CURRENT_DATE - INTERVAL '1 year'
+          AND is_mock = ${useMock}
+        ORDER BY report_date DESC, created_at DESC
+      ),
+      act_counts AS (
+        SELECT pr.report_date, COUNT(*)::int AS quantity_count
+        FROM parser_activities pa
+        JOIN pipeline_runs pr USING (run_id)
+        WHERE pr.report_date >= CURRENT_DATE - INTERVAL '1 year'
+          AND pa.is_mock = ${useMock}
+        GROUP BY pr.report_date
+      ),
+      run_dates AS (
+        SELECT DISTINCT report_date
+        FROM pipeline_runs
+        WHERE report_date >= CURRENT_DATE - INTERVAL '1 year'
+          AND is_mock = ${useMock}
+      )
+      SELECT rd.report_date,
+             COALESCE(lr.output_count, 0)      AS output_count,
+             COALESCE(lr.occupation_count, 0)  AS occupation_count,
+             COALESCE(lr.equipment_count, 0)   AS equipment_count,
+             COALESCE(ac.quantity_count, 0)    AS quantity_count
+      FROM run_dates rd
+      LEFT JOIN latest_reports lr USING (report_date)
+      LEFT JOIN act_counts ac USING (report_date)
+      ORDER BY rd.report_date DESC
       LIMIT 365
-    `) as Array<{ report_date: Date | string }>;
+    `) as Array<{
+      report_date: Date | string;
+      output_count: number;
+      occupation_count: number;
+      equipment_count: number;
+      quantity_count: number;
+    }>;
 
-    const summaries: ConsolidatedReportSummary[] = [];
-    for (const { report_date } of dates) {
-      const dStr = toDateStr(report_date);
-      const counts = (await (sql as any)`
-        SELECT
-          COALESCE((
-            SELECT jsonb_array_length(bp_summaries)
-            FROM parser_reports WHERE report_date = ${dStr} AND is_mock = ${useMock}
-            ORDER BY created_at DESC LIMIT 1
-          ), 0) AS output_count,
-          COALESCE((
-            SELECT jsonb_array_length(job_allocations)
-            FROM parser_reports WHERE report_date = ${dStr} AND is_mock = ${useMock}
-            ORDER BY created_at DESC LIMIT 1
-          ), 0) AS occupation_count,
-          COALESCE((
-            SELECT jsonb_array_length(equipment_allocations)
-            FROM parser_reports WHERE report_date = ${dStr} AND is_mock = ${useMock}
-            ORDER BY created_at DESC LIMIT 1
-          ), 0) AS equipment_count,
-          (
-            SELECT COUNT(*)
-            FROM parser_activities pa
-            JOIN pipeline_runs pr USING (run_id)
-            WHERE pr.report_date = ${dStr}
-              AND pa.is_mock = ${useMock}
-          ) AS quantity_count
-      `) as Array<Record<string, number | string | null>>;
-      const c = counts[0] ?? {};
-      summaries.push({
-        date: dStr,
-        pjt: PJT,
-        status: "ready",
-        sheet_row_counts: {
-          output_manpower: Number(c.output_count ?? 0),
-          occupation_manpower: Number(c.occupation_count ?? 0),
-          equipment: Number(c.equipment_count ?? 0),
-          quantity: Number(c.quantity_count ?? 0),
-        },
-      });
-    }
-    return NextResponse.json(summaries);
+    const summaries: ConsolidatedReportSummary[] = rows.map((r) => ({
+      date: toDateStr(r.report_date),
+      pjt: PJT,
+      status: "ready",
+      sheet_row_counts: {
+        output_manpower: r.output_count,
+        occupation_manpower: r.occupation_count,
+        equipment: r.equipment_count,
+        quantity: r.quantity_count,
+      },
+    }));
+    return NextResponse.json(summaries, {
+      headers: { "Cache-Control": "s-maxage=30, stale-while-revalidate=60" },
+    });
   }
 
   // ────── 단건 detail — 4 시트 raw ──────
@@ -213,5 +222,7 @@ export async function GET(req: Request) {
     equipment,
     quantity,
   };
-  return NextResponse.json(report);
+  return NextResponse.json(report, {
+    headers: { "Cache-Control": "s-maxage=30, stale-while-revalidate=60" },
+  });
 }

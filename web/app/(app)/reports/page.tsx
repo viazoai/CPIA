@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ReportDailyList } from "@/app/components/reports/ReportDailyList";
 import { OptimizerResult } from "@/app/components/reports/OptimizerResult";
 import { QuadrantCountKpi } from "@/app/components/reports/QuadrantCountKpi";
@@ -32,16 +32,39 @@ export default function ReportPage() {
   const [selectedDate, setSelectedDate] = useState<string>("");
   const [filter, setFilter] = useState<Filter>("all");
   const [selectedWpId, setSelectedWpId] = useState<string | null>(null);
+  // 한번 fetch 한 date 는 메모리 캐시 → 좌측 목록에서 다른 날짜 갔다 돌아와도 즉답.
+  const detailCacheRef = useRef<Map<string, ReportDetail>>(new Map());
 
+  // 1) list 만 — 32MB jsonb 페이로드 제거. ~50KB.
   useEffect(() => {
     fetch("/api/mock/report")
       .then((r) => r.json())
       .then((d) => {
         setDaily(d.daily);
-        setDetails(d.details);
         if (d.daily.length > 0) setSelectedDate(d.daily[0].date);
       });
   }, []);
+
+  // 2) selectedDate 변경 시에만 detail fetch.
+  useEffect(() => {
+    if (!selectedDate) return;
+    const cached = detailCacheRef.current.get(selectedDate);
+    if (cached) {
+      setDetails((prev) => (prev[selectedDate] ? prev : { ...prev, [selectedDate]: cached }));
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/mock/report/${selectedDate}`)
+      .then((r) => r.json())
+      .then((d: ReportDetail) => {
+        if (cancelled) return;
+        detailCacheRef.current.set(selectedDate, d);
+        setDetails((prev) => ({ ...prev, [selectedDate]: d }));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDate]);
 
   useEffect(() => {
     const detail = details[selectedDate];

@@ -295,11 +295,15 @@ async def _build_kpi(
     async with pg._pool.acquire() as con:
         d_row = await con.fetchrow(
             """
-            SELECT AVG(delay_days)::float AS delay,
-                   MAX(expected_completion) AS expected_completion
+            -- 2026-05-23: AVG -> MEDIAN. AVG 는 outlier 1건에 끌려가 site KPI 가
+            -- 비현실 (예: 동신패널 외장판넬 atomic 1행 dummy anomaly = 167,871일
+            -- -> AVG=2,398). MEDIAN 은 "일반적 그룹 delay" 의미.
+            SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY delay_days)::float AS delay,
+                   PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY expected_completion) AS expected_completion
             FROM forecasts f JOIN pipeline_runs pr USING (run_id)
             WHERE pr.site_id = $1 AND pr.report_date = $2
-            """,
+              AND delay_days IS NOT NULL
+""",
             site_id,
             today,
         )
@@ -1690,11 +1694,15 @@ async def _build_productivity_views_v2(
     async with pg._pool.acquire() as con:
         fc_agg = await con.fetchrow(
             """
-            SELECT AVG(delay_days)::float AS delay,
-                   MAX(expected_completion) AS expected_completion
+            -- 2026-05-23: AVG -> MEDIAN. AVG 는 outlier 1건에 끌려가 site KPI 가
+            -- 비현실 (예: 동신패널 외장판넬 atomic 1행 dummy anomaly = 167,871일
+            -- -> AVG=2,398). MEDIAN 은 "일반적 그룹 delay" 의미.
+            SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY delay_days)::float AS delay,
+                   PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY expected_completion) AS expected_completion
             FROM forecasts f JOIN pipeline_runs pr USING (run_id)
             WHERE pr.site_id = $1 AND pr.report_date = $2
-            """,
+              AND delay_days IS NOT NULL
+""",
             site_id, today,
         )
     kpi_delay = round((fc_agg["delay"] if fc_agg else 0) or 0)

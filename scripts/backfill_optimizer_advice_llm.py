@@ -66,13 +66,13 @@ def _delete_previous_artifacts_statements(
 
     advice -> forecasts -> daily_reports -> pipeline_runs
     """
-    sub = "SELECT run_id FROM pipeline_runs WHERE site_id=$1 AND report_date=$2"
+    sub = "SELECT run_id FROM pipeline_runs WHERE site_id=$1 AND report_date=$2::date"
     params = [site_id, target_date]
     return [
         (f"DELETE FROM optimizer_advice WHERE run_id IN ({sub})", params),
         (f"DELETE FROM forecasts WHERE run_id IN ({sub})", params),
         (f"DELETE FROM daily_reports WHERE run_id IN ({sub})", params),
-        ("DELETE FROM pipeline_runs WHERE site_id=$1 AND report_date=$2", params),
+        ("DELETE FROM pipeline_runs WHERE site_id=$1 AND report_date=$2::date", params),
     ]
 
 

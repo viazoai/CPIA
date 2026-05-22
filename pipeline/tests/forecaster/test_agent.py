@@ -71,6 +71,7 @@ async def test_forecast_row_has_main_unit_and_today_conditions():
 
     pg = MagicMock()
     pg.fetch_plan_for_group = AsyncMock(return_value=None)  # cold-start path (Plan 없음)
+    pg.fetch_all = AsyncMock(return_value=[])  # A8 fetch_pg_actual_cum_qty — empty PG history
 
     # Chroma collection mock — RAG 0건 (cold-start 유사 케이스 없음)
     coll = MagicMock()

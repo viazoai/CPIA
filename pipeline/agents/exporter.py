@@ -9,6 +9,7 @@ import json
 from dataclasses import dataclass
 from datetime import date as _date
 
+
 from pipeline.db import PGClient
 
 
@@ -91,3 +92,210 @@ async def fetch_sheet_data(
         equipment=[_coerce(r) for r in eq_rows],
         quantity=[dict(r) for r in act_rows],
     )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Render — Spec §7.2
+# ──────────────────────────────────────────────────────────────────────────────
+
+from io import BytesIO  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+from openpyxl import load_workbook  # noqa: E402
+
+TEMPLATE_PATH = Path(__file__).parent / "exporter_templates" / "consolidated_template.xlsx"
+DATA_START_ROW = 5
+
+# COL_* 는 docs/sample/통합작업일보_M15X*.xlsx r3+r4+r5 헤더를 openpyxl 로 덤프해
+# 직접 추출한 1-indexed 컬럼 번호. placeholder 아님.
+
+# 시트1 헤더 (r3+r4):
+#   r3: 2=구분, 3=Zone, 4=공종, 5=BP사, 6=Scope, 7=주요작업, 10=전일incr,
+#       17=전일cum, 24=금일incr, 31=금일cum
+#   r4: 2=PJT, 4=Dis, 5=협력업체, 7=전일작업, 8=금일작업, 9=명일작업,
+#       10-15=조출/주간/연장/야간/철야/Total (incr 블록 시작)
+# col 16/23/30/37 은 r4 라벨 없으나 r5 에 누계값 (예: 230) 박힘 → 블록 6셀 + final.
+COL_OUTPUT_MANPOWER = {
+    "project": 2,
+    "zone": 3,
+    "trade": 4,
+    "bp_code": 5,  # col 5 가 r3='BP사', r4='협력업체' 동일 칸 (단일 컬럼 dual-meaning)
+    "scope": 6,
+    "work_y": 7,
+    "work_t": 8,
+    "work_n": 9,
+    "yest_incr": 10,
+    "yest_cum": 17,
+    "today_incr": 24,
+    "today_cum": 31,
+}
+
+# 시트2 헤더:
+#   r4: 2=공종, 3=BP사, 6=직종, 7=전일누계, 13=금일투입, 19=금일누계
+#   r5: 2=Dis, 3=협력업체, 4=관리자/근로자, 5=기능공, 6=[기능공],
+#       7-12 / 13-18 / 19-24 timeshift 블록, 25=최종
+COL_OCCUPATION = {
+    "trade": 2,
+    "bp_code": 3,
+    "manager_code": 4,
+    "worker_code": 5,
+    "job_type": 6,
+    "yest_cum": 7,
+    "today_incr": 13,
+    "today_cum": 19,
+}
+
+# 시트3 헤더:
+#   r4: 2=공종, 3=BP사, 4=장비명(merged 4-6), 7=전일투입누계, 13=금일투입, 19=금일투입누계
+#   r5: 2=Dis, 3=협력업체, 4=대분류, 5=중분류, 6=규격, 7-12/13-18/19-24 블록, 25=최종
+COL_EQUIPMENT = {
+    "trade": 2,
+    "bp_code": 3,
+    "eq_big": 4,
+    "eq_mid": 5,
+    "eq_spec": 6,
+    "yest_cum": 7,
+    "today_incr": 13,
+    "today_cum": 19,
+}
+
+# 시트4 헤더:
+#   r3: 2=구분, 3=Zone, 4=공종, 5=BP사, 6=업체명, 7=Scope, 8=대표물량_작업내용,
+#       9=단위, 10=총물량, 11=전일누적, 12=금일실적, 13=금일누적, 15=잔여, 17=비고
+#   r4: 14=F%, 16=G%
+COL_QUANTITY = {
+    "project": 2,
+    "zone": 3,
+    "trade": 4,
+    "bp_code": 5,
+    "company": 6,
+    "scope": 7,
+    "rep_work": 8,
+    "unit": 9,
+    "total_a": 10,
+    "prev_cum_b": 11,
+    "today_c": 12,
+    "today_cum_d": 13,
+    "f_pct": 14,
+    "remain_e": 15,
+    "g_pct": 16,
+    "note": 17,
+}
+
+
+_WEEKDAYS_KO = ["월", "화", "수", "목", "금", "토", "일"]
+
+
+def _korean_weekday(d: _date) -> str:
+    return _WEEKDAYS_KO[d.weekday()]
+
+
+def _fill_timeshift(ws, row: int, col_start: int, ts: dict | None) -> None:
+    """6 연속 cell 채우기: morning/daytime/overtime/night/all_night/total."""
+    if not ts:
+        return
+    for i, key in enumerate(["morning", "daytime", "overtime", "night", "all_night", "total"]):
+        ws.cell(row=row, column=col_start + i, value=ts.get(key, 0))
+
+
+def _fill_output_manpower(ws, rows: list[dict], report_date: _date) -> None:
+    C = COL_OUTPUT_MANPOWER
+    for i, row in enumerate(rows):
+        r = DATA_START_ROW + i
+        ws.cell(r, C["zone"], row.get("zone"))
+        ws.cell(r, C["trade"], row.get("disc_abbrev"))
+        # col 5 는 bp_code 와 company 가 동일 칸 — bp_code 우선 (실제 시트가 BP_CODE 박힘).
+        # company 는 별도 컬럼 없음. 시트1 헤더 r3='BP사' / r4='협력업체' 가 같은 칸.
+        ws.cell(r, C["bp_code"], row.get("bp_code") or row.get("company"))
+        ws.cell(r, C["scope"], row.get("scope"))
+        ws.cell(r, C["work_y"], row.get("work_text_yesterday"))
+        ws.cell(r, C["work_t"], row.get("work_text_today"))
+        ws.cell(r, C["work_n"], row.get("work_text_tomorrow"))
+        _fill_timeshift(ws, r, C["yest_incr"], row.get("workers_yesterday_incr"))
+        _fill_timeshift(ws, r, C["yest_cum"], row.get("workers_yesterday_cum"))
+        _fill_timeshift(ws, r, C["today_incr"], row.get("workers_today_incr"))
+        _fill_timeshift(ws, r, C["today_cum"], row.get("workers_today_cum"))
+
+
+def _fill_occupation(ws, rows: list[dict], report_date: _date) -> None:
+    C = COL_OCCUPATION
+    for i, row in enumerate(rows):
+        r = DATA_START_ROW + i
+        ws.cell(r, C["trade"], row.get("disc_abbrev"))
+        ws.cell(r, C["bp_code"], row.get("bp_code"))
+        ws.cell(r, C["manager_code"], row.get("manager_code"))
+        ws.cell(r, C["worker_code"], row.get("worker_code"))
+        ws.cell(r, C["job_type"], row.get("job_type"))
+        # 시트2 의 yest_cum / today_incr / today_cum 은 6 timeshift 블록 + 누계 cell.
+        # parser 단계에서 timeshift dict 가 없으면 scalar workers_cum_t 만 'total' 자리에 박음.
+        cum_t = row.get("workers_cum_t")
+        if isinstance(row.get("workers_yesterday_cum"), dict):
+            _fill_timeshift(ws, r, C["yest_cum"], row["workers_yesterday_cum"])
+        elif cum_t is not None:
+            ws.cell(r, C["yest_cum"] + 5, cum_t)  # total 자리 (블록 시작+5)
+        if isinstance(row.get("workers_today_incr"), dict):
+            _fill_timeshift(ws, r, C["today_incr"], row["workers_today_incr"])
+        if isinstance(row.get("workers_today_cum"), dict):
+            _fill_timeshift(ws, r, C["today_cum"], row["workers_today_cum"])
+
+
+def _fill_equipment(ws, rows: list[dict], report_date: _date) -> None:
+    C = COL_EQUIPMENT
+    for i, row in enumerate(rows):
+        r = DATA_START_ROW + i
+        ws.cell(r, C["trade"], row.get("disc_abbrev"))
+        ws.cell(r, C["bp_code"], row.get("bp_code"))
+        ws.cell(r, C["eq_big"], row.get("equipment_big"))
+        ws.cell(r, C["eq_mid"], row.get("equipment_mid"))
+        ws.cell(r, C["eq_spec"], row.get("equipment_spec"))
+        cnt_cum = row.get("count_cum_t")
+        if isinstance(row.get("count_yesterday_cum"), dict):
+            _fill_timeshift(ws, r, C["yest_cum"], row["count_yesterday_cum"])
+        elif cnt_cum is not None:
+            ws.cell(r, C["yest_cum"] + 5, cnt_cum)
+        if isinstance(row.get("count_today_incr"), dict):
+            _fill_timeshift(ws, r, C["today_incr"], row["count_today_incr"])
+        if isinstance(row.get("count_today_cum"), dict):
+            _fill_timeshift(ws, r, C["today_cum"], row["count_today_cum"])
+
+
+def _fill_quantity(ws, rows: list[dict], report_date: _date) -> None:
+    C = COL_QUANTITY
+    for i, row in enumerate(rows):
+        r = DATA_START_ROW + i
+        ws.cell(r, C["zone"], row.get("zone"))
+        ws.cell(r, C["trade"], row.get("trade") or row.get("disc_abbrev"))
+        ws.cell(r, C["bp_code"], row.get("bp_code"))
+        ws.cell(r, C["company"], row.get("company"))
+        ws.cell(r, C["scope"], row.get("scope"))
+        ws.cell(r, C["rep_work"], row.get("work_content"))
+        ws.cell(r, C["unit"], row.get("unit"))
+        ws.cell(r, C["total_a"], row.get("plan_total_qty"))
+        ws.cell(r, C["prev_cum_b"], row.get("yesterday_cum_qty"))
+        ws.cell(r, C["today_c"], row.get("today_qty"))
+        # D = B + C, E = A - D — 둘 다 산식 가능하면 채움 (None 안전).
+        b = row.get("yesterday_cum_qty")
+        c = row.get("today_qty")
+        a = row.get("plan_total_qty")
+        if b is not None and c is not None:
+            d = b + c
+            ws.cell(r, C["today_cum_d"], d)
+            if a:
+                ws.cell(r, C["f_pct"], round(d / a * 100, 2))
+                ws.cell(r, C["remain_e"], a - d)
+                ws.cell(r, C["g_pct"], round(100 - (d / a * 100), 2))
+        ws.cell(r, C["note"], row.get("note"))
+
+
+def render_xlsx(sheet_data: SheetData, report_date: _date, project: str) -> bytes:
+    """SheetData → xlsx bytes (template 복제 후 r5 부터 fill). Spec §7.2."""
+    if not TEMPLATE_PATH.exists():
+        raise FileNotFoundError(f"template not found: {TEMPLATE_PATH}")
+    wb = load_workbook(TEMPLATE_PATH)
+    _fill_output_manpower(wb["1.출력인원 현황"], sheet_data.output_manpower, report_date)
+    _fill_occupation(wb["2.직종별 인원현황"], sheet_data.occupation_manpower, report_date)
+    _fill_equipment(wb["3.장비현황"], sheet_data.equipment, report_date)
+    _fill_quantity(wb["4.물량"], sheet_data.quantity, report_date)
+    buf = BytesIO()
+    wb.save(buf)
+    return buf.getvalue()

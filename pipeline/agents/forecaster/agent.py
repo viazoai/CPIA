@@ -5,6 +5,7 @@ Spec: docs/superpowers/specs/2026-05-16-cpia-forecaster-design.md §10
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid
@@ -16,6 +17,7 @@ from openai import AzureOpenAI
 
 logger = logging.getLogger(__name__)
 
+from pipeline.agents._concurrency import get_llm_semaphore
 from pipeline.chroma_client import ChromaClient
 from pipeline.db import PGClient
 from pipeline.state import Activity
@@ -294,22 +296,28 @@ async def forecast(
             key = (a.get("wa"), a["company"], a["l6_main"])
             groups.setdefault(key, []).append(a)
 
-        forecast_rows: list[dict[str, Any]] = []
-        for (wa, company, l6_main), activities in groups.items():
-            row = await _forecast_one_group(
-                company,
-                l6_main,
-                activities,
-                run_id,
-                today,
-                pg,
-                coll,
-                azure,
-                cfg,
-            )
+        sem = get_llm_semaphore()  # 함수 entry 에서 한 번 — closure 로 공유
+
+        async def _one(key: tuple[str | None, str, str], activities: list[Activity]) -> dict[str, Any]:
+            wa, company, l6_main = key
+            async with sem:  # LLM 호출 부분만 Semaphore 안
+                row = await _forecast_one_group(
+                    company,
+                    l6_main,
+                    activities,
+                    run_id,
+                    today,
+                    pg,
+                    coll,
+                    azure,
+                    cfg,
+                )
             row["wa"] = wa
-            await pg.insert_forecast(row)
-            forecast_rows.append(row)
+            await pg.insert_forecast(row)  # asyncpg pool 이 thread-safe — sem 밖
+            return row
+
+        tasks = [_one(k, v) for k, v in groups.items()]
+        forecast_rows: list[dict[str, Any]] = list(await asyncio.gather(*tasks))
 
         return forecast_rows
     finally:

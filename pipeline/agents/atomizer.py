@@ -31,7 +31,9 @@ class AtomizerConfig:
     chroma_host: str
     chroma_port: int
     chroma_ssl: bool = False
-    batch_size: int = 16
+    batch_size: int = (
+        64  # 2026-05-22: Azure embedding input limit 2048, 64 안전. 1일 cycle ~200 doc 이 1 batch.
+    )
     azure_timeout: float = 30.0
     azure_max_retries: int = 3
     embedding_dim: int = 1536

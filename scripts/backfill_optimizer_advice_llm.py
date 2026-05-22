@@ -60,19 +60,26 @@ DEFAULT_DAYS = 15
 
 
 def _delete_previous_artifacts_statements(
-    site_id: str, target_date: str
+    site_id: str, target_date: date
 ) -> list[tuple[str, list]]:
     """cascade DELETE 4 statement 반환 (실행 순서 보장).
 
     advice -> forecasts -> daily_reports -> pipeline_runs
+
+    target_date: datetime.date (asyncpg 가 PG DATE 컬럼에 직접 bind).
+                 str 받으면 datetime.date 로 변환 — 호출자 편의.
     """
-    sub = "SELECT run_id FROM pipeline_runs WHERE site_id=$1 AND report_date=$2::date"
+    if isinstance(target_date, str):
+        from datetime import datetime as _dt
+
+        target_date = _dt.strptime(target_date, "%Y-%m-%d").date()
+    sub = "SELECT run_id FROM pipeline_runs WHERE site_id=$1 AND report_date=$2"
     params = [site_id, target_date]
     return [
         (f"DELETE FROM optimizer_advice WHERE run_id IN ({sub})", params),
         (f"DELETE FROM forecasts WHERE run_id IN ({sub})", params),
         (f"DELETE FROM daily_reports WHERE run_id IN ({sub})", params),
-        ("DELETE FROM pipeline_runs WHERE site_id=$1 AND report_date=$2::date", params),
+        ("DELETE FROM pipeline_runs WHERE site_id=$1 AND report_date=$2", params),
     ]
 
 
@@ -92,7 +99,7 @@ async def _delete_previous_artifacts(
 ) -> None:
     """_delete_previous_artifacts_statements 의 SQL 을 asyncpg 로 순차 실행."""
     print(f"\n--- {target_date} cascade DELETE (site={site_id}) ---")
-    stmts = _delete_previous_artifacts_statements(site_id, target_date.isoformat())
+    stmts = _delete_previous_artifacts_statements(site_id, target_date)
     for sql, params in stmts:
         await pg._pool.execute(sql, *params)  # type: ignore[union-attr]
         print(f"  OK: {sql[:60]}...")

@@ -15,6 +15,7 @@ Phase 4.11: GET /api/tasks — DailyTask[] + progressByDate + itemsByDate 반환
 
 from __future__ import annotations
 
+import asyncio
 import os
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator
@@ -24,7 +25,10 @@ from langgraph.errors import EmptyChannelError, InvalidUpdateError
 from langgraph.types import Command
 from pydantic import BaseModel
 
+from pipeline.collector.config import load_collector_config
+from pipeline.collector.idle_worker import idle_loop, request_shutdown
 from pipeline.db import PGClient
+from pipeline.exporter_routes import router as exporter_router
 from pipeline.graph import GraphConfig, build_graph
 
 
@@ -167,9 +171,27 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.graph = graph
     app.state.cfg = cfg
 
+    # ── Collector (IMAP IDLE) ─────────────────────────────────────
+    # Spec §6.1. COLLECTOR_ENABLED=false 면 task 안 띄움.
+    # Spec §10 결정: collector_cfg 로드 실패는 fail-fast (try/except 로 swallow X).
+    # - POSTGRES_URL 누락 → KeyError 전파 (앱 부팅 불가) — 위 154 라인이 먼저 잡음
+    # - COLLECTOR_ENABLED=true + USER/PW 누락 → load_collector_config 가 RuntimeError 던짐 (의도)
+    # - COLLECTOR_ENABLED=false (default) → 자격증명 누락 허용, 단순히 collector_task 미생성
+    collector_cfg = load_collector_config(graph_cfg=cfg)
+    collector_task = None
+    if collector_cfg.enabled:
+        collector_task = asyncio.create_task(idle_loop(collector_cfg))
+
     try:
         yield
     finally:
+        if collector_task is not None:
+            request_shutdown()
+            collector_task.cancel()
+            try:
+                await collector_task
+            except asyncio.CancelledError:
+                pass
         await pg.close()
 
 
@@ -178,6 +200,7 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+app.include_router(exporter_router)
 
 
 # ---------------------------------------------------------------------------

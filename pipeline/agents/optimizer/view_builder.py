@@ -818,29 +818,59 @@ def _merge_curves(
 
 
 def _extend_forecast(merged: list[dict[str, Any]], days_ahead: int = 30) -> list[dict[str, Any]]:
-    """현 추세 연장 — 마지막 actual rate x remaining days. 결정론적 linear.
+    """현 추세 연장 — 직전 7일 평균 rate x remaining days. 결정론적 linear.
 
-    merged 의 마지막 actual 기준 rate 계산 → days_ahead 만큼 forecast 추가.
+    이전: 마지막 1일 delta 만 사용 → outlier (예: mock 9-25 today_qty=6608) 에 흔들림.
+    개선: 직전 7일 윈도우 평균. rate <= 0 이면 planned 일평균의 70% 로 fallback.
+    또 dedup: 같은 date 가 merged 안에 있으면 그 dict 에 forecast 키만 추가 (중복 row 방지).
     """
+    from datetime import date as _date, timedelta
     actual_points = [m for m in merged if m.get("actual") is not None]
     if len(actual_points) < 2:
         return merged
+
+    # 직전 7일 평균 rate (window size 최대 8개 점 — 7 delta).
+    window = actual_points[-8:] if len(actual_points) >= 8 else actual_points
+    rates: list[float] = []
+    for i in range(1, len(window)):
+        prev_pt = window[i - 1]
+        cur_pt = window[i]
+        prev_dt_w = _date.fromisoformat(prev_pt["date"]) if isinstance(prev_pt["date"], str) else prev_pt["date"]
+        cur_dt_w = _date.fromisoformat(cur_pt["date"]) if isinstance(cur_pt["date"], str) else cur_pt["date"]
+        days = max(1, (cur_dt_w - prev_dt_w).days)
+        rates.append((cur_pt["actual"] - prev_pt["actual"]) / days)
+    rate = sum(rates) / len(rates) if rates else 0.0
+
+    # fallback: rate <= 0 (또는 매우 작음) 이면 planned 의 일평균 rate × 0.7.
+    if rate <= 0:
+        planned_points = [m for m in merged if m.get("planned") is not None]
+        if len(planned_points) >= 2:
+            first_p = planned_points[0]
+            last_p = planned_points[-1]
+            first_dt = _date.fromisoformat(first_p["date"]) if isinstance(first_p["date"], str) else first_p["date"]
+            last_dt2 = _date.fromisoformat(last_p["date"]) if isinstance(last_p["date"], str) else last_p["date"]
+            total_days = max(1, (last_dt2 - first_dt).days)
+            planned_rate = (last_p["planned"] - first_p["planned"]) / total_days
+            rate = planned_rate * 0.7
+
     last = actual_points[-1]
-    prev = actual_points[-2]
-    from datetime import date as _date, timedelta
     last_dt = _date.fromisoformat(last["date"]) if isinstance(last["date"], str) else last["date"]
-    prev_dt = _date.fromisoformat(prev["date"]) if isinstance(prev["date"], str) else prev["date"]
-    days = max(1, (last_dt - prev_dt).days)
-    rate = (last["actual"] - prev["actual"]) / days
     last["forecast"] = last["actual"]  # forecast 시작점 = 마지막 actual
+
+    # dedup: 같은 date 가 merged 안에 있으면 그 dict 에 forecast 키만 추가.
+    by_date = {m["date"]: m for m in merged}
     out = list(merged)
     for i in range(1, days_ahead + 1):
         next_dt = last_dt + timedelta(days=i)
-        out.append({
-            "date": next_dt.isoformat(),
-            "forecast": last["actual"] + rate * i,
-        })
-    return out
+        key = next_dt.isoformat()
+        forecast_val = last["actual"] + rate * i
+        if key in by_date:
+            by_date[key]["forecast"] = forecast_val
+        else:
+            new_pt = {"date": key, "forecast": forecast_val}
+            out.append(new_pt)
+            by_date[key] = new_pt
+    return sorted(out, key=lambda x: x["date"])
 
 
 async def _build_s_curve(
@@ -914,7 +944,9 @@ async def _build_s_curve(
         [dict(r) for r in actual],
         recovery if isinstance(recovery, list) else [],
     )
-    extended = _extend_forecast(merged, days_ahead=30)
+    # days_ahead = plan_finish 까지 + 30일 여유. 30일 fixed 면 catch-up 시점까지 못 닿아 차트 끊김.
+    forecast_days = max(30, (plan_end - today).days + 30) if plan_end else 30
+    extended = _extend_forecast(merged, days_ahead=forecast_days)
     # normalize 분모 = SUM(activity_master.plan_total_qty) (위에서 fetch한 site_total_qty).
     # 이전 max(planned across all dates) 분모는 마지막 generate 일자 cum_plan_qty 와 같아 today
     # 시점 planned 가 무조건 100% 가 됐다. 그 결과 시나리오 곡선 completionOffset=1 의미 상실.
@@ -1211,11 +1243,14 @@ def _weighted_median(values: list[float], weights: list[float]) -> float:
     return pairs[-1][0]
 
 
-def _normalize_impact(impacts: list[float]) -> list[float]:
+def _normalize_impact_share(impacts: list[float]) -> list[float]:
     """impact share-of-total (일별 합 = 100%). 사용자 요청 의도 "비율".
 
     이전 max-normalize (단일 wp 가 항상 100% 받음) 는 일별 합이 100% 가 아님 → share 로 변경.
     grouped_items 의 agg_impact 는 sum() 으로 group 합 = 그 wp_id 의 share. 모든 wp_id share 합 = 100%.
+
+    NOTE 2026-05-22: line 374 의 `_normalize_impact(raw, p90)` 와 이름 충돌로 후자가 shadowing
+    → line 743 호출 시 "takes 1 positional argument but 2 were given" 발생. 이름 분리.
     """
     if not impacts:
         return []
@@ -1383,7 +1418,7 @@ async def _build_productivity_views_v2(
         return dict(_VIEWS_V2_EMPTY)
 
     # impact 정규화
-    impacts_norm = _normalize_impact([it["impact_raw"] for it in items])
+    impacts_norm = _normalize_impact_share([it["impact_raw"] for it in items])
     for it, ni in zip(items, impacts_norm):
         it["impact"] = ni
 

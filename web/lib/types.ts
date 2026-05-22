@@ -290,6 +290,7 @@ export interface ScenarioPoint {
   recovery_pct: number;          // 회복 후 누적 진척률 (%)
   delta_completion_days: number; // 계획 완공일 대비. 음수 = 단축, 양수 = 지연
   curve: (number | null)[];      // 시각화용 시계열 (길이 = s_curve.length). today 이전은 null — 차트에서 선 안 그리도록
+  catch_up?: { date: string; percent: number };  // catch-up intersection (plan 따라잡는 시점)
 }
 
 // ────── /export — 통합 작업일보 (Exporter agent 산출물) ──────

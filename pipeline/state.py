@@ -258,10 +258,9 @@ class CPIAState(TypedDict):
     ]
 
     # D-12 — collector_node / parser_node 산출 + listener invoke 인자
+    # `parsed` / `date` / `site_id` / `input_files` 는 위에 이미 정의됨 — collector/parser 가 같은 키로 박음.
     bp_name: str  # 첨부 파일명에서 분해된 BP 명 ('_integrated' 가능)
-    report_date: str  # YYYY-MM-DD
     project: str  # 파일명 prefix
-    parsed_reports: list[ParsedDailyReport]  # 1-element list (D-3 — 1 첨부 = 1 invoke)
     message_id: str  # listener invoke 시 박힘. CLI 진입 시 absent
     postgres_url: str  # collector_node 가 collector_inbox UPDATE 용
 

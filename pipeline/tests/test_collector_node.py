@@ -28,7 +28,8 @@ async def test_collector_node_extracts_meta(integrated_xlsx: Path) -> None:
     }
     out = await collector_node(state)
     assert out["bp_name"] == "_integrated"
-    assert out["report_date"] == "2025-09-25"
+    # mapper 가 state["date"] 로 읽음 (graph.py:64 등) — D-12 가 기존 키와 일치
+    assert out["date"] == "2025-09-25"
     assert out["project"] == "M15X Ph-3 IBL PJT 작업일보"
 
 

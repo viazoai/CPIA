@@ -58,6 +58,6 @@ async def collector_node(state: CPIAState) -> dict[str, Any]:
     )
     return {
         "bp_name": meta.bp_name or "_integrated",
-        "report_date": meta.date,
+        "date": meta.date,
         "project": meta.project,
     }

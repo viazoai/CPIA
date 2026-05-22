@@ -13,7 +13,7 @@ log = logging.getLogger("cpia.parser_node")
 
 
 def parser_node(state: CPIAState) -> dict[str, Any]:
-    """1 첨부 = 1 ParsedDailyReport (D-3 유지). mapper 가 list 를 받으므로 1-element list."""
+    """1 첨부 = 1 ParsedDailyReport (D-3 유지). mapper 가 state["parsed"] 로 읽음."""
     path = Path(state["input_files"][0])
     report = parse_daily_report(path)
     log.info(
@@ -22,4 +22,4 @@ def parser_node(state: CPIAState) -> dict[str, Any]:
         len(report["bp_summaries"]),
         len(report["activities"]),
     )
-    return {"parsed_reports": [report]}
+    return {"parsed": report}

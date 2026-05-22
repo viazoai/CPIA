@@ -17,8 +17,10 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt  # noqa: F401  (Command re-exported for callers)
 
 from pipeline.agents.atomizer import AtomizerConfig, atomize
+from pipeline.agents.collector_node import collector_node as _collector
 from pipeline.agents.forecaster import ForecasterConfig, forecast
 from pipeline.agents.mapper import MapperConfig, _prorate_mh, map_activity
+from pipeline.agents.parser_node import parser_node as _parser
 from pipeline.agents.optimizer.agent import OptimizerConfig, optimize
 from pipeline.agents.parser_post import normalize_company
 from pipeline.agents.optimizer.retrieve import (
@@ -554,6 +556,8 @@ def build_graph(cfg: GraphConfig):
     async def _reporter(state: CPIAState) -> dict:
         return await reporter_node(state, cfg)
 
+    graph.add_node("collector", _collector)
+    graph.add_node("parser", _parser)
     graph.add_node("mapper", _mapper)
     graph.add_node("hil_1", _hil_1)
     graph.add_node("atomizer", _atomizer)
@@ -561,7 +565,9 @@ def build_graph(cfg: GraphConfig):
     graph.add_node("hil_2", _hil_2)
     graph.add_node("optimizer", _optimizer)
     graph.add_node("reporter", _reporter)
-    graph.add_edge(START, "mapper")
+    graph.add_edge(START, "collector")
+    graph.add_edge("collector", "parser")
+    graph.add_edge("parser", "mapper")
     graph.add_edge("mapper", "hil_1")
     graph.add_edge("hil_1", "atomizer")
     graph.add_edge("atomizer", "forecaster")

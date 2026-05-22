@@ -132,6 +132,8 @@ async def test_process_one_dedup(tmp_path: Path, monkeypatch) -> None:
     # graph 호출 안 일어남
     assert create_task_mock.call_count == 0
     fake_imap.store.assert_called_with("1", "+FLAGS", "\\Seen")
+    # dedup 시 disk 저장도 안 일어나야 함 (regression: dispatch 만 막고 save 누수 방지)
+    assert not list(cfg.input_dir.rglob("*.xlsx"))
 
 
 async def test_process_one_dispatches_graph(tmp_path: Path, monkeypatch) -> None:

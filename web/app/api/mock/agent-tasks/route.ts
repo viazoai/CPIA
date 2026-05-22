@@ -106,7 +106,7 @@ export async function GET() {
       contractor: r.company ?? "—",
       status: "done" as const,
     }));
-    for (const agent of ["Collector", "HIL Review", "Atomizer", "Exporter", "Forecaster", "Optimizer"]) {
+    for (const agent of ["Collector", "Human Review", "Atomizer", "Exporter", "Forecaster", "Optimizer"]) {
       items[agent] = [];
     }
     itemsByDate[dStr] = items;

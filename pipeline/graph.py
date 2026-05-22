@@ -528,6 +528,50 @@ def build_demo_graph(cfg: GraphConfig):
     return graph.compile(checkpointer=build_checkpointer())
 
 
+def build_atomized_demo_graph(cfg: GraphConfig):
+    """START -> atomizer -> forecaster -> hil_2 -> (optimizer | reporter) -> END.
+
+    2026-05-22 (Plan B6) — mapper / hil_1 만 skip. mapped 는 호출자가
+    PG mapper_activities 에서 hydrate 해서 state['mapped'] 에 주입한 상태로 진입.
+    pipeline_runs INSERT 도 호출자 책임 (atomizer.assert_pipeline_run_exists fail-fast).
+
+    15일 backfill 의 표준 graph. build_demo_graph 의 node 패턴 + atomizer 추가.
+    """
+    graph = StateGraph(CPIAState)
+
+    async def _atomizer(state: CPIAState) -> dict:
+        return await atomizer_node(state, cfg)
+
+    async def _forecaster(state: CPIAState) -> dict:
+        return await forecaster_node(state, cfg)
+
+    async def _hil_2(state: CPIAState) -> dict:
+        return await hil_2_node(state, cfg)
+
+    async def _optimizer(state: CPIAState) -> dict:
+        return await optimizer_node(state, cfg)
+
+    async def _reporter(state: CPIAState) -> dict:
+        return await reporter_node(state, cfg)
+
+    graph.add_node("atomizer", _atomizer)
+    graph.add_node("forecaster", _forecaster)
+    graph.add_node("hil_2", _hil_2)
+    graph.add_node("optimizer", _optimizer)
+    graph.add_node("reporter", _reporter)
+    graph.add_edge(START, "atomizer")
+    graph.add_edge("atomizer", "forecaster")
+    graph.add_edge("forecaster", "hil_2")
+    graph.add_conditional_edges(
+        "hil_2",
+        lambda s: "optimizer" if s.get("hil_2_selection") else "reporter",
+        {"optimizer": "optimizer", "reporter": "reporter"},
+    )
+    graph.add_edge("optimizer", "reporter")
+    graph.add_edge("reporter", END)
+    return graph.compile(checkpointer=build_checkpointer())
+
+
 def build_graph(cfg: GraphConfig):
     """StateGraph — mapper → atomizer → forecaster → hil_2 → (optimizer | END) → END.
 

@@ -880,29 +880,38 @@ async def _build_s_curve(
 ) -> list[dict[str, Any]]:
     """planned/actual/forecast/recovery 4 곡선 unified datapoint list.
 
-    normalize 분모 = SUM(activity_master.plan_total_qty) (사이트 전체 계획 총량).
-    이전 max(planned across all dates) 분모는 마지막 generate 일자 cum_plan_qty 와 항상 같아
-    today 시점이 무조건 100% 가 되어 시나리오 곡선/completionOffset 의미 상실.
+    산식 (A): WV × MH 가중 + activity 단위 매칭 + progress cap.
+    - 분모 = SUM(plan_wv × plan_mh_rev2)
+    - planned[t] = SUM(weight × linear_progress(t)) / 분모 × 100
+    - actual[t]  = SUM(weight × MIN(1, cum_qty(t) / plan_qty)) / 분모 × 100
+                   (단 mapped_history 와 (wa,l6,company) 매칭되는 activity 만 포함)
+
+    이전 단순 SUM(today_qty) / SUM(plan_total_qty) 는 단위 일관성 부재 (m³+ton+개 혼합).
     """
     async with pg._pool.acquire() as con:
-        # 사이트 전체 plan total qty — 100% 기준 분모
+        # site total weight (분모) = SUM(plan_wv × plan_mh_rev2)
         site_total_row = await con.fetchrow(
-            "SELECT SUM(plan_total_qty)::float AS total FROM activity_master WHERE site_id = $1",
+            """
+            SELECT SUM(plan_wv * plan_mh_rev2)::float AS total
+            FROM activity_master
+            WHERE site_id = $1 AND plan_wv IS NOT NULL AND plan_mh_rev2 IS NOT NULL
+            """,
             site_id,
         )
-        site_total_qty = float(site_total_row["total"] or 0) or 1.0
-        # plan_finish 가 today 이후인 마지막 일자까지 generate (시나리오 곡선의 미래 plan 표시)
+        site_total_weight = float(site_total_row["total"] or 0) or 1.0
+
         plan_end_row = await con.fetchrow(
             "SELECT MAX(plan_finish)::date AS pe FROM activity_master WHERE site_id = $1",
             site_id,
         )
         plan_end = plan_end_row["pe"] if plan_end_row else today
-        # generate_series 끝점 = max(today + 30, plan_end). 미래 planned 표시 위해 plan_end 까지.
         gs_end = max(today + timedelta(days=30), plan_end) if plan_end else (today + timedelta(days=30))
+
+        # planned 곡선 — activity 단위 linear progress × WV×MH weight, 일자별 가중 sum
         planned = await con.fetch(
             """
             SELECT gs.date::date AS date,
-                   SUM(am.plan_total_qty * LEAST(1.0, GREATEST(0.0,
+                   SUM(am.plan_wv * am.plan_mh_rev2 * LEAST(1.0, GREATEST(0.0,
                        (gs.date::date - am.plan_start + 1)::float
                        / NULLIF((am.plan_finish - am.plan_start + 1)::float, 0)
                    )))::float AS cum_plan_qty
@@ -915,21 +924,58 @@ async def _build_s_curve(
                     '1 day'::interval
                 ) AS d
             ) gs
-            WHERE am.site_id = $1
+            WHERE am.site_id = $1 AND am.plan_wv IS NOT NULL AND am.plan_mh_rev2 IS NOT NULL
             GROUP BY gs.date ORDER BY gs.date
             """,
             site_id,
             gs_end,
         )
+
+        # actual 곡선 — (wa, l6_main) 매칭 + activity progress (cap=1) × weight 일자별 가중 sum.
+        # company 매칭 제외: (wa, l6) 단위 매칭률 100% (시연 mock 정합성).
+        # cum 누적 보장: 모든 (date × wa × l6) cross join 후 LEFT JOIN — 그날 작업 안 한
+        # (wa, l6) 도 직전 누적 cum 유지. 미보정 시 그 일자 가중 sum 에서 빠져 actual % 가 dip.
         actual = await con.fetch(
             """
-            SELECT report_date, SUM(today_qty)::float AS day_qty
-            FROM mapped_history WHERE site_id = $1 AND report_date <= $2
+            WITH am_agg AS (
+                SELECT wa, l6_main,
+                       SUM(plan_total_qty)::float AS plan_qty,
+                       SUM(plan_wv * plan_mh_rev2)::float AS weight
+                FROM activity_master
+                WHERE site_id = $1 AND plan_wv IS NOT NULL AND plan_mh_rev2 IS NOT NULL
+                GROUP BY wa, l6_main
+            ),
+            day_qty AS (
+                SELECT report_date, wa, l6_main,
+                       SUM(today_qty)::float AS day_qty
+                FROM mapped_history
+                WHERE site_id = $1 AND report_date <= $2
+                GROUP BY report_date, wa, l6_main
+            ),
+            dates AS (
+                SELECT DISTINCT report_date FROM day_qty
+            ),
+            full_grid AS (
+                SELECT d.report_date, m.wa, m.l6_main, m.plan_qty, m.weight
+                FROM dates d CROSS JOIN am_agg m
+            ),
+            cum_actual AS (
+                SELECT g.report_date, g.wa, g.l6_main, g.plan_qty, g.weight,
+                       SUM(COALESCE(dq.day_qty, 0)) OVER (
+                           PARTITION BY g.wa, g.l6_main ORDER BY g.report_date
+                       )::float AS cum_qty
+                FROM full_grid g
+                LEFT JOIN day_qty dq USING (report_date, wa, l6_main)
+            )
+            SELECT report_date,
+                   SUM(weight * LEAST(1.0, cum_qty / NULLIF(plan_qty, 0)))::float AS cum_weighted
+            FROM cum_actual
             GROUP BY report_date ORDER BY report_date
             """,
             site_id,
             today,
         )
+
         rp_row = await con.fetchrow(
             """
             SELECT oa.recovery_pattern FROM optimizer_advice oa
@@ -939,22 +985,35 @@ async def _build_s_curve(
             site_id,
         )
     recovery = (rp_row["recovery_pattern"] if rp_row else None) or []
-    merged = _merge_curves(
-        [dict(r) for r in planned],
-        [dict(r) for r in actual],
-        recovery if isinstance(recovery, list) else [],
-    )
-    # days_ahead = plan_finish 까지 + 30일 여유. 30일 fixed 면 catch-up 시점까지 못 닿아 차트 끊김.
+
+    # merge — planned/actual 모두 이미 일자별 가중 sum (누적), _merge_curves 의 cum 변환 안 씀.
+    by_date: dict[str, dict[str, Any]] = {}
+    for p in planned:
+        d = p["date"]
+        key = d.isoformat() if hasattr(d, "isoformat") else str(d)
+        by_date.setdefault(key, {"date": key})["planned"] = float(p["cum_plan_qty"] or 0)
+    for a in actual:
+        d = a["report_date"]
+        key = d.isoformat() if hasattr(d, "isoformat") else str(d)
+        by_date.setdefault(key, {"date": key})["actual"] = float(a["cum_weighted"] or 0)
+    if isinstance(recovery, list):
+        for r in recovery:
+            d = r.get("date")
+            if d is None:
+                continue
+            key = d.isoformat() if hasattr(d, "isoformat") else str(d)
+            by_date.setdefault(key, {"date": key})["recovery_days"] = r.get("recovery_days")
+    merged = sorted(by_date.values(), key=lambda x: x["date"])
+
+    # forecast 연장 (그대로)
     forecast_days = max(30, (plan_end - today).days + 30) if plan_end else 30
     extended = _extend_forecast(merged, days_ahead=forecast_days)
-    # normalize 분모 = SUM(activity_master.plan_total_qty) (위에서 fetch한 site_total_qty).
-    # 이전 max(planned across all dates) 분모는 마지막 generate 일자 cum_plan_qty 와 같아 today
-    # 시점 planned 가 무조건 100% 가 됐다. 그 결과 시나리오 곡선 completionOffset=1 의미 상실.
-    # 정상: today 시점 planned = cum_plan_qty(today) / site_total_qty * 100 (실 진척률 %).
+
+    # % 환산 — 분모 = site_total_weight
     for p in extended:
         for k in ("planned", "actual", "forecast"):
             if p.get(k) is not None:
-                p[k] = round(min(100.0, p[k] / site_total_qty * 100), 2)
+                p[k] = round(min(100.0, p[k] / site_total_weight * 100), 2)
     return extended
 
 

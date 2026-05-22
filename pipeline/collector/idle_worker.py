@@ -15,6 +15,7 @@ import logging
 import os
 import uuid
 from asyncio import create_task  # monkeypatch target 분리 — 테스트 patch 안정성
+from datetime import date as _date
 from email.message import Message
 from pathlib import Path
 
@@ -151,8 +152,6 @@ async def run_for_attachment(
 
 async def _process_one(imap, uid: str, cfg: CollectorConfig) -> None:
     """UNSEEN 메일 1통 처리: fetch → dedup → 첨부 추출 → graph 호출 fire-and-forget."""
-    import aioimaplib  # noqa: F401
-
     typ, data = await imap.fetch(uid, "(RFC822)")
     if typ != "OK" or len(data) < 2:
         log.warning("fetch uid=%s 실패: %s", uid, typ)
@@ -200,7 +199,7 @@ async def _process_one(imap, uid: str, cfg: CollectorConfig) -> None:
                 pg,
                 message_id=sub_message_id,
                 site_id=site_id,
-                report_date=meta.date,
+                report_date=_date.fromisoformat(meta.date),
                 bp_name=meta.bp_name or "_integrated",
                 attachment_filename=att_name,
                 attachment_path=str(path),

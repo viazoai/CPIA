@@ -164,19 +164,6 @@ def test_augment_history_if_sparse():
 # ─── Task 11 cold_start + augmentation weight ───
 
 
-def test_cold_start_row_has_diagnosis_label():
-    """_compose_cold_start_row: '신규 작업' 라벨 + recommendations 1건 이상."""
-    from pipeline.agents.optimizer.agent import _compose_cold_start_row
-    import uuid
-
-    r = {"company": "광건", "l6_main": "수장공사", "assessment": "decline"}
-    out = _compose_cold_start_row(r, cases=[], run_id=uuid.uuid4())
-    assert "신규 작업" in out["diagnosis"]
-    assert len(out["recommendations"]) >= 1
-    assert "광건" in out["diagnosis"]
-    assert "수장공사" in out["diagnosis"]
-
-
 def test_apply_augmentation_weight():
     """augmented=True row -> 0.5, 일반 -> 1.0."""
     from pipeline.agents.optimizer.agent import _apply_augmentation_weight

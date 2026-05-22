@@ -1,116 +1,75 @@
+// /api/mock/agent-tasks — 좌측 일별 목록만 반환.
+// progress / items 는 /api/mock/agent-tasks/[date] 에서 lazy load.
+// 1년치 N+1 (date × 4 쿼리) 제거: list 는 단일 CTE 쿼리.
+
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import sql from "@/lib/pg";
-import { deriveStageProgress, deriveProgressPercent, deriveItemStatus } from "@/lib/transforms";
-import type { DailyTask, AgentStageProgress, AgentTaskItem } from "@/lib/types";
+import { deriveProgressPercent } from "@/lib/transforms";
+import type { DailyTask } from "@/lib/types";
 
 export async function GET() {
   const useMock = process.env.CPIA_DEMO_FALLBACK === "on";
 
-  const dateRows = (await (sql as any)`
-    SELECT DISTINCT report_date
-    FROM pipeline_runs
-    WHERE report_date >= CURRENT_DATE - INTERVAL '1 year'
-      AND is_mock = ${useMock}
-    ORDER BY report_date DESC
-  `) as Array<{ report_date: Date | string }>;
-
-  const tasks: DailyTask[] = [];
-  const progressByDate: Record<string, AgentStageProgress[]> = {};
-  const itemsByDate: Record<string, Record<string, AgentTaskItem[]>> = {};
-
-  for (const row of dateRows) {
-    const dStr =
-      typeof row.report_date === "string"
-        ? row.report_date.slice(0, 10)
-        : row.report_date.toISOString().slice(0, 10);
-
-    const runRows = (await (sql as any)`
-      SELECT status, current_node
+  // latest_runs: 같은 (date) 에 여러 run 이 있으면 최신 started_at 만.
+  // parser_counts: 날짜별 parser_activities 총건수 (Daily 카드 우상단 숫자).
+  const rows = (await (sql as any)`
+    WITH latest_runs AS (
+      SELECT DISTINCT ON (report_date)
+        report_date, status, current_node
       FROM pipeline_runs
-      WHERE report_date = ${dStr}
+      WHERE report_date >= CURRENT_DATE - INTERVAL '1 year'
         AND is_mock = ${useMock}
-      ORDER BY started_at DESC
-      LIMIT 1
-    `) as Array<{ status: string | null; current_node: string | null }>;
-    const run = runRows[0];
-    const statusRaw = run?.status ?? "";
+      ORDER BY report_date DESC, started_at DESC
+    ),
+    parser_counts AS (
+      SELECT pr.report_date, COUNT(*)::int AS parser_count
+      FROM parser_activities pa
+      JOIN pipeline_runs pr USING (run_id)
+      WHERE pr.report_date >= CURRENT_DATE - INTERVAL '1 year'
+        AND pa.is_mock = ${useMock}
+      GROUP BY pr.report_date
+    )
+    SELECT lr.report_date, lr.status, lr.current_node,
+           COALESCE(pc.parser_count, 0) AS parser_count
+    FROM latest_runs lr
+    LEFT JOIN parser_counts pc USING (report_date)
+    ORDER BY lr.report_date DESC
+  `) as Array<{
+    report_date: Date | string;
+    status: string | null;
+    current_node: string | null;
+    parser_count: number;
+  }>;
 
+  const tasks: DailyTask[] = rows.map((r) => {
+    const dStr =
+      typeof r.report_date === "string"
+        ? r.report_date.slice(0, 10)
+        : r.report_date.toISOString().slice(0, 10);
+    const statusRaw = r.status ?? "";
     const status: DailyTask["status"] =
       statusRaw === "waiting_hil_1"
         ? "review_pending"
         : statusRaw === "completed"
           ? "completed"
           : "running";
-
-    const stages = await deriveStageProgress(dStr);
-    progressByDate[dStr] = stages;
-
-    // spec §5.3 — total_count = parser_activities 처리 건수 (parser 가 받아 mapper 로 넘긴 수).
-    const totalCount = stages.find((s) => s.agent === "Parser")?.processed ?? 0;
-    tasks.push({
+    return {
       date: dStr,
-      total_count: totalCount,
-      progress_percent: deriveProgressPercent(statusRaw, run?.current_node ?? null),
+      total_count: r.parser_count,
+      progress_percent: deriveProgressPercent(statusRaw, r.current_node ?? null),
       status,
       has_anomaly: false,
-    });
+    };
+  });
 
-    const mapperItems = (await (sql as any)`
-      SELECT ma.id, ma.wa, ma.l6_main, ma.company, ma.mapping_conf, ma.requires_review
-      FROM mapper_activities ma
-      JOIN pipeline_runs pr USING (run_id)
-      WHERE pr.report_date = ${dStr}
-        AND ma.is_mock = ${useMock}
-      ORDER BY ma.mapping_conf ASC NULLS FIRST
-      LIMIT 200
-    `) as Array<{
-      id: number | string;
-      wa: string | null;
-      l6_main: string | null;
-      company: string | null;
-      mapping_conf: number | string | null;
-      requires_review: boolean | null;
-    }>;
-
-    // spec §5.1 — Parser 클릭 시 빈 화면 fix. parser_activities 그대로 펼침.
-    const parserItems = (await (sql as any)`
-      SELECT pa.id, pa.trade, pa.company, pa.work_content
-      FROM parser_activities pa
-      JOIN pipeline_runs pr USING (run_id)
-      WHERE pr.report_date = ${dStr}
-        AND pa.is_mock = ${useMock}
-      ORDER BY pa.id
-      LIMIT 200
-    `) as Array<{
-      id: number | string;
-      trade: string | null;
-      company: string | null;
-      work_content: string | null;
-    }>;
-
-    const items: Record<string, AgentTaskItem[]> = {};
-    items["Mapper"] = mapperItems.map((r) => ({
-      id: `mapper-${r.id}`,
-      trade: r.l6_main ?? "—",
-      contractor: r.company ?? "—",
-      status: deriveItemStatus("Mapper", {
-        requires_review: Boolean(r.requires_review),
-        mapping_conf: r.mapping_conf != null ? Number(r.mapping_conf) : 0,
-      }),
-    }));
-    items["Parser"] = parserItems.map((r) => ({
-      id: `parser-${r.id}`,
-      trade: r.trade ?? r.work_content ?? "—",
-      contractor: r.company ?? "—",
-      status: "done" as const,
-    }));
-    for (const agent of ["Collector", "Human Review", "Atomizer", "Exporter", "Forecaster", "Optimizer"]) {
-      items[agent] = [];
-    }
-    itemsByDate[dStr] = items;
-  }
-
-  return NextResponse.json({ tasks, progressByDate, itemsByDate });
+  return NextResponse.json(
+    { tasks },
+    {
+      headers: {
+        "Cache-Control": "s-maxage=30, stale-while-revalidate=60",
+      },
+    },
+  );
 }

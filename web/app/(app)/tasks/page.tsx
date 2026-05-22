@@ -1,41 +1,66 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { DailyTaskList } from "@/app/components/tasks/DailyTaskList";
 import { AgentWorkflowList } from "@/app/components/tasks/AgentWorkflowList";
 import { AgentTaskItemList } from "@/app/components/tasks/AgentTaskItemList";
 import type { DailyTask, AgentStageProgress, AgentTaskItem } from "@/lib/types";
 
-interface PageData {
-  tasks: DailyTask[];
-  progressByDate: Record<string, AgentStageProgress[]>;
-  itemsByDate: Record<string, Record<string, AgentTaskItem[]>>;
+interface DetailData {
+  stages: AgentStageProgress[];
+  items: Record<string, AgentTaskItem[]>;
+}
+
+function pickCurrentAgent(stages: AgentStageProgress[]): string | null {
+  const current =
+    stages.find((s) => s.waiting_hil) ??
+    stages.find((s) => s.received > 0 && s.percent < 100) ??
+    stages[stages.length - 1];
+  return current ? current.agent : null;
 }
 
 export default function AgentTasksPage() {
-  const [data, setData] = useState<PageData | null>(null);
+  const [tasks, setTasks] = useState<DailyTask[] | null>(null);
   const [selectedDate, setSelectedDate] = useState<string>("");
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
+  const [detail, setDetail] = useState<DetailData | null>(null);
+  // 한번 fetch 한 date 는 메모리 캐시 → 좌측 목록에서 다른 날짜 갔다 돌아와도 즉답.
+  const detailCacheRef = useRef<Map<string, DetailData>>(new Map());
 
+  // 1) 진입 즉시 list (1년치 dates) — 단일 쿼리, < 200ms.
   useEffect(() => {
     fetch("/api/mock/agent-tasks")
       .then((r) => r.json())
-      .then((d: PageData) => {
-        setData(d);
-        if (d.tasks.length > 0) {
-          const latest = d.tasks[0].date;
-          setSelectedDate(latest);
-          // 최신 일자의 현재 처리중 단계 = HIL 대기중 or 첫 미완 단계
-          const stages = d.progressByDate[latest] || [];
-          const current =
-            stages.find((s) => s.waiting_hil) ??
-            stages.find((s) => s.received > 0 && s.percent < 100) ??
-            stages[stages.length - 1];
-          if (current) setSelectedAgent(current.agent);
-        }
+      .then((d: { tasks: DailyTask[] }) => {
+        setTasks(d.tasks);
+        if (d.tasks.length > 0) setSelectedDate(d.tasks[0].date);
       });
   }, []);
 
-  if (!data) {
+  // 2) selectedDate 변경 시에만 detail fetch.
+  useEffect(() => {
+    if (!selectedDate) return;
+    const cached = detailCacheRef.current.get(selectedDate);
+    if (cached) {
+      setDetail(cached);
+      setSelectedAgent(pickCurrentAgent(cached.stages));
+      return;
+    }
+    setDetail(null);
+    let cancelled = false;
+    fetch(`/api/mock/agent-tasks/${selectedDate}`)
+      .then((r) => r.json())
+      .then((d: DetailData) => {
+        if (cancelled) return;
+        detailCacheRef.current.set(selectedDate, d);
+        setDetail(d);
+        setSelectedAgent(pickCurrentAgent(d.stages));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDate]);
+
+  if (!tasks) {
     return (
       <div className="mx-auto max-w-screen-2xl px-6 py-10 text-ink-light">
         Loading...
@@ -43,8 +68,8 @@ export default function AgentTasksPage() {
     );
   }
 
-  const stages = data.progressByDate[selectedDate] || [];
-  const itemsForDate = data.itemsByDate[selectedDate] || {};
+  const stages = detail?.stages ?? [];
+  const itemsForDate = detail?.items ?? {};
   const itemsForAgent = selectedAgent ? itemsForDate[selectedAgent] || [] : [];
   const selectedStage = selectedAgent ? stages.find((s) => s.agent === selectedAgent) ?? null : null;
 
@@ -67,34 +92,38 @@ export default function AgentTasksPage() {
           {/* 좌측: Daily Tasks */}
           <div className="col-span-12 md:col-span-3 rounded-card border border-border-soft bg-card shadow-xs overflow-hidden flex flex-col min-h-0">
             <DailyTaskList
-              tasks={data.tasks}
+              tasks={tasks}
               selectedDate={selectedDate}
-              onSelect={(d) => {
-                setSelectedDate(d);
-                const stages = data.progressByDate[d] || [];
-                const current =
-                  stages.find((s) => s.waiting_hil) ??
-                  stages.find((s) => s.received > 0 && s.percent < 100) ??
-                  stages[stages.length - 1];
-                setSelectedAgent(current ? current.agent : null);
-              }}
+              onSelect={setSelectedDate}
             />
           </div>
           {/* 중앙: Agent Workflow */}
           <div className="col-span-12 md:col-span-4 rounded-card border border-border-soft bg-card shadow-xs overflow-hidden flex flex-col min-h-0">
-            <AgentWorkflowList
-              stages={stages}
-              selectedAgent={selectedAgent}
-              onSelect={setSelectedAgent}
-            />
+            {detail ? (
+              <AgentWorkflowList
+                stages={stages}
+                selectedAgent={selectedAgent}
+                onSelect={setSelectedAgent}
+              />
+            ) : (
+              <div className="flex h-full items-center justify-center text-xs text-ink-light">
+                불러오는 중…
+              </div>
+            )}
           </div>
           {/* 우측: 단계별 건 목록 */}
           <div className="col-span-12 md:col-span-5 rounded-card border border-border-soft bg-card shadow-xs overflow-hidden flex flex-col min-h-0">
-            <AgentTaskItemList
-              selectedAgent={selectedAgent}
-              stage={selectedStage}
-              items={itemsForAgent}
-            />
+            {detail ? (
+              <AgentTaskItemList
+                selectedAgent={selectedAgent}
+                stage={selectedStage}
+                items={itemsForAgent}
+              />
+            ) : (
+              <div className="flex h-full items-center justify-center text-xs text-ink-light">
+                불러오는 중…
+              </div>
+            )}
           </div>
         </div>
       </section>

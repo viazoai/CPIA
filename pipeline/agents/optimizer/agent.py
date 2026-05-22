@@ -15,6 +15,7 @@ Spec: docs/superpowers/specs/2026-05-16-cpia-optimizer-hil2-design.md §7
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid
@@ -24,6 +25,7 @@ from datetime import date
 
 from openai import AzureOpenAI
 
+from pipeline.agents._concurrency import get_llm_semaphore
 from pipeline.agents.optimizer.prompt import (
     FEW_SHOT_MESSAGES,
     SYSTEM_PROMPT,
@@ -90,7 +92,7 @@ def _compose_row(r: dict, cases: list[dict], llm_output: dict, run_id: uuid.UUID
         "diagnosis": llm_output["diagnosis"],
         "degradation_cases": cases,
         "recovery_pattern": recovery_pattern,
-        # ★ LLM 출력 override — 코드단 deterministic 값을 정답으로 박음
+        # LLM 출력 override — 코드단 deterministic 값을 정답으로 박음
         "recovery_distribution": _compute_recovery_distribution(cases),
         "recommendations": llm_output["recommendations"],
     }
@@ -109,6 +111,11 @@ def _call_azure_llm(llm_input: dict, cfg: OptimizerConfig, azure: AzureOpenAI) -
         response_format={"type": "json_object"},
     )
     return json.loads(resp.choices[0].message.content)
+
+
+async def _call_azure_llm_async(llm_input: dict, cfg: OptimizerConfig, azure: AzureOpenAI) -> dict:
+    """sync _call_azure_llm 을 asyncio.to_thread 로 감쌈 — 실 병렬 효과."""
+    return await asyncio.to_thread(_call_azure_llm, llm_input, cfg, azure)
 
 
 async def optimize(
@@ -139,7 +146,6 @@ async def optimize(
         advice row list (state["optimizer_advice"] 에 박힘).
     """
     mapped = mapped or []
-    advice_rows: list[dict] = []
     azure = AzureOpenAI(
         api_key=cfg.azure_api_key,
         api_version=cfg.azure_api_version,
@@ -147,6 +153,16 @@ async def optimize(
         timeout=cfg.azure_timeout,
         max_retries=cfg.azure_max_retries,
     )
+
+    sem = get_llm_semaphore()  # 함수 entry 에서 한 번 — closure 로 공유
+
+    async def _process_one(r: dict, cases: list[dict]) -> dict:
+        async with sem:  # LLM 호출 부분만 Semaphore 안
+            llm_input = build_llm_user_input(r, cases)
+            llm_output = await _call_azure_llm_async(llm_input, cfg, azure)
+        return _compose_row(r, cases, llm_output, run_id)  # PG write 는 sem 밖
+
+    tasks = []
     for r in forecast:
         key = f"{r['company']}|{r['l6_main']}"
         if key not in hil_2_selection:
@@ -155,9 +171,9 @@ async def optimize(
         # 2026-05-22: cold_start (cases<3) 도 LLM 호출 — SYSTEM_PROMPT 의 'degradation_cases 빈 array
         # 처리' 가이드에 따라 today 정보만으로 진단·권고 생성. 이전: _compose_cold_start_row placeholder.
         # 사유: UI 4분면 점 클릭 시 풍부한 진단 보장 (사용자 검증 9/22 광건 fab cold_start placeholder 화면).
-        llm_input = build_llm_user_input(r, cases)
-        llm_output = _call_azure_llm(llm_input, cfg, azure)  # fail-fast
-        advice_rows.append(_compose_row(r, cases, llm_output, run_id))
+        tasks.append(_process_one(r, cases))
+
+    advice_rows = list(await asyncio.gather(*tasks)) if tasks else []
 
     pg = PGClient(cfg.postgres_url)
     await pg.connect()

@@ -106,7 +106,7 @@ export default function ReportPage() {
 
   const diagnosis = useMemo(() => {
     if (!detail) return null;
-    const base = diagnose(toDiagnosisInput(detail.kpi, detail.s_curve, REPORT_SITE_ID));
+    const base = diagnose(toDiagnosisInput(detail.kpi, detail.s_curve, REPORT_SITE_ID, detail.scenarios?.site));
     const beP50 = detail.scenarios?.site?.base_p50;
     if (beP50 && typeof beP50.recovery_days === "number") {
       return {
@@ -264,6 +264,35 @@ export default function ReportPage() {
                   detail.scenarios?.site?.base_p50?.recovery_days
                   ?? detail.kpi.recovery_days
                 }
+                scenarios={detail.scenarios?.site}
+                reportDate={selectedDate}
+                aiSummaryText={detail.site_summary_text}
+                aiAdvice={(() => {
+                  // wp_summary impact desc top 3 → optimizer.by_wp[wp_id] 의 diagnosis + recommendations 추출.
+                  // 룰베이스 fallback (cold_start) 인 wp 는 제외 — LLM 산출 텍스트만.
+                  const top = [...(detail.wp_summary ?? [])]
+                    .filter((w) => (w.impact ?? 0) > 0)
+                    .sort((a, b) => (b.impact ?? 0) - (a.impact ?? 0))
+                    .slice(0, 3);
+                  const by_wp = detail.optimizer?.by_wp ?? {};
+                  return top
+                    .map((w) => {
+                      const o = by_wp[w.wp_id];
+                      if (!o) return null;
+                      const recs = (o.recommendations ?? []).map((r: any) =>
+                        typeof r === "string" ? r : r.text ?? ""
+                      ).filter(Boolean);
+                      const dg = o.diagnosis && o.diagnosis !== "cold_start" ? o.diagnosis : undefined;
+                      if (recs.length === 0 && !dg) return null;
+                      return {
+                        wp_name: w.wp_name,
+                        trade: w.trade,
+                        diagnosis: dg,
+                        recommendations: recs,
+                      };
+                    })
+                    .filter((x): x is NonNullable<typeof x> => x !== null);
+                })()}
               />
             </Section>
 

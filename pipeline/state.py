@@ -257,6 +257,13 @@ class CPIAState(TypedDict):
         "failed",
     ]
 
+    # D-12 — collector_node / parser_node 산출 + listener invoke 인자
+    # `parsed` / `date` / `site_id` / `input_files` 는 위에 이미 정의됨 — collector/parser 가 같은 키로 박음.
+    bp_name: str  # 첨부 파일명에서 분해된 BP 명 ('_integrated' 가능)
+    project: str  # 파일명 prefix
+    message_id: str  # listener invoke 시 박힘. CLI 진입 시 absent
+    postgres_url: str  # collector_node 가 collector_inbox UPDATE 용
+
 
 class BPSummaryRaw(TypedDict, total=False):
     """시트 1 의 row 단위 1:1 LLM 출력. parser_post.pair_bp_summaries (A.6) 가 페어링."""

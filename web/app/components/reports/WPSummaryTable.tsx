@@ -79,7 +79,7 @@ export function WPSummaryTable({ rows, selectedWpId, onSelect }: Props) {
                     {row.impact}%
                   </td>
                   <td className="px-3 py-1 text-[12px] font-semibold text-ink tabular-nums">
-                    {row.display_label ?? `${row.productivity}%`}
+                    {`${row.productivity.toFixed(1)}%`}
                   </td>
                   <td className="px-3 py-1 text-[12px] tabular-nums">
                     {(() => {

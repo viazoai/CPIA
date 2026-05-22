@@ -21,7 +21,7 @@ export async function GET(
     SELECT dr.kpi_jsonb, dr.contractor_bars_jsonb, dr.trade_bars_jsonb,
            dr.quadrant_jsonb, dr.wp_summary_jsonb, dr.s_curve_jsonb,
            dr.optimizer_view_jsonb, dr.productivity_jsonb,
-           dr.scenarios_jsonb
+           dr.scenarios_jsonb, dr.site_summary_text
     FROM daily_reports dr
     JOIN pipeline_runs pr USING (run_id)
     JOIN sites s ON s.site_id = pr.site_id
@@ -46,6 +46,7 @@ export async function GET(
     optimizer: r.optimizer_view_jsonb || { by_wp: {}, default_wp_id: null },
     scenarios: r.scenarios_jsonb || { site: {}, by_wp: {} },
     wp_summary: r.wp_summary_jsonb || [],
+    site_summary_text: r.site_summary_text || null,
     raw_data: [],
   };
 

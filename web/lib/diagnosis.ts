@@ -43,26 +43,47 @@ function ewma(values: (number | undefined)[], lambda: number): number[] {
   return out;
 }
 
-/* ───── 시나리오 곡선 생성 (deterministic linear) ───── */
+/* ───── 시나리오 곡선 생성 — catch-up + plan 동행 ─────
+ *
+ * 의미: AI 만회 시나리오 = recoveryDays 만에 plan 따라잡고, 그 후 plan 곡선 동행.
+ * 1) catch-up 구간 (today ~ today+recoveryDays): lastActual → plan[today+recoveryDays] 직선 slope
+ * 2) catch-up 이후: plan 그대로 동행 (별도 100% 도달이 아니라 plan 의 완공일에 함께 도달)
+ *
+ * 이전 산식 (completionOffset 기반 lastActual→100% 직진) 은 "AI 만회 = 더 늦게 완공" 처럼
+ * 보였음. 사용자 의도 = "중간에 plan 따라잡음" 으로 정정.
+ */
 function buildScenarioCurve(
   s_curve: SCurvePoint[],
   todayIdx: number,
   lastActual: number,
-  perStepRate: number,
-): (number | null)[] {
+  recoveryDays: number,
+): { curve: (number | null)[]; catchUp: { date: string; percent: number } | null } {
   const out: (number | null)[] = [];
-  let cum = lastActual;
+  const catchUpEndIdx = Math.min(s_curve.length - 1, todayIdx + Math.max(1, recoveryDays));
+  const planAtCatchUp = s_curve[catchUpEndIdx]?.planned ?? 100;
+  const span = Math.max(1, catchUpEndIdx - todayIdx);
+  const catchUpSlope = (planAtCatchUp - lastActual) / span;
   for (let i = 0; i < s_curve.length; i++) {
     if (i < todayIdx) {
-      out.push(null);                       // 과거 — 선 안 그림
+      out.push(null); // 과거 — 라인 안 그림
     } else if (i === todayIdx) {
-      out.push(lastActual);                 // 오늘 — 실적선과 연결되는 시작점
+      out.push(lastActual);
+    } else if (i <= catchUpEndIdx) {
+      // catch-up 구간만 dashed slope
+      const offset = i - todayIdx;
+      out.push(Math.max(0, Math.min(100, lastActual + catchUpSlope * offset)));
     } else {
-      cum = Math.min(100, Math.max(0, cum + perStepRate));
-      out.push(cum);
+      // catch-up 후 plan 따라잡았으니 라인 안 그림 (plan 곡선이 대신 그려짐)
+      out.push(null);
     }
   }
-  return out;
+  const catchUpDate = s_curve[catchUpEndIdx]?.date ?? "";
+  return {
+    curve: out,
+    catchUp: catchUpDate
+      ? { date: catchUpDate, percent: Math.max(0, Math.min(100, planAtCatchUp)) }
+      : null,
+  };
 }
 
 /* ───── 진단 메인 ───── */
@@ -79,10 +100,15 @@ export function diagnose(input: DiagnosisInput): ProductivityDiagnosis {
 
   const ewma_trend = ewma(s_curve.map((p) => p.actual), 0.3);
 
-  const firstUndef = s_curve.findIndex((p) => p.actual === undefined);
-  const todayIdx = firstUndef === -1 ? s_curve.length - 1 : firstUndef - 1;
+  // todayIdx — actual 가 채워진 마지막 위치. 기존 findIndex(undefined) 는 sparse hole 잡아 0 됨.
+  let todayIdx = -1;
+  for (let i = s_curve.length - 1; i >= 0; i--) {
+    const v = s_curve[i].actual;
+    if (v !== undefined && v !== null) { todayIdx = i; break; }
+  }
+  if (todayIdx < 0) todayIdx = s_curve.length - 1;
   const lastActual = todayIdx >= 0 ? (s_curve[todayIdx].actual ?? 0) : 0;
-  const lastPlanned = todayIdx >= 0 ? s_curve[todayIdx].planned : 0;
+  const lastPlanned = todayIdx >= 0 ? (s_curve[todayIdx].planned ?? 0) : 0;
   const shortfall = Math.max(0, lastPlanned - lastActual);
 
   const muStep = history_mean / 100;
@@ -90,33 +116,42 @@ export function diagnose(input: DiagnosisInput): ProductivityDiagnosis {
   const recovery = meanReversionRecovery(shortfall / 100, muStep, todayStep);
   const finite = Number.isFinite(recovery.p50);
 
-  const baseStep = history_mean / 4;
-  const optimisticStep = baseStep * 1.18;
-  const pessimisticStep = today_progress / 4;
+  // BE scenarios recovery_days = plan 따라잡는 데 걸리는 일수 (catch-up 일수).
+  // fallback: meanReversion 기반 estimate.
+  const beP25 = input.recovery_days_p25 ?? Math.max(1, Math.round(recovery.p25));   // 비관 — 만회 적음
+  const beP50 = input.recovery_days_p50 ?? Math.max(1, Math.round(recovery.p50));   // 기본
+  const beP75 = input.recovery_days_p75 ?? Math.max(1, Math.round(recovery.p75));   // 낙관 — 만회 많음
 
-  const baseCurve = buildScenarioCurve(s_curve, todayIdx, lastActual, baseStep);
-  const optCurve  = buildScenarioCurve(s_curve, todayIdx, lastActual, optimisticStep);
-  const pessCurve = buildScenarioCurve(s_curve, todayIdx, lastActual, pessimisticStep);
+  const baseRes = buildScenarioCurve(s_curve, todayIdx, lastActual, beP50);
+  const optRes  = buildScenarioCurve(s_curve, todayIdx, lastActual, beP75);
+  const pessRes = buildScenarioCurve(s_curve, todayIdx, lastActual, beP25);
+  const baseCurve = baseRes.curve;
+  const optCurve  = optRes.curve;
+  const pessCurve = pessRes.curve;
+  const baseCatchUp = baseRes.catchUp ?? undefined;
+  const optCatchUp = optRes.catchUp ?? undefined;
+  const pessCatchUp = pessRes.catchUp ?? undefined;
 
   const base: ScenarioPoint = {
-    eta_days: finite ? Math.round(recovery.p50) : Infinity,
+    eta_days: beP50,
     recovery_pct: 100,
-    delta_completion_days: finite ? Math.round(recovery.p50) : 999,
+    delta_completion_days: 0,                  // catch-up 후 plan 동행 → 계획 동일
     curve: baseCurve,
+    catch_up: baseCatchUp,
   };
   const optimistic: ScenarioPoint = {
-    eta_days: finite ? Math.round(recovery.p25) : Infinity,
+    eta_days: beP75,
     recovery_pct: 102,
-    delta_completion_days: finite ? -Math.max(1, Math.round((recovery.p50 - recovery.p25) * 0.6)) : 0,
+    delta_completion_days: 0,
     curve: optCurve,
+    catch_up: optCatchUp,
   };
   const pessimistic: ScenarioPoint = {
-    eta_days: Infinity,
-    recovery_pct: status === "risk" ? 85 : 92,
-    delta_completion_days: status === "risk"
-      ? Math.max(20, Math.round((finite ? recovery.p50 : 30) * 1.6))
-      : Math.max(10, Math.round((finite ? recovery.p50 : 20) * 1.4)),
+    eta_days: beP25,
+    recovery_pct: 100,
+    delta_completion_days: 0,
     curve: pessCurve,
+    catch_up: pessCatchUp,
   };
 
   return {

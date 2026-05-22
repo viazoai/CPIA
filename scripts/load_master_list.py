@@ -40,6 +40,7 @@ C_COMPANY = 24  # BP사
 C_UNIT = 25  # 단위 (M2/Ton/M3/...) — _normalize_unit 으로 소문자 통일
 C_PLAN_QTY = 30  # 총수량 Rev.2
 C_PLAN_MH = 31  # MH Rev.2
+C_PLAN_WV = 32  # WV. (Rev.2) — Weight Volume, site 가중 진척률 산정용
 C_PLAN_START = 37  # Planned Start Rev.2
 C_PLAN_FINISH = 38  # Planned Finish Rev.2
 C_ACTUAL_START = 41  # Actual Start Date
@@ -95,6 +96,7 @@ def parse_master_groups(
                 "unit": _normalize_unit(r[C_UNIT]),
                 "plan_total_qty": r[C_PLAN_QTY],
                 "plan_mh_rev2": r[C_PLAN_MH],
+                "plan_wv": r[C_PLAN_WV],
                 "plan_start": _to_date(r[C_PLAN_START]),
                 "plan_finish": _to_date(r[C_PLAN_FINISH]),
                 "actual_start": _to_date(r[C_ACTUAL_START]),
@@ -140,13 +142,14 @@ async def upsert_pg(
                 """
                 INSERT INTO activity_master (
                     site_id, wbs_activity_id, wa, l5_disc, l6_main, l7_sub, l7_5_activity,
-                    company, unit, plan_total_qty, plan_mh_rev2,
+                    company, unit, plan_total_qty, plan_mh_rev2, plan_wv,
                     plan_start, plan_finish, actual_start, actual_finish, source_file
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
                 ON CONFLICT (site_id, wbs_activity_id) DO UPDATE SET
                     unit = EXCLUDED.unit,
                     plan_total_qty = EXCLUDED.plan_total_qty,
                     plan_mh_rev2 = EXCLUDED.plan_mh_rev2,
+                    plan_wv = EXCLUDED.plan_wv,
                     plan_start = EXCLUDED.plan_start,
                     plan_finish = EXCLUDED.plan_finish,
                     actual_start = EXCLUDED.actual_start,
@@ -164,6 +167,7 @@ async def upsert_pg(
                 r["unit"],
                 r["plan_total_qty"],
                 r["plan_mh_rev2"],
+                r["plan_wv"],
                 r["plan_start"],
                 r["plan_finish"],
                 r["actual_start"],

@@ -1,4 +1,5 @@
 import type { DiagnosisInput, ReportKpi, SCurvePoint } from "./types";
+import type { ReportDetail } from "./fixtures";
 
 /**
  * ReportDetail (mock fixture) 의 ReportKpi + s_curve 를 진단 모델 입력으로 변환.
@@ -9,11 +10,14 @@ import type { DiagnosisInput, ReportKpi, SCurvePoint } from "./types";
  *   history_std  = 4 (고정)
  *   sample_size  = site_id 해시 기반 12~48 균등 (결정적)
  *   today_progress = ReportKpi.productivity_today
+ *
+ * scenarios 전달 시: diagnose 는 buildScenarioCurve 의 completionOffset 을 BE recovery_days 기준으로 산출.
  */
 export function toDiagnosisInput(
   reportKpi: ReportKpi,
   s_curve: SCurvePoint[],
   siteId: string,
+  scenariosSite?: NonNullable<ReportDetail["scenarios"]>["site"],
 ): DiagnosisInput {
   return {
     site_id: siteId,
@@ -22,6 +26,10 @@ export function toDiagnosisInput(
     history_std: 4,
     sample_size: deterministicSampleSize(siteId),
     s_curve,
+    recovery_days_p25: scenariosSite?.pessimistic_p75?.recovery_days,
+    recovery_days_p50: scenariosSite?.base_p50?.recovery_days,
+    recovery_days_p75: scenariosSite?.optimistic_p25?.recovery_days,
+    delay_days: reportKpi.delay_days,
   };
 }
 

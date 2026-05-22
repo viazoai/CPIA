@@ -271,6 +271,12 @@ export interface DiagnosisInput {
   history_std: number;        // σ
   sample_size: number;        // N — 유사 과거 케이스 수
   s_curve: SCurvePoint[];     // 기존 시계열 재사용
+  // BE scenarios.site 산출값 — 곡선 slope 계산용 (recovery_days_p25/p50/p75, delay_days).
+  // 미전달 시 deterministic fallback (이전 동작).
+  recovery_days_p25?: number;
+  recovery_days_p50?: number;
+  recovery_days_p75?: number;
+  delay_days?: number;
 }
 
 export interface RecoveryEstimate {
@@ -284,6 +290,7 @@ export interface ScenarioPoint {
   recovery_pct: number;          // 회복 후 누적 진척률 (%)
   delta_completion_days: number; // 계획 완공일 대비. 음수 = 단축, 양수 = 지연
   curve: (number | null)[];      // 시각화용 시계열 (길이 = s_curve.length). today 이전은 null — 차트에서 선 안 그리도록
+  catch_up?: { date: string; percent: number };  // catch-up intersection (plan 따라잡는 시점)
 }
 
 // ────── /export — 통합 작업일보 (Exporter agent 산출물) ──────

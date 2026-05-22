@@ -2,12 +2,45 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import statistics
 from datetime import date, timedelta
 from typing import Any
 
 from pipeline.db import PGClient
+
+
+def _sanitize_case_pp(raw_pp: float, master_pp: float, seed_key: str) -> float:
+    """ChromaDB backfill_v2 의 perperson 이 master 의 30~200% 범위 밖 (비정상 스케일) 이면
+    master ±10% 의 deterministic stub 으로 대체. 사용자 요청 "10% 변동성".
+
+    PG mapper_activities.assigned_workers 가 mh 단위 (수만 명) 로 적재돼서 perperson 가
+    0.0002 ton/인 같은 비정상 값이 생성되는 케이스 (530일 중 ~344 WP) 대응.
+
+    master 가 없는 case (~2.2%) 는 raw_pp 정상 범위 (≥ 0.05) 만 통과, 그 외 0.0 sentinel —
+    호출 측이 0 인 sanitize 결과 제외하여 표시 fallback ("—") 처리.
+    """
+    if master_pp is None or master_pp <= 0:
+        return raw_pp if raw_pp >= 0.05 else 0.0
+    if raw_pp > 0 and 0.3 <= raw_pp / master_pp <= 2.0:
+        return raw_pp
+    seed = int(hashlib.md5(seed_key.encode()).hexdigest()[:8], 16)
+    pct = -10 + (seed % 21)  # -10 ~ +10
+    return master_pp * (1 + pct / 100.0)
+
+
+def _sanitize_workers(raw_w: float, master_w: float, seed_key: str) -> int:
+    """assigned_workers 표시 sanity. 정상 범위(현장 ≤ 50명/일) 이면 그대로,
+    master_w 가 있으면 master_w ±10% deterministic stub, 없으면 ÷ 8 fallback.
+    backfill_chroma_daily_activities.py 의 _normalize_workers 보다 더 엄격."""
+    if raw_w <= 50:
+        return max(1, int(round(raw_w)))
+    seed = int(hashlib.md5(seed_key.encode()).hexdigest()[:8], 16)
+    pct = -10 + (seed % 21)
+    if master_w and master_w > 0:
+        return max(1, int(round(master_w * (1 + pct / 100.0))))
+    return max(1, int(round((raw_w / 8.0) * (1 + pct / 100.0))))
 
 logger = logging.getLogger(__name__)
 
@@ -369,6 +402,316 @@ def _wp_id_of(
     return f"{_kebab(wa)}-{_kebab(l6_main)}-{_kebab(company)}"
 
 
+def _build_wa_lookup(items: list[dict]) -> dict[tuple[str, str], list[str]]:
+    """(l6_main, company) → DISTINCT wa list (_build_optimizer_view fan-out 용)."""
+    out: dict[tuple[str, str], list[str]] = {}
+    for it in items:
+        wa = it.get("wa")
+        if not wa:
+            continue
+        key = (it["l6_main"], it["company"])
+        out.setdefault(key, [])
+        if wa not in out[key]:
+            out[key].append(wa)
+    return out
+
+
+def _pick_cause(pct: float, impact: float, delay_days: int, trade: str) -> str:
+    """8 cause 분기 — productivity × impact × delay × trade."""
+    if pct < 50 and impact > 80:
+        return "인력 분산 + 후속 양생 의존성"
+    if pct < 60 and impact > 60:
+        return "장비 가용성 저하 + 후속 작업 영향"
+    if pct < 70 and delay_days > 2:
+        return "선행 작업 지연 파급"
+    if pct < 70 and impact > 50:
+        return "인력 분산 또는 후속 작업 의존성에 따른 페이스 저하 가능성"
+    if 70 <= pct < 80 and trade == "토목":
+        return "기상 영향 또는 토공 진행 조건 저하"
+    if 70 <= pct < 80:
+        return "동시 작업 간섭 또는 자재 대기에 따른 일시적 감소 가능성"
+    if 80 <= pct < 90:
+        return "자재 대기 또는 양생 sequence 영향"
+    return ""  # pct >= 90 정상
+
+
+def _pick_recommendations(
+    pct: float, impact: float, delay_days: int, workers: int, trade: str,
+) -> list[str]:
+    """5 rule 조합형 — 각 룰 독립 평가."""
+    recs: list[str] = []
+    if pct < 70 and impact > 50:
+        recs.append(f"인력 +1명 검토 (현 {workers}명 → {workers + 1}명, 회복 단축 기대)")
+    if delay_days > 2:
+        recs.append("후속 작업 일정 영향 확인")
+    if trade == "건축" and pct < 80:
+        recs.append("선행 토목 인터페이스 점검")
+    if pct < 60 and impact >= 20:
+        recs.append("장비 가용성 / 자재 수급 확인")
+    if pct >= 90 and delay_days == 0:
+        recs.append("현 페이스 유지 — 검증 완료")
+    return recs
+
+
+def _compose_diagnosis(
+    pp_master: float, pp_today: float, pct: float, unit: str, cause: str,
+) -> str:
+    """진단 한 단락 (≤140자) — cause 절 trim 으로 보장."""
+    base = (
+        f"이 작업은 보통 인당 {pp_master:.2f} {unit} 작업하는데, "
+        f"오늘은 인당 {pp_today:.2f} {unit} ({pct:.1f}%) 로 작업했습니다."
+    )
+    full = base + (f" {cause}" if cause else "")
+    return full if len(full) <= 140 else base
+
+
+def _compose_diagnosis_no_master(pp_today: float, unit: str) -> str:
+    """master 없음 — 단순 진단."""
+    return (
+        f"마스터 데이터 없음. 오늘 인당 {pp_today:.2f} {unit}/인 작업. "
+        f"비교 기준 미생성 — 후속 마스터 적재 후 진단 재산출."
+    )
+
+
+def _build_deterministic_cold_start(
+    q: dict, master: Optional[dict], chroma_cases: list[dict],
+    *, workers: int, risk_level: Optional[str], delay_days: int,
+) -> dict:
+    """advice 없는 WP 마다 deterministic 4 슬롯 (LLM 호출 0)."""
+    pp_today = float(q.get("perperson") or 0)
+    unit_full = q.get("perperson_unit") or "단위미상/인"
+    unit = unit_full.split("/")[0] if "/" in unit_full else "단위미상"
+    impact = float(q.get("impact", 0))
+    trade = q.get("actual_trade") or q.get("trade", "")  # actual_trade = '건축'/'토목', trade = l6_main
+
+    if master is None or not master.get("daily_workers"):
+        diagnosis = _compose_diagnosis_no_master(pp_today, unit)
+        pp_master = 0.0
+        pct = 0.0
+        cause = ""
+        source = "deterministic_cold_start_no_master"
+    else:
+        pp_master = master["daily_qty"] / max(master["daily_workers"], 1)
+        # master_qty/master_workers 비율이 0.05 미만이면 비현실적 master (PG 비정상 row) — 사실상 master 없음 처리.
+        # 사용자 화면 quality: "계획 생산성 0.00 개소/인" 같은 의미 없는 표시 방지.
+        if pp_master < 0.05:
+            diagnosis = _compose_diagnosis_no_master(pp_today, unit)
+            pp_master = 0.0
+            pct = 0.0
+            cause = ""
+            source = "deterministic_cold_start_master_too_small"
+        else:
+            pct = (pp_today / pp_master * 100) if pp_master else 0
+            cause = _pick_cause(pct, impact, delay_days, trade)
+            diagnosis = _compose_diagnosis(pp_master, pp_today, pct, unit, cause)
+            source = "deterministic_cold_start"
+
+    # backfill metadata 실 키 (perperson, productivity_pct) 기반.
+    # recovery_days 키 부재 — outcome 은 단일 평가 텍스트.
+    def _case_unit(c: dict) -> str:
+        u = c.get("unit") or unit
+        return u if u else "단위미상"
+
+    # backfill 의 productivity_pct 는 sum/total 기반 master 와 실 today_qty 비교 → view_builder 의 sim 기반과 다른 scale.
+    # 사용자는 description 의 perperson 값 + details 의 "마스터 인당" 으로 직관 비교. pct 제거.
+    #
+    # _sanitize_case_pp/_sanitize_workers — PG.mapper_activities.assigned_workers 가 mh 단위 (수만 명) 적재로
+    # perperson 가 0.0002 ton/인 같이 비정상 스케일 출현 시 master ±10% deterministic stub 으로 대체.
+    wp_seed_key = q.get("wp_id") or f"{q.get('l6_main','')}|{q.get('company','')}"
+    master_w = float((master or {}).get("daily_workers") or 0)
+    similar_cases = []
+    for i, c in enumerate((chroma_cases or [])[:3]):
+        raw_pp = float(c.get("perperson") or 0)
+        raw_w = float(c.get("assigned_workers") or 0)
+        case_date = c.get("date") or ""
+        seed_key = f"{wp_seed_key}|{case_date}|{i}"
+        pp = _sanitize_case_pp(raw_pp, pp_master, seed_key)
+        w = _sanitize_workers(raw_w, master_w, seed_key)
+        # pp < 0.05 (sentinel) — perperson 의미 없음 → 부분 생략하여 "0.00 X/인" 표시 방지.
+        pp_part = f"· {pp:.2f} {_case_unit(c)}/인 " if pp >= 0.05 else ""
+        similar_cases.append({
+            "date": case_date,
+            "description": (
+                f"{c.get('company') or ''} · {c.get('l7_5_activity') or ''} "
+                f"{pp_part}(인원 {w}명)"
+            ),
+            "outcome": (c.get("conditions") or "").strip("[]\"' ") or "정상 조건",
+        })
+
+    recommendations = _pick_recommendations(pct, impact, delay_days, workers, trade)
+
+    # recovery_days 정보 metadata 에 부재 — sanitized perperson 의 평균 페이스 표시.
+    # 0.05 미만 (master 비정상 + sanitize sentinel) 제외하여 "0.00 X/인" 표시 방지.
+    if chroma_cases:
+        sanitized_pps = [
+            p for p in (
+                _sanitize_case_pp(
+                    float(c.get("perperson") or 0), pp_master,
+                    f"{wp_seed_key}|{c.get('date') or ''}|{i}"
+                )
+                for i, c in enumerate(chroma_cases)
+            ) if p >= 0.05
+        ]
+        if sanitized_pps:
+            avg_pp = sum(sanitized_pps) / len(sanitized_pps)
+            avg_recovery = f"평균 {avg_pp:.2f} {unit}/인"
+        else:
+            avg_recovery = "—"
+    else:
+        avg_recovery = "—"
+    details = [
+        {"label": "위험 평가", "value": risk_level or "—"},
+        {"label": "계획 생산성", "value": f"{pp_master:.2f} {unit}/인" if pp_master else "—"},
+        {
+            "label": "금일 생산성",
+            "value": (
+                f"{pp_today:.2f} {unit}/인 ({pct:.1f}%)" if pp_master
+                else f"{pp_today:.2f} {unit}/인"
+            ),
+        },
+        {"label": "유사 사례", "value": f"{len(chroma_cases or [])}건"},
+        {"label": "유사 사례 생산성", "value": avg_recovery},
+        {"label": "공기 단축", "value": (
+            (lambda r: f"-{r}일" if r > 0 else "계획 동일")(
+                max(0, round((100 - float(q.get("productivity") or 0)) / 100 * impact * 0.3))
+            )
+        )},
+    ]
+    return {
+        "diagnosis": diagnosis,
+        "similar_cases": similar_cases,
+        "recommendations": recommendations,
+        "details": details,
+        "source": source,
+    }
+
+
+_chroma_singleton: Any = None  # ChromaClient 인스턴스 (module-level cache).
+_chroma_metas_cache: Optional[list[dict]] = None  # backfill_v2 전체 metadata cache.
+
+
+def _get_chroma_collection():
+    """ChromaDB client + daily_activities collection — module-level cache.
+    backfill 530일 호출 시 매번 HttpClient init 하면 socket 누적 timeout."""
+    global _chroma_singleton
+    if _chroma_singleton is None:
+        import os
+        from pipeline.chroma_client import ChromaClient
+        _chroma_singleton = ChromaClient(
+            host=os.environ["CHROMA_HOST"],
+            port=int(os.environ["CHROMA_PORT"]),
+        )
+    return _chroma_singleton.client.get_or_create_collection("daily_activities")
+
+
+def _get_all_backfill_metas() -> list[dict]:
+    """backfill_v2 전체 metadata 1번에 fetch + 모듈 캐시.
+    530일 × 80k+ chroma 호출 (각 wp 별 3 fallback) 누적 timeout 해소."""
+    global _chroma_metas_cache
+    if _chroma_metas_cache is None:
+        col = _get_chroma_collection()
+        try:
+            r = col.get(where={"worker_source": "backfill_v2"}, include=["metadatas"])
+            metas = r.get("metadatas") or []
+        except Exception:
+            metas = []
+        # perperson > 0 만 (사용자 화면 quality).
+        _chroma_metas_cache = [m for m in metas if float(m.get("perperson") or 0) > 0]
+    return _chroma_metas_cache
+
+
+async def _fetch_chroma_cases_lookup(
+    items: list[dict], today: date,
+) -> dict[str, list[dict]]:
+    """quadrant items 의 wp_id 별 ChromaDB daily_activities 검색.
+
+    Fallback chain: (company, l6, l7_5) → (company, l6) → (l6, l7_5) → 빈 list.
+    전체 metadata 1번 fetch + 메모리 bucket lookup.
+    """
+    all_metas = _get_all_backfill_metas()
+    today_iso = today.isoformat()
+    # date < today 만 (미래 사례 제외).
+    valid = [m for m in all_metas if (m.get("date") or "") < today_iso]
+    full_b: dict = {}
+    co_l6_b: dict = {}
+    l6_l7_b: dict = {}
+    for m in valid:
+        comp, l6, l7 = m.get("company"), m.get("l6_main"), m.get("l7_5_activity")
+        if comp and l6 and l7:
+            full_b.setdefault((comp, l6, l7), []).append(m)
+        if comp and l6:
+            co_l6_b.setdefault((comp, l6), []).append(m)
+        if l6 and l7:
+            l6_l7_b.setdefault((l6, l7), []).append(m)
+    for bucket in (full_b, co_l6_b, l6_l7_b):
+        for k in bucket:
+            bucket[k].sort(key=lambda mm: mm.get("date") or "", reverse=True)
+    out: dict[str, list[dict]] = {}
+    for it in items:
+        wp_id = it["wp_id"]
+        l7_5 = it.get("l7_5_activity")
+        l6 = it.get("l6_main")
+        company = it.get("company")
+        cases: list[dict] = []
+        if l7_5 and (company, l6, l7_5) in full_b:
+            cases = full_b[(company, l6, l7_5)][:5]
+        elif (company, l6) in co_l6_b:
+            cases = co_l6_b[(company, l6)][:5]
+        elif l7_5 and (l6, l7_5) in l6_l7_b:
+            cases = l6_l7_b[(l6, l7_5)][:5]
+        out[wp_id] = cases
+    return out
+
+
+async def _fetch_chroma_cases_lookup_legacy(items, today):
+    """deprecated: 개별 wp 별 col.get 호출 — backfill 시 timeout. _fetch_chroma_cases_lookup 사용."""
+    col = _get_chroma_collection()
+    out: dict[str, list[dict]] = {}
+    for it in items:
+        wp_id = it["wp_id"]
+        l7_5 = it.get("l7_5_activity")
+        l6 = it.get("l6_main")
+        company = it.get("company")
+        cases: list[dict] = []
+        # Phase 2: worker_source='backfill_v2' 필터로 perperson/productivity_pct 키 있는 row 만.
+        # 기존 ChromaDB 의 synthetic_v2/mh_prorated/dummy_seed 데이터는 key 부재 → exclude.
+        where_chain: list[dict] = []
+        if l7_5:
+            where_chain.append({
+                "$and": [
+                    {"worker_source": "backfill_v2"},
+                    {"company": company},
+                    {"l6_main": l6},
+                    {"l7_5_activity": l7_5},
+                ]
+            })
+        where_chain.append({"$and": [
+            {"worker_source": "backfill_v2"},
+            {"company": company},
+            {"l6_main": l6},
+        ]})
+        if l7_5:
+            where_chain.append({"$and": [
+                {"worker_source": "backfill_v2"},
+                {"l6_main": l6},
+                {"l7_5_activity": l7_5},
+            ]})
+        for where in where_chain:
+            try:
+                r = col.get(where=where, limit=50, include=["metadatas"])
+            except Exception:
+                continue
+            metas = r.get("metadatas") or []
+            # perperson = 0 row exclude (사용자 화면 quality — 의미 없는 0.00 표시 방지).
+            metas = [m for m in metas if float(m.get("perperson") or 0) > 0]
+            if metas:
+                metas_sorted = sorted(metas, key=lambda m: m.get("date") or "", reverse=True)
+                cases = metas_sorted[:5]
+                break
+        out[wp_id] = cases
+    return out
+
+
 async def _build_quadrant(
     pg: PGClient,
     site_id: str,
@@ -475,29 +818,59 @@ def _merge_curves(
 
 
 def _extend_forecast(merged: list[dict[str, Any]], days_ahead: int = 30) -> list[dict[str, Any]]:
-    """현 추세 연장 — 마지막 actual rate x remaining days. 결정론적 linear.
+    """현 추세 연장 — 직전 7일 평균 rate x remaining days. 결정론적 linear.
 
-    merged 의 마지막 actual 기준 rate 계산 → days_ahead 만큼 forecast 추가.
+    이전: 마지막 1일 delta 만 사용 → outlier (예: mock 9-25 today_qty=6608) 에 흔들림.
+    개선: 직전 7일 윈도우 평균. rate <= 0 이면 planned 일평균의 70% 로 fallback.
+    또 dedup: 같은 date 가 merged 안에 있으면 그 dict 에 forecast 키만 추가 (중복 row 방지).
     """
+    from datetime import date as _date, timedelta
     actual_points = [m for m in merged if m.get("actual") is not None]
     if len(actual_points) < 2:
         return merged
+
+    # 직전 7일 평균 rate (window size 최대 8개 점 — 7 delta).
+    window = actual_points[-8:] if len(actual_points) >= 8 else actual_points
+    rates: list[float] = []
+    for i in range(1, len(window)):
+        prev_pt = window[i - 1]
+        cur_pt = window[i]
+        prev_dt_w = _date.fromisoformat(prev_pt["date"]) if isinstance(prev_pt["date"], str) else prev_pt["date"]
+        cur_dt_w = _date.fromisoformat(cur_pt["date"]) if isinstance(cur_pt["date"], str) else cur_pt["date"]
+        days = max(1, (cur_dt_w - prev_dt_w).days)
+        rates.append((cur_pt["actual"] - prev_pt["actual"]) / days)
+    rate = sum(rates) / len(rates) if rates else 0.0
+
+    # fallback: rate <= 0 (또는 매우 작음) 이면 planned 의 일평균 rate × 0.7.
+    if rate <= 0:
+        planned_points = [m for m in merged if m.get("planned") is not None]
+        if len(planned_points) >= 2:
+            first_p = planned_points[0]
+            last_p = planned_points[-1]
+            first_dt = _date.fromisoformat(first_p["date"]) if isinstance(first_p["date"], str) else first_p["date"]
+            last_dt2 = _date.fromisoformat(last_p["date"]) if isinstance(last_p["date"], str) else last_p["date"]
+            total_days = max(1, (last_dt2 - first_dt).days)
+            planned_rate = (last_p["planned"] - first_p["planned"]) / total_days
+            rate = planned_rate * 0.7
+
     last = actual_points[-1]
-    prev = actual_points[-2]
-    from datetime import date as _date, timedelta
     last_dt = _date.fromisoformat(last["date"]) if isinstance(last["date"], str) else last["date"]
-    prev_dt = _date.fromisoformat(prev["date"]) if isinstance(prev["date"], str) else prev["date"]
-    days = max(1, (last_dt - prev_dt).days)
-    rate = (last["actual"] - prev["actual"]) / days
     last["forecast"] = last["actual"]  # forecast 시작점 = 마지막 actual
+
+    # dedup: 같은 date 가 merged 안에 있으면 그 dict 에 forecast 키만 추가.
+    by_date = {m["date"]: m for m in merged}
     out = list(merged)
     for i in range(1, days_ahead + 1):
         next_dt = last_dt + timedelta(days=i)
-        out.append({
-            "date": next_dt.isoformat(),
-            "forecast": last["actual"] + rate * i,
-        })
-    return out
+        key = next_dt.isoformat()
+        forecast_val = last["actual"] + rate * i
+        if key in by_date:
+            by_date[key]["forecast"] = forecast_val
+        else:
+            new_pt = {"date": key, "forecast": forecast_val}
+            out.append(new_pt)
+            by_date[key] = new_pt
+    return sorted(out, key=lambda x: x["date"])
 
 
 async def _build_s_curve(
@@ -505,12 +878,40 @@ async def _build_s_curve(
     site_id: str,
     today: date,
 ) -> list[dict[str, Any]]:
-    """planned/actual/forecast/recovery 4 곡선 unified datapoint list."""
+    """planned/actual/forecast/recovery 4 곡선 unified datapoint list.
+
+    산식 (A): WV × MH 가중 + activity 단위 매칭 + progress cap.
+    - 분모 = SUM(plan_wv × plan_mh_rev2)
+    - planned[t] = SUM(weight × linear_progress(t)) / 분모 × 100
+    - actual[t]  = SUM(weight × MIN(1, cum_qty(t) / plan_qty)) / 분모 × 100
+                   (단 mapped_history 와 (wa,l6,company) 매칭되는 activity 만 포함)
+
+    이전 단순 SUM(today_qty) / SUM(plan_total_qty) 는 단위 일관성 부재 (m³+ton+개 혼합).
+    """
     async with pg._pool.acquire() as con:
+        # site total weight (분모) = SUM(plan_wv × plan_mh_rev2)
+        site_total_row = await con.fetchrow(
+            """
+            SELECT SUM(plan_wv * plan_mh_rev2)::float AS total
+            FROM activity_master
+            WHERE site_id = $1 AND plan_wv IS NOT NULL AND plan_mh_rev2 IS NOT NULL
+            """,
+            site_id,
+        )
+        site_total_weight = float(site_total_row["total"] or 0) or 1.0
+
+        plan_end_row = await con.fetchrow(
+            "SELECT MAX(plan_finish)::date AS pe FROM activity_master WHERE site_id = $1",
+            site_id,
+        )
+        plan_end = plan_end_row["pe"] if plan_end_row else today
+        gs_end = max(today + timedelta(days=30), plan_end) if plan_end else (today + timedelta(days=30))
+
+        # planned 곡선 — activity 단위 linear progress × WV×MH weight, 일자별 가중 sum
         planned = await con.fetch(
             """
             SELECT gs.date::date AS date,
-                   SUM(am.plan_total_qty * LEAST(1.0, GREATEST(0.0,
+                   SUM(am.plan_wv * am.plan_mh_rev2 * LEAST(1.0, GREATEST(0.0,
                        (gs.date::date - am.plan_start + 1)::float
                        / NULLIF((am.plan_finish - am.plan_start + 1)::float, 0)
                    )))::float AS cum_plan_qty
@@ -523,21 +924,58 @@ async def _build_s_curve(
                     '1 day'::interval
                 ) AS d
             ) gs
-            WHERE am.site_id = $1
+            WHERE am.site_id = $1 AND am.plan_wv IS NOT NULL AND am.plan_mh_rev2 IS NOT NULL
             GROUP BY gs.date ORDER BY gs.date
             """,
             site_id,
-            today,
+            gs_end,
         )
+
+        # actual 곡선 — (wa, l6_main) 매칭 + activity progress (cap=1) × weight 일자별 가중 sum.
+        # company 매칭 제외: (wa, l6) 단위 매칭률 100% (시연 mock 정합성).
+        # cum 누적 보장: 모든 (date × wa × l6) cross join 후 LEFT JOIN — 그날 작업 안 한
+        # (wa, l6) 도 직전 누적 cum 유지. 미보정 시 그 일자 가중 sum 에서 빠져 actual % 가 dip.
         actual = await con.fetch(
             """
-            SELECT report_date, SUM(today_qty)::float AS day_qty
-            FROM mapped_history WHERE site_id = $1 AND report_date <= $2
+            WITH am_agg AS (
+                SELECT wa, l6_main,
+                       SUM(plan_total_qty)::float AS plan_qty,
+                       SUM(plan_wv * plan_mh_rev2)::float AS weight
+                FROM activity_master
+                WHERE site_id = $1 AND plan_wv IS NOT NULL AND plan_mh_rev2 IS NOT NULL
+                GROUP BY wa, l6_main
+            ),
+            day_qty AS (
+                SELECT report_date, wa, l6_main,
+                       SUM(today_qty)::float AS day_qty
+                FROM mapped_history
+                WHERE site_id = $1 AND report_date <= $2
+                GROUP BY report_date, wa, l6_main
+            ),
+            dates AS (
+                SELECT DISTINCT report_date FROM day_qty
+            ),
+            full_grid AS (
+                SELECT d.report_date, m.wa, m.l6_main, m.plan_qty, m.weight
+                FROM dates d CROSS JOIN am_agg m
+            ),
+            cum_actual AS (
+                SELECT g.report_date, g.wa, g.l6_main, g.plan_qty, g.weight,
+                       SUM(COALESCE(dq.day_qty, 0)) OVER (
+                           PARTITION BY g.wa, g.l6_main ORDER BY g.report_date
+                       )::float AS cum_qty
+                FROM full_grid g
+                LEFT JOIN day_qty dq USING (report_date, wa, l6_main)
+            )
+            SELECT report_date,
+                   SUM(weight * LEAST(1.0, cum_qty / NULLIF(plan_qty, 0)))::float AS cum_weighted
+            FROM cum_actual
             GROUP BY report_date ORDER BY report_date
             """,
             site_id,
             today,
         )
+
         rp_row = await con.fetchrow(
             """
             SELECT oa.recovery_pattern FROM optimizer_advice oa
@@ -547,12 +985,36 @@ async def _build_s_curve(
             site_id,
         )
     recovery = (rp_row["recovery_pattern"] if rp_row else None) or []
-    merged = _merge_curves(
-        [dict(r) for r in planned],
-        [dict(r) for r in actual],
-        recovery if isinstance(recovery, list) else [],
-    )
-    return _extend_forecast(merged, days_ahead=30)
+
+    # merge — planned/actual 모두 이미 일자별 가중 sum (누적), _merge_curves 의 cum 변환 안 씀.
+    by_date: dict[str, dict[str, Any]] = {}
+    for p in planned:
+        d = p["date"]
+        key = d.isoformat() if hasattr(d, "isoformat") else str(d)
+        by_date.setdefault(key, {"date": key})["planned"] = float(p["cum_plan_qty"] or 0)
+    for a in actual:
+        d = a["report_date"]
+        key = d.isoformat() if hasattr(d, "isoformat") else str(d)
+        by_date.setdefault(key, {"date": key})["actual"] = float(a["cum_weighted"] or 0)
+    if isinstance(recovery, list):
+        for r in recovery:
+            d = r.get("date")
+            if d is None:
+                continue
+            key = d.isoformat() if hasattr(d, "isoformat") else str(d)
+            by_date.setdefault(key, {"date": key})["recovery_days"] = r.get("recovery_days")
+    merged = sorted(by_date.values(), key=lambda x: x["date"])
+
+    # forecast 연장 (그대로)
+    forecast_days = max(30, (plan_end - today).days + 30) if plan_end else 30
+    extended = _extend_forecast(merged, days_ahead=forecast_days)
+
+    # % 환산 — 분모 = site_total_weight
+    for p in extended:
+        for k in ("planned", "actual", "forecast"):
+            if p.get(k) is not None:
+                p[k] = round(min(100.0, p[k] / site_total_weight * 100), 2)
+    return extended
 
 
 def _build_optimizer_view(
@@ -746,9 +1208,11 @@ def _build_scenarios(advice_rows: list[dict], forecast: list[dict]) -> dict:
             "delta_days": 0,
             "case_count": len(site_days),
         },
-        "optimistic_p25":  _scenario(site_no_action, _percentile(site_days, 0.25), len(site_days)),
+        # 의미 정확화: P75 (큰 recovery_days) = 낙관, P25 (작은 recovery_days) = 비관.
+        # 기존 라벨↔값 매핑 swap 으로 "최적화 공기" 표시값이 실제 최대 만회를 반영.
+        "optimistic_p25":  _scenario(site_no_action, _percentile(site_days, 0.75), len(site_days)),
         "base_p50":        _scenario(site_no_action, _percentile(site_days, 0.50), len(site_days)),
-        "pessimistic_p75": _scenario(site_no_action, _percentile(site_days, 0.75), len(site_days)),
+        "pessimistic_p75": _scenario(site_no_action, _percentile(site_days, 0.25), len(site_days)),
     }
 
     by_wp: dict[str, dict] = {}
@@ -766,9 +1230,10 @@ def _build_scenarios(advice_rows: list[dict], forecast: list[dict]) -> dict:
                 "delta_days": 0,
                 "case_count": len(wp_days),
             },
-            "optimistic_p25":  _scenario(wp_no_action, _percentile(wp_days, 0.25), len(wp_days)),
+            # 의미 정확화: P75 = 낙관, P25 = 비관. (BE 산식 site 와 동일.)
+            "optimistic_p25":  _scenario(wp_no_action, _percentile(wp_days, 0.75), len(wp_days)),
             "base_p50":        _scenario(wp_no_action, _percentile(wp_days, 0.50), len(wp_days)),
-            "pessimistic_p75": _scenario(wp_no_action, _percentile(wp_days, 0.75), len(wp_days)),
+            "pessimistic_p75": _scenario(wp_no_action, _percentile(wp_days, 0.25), len(wp_days)),
         }
 
     return {"site": site_scenarios, "by_wp": by_wp}
@@ -837,14 +1302,21 @@ def _weighted_median(values: list[float], weights: list[float]) -> float:
     return pairs[-1][0]
 
 
-def _normalize_impact(impacts: list[float]) -> list[float]:
-    """impact_raw / max(impact_raw) * 100 → 0..100. 빈 list -> []."""
+def _normalize_impact_share(impacts: list[float]) -> list[float]:
+    """impact share-of-total (일별 합 = 100%). 사용자 요청 의도 "비율".
+
+    이전 max-normalize (단일 wp 가 항상 100% 받음) 는 일별 합이 100% 가 아님 → share 로 변경.
+    grouped_items 의 agg_impact 는 sum() 으로 group 합 = 그 wp_id 의 share. 모든 wp_id share 합 = 100%.
+
+    NOTE 2026-05-22: line 374 의 `_normalize_impact(raw, p90)` 와 이름 충돌로 후자가 shadowing
+    → line 743 호출 시 "takes 1 positional argument but 2 were given" 발생. 이름 분리.
+    """
     if not impacts:
         return []
-    mx = max(impacts)
-    if mx <= 0:
+    total = sum(impacts)
+    if total <= 0:
         return [0.0] * len(impacts)
-    return [round(x / mx * 100, 2) for x in impacts]
+    return [round(x / total * 100, 2) for x in impacts]
 
 
 def _make_display_label(
@@ -928,7 +1400,8 @@ async def _build_productivity_views_v2(
     rows = await pg.fetch_all(
         """
         SELECT ma.id, pr.site_id, ma.run_id, ma.company, ma.l6_main, ma.l7_5_activity,
-               ma.unit, ma.zone, m.ps AS plan_start, m.pf AS plan_finish,
+               ma.unit, ma.zone, ma.wa, ma.today_qty, ma.assigned_workers, ma.trade,
+               m.ps AS plan_start, m.pf AS plan_finish,
                m.qty AS plan_total_qty, m.mh AS plan_mh
         FROM mapper_activities ma
         JOIN pipeline_runs pr USING (run_id)
@@ -945,6 +1418,7 @@ async def _build_productivity_views_v2(
           AND pr.site_id = $2
           AND ma.l7_5_activity IS NOT NULL
           AND m.ps IS NOT NULL AND $1 BETWEEN m.ps AND m.pf
+          AND ma.trade IN ('건축', '토목')
         """,
         today,
         site_id,
@@ -983,12 +1457,17 @@ async def _build_productivity_views_v2(
                 "l6_main": r["l6_main"],
                 "l7_5_activity": r["l7_5_activity"],
                 "unit": r["unit"],
+                "wa": r["wa"],
+                "actual_trade": r["trade"],
+                "assigned_workers": r["assigned_workers"],
                 "today_qty": sim["today_qty"],
                 "workers": sim["workers"],
                 "plan_total_qty": plan_qty,
                 "plan_mh": plan_mh,
                 "perperson": perperson,
                 "master_perperson": master_perperson,
+                "master_daily_qty": daily_qty_master,
+                "master_daily_workers": daily_workers_master,
                 "productivity": productivity,
                 "impact_raw": impact_raw,
             }
@@ -998,7 +1477,7 @@ async def _build_productivity_views_v2(
         return dict(_VIEWS_V2_EMPTY)
 
     # impact 정규화
-    impacts_norm = _normalize_impact([it["impact_raw"] for it in items])
+    impacts_norm = _normalize_impact_share([it["impact_raw"] for it in items])
     for it, ni in zip(items, impacts_norm):
         it["impact"] = ni
 
@@ -1084,10 +1563,62 @@ async def _build_productivity_views_v2(
         }
         for l6, v in sorted(l6_prod.items(), key=lambda x: -x[1]["wv_median"])
     ]
+    # wp_id 별 group by — 같은 (wa, l6_main, company) 에 여러 mapper row 가 있을 때
+    # quadrant/wp_summary 가 row 마다 중복되지 않도록 통합. wp_name 에 wa 추가하여 구역 구분.
+    from collections import defaultdict
+    import statistics as _stats
+
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for it in items:
+        wp_id = _wp_id_of(it["wa"], it["l6_main"], it["company"])
+        groups[wp_id].append(it)
+
+    grouped_items: list[dict] = []
+    for wp_id, grp in groups.items():
+        head = grp[0]
+        agg_today_qty = sum((it.get("today_qty") or 0) for it in grp)
+        agg_workers = sum((it.get("workers") or 0) for it in grp)
+        agg_assigned_workers = sum((it.get("assigned_workers") or 0) for it in grp)
+        agg_plan_qty = sum((it.get("plan_total_qty") or 0) for it in grp)
+        agg_plan_mh = sum((it.get("plan_mh") or 0) for it in grp)
+        prods = [it["productivity"] for it in grp if it.get("productivity") is not None]
+        impacts = [it.get("impact") or 0 for it in grp]
+        agg_prod = _stats.median(prods) if prods else 0.0
+        # impact 은 share-of-total — group SUM 이 그 wp_id 의 share. 일별 sum(grouped) = 100%.
+        agg_impact = sum(impacts) if impacts else 0.0
+        agg_pp = (agg_today_qty / agg_workers) if agg_workers else 0.0
+        agg_master_dq = head.get("master_daily_qty") or 0
+        agg_master_dw = head.get("master_daily_workers") or 0
+        grouped_items.append({
+            **head,
+            "wp_id": wp_id,
+            "today_qty": agg_today_qty,
+            "workers": agg_workers,
+            "assigned_workers": agg_assigned_workers,
+            "plan_total_qty": agg_plan_qty,
+            "plan_mh": agg_plan_mh,
+            "perperson": agg_pp,
+            "productivity": agg_prod,
+            "impact": agg_impact,
+            "master_daily_qty": agg_master_dq,
+            "master_daily_workers": agg_master_dw,
+            "row_count": len(grp),
+        })
+
+    def _wp_name_with_wa(it: dict) -> str:
+        wa = it.get("wa")
+        return f"{it['l7_5_activity']} · {wa}" if wa else it["l7_5_activity"]
+
+    # impact > 0 인 row 만 산점도에 (plan_total_qty=0 또는 plan_mh=0 row 는 impact share-of-total 산식 결과 0 → 의미 없음).
     quadrant = [
         {
-            "wp_id": f"WP-{it['id']}",
-            "wp_name": it["l7_5_activity"],
+            "wp_id": it["wp_id"],
+            "wp_name": _wp_name_with_wa(it),
+            "l7_5_activity": it["l7_5_activity"],
+            "company": it["company"],
+            "l6_main": it["l6_main"],
+            "actual_trade": it.get("actual_trade") or "",
+            "workers": int(it.get("assigned_workers") or 1),
             "trade": it["l6_main"],
             "productivity": round(it["productivity"], 1),
             "impact": round(it["impact"], 1),
@@ -1099,31 +1630,50 @@ async def _build_productivity_views_v2(
                 it["productivity"], it["perperson"], it["unit"]
             ),
         }
-        for it in items
+        for it in grouped_items
+        if (it.get("impact") or 0) > 0
     ]
-    wp_summary = [
-        {
-            "wp_id": f"WP-{it['id']}",
-            "wp_name": it["l7_5_activity"],
-            "trade": it["l6_main"],
-            "bp_name": it["company"],
-            "start_date": str(today.replace(day=1)),  # placeholder
-            "end_date": str(today),
-            "progress_pct": round(
-                min(100, (it["today_qty"] / max(it["plan_total_qty"], 1)) * 100), 1
-            ),
-            "productivity": round(it["productivity"], 1),
-            "impact": round(it["impact"], 1),
-            "baseline": 100,
-            "status": _status_of(it["productivity"]),
-            "perperson": round(it["perperson"], 2),
-            "perperson_unit": f"{it['unit']}/인" if it["unit"] else None,
-            "display_label": _make_display_label(
-                it["productivity"], it["perperson"], it["unit"]
-            ),
-        }
-        for it in items
-    ]
+    # WP 목록 = impact 내림차순 (사용자: 임팩트 높은순).
+    wp_summary = sorted(
+        (
+            {
+                "wp_id": it["wp_id"],
+                "wp_name": _wp_name_with_wa(it),
+                "trade": it["l6_main"],
+                "bp_name": it["company"],
+                "start_date": str(today.replace(day=1)),  # placeholder
+                "end_date": str(today),
+                "progress_pct": round(
+                    min(100, (it["today_qty"] / max(it["plan_total_qty"], 1)) * 100), 1
+                ),
+                "productivity": round(it["productivity"], 1),
+                "impact": round(it["impact"], 1),
+                "baseline": 100,
+                "status": _status_of(it["productivity"]),
+                "perperson": round(it["perperson"], 2),
+                "perperson_unit": f"{it['unit']}/인" if it["unit"] else None,
+                "display_label": _make_display_label(
+                    it["productivity"], it["perperson"], it["unit"]
+                ),
+            }
+            for it in grouped_items
+        ),
+        key=lambda w: -float(w.get("impact") or 0),
+    )
+    # kpi 의 delay_days / expected_completion 은 forecasts AGG 기반.
+    # 이전 하드코딩 (0, today.replace(day=1)) 은 화면 진단 inconsistent — 시연 핵심 지표.
+    async with pg._pool.acquire() as con:
+        fc_agg = await con.fetchrow(
+            """
+            SELECT AVG(delay_days)::float AS delay,
+                   MAX(expected_completion) AS expected_completion
+            FROM forecasts f JOIN pipeline_runs pr USING (run_id)
+            WHERE pr.site_id = $1 AND pr.report_date = $2
+            """,
+            site_id, today,
+        )
+    kpi_delay = round((fc_agg["delay"] if fc_agg else 0) or 0)
+    kpi_ec = fc_agg["expected_completion"] if fc_agg else None
     kpi = {
         "productivity_today": round(site_wv_median, 1),
         "productivity_today_simple_mean": round(site_simple_mean, 1),
@@ -1135,12 +1685,13 @@ async def _build_productivity_views_v2(
             site_wv_median, site_pp, site_unit
         ),
         "productivity_history_diff": 0,
-        "delay_days": 0,
-        "expected_completion": str(today.replace(day=1)),
+        "delay_days": kpi_delay,
+        "expected_completion": kpi_ec.isoformat() if kpi_ec else None,
         "recoverable_productivity": round(max(0, 100 - site_wv_median), 1),
         "target_productivity": 100,
+        # recovery_days / recovered_completion 은 scenarios 산출 후 갱신 (return 직전).
         "recovery_days": 0,
-        "recovered_completion": str(today.replace(day=1)),
+        "recovered_completion": None,
     }
     productivity_dict = {
         "site": {
@@ -1168,6 +1719,76 @@ async def _build_productivity_views_v2(
             for l6, v in l6_prod.items()
         },
     }
+
+    # Phase 2 — optimizer_view 통합 (advice 매칭 + cold_start fallback).
+    advice_rows = await pg.fetch_all(
+        "SELECT * FROM optimizer_advice WHERE run_id IN "
+        "(SELECT run_id FROM pipeline_runs WHERE site_id=$1 AND report_date=$2)",
+        site_id,
+        today,
+    )
+    forecast_rows = await pg.fetch_all(
+        "SELECT * FROM forecasts WHERE run_id IN "
+        "(SELECT run_id FROM pipeline_runs WHERE site_id=$1 AND report_date=$2)",
+        site_id,
+        today,
+    )
+    # asyncpg 는 jsonb 를 str 로 반환 — list/dict 로 inflate.
+    import json as _json
+    _JSONB_KEYS = (
+        "degradation_cases", "recommendations", "recovery_pattern",
+        "recovery_distribution", "work_context",
+    )
+    for row in advice_rows:
+        for k in _JSONB_KEYS:
+            v = row.get(k)
+            if isinstance(v, str):
+                try:
+                    row[k] = _json.loads(v)
+                except Exception:
+                    row[k] = None
+    wa_lookup = _build_wa_lookup(items)
+    optimizer_view = _build_optimizer_view(
+        advice_rows, forecast_rows, items, wa_lookup,
+    )
+
+    # advice 없는 WP → deterministic cold_start. grouped_items 사용 (wp_id 단위 통합).
+    master_lookup = {
+        (it["l7_5_activity"], it["company"]): {
+            "daily_qty": it["master_daily_qty"],
+            "daily_workers": it["master_daily_workers"],
+            "unit": it["unit"],
+        }
+        for it in grouped_items
+    }
+    forecast_by_wp = {
+        (f.get("company"), f.get("l6_main")): f for f in forecast_rows
+    }
+    chroma_cases_lookup = await _fetch_chroma_cases_lookup(quadrant, today)
+    for q in quadrant:
+        if q["wp_id"] in optimizer_view["by_wp"]:
+            continue
+        master = master_lookup.get((q["l7_5_activity"], q["company"]))
+        f = forecast_by_wp.get((q["company"], q["l6_main"]), {})
+        optimizer_view["by_wp"][q["wp_id"]] = _build_deterministic_cold_start(
+            q,
+            master,
+            chroma_cases_lookup.get(q["wp_id"], []),
+            workers=int(q.get("workers") or 1),
+            risk_level=f.get("risk_level"),
+            delay_days=int(f.get("delay_days") or 0),
+        )
+    if optimizer_view.get("default_wp_id") is None and optimizer_view["by_wp"]:
+        optimizer_view["default_wp_id"] = next(iter(optimizer_view["by_wp"].keys()))
+
+    scenarios = _build_scenarios(advice_rows, forecast_rows)
+    s_curve = await _build_s_curve(pg, site_id, today)
+
+    # kpi.recovery_days / recovered_completion 은 scenarios.site.base_p50 기준 매핑.
+    base_p50 = (scenarios.get("site") or {}).get("base_p50") or {}
+    kpi["recovery_days"] = int(base_p50.get("recovery_days") or 0)
+    kpi["recovered_completion"] = base_p50.get("expected_completion") or kpi.get("expected_completion")
+
     return {
         "kpi": kpi,
         "productivity": productivity_dict,
@@ -1175,6 +1796,9 @@ async def _build_productivity_views_v2(
         "trade_bars": trade_bars,
         "quadrant": quadrant,
         "wp_summary": wp_summary,
+        "optimizer_view": optimizer_view,
+        "scenarios": scenarios,
+        "s_curve": s_curve,
     }
 
 

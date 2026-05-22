@@ -92,9 +92,6 @@ export const OUTPUT_MANPOWER_COLS: readonly SheetColumn<OutputManpowerRow>[] = [
   { key: "prev_work",  label: "전일 작업사항", cellClass: "max-w-[160px] truncate" },
   { key: "today_work", label: "금일 작업사항", cellClass: "max-w-[200px] whitespace-normal text-ink" },
   { key: "next_work",  label: "명일 작업사항", cellClass: "max-w-[160px] truncate" },
-  { key: "early",      label: "조출", align: "right", format: num },
-  { key: "day",        label: "주간", align: "right", format: num },
-  { key: "overtime",   label: "연장", align: "right", format: num },
 ] as const;
 
 export const OCCUPATION_COLS: readonly SheetColumn<OccupationManpowerRow>[] = [
@@ -130,8 +127,8 @@ export const EQUIPMENT_COLS: readonly SheetColumn<EquipmentRow>[] = [
 export const QUANTITY_COLS: readonly SheetColumn<QuantityRow>[] = [
   { key: "zone",       label: "Zone" },
   { key: "trade",      label: "공종" },
-  { key: "bp_code",    label: "BP사", cellClass: "font-mono text-[11px]" },
-  { key: "bp_name",    label: "업체명" },
+  { key: "bp_code",    label: "BP 코드", cellClass: "font-mono text-[11px]" },
+  { key: "bp_name",    label: "BP사" },
   { key: "scope",      label: "Scope" },
   { key: "rep_work",   label: "대표 작업내용", cellClass: "max-w-[220px] whitespace-normal text-ink" },
   { key: "unit",       label: "단위", align: "center" },

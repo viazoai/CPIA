@@ -25,14 +25,16 @@ def test_clean_returns_ordered_statements():
     stmts_from_date = _delete_previous_artifacts_statements(site_id="m15x-ph3-ibl", target_date=target)
 
     for stmts in (stmts_from_str, stmts_from_date):
-        assert isinstance(stmts, list) and len(stmts) == 4
+        # pipeline_runs DELETE 제거 — FK CASCADE 로 mapper_activities 까지 삭제됨 (데이터 손실).
+        # 3 statement (artifacts only): advice / forecasts / daily_reports.
+        assert isinstance(stmts, list) and len(stmts) == 3
         keywords_in_order = [
             "DELETE FROM optimizer_advice",
             "DELETE FROM forecasts",
             "DELETE FROM daily_reports",
-            "DELETE FROM pipeline_runs",
         ]
         for (sql, params), expected_kw in zip(stmts, keywords_in_order):
             assert expected_kw in sql, sql
+            assert "DELETE FROM pipeline_runs" not in sql, "pipeline_runs DELETE 금지 (CASCADE 보호)"
             assert "m15x-ph3-ibl" in params
             assert target in params  # date object — asyncpg 가 PG DATE 컬럼에 직접 bind

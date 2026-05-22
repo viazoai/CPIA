@@ -62,9 +62,15 @@ DEFAULT_DAYS = 15
 def _delete_previous_artifacts_statements(
     site_id: str, target_date: date
 ) -> list[tuple[str, list]]:
-    """cascade DELETE 4 statement 반환 (실행 순서 보장).
+    """artifacts (advice/forecasts/daily_reports) DELETE 3 statement 반환.
 
-    advice -> forecasts -> daily_reports -> pipeline_runs
+    advice -> forecasts -> daily_reports
+
+    *** pipeline_runs 자체는 DELETE 안 함 ***
+    이유: pipeline_runs.run_id 가 mapper_activities + parser_activities + collector_artifacts
+    의 FK (ON DELETE CASCADE, infra/postgres/init.sql:53). DELETE FROM pipeline_runs
+    WHERE site_id+date 시 해당 일자의 mapper_activities 통째로 cascade 삭제. mapper_activities
+    는 backfill 의 hydrate source — 보존 필수.
 
     target_date: datetime.date (asyncpg 가 PG DATE 컬럼에 직접 bind).
                  str 받으면 datetime.date 로 변환 — 호출자 편의.
@@ -79,7 +85,6 @@ def _delete_previous_artifacts_statements(
         (f"DELETE FROM optimizer_advice WHERE run_id IN ({sub})", params),
         (f"DELETE FROM forecasts WHERE run_id IN ({sub})", params),
         (f"DELETE FROM daily_reports WHERE run_id IN ({sub})", params),
-        ("DELETE FROM pipeline_runs WHERE site_id=$1 AND report_date=$2", params),
     ]
 
 

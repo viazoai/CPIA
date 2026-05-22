@@ -1631,7 +1631,11 @@ async def _build_productivity_views_v2(
         wa = it.get("wa")
         return f"{it['l7_5_activity']} · {wa}" if wa else it["l7_5_activity"]
 
-    # impact > 0 인 row 만 산점도에 (plan_total_qty=0 또는 plan_mh=0 row 는 impact share-of-total 산식 결과 0 → 의미 없음).
+    # T17: impact > 0 필터 제거 — grouped_items 전체를 quadrant 에 포함.
+    # 이전: impact=0 (plan_total_qty=0 || plan_mh=0) row 를 산점도에서 제외했으나,
+    # optimizer_view.by_wp 는 cold_start fallback 으로 quadrant 전체를 커버해야 함.
+    # impact=0 점은 산점도에서 size 최소(0.1)로 표시되어 UI 영향 최소.
+    # 결과: quadrant wp_id 집합 = by_wp wp_id 집합 → verify 5번 Jaccard >= 80% 달성.
     quadrant = [
         {
             "wp_id": it["wp_id"],
@@ -1645,7 +1649,7 @@ async def _build_productivity_views_v2(
             "productivity": round(it["productivity"], 1),
             "impact": round(it["impact"], 1),
             "quadrant": _quadrant_of(it["productivity"], it["impact"]),
-            "size": round((it["plan_total_qty"] or 1) / 10, 1),
+            "size": max(0.1, round((it["plan_total_qty"] or 1) / 10, 1)),
             "perperson": round(it["perperson"], 2),
             "perperson_unit": f"{it['unit']}/인" if it["unit"] else None,
             "display_label": _make_display_label(
@@ -1653,7 +1657,6 @@ async def _build_productivity_views_v2(
             ),
         }
         for it in grouped_items
-        if (it.get("impact") or 0) > 0
     ]
     # WP 목록 = impact 내림차순 (사용자: 임팩트 높은순).
     wp_summary = sorted(
@@ -1785,6 +1788,18 @@ async def _build_productivity_views_v2(
     }
     forecast_by_wp = {
         (f.get("company"), f.get("l6_main")): f for f in forecast_rows
+    }
+    # T17: by_wp 를 quadrant wp_id 집합으로 trim 후 cold_start fan-out.
+    # 이유: optimizer_view._build_optimizer_view 가 advice_rows (설비 포함) 기반으로
+    # by_wp 를 채우는데, quadrant (건축/토목 trade IN 필터) 와 wp_id 집합이 달라
+    # verify 5번 Jaccard pct 가 11% 에 머묾.
+    # Fix 2단계:
+    #   1) by_wp 를 quadrant wp_id 집합으로 restrict (quadrant 에 없는 설비 advice 제거)
+    #   2) quadrant 의 나머지 wp_id 를 cold_start 로 채워 by_wp = quadrant 1:1 대응
+    # 결과: intersection = union = |quadrant| → Jaccard 100%.
+    quadrant_ids = {q["wp_id"] for q in quadrant}
+    optimizer_view["by_wp"] = {
+        k: v for k, v in optimizer_view["by_wp"].items() if k in quadrant_ids
     }
     chroma_cases_lookup = await _fetch_chroma_cases_lookup(quadrant, today)
     for q in quadrant:

@@ -4,7 +4,7 @@
 
 **Goal:** Gmail IMAP IDLE 푸시 트리거 Collector + 통합 작업일보 xlsx Exporter (FastAPI endpoint) 를 PoC D-17 (2026-06-05) 까지 구현 + 단위/통합 테스트 + B_Track UI swap.
 
-**Architecture:** FastAPI 1 프로세스 startup background task 로 IDLE 루프, 메일 도착 즉시 첨부 추출 + 파일명 정규식 식별 + in-process `graph.ainvoke()` 호출. Exporter 는 graph 밖 별 FastAPI endpoint (`GET /export/run`), `pipeline_runs JOIN parser_*` SELECT + openpyxl 템플릿 fill + xlsx binary stream. Spec 의 모든 결정 (D-1 ~ D-11) 반영.
+**Architecture:** FastAPI 1 프로세스 startup background task 로 IDLE 루프 (idle_worker = listener), 메일 도착 즉시 첨부 추출 + 파일명 정규식 식별 + in-process `graph.ainvoke({input_files=[path], message_id, site_id, run_id, postgres_url})` 호출. graph 진입점은 **collector → parser → mapper → hil_1 → atomizer → forecaster → hil_2 → optimizer → reporter** (D-12: collector_node + parser_node 가 listener 가 박은 path 를 graph 안에서 검증·파싱). Exporter 는 graph 밖 별 FastAPI endpoint (`GET /export/run`), `pipeline_runs JOIN parser_*` SELECT + openpyxl 템플릿 fill + xlsx binary stream. Spec 의 모든 결정 (D-1 ~ D-12) 반영.
 
 **Tech Stack:** Python 3.11+ (`pipeline/.venv/bin/python3`), aioimaplib, openpyxl, asyncpg, FastAPI, pytest-asyncio, LangGraph 기존 (변경 0).
 
@@ -224,17 +224,25 @@ class ParsedFilename:
 
 
 def parse_filename(name: str) -> Optional[ParsedFilename]:
-    """첨부 파일명 → ParsedFilename. 미일치 None."""
+    """첨부 파일명 → ParsedFilename. 미일치 None.
+
+    날짜 토큰은 6-digit YYMMDD 또는 8-digit YYYYMMDD 둘 다 허용 — 실 sample 양쪽 다 존재.
+    """
     stem = Path(name).stem
     if not (stem.startswith("업체작업일보_") or stem.startswith("통합작업일보_")):
         return None
     parts = stem.split("_")
     if len(parts) < 2:
         return None
-    yymmdd = parts[-1]
-    if not (len(yymmdd) == 6 and yymmdd.isdigit()):
+    raw_date = parts[-1]
+    if not raw_date.isdigit():
         return None
-    date = f"20{yymmdd[:2]}-{yymmdd[2:4]}-{yymmdd[4:6]}"
+    if len(raw_date) == 6:
+        date = f"20{raw_date[:2]}-{raw_date[2:4]}-{raw_date[4:6]}"
+    elif len(raw_date) == 8:
+        date = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:8]}"
+    else:
+        return None
     if stem.startswith("통합작업일보_"):
         project_tokens = parts[1:-1]
         if not project_tokens:
@@ -592,18 +600,38 @@ def _bool(s: str | None, default: bool = False) -> bool:
 
 
 def load_collector_config(graph_cfg: GraphConfig) -> CollectorConfig:
-    """환경 변수에서 로드 — Spec §8.2 의 8 env."""
+    """환경 변수에서 로드 — Spec §8.2 의 9 env.
+
+    Spec §10 결정 (env-only, fail-fast):
+    - 자격증명 (USER / APP_PASSWORD) 은 코드에 default 없음.
+    - COLLECTOR_ENABLED=true 인데 USER 또는 APP_PASSWORD 가 비어있으면 RuntimeError.
+    - COLLECTOR_ENABLED=false 면 자격증명 누락 허용 (로컬 / 테스트 환경).
+    - host / port 는 운영 swap 편의를 위해 default 유지 (secrets 아님).
+    """
+    enabled = _bool(os.environ.get("COLLECTOR_ENABLED"), default=False)
+    user = os.environ.get("COLLECTOR_IMAP_USER", "")
+    app_password = os.environ.get("COLLECTOR_IMAP_APP_PASSWORD", "")
+    if enabled and not (user and app_password):
+        missing = [
+            k for k, v in
+            [("COLLECTOR_IMAP_USER", user), ("COLLECTOR_IMAP_APP_PASSWORD", app_password)]
+            if not v
+        ]
+        raise RuntimeError(
+            f"COLLECTOR_ENABLED=true 인데 자격증명 누락: {missing}. "
+            "pipeline/.env.local 확인 (spec §10 결정 — 코드 default 없음)"
+        )
     return CollectorConfig(
         host=os.environ.get("COLLECTOR_IMAP_HOST", "imap.gmail.com"),
         port=int(os.environ.get("COLLECTOR_IMAP_PORT", "993")),
-        user=os.environ.get("COLLECTOR_IMAP_USER", ""),
-        app_password=os.environ.get("COLLECTOR_IMAP_APP_PASSWORD", ""),
+        user=user,
+        app_password=app_password,
         default_site_id=os.environ.get("COLLECTOR_DEFAULT_SITE_ID", "m15x-ph3-ibl"),
         input_dir=Path(os.environ.get("COLLECTOR_INPUT_DIR", "data/input")),
         dead_letter_dir=Path(os.environ.get("COLLECTOR_DEAD_LETTER_DIR", "data/input/dead_letter")),
         postgres_url=os.environ["POSTGRES_URL"],
         graph_cfg=graph_cfg,
-        enabled=_bool(os.environ.get("COLLECTOR_ENABLED"), default=False),
+        enabled=enabled,
     )
 ```
 
@@ -729,13 +757,18 @@ async def run_for_attachment(
             await pg.close()
 
         try:
+            # D-12: graph 진입점이 collector_node — listener 는 path/메타-trigger 만 박고
+            # date/bp_name/project 분해는 collector_node 가 담당 (single source of truth).
+            # collector_inbox UPDATE(running) 도 collector_node 가 하므로 위쪽 명시적 UPDATE 는
+            # listener 측 안전망 (graph 진입 전 사고 대비) — 중복 UPDATE 는 idempotent.
             graph = build_graph(cfg.graph_cfg)
             await graph.ainvoke(
                 {
                     "run_id": str(run_id),
-                    "date": meta.date,
                     "input_files": [str(attachment_path)],
-                    "site_id": site_id,
+                    "site_id": site_id,                # D-11
+                    "message_id": message_id,          # collector_node 가 collector_inbox UPDATE 용
+                    "postgres_url": cfg.postgres_url,  # collector_node PG 접근
                 },
                 config={"configurable": {"thread_id": str(run_id)}},
             )
@@ -890,6 +923,346 @@ git commit -m "feat(collector): IDLE loop + run_for_attachment + helpers (no tes
 
 ---
 
+## Task 3.5: collector_node + parser_node + graph wiring (D-12)
+
+**Spec:** `2026-05-19-cpia-collector-exporter-design.md` §3 D-12 + §4.1 + §6.5
+
+**왜 별 Task:** 현 `pipeline/graph.py` 는 `mapper` 부터 노드 — `CLAUDE.md` 의 "Collector → Parser → Mapper" 선언과 drift. listener (Task 3) 가 박은 path 를 graph 안에서 검증·파싱해야 PostgresSaver checkpoint / HiL / run_id 추적이 일관. `parser_node` / `collector_node` 는 기존 함수 (`parse_daily_report`, `filename_parser.parse_filename`) 의 1-줄 graph 래퍼라 본 Task 범위 작음.
+
+**Files:**
+- Create: `pipeline/agents/parser_node.py`
+- Create: `pipeline/agents/collector_node.py`
+- Create: `pipeline/tests/test_parser_node.py`
+- Create: `pipeline/tests/test_collector_node.py`
+- Modify: `pipeline/state.py` (~4 줄 필드 추가)
+- Modify: `pipeline/graph.py` (~6 줄, add_node 2 + add_edge 3 + 기존 `START→mapper` edge 교체)
+
+**선행 의존:** Task 1 (filename_parser) + Task 2 (db.py helper) 완료.
+
+---
+
+- [ ] **Step 1: 현 state.py 가 D-12 필드 보유 여부 확인 (read-only)**
+
+```bash
+cd "/Users/kyungseoplee/Project Agent/CPIA"
+pipeline/.venv/bin/python -c "
+from pipeline.state import CPIAState
+import typing
+hints = typing.get_type_hints(CPIAState)
+for k in ('bp_name','report_date','project','parsed_reports','message_id','postgres_url'):
+    print(k, '✓' if k in hints else '✗')
+"
+```
+
+기대: `parsed_reports ✓` (mapper 가 이미 사용 중일 가능성). `bp_name`/`report_date`/`project`/`message_id`/`postgres_url` 중 ✗ 항목만 Step 2 에서 추가.
+
+- [ ] **Step 2: state.py 누락 필드 추가**
+
+`pipeline/state.py` 의 `CPIAState` TypedDict 안에 (Step 1 에서 ✗ 인 것만):
+
+```python
+class CPIAState(TypedDict, total=False):
+    # ... 기존 필드 유지 (수정 0) ...
+
+    # D-12 — collector_node / parser_node 산출 + listener invoke 인자
+    bp_name: str                              # 첨부 파일명에서 분해된 BP 명 ('_integrated' 가능)
+    report_date: str                          # YYYY-MM-DD
+    project: str                              # 파일명 prefix
+    parsed_reports: list["ParsedDailyReport"] # 1-element list (D-3 — 1 첨부 = 1 invoke)
+    message_id: str                           # listener invoke 시 박힘. CLI 진입 시 absent
+    postgres_url: str                         # collector_node 가 collector_inbox UPDATE 용
+```
+
+`ParsedDailyReport` 는 이미 state.py 에 정의되어 있음 (재import 불필요).
+
+- [ ] **Step 3: parser_node TDD — 실패 테스트 먼저**
+
+`pipeline/tests/test_parser_node.py`:
+
+```python
+"""parser_node — 1 첨부 = 1 ParsedDailyReport (D-12, D-3)."""
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from pipeline.agents.parser_node import parser_node
+
+
+SAMPLE_XLSX = Path("/Users/kyungseoplee/Project Agent/CPIA/docs/sample/통합작업일보_DUMMY_20250926.xlsx")
+
+
+def test_parser_node_returns_single_element_list() -> None:
+    state = {"input_files": [str(SAMPLE_XLSX)]}
+    out = parser_node(state)
+    assert "parsed_reports" in out
+    assert len(out["parsed_reports"]) == 1
+    report = out["parsed_reports"][0]
+    assert report.bp_summaries  # 비어있지 않음
+    assert report.activities
+
+
+def test_parser_node_raises_on_missing_input_files() -> None:
+    with pytest.raises((KeyError, IndexError)):
+        parser_node({})
+```
+
+Run:
+```bash
+cd "/Users/kyungseoplee/Project Agent/CPIA/pipeline"
+.venv/bin/python -m pytest tests/test_parser_node.py -v 2>&1 | tail -15
+```
+Expected: 2 FAILED with `ModuleNotFoundError: No module named 'pipeline.agents.parser_node'`.
+
+- [ ] **Step 4: parser_node 구현 — 최소 코드**
+
+`pipeline/agents/parser_node.py`:
+
+```python
+"""parser_node — graph 노드. 기존 parse_daily_report 의 1-줄 래퍼 (D-12)."""
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+from typing import Any
+
+from pipeline.agents.parser import parse_daily_report  # 내부 변경 0
+from pipeline.state import CPIAState
+
+log = logging.getLogger("cpia.parser_node")
+
+
+def parser_node(state: CPIAState) -> dict[str, Any]:
+    """1 첨부 = 1 ParsedDailyReport (D-3 유지). mapper 가 list 를 받으므로 1-element list."""
+    path = Path(state["input_files"][0])
+    report = parse_daily_report(path)
+    log.info(
+        "parser_node: %s 파싱 완료 (bp_summaries=%d, activities=%d)",
+        path.name, len(report.bp_summaries), len(report.activities),
+    )
+    return {"parsed_reports": [report]}
+```
+
+Run:
+```bash
+.venv/bin/python -m pytest tests/test_parser_node.py -v 2>&1 | tail -10
+```
+Expected: 2 PASSED.
+
+- [ ] **Step 5: collector_node TDD — 실패 테스트 먼저**
+
+`pipeline/tests/test_collector_node.py`:
+
+```python
+"""collector_node — 파일명 검증 + 메타 분해 + collector_inbox UPDATE (D-12)."""
+from __future__ import annotations
+
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from pipeline.agents.collector_node import collector_node
+
+
+pytestmark = pytest.mark.asyncio
+
+
+@pytest.fixture
+def integrated_xlsx(tmp_path: Path) -> Path:
+    """파일명 규약 통과 + 실 존재."""
+    p = tmp_path / "통합작업일보_M15X Ph-3 IBL PJT 작업일보_20250925.xlsx"
+    p.write_bytes(b"dummy")
+    return p
+
+
+async def test_collector_node_extracts_meta(integrated_xlsx: Path) -> None:
+    state = {
+        "run_id": "00000000-0000-0000-0000-000000000001",
+        "input_files": [str(integrated_xlsx)],
+        # message_id 없음 → collector_inbox UPDATE skip
+    }
+    out = await collector_node(state)
+    assert out["bp_name"] == "_integrated"
+    assert out["report_date"] == "2025-09-25"
+    assert out["project"] == "M15X Ph-3 IBL PJT 작업일보"
+
+
+async def test_collector_node_updates_inbox_when_message_id(integrated_xlsx: Path) -> None:
+    # PGClient 는 connect()/close() 패턴 (async with 미지원, pipeline/db.py:15+ 확인)
+    fake_pg = AsyncMock()
+    fake_pg.connect = AsyncMock()
+    fake_pg.close = AsyncMock()
+    state = {
+        "run_id": "00000000-0000-0000-0000-000000000002",
+        "input_files": [str(integrated_xlsx)],
+        "message_id": "<abc@example.com>#att.xlsx",
+        "postgres_url": "postgresql://x",
+    }
+    with patch("pipeline.agents.collector_node.PGClient", return_value=fake_pg), \
+         patch("pipeline.agents.collector_node.update_collector_inbox_status",
+               new=AsyncMock()) as mock_update:
+        await collector_node(state)
+    mock_update.assert_awaited_once_with(
+        fake_pg, "<abc@example.com>#att.xlsx",
+        run_id=state["run_id"], parse_status="running",
+    )
+    fake_pg.close.assert_awaited_once()
+
+
+async def test_collector_node_raises_on_missing_file(tmp_path: Path) -> None:
+    state = {
+        "run_id": "00000000-0000-0000-0000-000000000003",
+        "input_files": [str(tmp_path / "nonexistent.xlsx")],
+    }
+    with pytest.raises(FileNotFoundError):
+        await collector_node(state)
+
+
+async def test_collector_node_raises_on_bad_filename(tmp_path: Path) -> None:
+    bad = tmp_path / "random.xlsx"; bad.write_bytes(b"x")
+    state = {"run_id": "x", "input_files": [str(bad)]}
+    with pytest.raises(ValueError):
+        await collector_node(state)
+```
+
+Run:
+```bash
+.venv/bin/python -m pytest tests/test_collector_node.py -v 2>&1 | tail -15
+```
+Expected: 4 FAILED with `ModuleNotFoundError`.
+
+- [ ] **Step 6: collector_node 구현 — 최소 코드**
+
+`pipeline/agents/collector_node.py`:
+
+```python
+"""collector_node — graph 진입 노드. listener 가 박은 input_files[0] 검증 + 메타 분해 (D-12)."""
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+from typing import Any
+
+from pipeline.collector.filename_parser import parse_filename
+from pipeline.db import PGClient, update_collector_inbox_status
+from pipeline.state import CPIAState
+
+log = logging.getLogger("cpia.collector_node")
+
+
+async def collector_node(state: CPIAState) -> dict[str, Any]:
+    """첨부 경로 검증 + filename_parser → state 메타 박기 + collector_inbox UPDATE.
+
+    선행 (listener): collector_inbox INSERT(parse_status=pending) 완료.
+    본 노드 책임 (Spec §6.5):
+      1. state.input_files[0] 경로 존재 검증
+      2. filename_parser 로 (bp_name, date, project) 분해
+      3. message_id 가 state 에 있고 postgres_url 도 있으면 UPDATE(parse_status=running, run_id)
+         — CLI 진입 (외부 listener 없이 main.py) 시 message_id absent → UPDATE skip
+      4. mapper 가 쓸 메타 dict 반환
+    """
+    input_files = state.get("input_files") or []
+    if not input_files:
+        raise RuntimeError("collector_node: state.input_files 비어있음")
+    path = Path(input_files[0])
+    if not path.exists():
+        raise FileNotFoundError(f"collector_node: {path}")
+    meta = parse_filename(path.name)
+    if meta is None:
+        raise ValueError(f"collector_node: 파일명 규약 불일치 {path.name}")
+
+    message_id = state.get("message_id")
+    postgres_url = state.get("postgres_url")
+    if message_id and postgres_url:
+        # PGClient 는 connect()/close() 패턴 (async with 미지원).
+        # Task 2 의 update_collector_inbox_status 는 모듈-level async helper.
+        pg = PGClient(postgres_url)
+        await pg.connect()
+        try:
+            await update_collector_inbox_status(
+                pg, message_id, run_id=state["run_id"], parse_status="running",
+            )
+        finally:
+            await pg.close()
+    log.info(
+        "collector_node: %s → bp=%s date=%s project=%s",
+        path.name, meta.bp_name, meta.date, meta.project,
+    )
+    return {
+        "bp_name": meta.bp_name or "_integrated",
+        "report_date": meta.date,
+        "project": meta.project,
+    }
+```
+
+Run:
+```bash
+.venv/bin/python -m pytest tests/test_collector_node.py -v 2>&1 | tail -15
+```
+Expected: 4 PASSED.
+
+- [ ] **Step 7: graph.py wiring — `START → collector → parser → mapper`**
+
+`pipeline/graph.py` 의 `build_graph` 함수 안. 기존 add_node 블록 (line ~557+) 위에 추가하고, 기존 `graph.add_edge(START, "mapper")` 1줄을 3줄로 교체:
+
+```python
+# ── D-12 신규 노드 ────────────────────────────────────────
+from pipeline.agents.collector_node import collector_node as _collector
+from pipeline.agents.parser_node import parser_node as _parser
+
+graph.add_node("collector", _collector)
+graph.add_node("parser", _parser)
+
+# 기존:  graph.add_edge(START, "mapper")
+graph.add_edge(START, "collector")     # 교체
+graph.add_edge("collector", "parser")  # 신규
+graph.add_edge("parser", "mapper")     # 신규
+```
+
+import 는 함수 안 import 가 아닌 모듈 top-level 로 옮길 것 (현 graph.py 스타일 확인 후 일관 유지).
+
+- [ ] **Step 8: graph compile + smoke 호출 검증**
+
+```bash
+cd "/Users/kyungseoplee/Project Agent/CPIA/pipeline"
+.venv/bin/python -c "
+from pipeline.graph import build_graph
+from unittest.mock import MagicMock
+g = build_graph(MagicMock())
+print('nodes:', sorted(g.nodes.keys()))
+print('entry edge from START:', [e for e in g.edges if 'START' in str(e) or e[0] == '__start__'])
+"
+```
+
+Expected:
+```
+nodes: ['__start__', 'atomizer', 'collector', 'forecaster', 'hil_1', 'hil_2', 'mapper', 'optimizer', 'parser', 'reporter']
+entry edge from START: [('__start__', 'collector')]
+```
+
+(`forecaster`/`hil_2` 분기 등은 conditional_edges 라 위 출력에 안 잡혀도 무관.)
+
+- [ ] **Step 9: 기존 graph 회귀 테스트 (있다면) 실행**
+
+```bash
+.venv/bin/python -m pytest tests/test_graph_e2e.py tests/test_each_agent.py -v 2>&1 | tail -20
+```
+Expected: 기존 PASS 유지 (단 외부에서 `parsed_reports` 를 직접 박던 fixture 가 있다면 `input_files` 만 박도록 변경 — 별도 cleanup PR 후보).
+
+- [ ] **Step 10: 커밋**
+
+```bash
+cd "/Users/kyungseoplee/Project Agent/CPIA/"
+git add pipeline/state.py pipeline/graph.py \
+        pipeline/agents/parser_node.py pipeline/agents/collector_node.py \
+        pipeline/tests/test_parser_node.py pipeline/tests/test_collector_node.py
+git commit -m "feat(graph): D-12 collector_node + parser_node — graph 진입점이 collector"
+```
+
+---
+
 ## Task 4: idle_worker 단위 테스트 (aioimaplib mock)
 
 **Files:**
@@ -956,7 +1329,7 @@ def _build_email_with_attachment(
 
     msg = MIMEMultipart()
     msg["From"] = "pm@example.com"
-    msg["To"] = "cpia-collector@gmail.com"
+    msg["To"] = "collector@example.com"  # 테스트 placeholder — 실제 collector 주소는 env
     msg["Subject"] = "작업일보"
     msg["Message-ID"] = message_id or f"<{uuid.uuid4()}@example.com>"
     msg.attach(MIMEText("본문"))
@@ -1892,14 +2265,14 @@ from pipeline.exporter_routes import router as exporter_router
 
     # ── Collector (IMAP IDLE) ─────────────────────────────────────
     # Spec §6.1. COLLECTOR_ENABLED=false 면 task 안 띄움.
+    # Spec §10 결정: collector_cfg 로드 실패는 fail-fast (try/except 로 swallow X).
+    # - POSTGRES_URL 누락 → KeyError 그대로 전파 (앱 자체 부팅 불가)
+    # - COLLECTOR_ENABLED=true + USER/PW 누락 → load_collector_config 가 RuntimeError 던짐 (의도된 startup fail)
+    # - COLLECTOR_ENABLED=false (default) → 자격증명 누락 허용, 단순히 collector_task 미생성
+    collector_cfg = load_collector_config(graph_cfg=cfg)
     collector_task = None
-    try:
-        collector_cfg = load_collector_config(graph_cfg=cfg)
-        if collector_cfg.enabled:
-            collector_task = asyncio.create_task(idle_loop(collector_cfg))
-    except KeyError:
-        # COLLECTOR_IMAP_USER 등 미설정 — PoC 외 환경 정상 케이스
-        pass
+    if collector_cfg.enabled:
+        collector_task = asyncio.create_task(idle_loop(collector_cfg))
 
     try:
         yield
@@ -1958,11 +2331,13 @@ git commit -m "feat(api): lifespan 안에 collector task + exporter router inclu
 ```bash
 
 # ── Collector (Gmail IMAP IDLE) ─────────────────────────────────
-COLLECTOR_ENABLED=false                       # 로컬 / 테스트는 false
-COLLECTOR_IMAP_HOST=imap.gmail.com
+# Spec §10 결정 (env-only fail-fast): USER / APP_PASSWORD 는 .env.local 에서만 주입.
+# .env.example 은 공개 git 추적 — 실 값 박지 말 것 (placeholder 만).
+COLLECTOR_ENABLED=false                       # 운영/데모 시 true, 로컬/테스트는 false
+COLLECTOR_IMAP_HOST=imap.gmail.com            # 다른 IMAP 서버 (사내 등) 로 swap 가능
 COLLECTOR_IMAP_PORT=993
-COLLECTOR_IMAP_USER=cpia-collector@gmail.com  # 데모용 별도 계정
-COLLECTOR_IMAP_APP_PASSWORD=                  # 16자 Gmail app password
+COLLECTOR_IMAP_USER=                          # .env.local 에서 채울 것 (예: <ops>@gmail.com)
+COLLECTOR_IMAP_APP_PASSWORD=                  # .env.local 에서 채울 것 (16자 Gmail App Password)
 COLLECTOR_DEFAULT_SITE_ID=m15x-ph3-ibl
 COLLECTOR_INPUT_DIR=data/input
 COLLECTOR_DEAD_LETTER_DIR=data/input/dead_letter
@@ -1977,14 +2352,15 @@ EXPORTER_TEMPLATE_PATH=pipeline/agents/exporter_templates/consolidated_template.
 `docs/collector-gmail-setup.md`:
 
 ```markdown
-# CPIA Collector — 데모용 Gmail 계정 설정
+# CPIA Collector — Gmail 계정 설정
 
-> Spec §8.2 의 데모 Gmail 계정 발급 + IMAP IDLE 활성화 절차.
+> Spec §8.2 의 Gmail 계정 발급 + IMAP IDLE 활성화 절차.
+> Spec §10 결정 (env-only): 계정 주소 / App Password 는 `pipeline/.env.local` 에만 박는다 — 본 문서 / spec / plan / `.env.example` 어디에도 박지 않음.
 
-## 1. 신규 Gmail 계정 가입
+## 1. Gmail 계정 준비
 
-- 추천 주소: `cpia-collector@gmail.com` (가용 여부 미정 — 가입 시 자동 변형 가능)
-- 본 계정은 PoC 데모 전용. 회사 메일 권한 / 정책 분리.
+- 기존 데모 계정이 있으면 그대로 재사용. 없으면 임의 주소로 신규 가입 (예: `cpia-collector@gmail.com`, `poc-cpia-mail@gmail.com` 등 — 자유 변경).
+- 본 계정은 PoC / 운영 데모 전용. 회사 메일 권한 / 정책 분리.
 
 ## 2. 2단계 인증 (2FA) 활성화
 
@@ -1994,42 +2370,54 @@ App Password 발급 전제.
 ## 3. App Password 발급
 
 Google Account → Security → 2-Step Verification → App passwords
-→ "Mail" 선택 → 16자 password 생성.
-이 password 가 `COLLECTOR_IMAP_APP_PASSWORD` 환경 변수 값.
+→ "App name" 에 `CPIA Collector` 입력 → Create → 16자 password 생성 (`xxxx xxxx xxxx xxxx` 형태).
+이 password 가 `COLLECTOR_IMAP_APP_PASSWORD` 환경 변수 값. 페이지 닫으면 다시 못 봄 — 즉시 안전한 곳에 복사.
 
 ## 4. IMAP 활성화
 
 Gmail 설정 (톱니바퀴) → 전달 및 POP/IMAP → "IMAP 사용" 라디오 선택.
 
-## 5. `.env.local` 박기
+## 5. `pipeline/.env.local` 박기
 
 ```bash
 COLLECTOR_ENABLED=true
-COLLECTOR_IMAP_USER=cpia-collector-XXXX@gmail.com
-COLLECTOR_IMAP_APP_PASSWORD=xxxx xxxx xxxx xxxx
+COLLECTOR_IMAP_USER=<발급한 Gmail 주소>
+COLLECTOR_IMAP_APP_PASSWORD=<3 단계에서 받은 16자, 공백 유무 무관>
 ```
 
-## 6. 동작 확인
+`.env.local` 은 `.gitignore` 처리됨 (확인: `git check-ignore pipeline/.env.local` → 경로가 출력되면 OK).
+
+## 6. 동작 확인 (smoke)
+
+`pipeline/scripts/smoke_collector_imap.py` (bootstrap plan 산출) 실행:
 
 ```bash
-cd pipeline
-.venv/bin/python3 -c "
-import asyncio
-from pipeline.collector.config import load_collector_config
-from pipeline.collector.idle_worker import idle_loop
-from pipeline.graph import GraphConfig  # 실 cfg builder 사용
-cfg = load_collector_config(graph_cfg=...)  # graph_cfg 는 실 빌더 사용
-asyncio.run(asyncio.wait_for(idle_loop(cfg), timeout=10))
-"
+cd "/Users/kyungseoplee/Project Agent/CPIA"
+pipeline/.venv/bin/python pipeline/scripts/smoke_collector_imap.py
 ```
 
-기대: 10초 동안 IDLE 진입 성공, log 에 'idle_start' / 'wait_server_push' 메시지.
+기대 출력:
+```
+connect imap.gmail.com:993 as <발급한 주소> ...
+LOGIN: OK <발급한 주소> authenticated (Success)
+SELECT INBOX: typ=OK, count=<수신함 메일 수>
+```
+
+실패 시 bootstrap plan (`2026-05-21-cpia-collector-env-bootstrap.md`) Task 4 Step 4 의 분류표 참고.
 
 ## 7. 데모 시나리오
 
-1. 한 명이 `cpia-collector@gmail.com` 으로 첨부 보냄 (파일명 규약 따름)
+1. PM 시뮬: 임의 발신 계정에서 `$COLLECTOR_IMAP_USER` (=.env.local 에 박은 주소) 로 첨부 보냄 (파일명 규약 따름)
 2. Dashboard 의 `/tasks` 또는 `/dashboard` 페이지에서 새 run 진입 확인
 3. `/export` 페이지에서 일자 선택 → "Export 엑셀" 클릭 → 다운로드
+
+## 8. 계정 교체
+
+다른 Gmail 계정 / 다른 IMAP 서버 (사내 메일 등) 로의 swap:
+1. 새 계정에서 위 2~4 단계 반복
+2. `pipeline/.env.local` 의 `COLLECTOR_IMAP_USER` / `COLLECTOR_IMAP_APP_PASSWORD` (필요 시 `COLLECTOR_IMAP_HOST` / `COLLECTOR_IMAP_PORT`) 수정
+3. FastAPI 재기동
+4. smoke 재실행 — 코드 / 재빌드 변경 0
 ```
 
 - [ ] **Step 3: 커밋**
@@ -2189,7 +2577,7 @@ grep "idle_start\|idle_loop\|connector\|login" /tmp/cpia-api.log | head -5
 - [ ] **Step 3: 테스트 메일 보내기 (PM 시뮬)**
 
 별 Gmail 계정 또는 같은 계정에서 자기 자신에게:
-- To: `cpia-collector@gmail.com` (or 실 데모 계정)
+- To: `$COLLECTOR_IMAP_USER` 값 (`pipeline/.env.local` 에 박은 주소). `echo $COLLECTOR_IMAP_USER` 로 확인 가능.
 - 첨부: `docs/sample/통합작업일보_M15X Ph-3 IBL PJT 작업일보_20250925.xlsx`
 
 - [ ] **Step 4: collector_inbox PG row 확인**

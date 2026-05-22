@@ -45,7 +45,7 @@ PoC 데모 마감 = 2026-06-05 (목), D-17.
 - Gmail IMAP IDLE 푸시 트리거 Collector — 메일 도착 시 첨부 추출 → 파일명 식별 → graph 1회 실행
 - 통합 작업일보 xlsx Exporter — `parser_*` PG SELECT → 4 시트 dummy 템플릿 fill → FastAPI `GET /export/run` binary stream
 - `collector_inbox` PG 테이블 신규 (Message-ID dedup + run 추적)
-- 데모용 별도 Gmail 계정 (cpia-collector@gmail.com 류) 신규
+- 데모용 별도 Gmail 계정 1개 발급 — 주소 / app password 는 env (`COLLECTOR_IMAP_USER`, `COLLECTOR_IMAP_APP_PASSWORD`) 로만 주입, spec / 코드 / 테스트 fixture 에는 박지 않음
 - 단위 / 통합 테스트 (LLM bypass, 결정론적 검증)
 
 **Non-goal (후속 cycle)**:
@@ -63,17 +63,18 @@ PoC 데모 마감 = 2026-06-05 (목), D-17.
 
 | # | 결정 | 선택 | 사유 |
 |---|---|---|---|
-| D-1 | 메일 채널 | Gmail (데모용 별도 계정 신규) | SK 사내 메일 권한 부담 회피, IMAP IDLE 지원, PoC D-17 일정 가장 안전 |
+| D-1 | 메일 채널 | Gmail IMAP. 계정 (user / app password / host / port) 은 `.env` 만으로 주입 — spec / 코드 / fixture 어디에도 하드코딩 X | SK 사내 메일 권한 부담 회피, IMAP IDLE 지원, PoC D-17 일정 가장 안전. 데모 계정 교체 / 운영 계정 전환 / 다른 IMAP 서버 (사내 메일 등) 로의 swap 시 `.env` 만 갈아끼우고 FastAPI 재기동 — 재빌드 / 코드 변경 0 |
 | D-2 | 트리거 | **IMAP IDLE (push)** | zero-latency. 외부 endpoint / Pub/Sub / 도메인 불필요 (IDLE 은 IMAP 표준 push) |
 | D-3 | Run 단위 | 첨부 1개 = 1 graph run 즉시 (1 메일 N 첨부 = N run) | PM 이 여러 업체 일보 일괄 전송 케이스 자연 지원 |
 | D-4 | 식별 규약 | 첨부 파일명 정규식 (업체별 / 통합 2 패턴) | 샘플 파일명 규약 이미 운영 중. subject 규약 강제 (PM 운영 부담) 회피 |
-| D-5 | Collector 운영 모델 | FastAPI startup background task (`asyncio.create_task(idle_loop())`) | docker-compose 변경 0, 프로세스 1개, PoC 가장 단순 |
+| D-5 | IMAP listener 운영 모델 | FastAPI startup background task (`asyncio.create_task(idle_loop())`) — graph 밖 | docker-compose 변경 0, 프로세스 1개, PoC 가장 단순. listener 는 graph 의 trigger 일 뿐, 자체는 노드 아님 (D-12 참조) |
 | D-6 | Exporter 위치 | graph 밖 별 service (FastAPI `GET /export/run?site_id&date`) | UI 가 명시한 endpoint (ConsolidatedReportCard 주석). graph.py 변경 0 |
 | D-7 | Exporter xlsx 생성 | Python BE openpyxl + dummy 템플릿 fill | A_Track 분담 (CLAUDE.md). 헤더 / 셀 병합 / 스타일 보존 |
 | D-8 | Exporter 데이터 소스 | `parser_*` PG SELECT (= `/api/mock/consolidated` 와 같은 SQL 의미론) | dummy 양식 4 시트와 1:1, mapper 정보 불필요 |
 | D-9 | `reporter.py` 운명 | **그대로 유지** | reports 페이지 + daily_reports.report_md 가 살아있음. CLAUDE.md 의 "rename" 은 reports 페이지 간과한 표현 — 정확한 의도는 "신규 Exporter 추가" |
 | D-10 | graph 호출 방식 | in-process `graph.ainvoke()` (HTTP self-call 안 함) | 같은 프로세스 안 self-loopback HTTP 는 오버킬 |
 | D-11 | site_id resolution | `COLLECTOR_DEFAULT_SITE_ID` env fallback (PoC 단일 site) | `sites.project_code` 신설 부담 회피. 첨부 파일명의 project 토큰은 metadata 로만 보관. Multi-site 는 후속 cycle |
+| D-12 | Parser + Collector 의 LangGraph 노드화 | `parse_daily_report` / 첨부 파일명 검증을 graph 노드로 승격. graph 진입점을 mapper → collector 로 이동 (collector → parser → mapper → ...) | 현 code 는 mapper 부터 노드 — `CLAUDE.md` 의 "Collector → Parser → Mapper" 선언과 drift. 모든 처리 단계가 graph 안에 있어야 PostgresSaver checkpoint / HiL 진입 / 관측 (run_id 추적) 일관. 외부 listener 는 D-5 그대로 유지 — 1 첨부 = 1 `graph.ainvoke` = collector_node 1회 + parser_node 1회 (D-3 유지) |
 
 ---
 
@@ -103,12 +104,18 @@ PoC 데모 마감 = 2026-06-05 (목), D-17.
 │                                                                                │
 └────────────────────────────────────────────────────────────────────────────────┘
     │
-    │ in-process: idle_worker → build_graph(cfg).ainvoke({...})
+    │ in-process: listener → build_graph(cfg).ainvoke({input_files, message_id, site_id, ...})
     ▼
-[LangGraph 기존 — 변경 0]
-   mapper → hil_1 → atomizer → forecaster → hil_2 → optimizer → reporter(MD)
-   (graph.py 의 실제 노드 — CLAUDE.md 의 "HiL2 자동 라우팅 대체" 표기와 drift 있으나
-    본 cycle 범위 밖. 본 cycle 은 graph.py 일체 안 건드림.)
+[LangGraph 확장 — D-12]
+   collector → parser → mapper → hil_1 → atomizer → forecaster → hil_2 → optimizer → reporter(MD)
+   ─ 신규 노드 ─
+     collector_node : 첨부 경로 검증 + filename_parser → (site_id, date, bp_name) state 박기
+                      + collector_inbox UPDATE (parse_status=running)
+     parser_node    : 기존 `parse_daily_report(xlsx_path)` 래퍼 → state.parsed_reports
+   ─ graph.py 변경 ─
+     graph.add_node("collector", _collector); graph.add_node("parser", _parser)
+     graph.add_edge(START, "collector"); graph.add_edge("collector", "parser")
+     graph.add_edge("parser", "mapper")  # 기존 START → mapper edge 교체
     │
     │ PG 적재
     ▼
@@ -129,20 +136,31 @@ PoC 데모 마감 = 2026-06-05 (목), D-17.
 
 | 파일 | 신규/기존 | 책임 | 주 의존 |
 |---|---|---|---|
-| `pipeline/collector/idle_worker.py` | 신규 | IMAP IDLE 루프 + 첨부 추출 + dedup + in-process graph 호출 | aioimaplib, db.py (collector_inbox), graph.py |
-| `pipeline/collector/filename_parser.py` | 신규 | 첨부 파일명 정규식 → (site_id, date, bp_name, project) | 없음 (순수 함수) |
+| `pipeline/collector/idle_worker.py` | 신규 | IMAP IDLE 루프 + 첨부 추출 + dedup + `graph.ainvoke({input_files=[path], message_id, site_id, ...})` 호출 (D-5 — graph 밖). 명칭 "idle_worker" 는 listener 동의어로 본 spec 일관 사용 | aioimaplib, db.py (collector_inbox), graph.py |
+| `pipeline/collector/filename_parser.py` | 신규 | 첨부 파일명 정규식 → `ParsedFilename(site_id, date, bp_name, project)` — 순수 함수 (listener + collector 노드 양쪽 import) | 없음 |
+| `pipeline/agents/collector_node.py` | 신규 (D-12) | graph 노드 — state.input_files[0] 경로 검증 + filename_parser 호출 + state 박기 (`bp_name`, `report_date`, `project`, `site_id`) + collector_inbox UPDATE (parse_status=running, run_id) | filename_parser, db.py |
+| `pipeline/agents/parser_node.py` | 신규 (D-12) | graph 노드 — 기존 `pipeline/agents/parser.py:parse_daily_report` 호출 래퍼 → state.parsed_reports (list[ParsedDailyReport]) | parser.py |
+| `pipeline/graph.py` | 수정 (~6줄, D-12) | `add_node("collector", ...)` + `add_node("parser", ...)` + edge 3개 (START→collector→parser→mapper, 기존 `START→mapper` 교체) | — |
 | `pipeline/agents/exporter.py` | 신규 | PG SELECT → 4 시트 row → openpyxl 템플릿 fill → bytes | db.py, openpyxl |
 | `pipeline/exporter_routes.py` | 신규 | FastAPI APIRouter — `GET /export/run` | exporter.py |
 | `pipeline/api.py` | 수정 (3줄) | startup hook + shutdown hook + `include_router` | — |
+| `pipeline/state.py` | 수정 (~3줄, D-12) | `CPIAState` 에 `bp_name`, `report_date`, `project`, `parsed_reports` 필드 추가 (mapper 가 이미 parsed_reports 기대 — 기존 외부 invoke 시 직접 박았던 것이 collector/parser 노드 산출로 변경) | — |
 
-**기존 `collector.py` 운명**: `discover_daily_reports()` / `collect_and_parse()` 그대로 유지 (테스트 / CLI 진입점용). idle_worker 가 같은 `discover_daily_reports` 시그니처는 재사용 안 함 (메일 첨부는 in-memory bytes 라 path 추상화 다름).
+**기존 `pipeline/agents/collector.py` 운명**: `discover_daily_reports()` / `collect_and_parse()` 는 CLI / 회귀 테스트용으로 유지하되 deprecation 주석 추가 — 실 운영 경로는 graph 노드 collector_node + parser_node 가 담당. CLI 가 `collect_and_parse` 호출 시 내부적으로 `graph.ainvoke` 로 위임하도록 후속 정리 (별 cycle 가능).
+
+**기존 `pipeline/agents/parser.py` 운명**: `parse_daily_report(xlsx_path)` 순수 함수는 그대로 유지 — parser_node 가 1줄 래퍼로 호출. 검증 로직 / LLM 보정 등 내부 변경 0.
 
 ### 4.2 다른 세션 충돌 회피 — 명시
 
 **Read-only (절대 안 건드림)**:
-`parser.py`, `parser_llm.py`, `parser_post.py`, `mapper.py`, `atomizer.py`, `forecaster/`, `optimizer/`, `reporter.py`, `state.py`, `graph.py`, `checkpointer.py`, `chroma_client.py`
+`parser.py` (내부 파싱 로직 — parser_node 가 1줄 래퍼만 추가), `parser_llm.py`, `parser_post.py`, `mapper.py`, `atomizer.py`, `forecaster/`, `optimizer/`, `reporter.py`, `checkpointer.py`, `chroma_client.py`
 
-**신규 only (충돌 0)**: §4.1 의 4개 신규 파일 + 템플릿 xlsx + 마이그레이션 SQL + 테스트 4 종
+**변경 가능 — D-12 추가 라인 최소**:
+- `pipeline/graph.py` — `add_node("collector", _collector)` + `add_node("parser", _parser)` + edge 3개 (START→collector→parser→mapper, 기존 `START→mapper` 교체) = **총 ~6줄 변경**. 기존 노드 / edge 0 수정.
+- `pipeline/state.py` — `CPIAState` TypedDict 에 필드 4개 추가 (`bp_name`, `report_date`, `project`, `parsed_reports`) = **~4 줄 추가**. 기존 필드 0 수정.
+- `pipeline/agents/collector.py` — `discover_daily_reports` / `collect_and_parse` 위에 deprecation docstring 추가 (~3 줄). 함수 시그니처 / 본문 변경 0.
+
+**신규 only (충돌 0)**: §4.1 의 신규 파일들 + 템플릿 xlsx + 마이그레이션 SQL + 테스트 6 종 (parser_node + collector_node 단위 테스트 + graph wiring 통합 테스트 추가)
 
 **충돌 가능 (변경 라인 최소)**:
 - `pipeline/api.py` — startup hook 1줄 + shutdown hook 1줄 + `include_router(...)` 1줄 = **총 3줄 추가**, 기존 endpoint 변경 0
@@ -177,7 +195,7 @@ PM 메일 (첨부 N)
    build_graph(cfg).ainvoke({run_id, date, input_files, site_id, ...})
               │
               ▼
-   graph 실행: parser → mapper → hil_1 → atomizer → forecaster → hil_2 → optimizer → reporter
+   graph 실행: collector → parser → mapper → hil_1 → atomizer → forecaster → hil_2 → optimizer → reporter  (D-12)
               │
               ▼
    PG 적재: parser_reports / parser_activities / mapper_activities / daily_reports.report_md
@@ -335,18 +353,26 @@ class ParsedFilename:
 
 
 def parse_filename(name: str) -> Optional[ParsedFilename]:
-    """업체작업일보_<project>_..._<bp>_<trade>_<zone>_<YYMMDD>.xlsx
-       통합작업일보_<project>_<YYMMDD>.xlsx
+    """업체작업일보_<project>_..._<bp>_<trade>_<zone>_<YYMMDD|YYYYMMDD>.xlsx
+       통합작업일보_<project>_<YYMMDD|YYYYMMDD>.xlsx
     매치 실패 시 None.
+
+    날짜 토큰은 6-digit YYMMDD (e.g., `250917`) 또는 8-digit YYYYMMDD (e.g., `20250925`) 둘 다 허용.
+    실 sample 두 가지 모두 존재 — 업체별은 6-digit, 통합은 8-digit.
     """
     stem = Path(name).stem
     if not (stem.startswith("업체작업일보_") or stem.startswith("통합작업일보_")):
         return None
     parts = stem.split("_")
-    yymmdd = parts[-1]
-    if not (len(yymmdd) == 6 and yymmdd.isdigit()):
+    raw_date = parts[-1]
+    if not raw_date.isdigit():
         return None
-    date = f"20{yymmdd[:2]}-{yymmdd[2:4]}-{yymmdd[4:6]}"
+    if len(raw_date) == 6:
+        date = f"20{raw_date[:2]}-{raw_date[2:4]}-{raw_date[4:6]}"
+    elif len(raw_date) == 8:
+        date = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:8]}"
+    else:
+        return None
     if stem.startswith("통합작업일보_"):
         return ParsedFilename(
             kind="integrated",
@@ -477,6 +503,145 @@ async def _process_one(imap, uid: str, cfg: CollectorConfig) -> None:
 - **dedup key = `Message-ID#attachment_filename`** (1 메일 N 첨부에서 각 첨부 독립 추적)
 - IDLE 가 재연결 후 같은 메일 재알릴 가능성 → `UNSEEN` + collector_inbox dedup 2중 보호
 - `\Seen` flag + `cpia-processed` label 부여 — 운영 가시성
+
+### 6.5 collector_node + parser_node (D-12)
+
+listener (§6.1~6.4) 가 첨부를 디스크에 저장하고 `collector_inbox` INSERT 까지 마친 뒤 `graph.ainvoke({input_files=[path], message_id, site_id, run_id, postgres_url})` 를 호출. 그 다음 graph 안에서:
+
+```
+START → collector → parser → mapper → hil_1 → atomizer → forecaster → hil_2 → optimizer → reporter → END
+```
+
+#### collector_node — 첨부 검증 + 메타 분해 + collector_inbox UPDATE
+
+```python
+# pipeline/agents/collector_node.py
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+from typing import Any
+
+from pipeline.collector.filename_parser import parse_filename
+from pipeline.db import PGClient
+from pipeline.state import CPIAState
+
+log = logging.getLogger("cpia.collector_node")
+
+
+async def collector_node(state: CPIAState) -> dict[str, Any]:
+    """graph 진입 노드. listener 가 박은 input_files[0] 검증 + metadata 분해.
+
+    선행: listener 가 collector_inbox INSERT(parse_status=pending) 까지 끝낸 상태.
+    본 노드 책임:
+      1. state.input_files[0] 경로 존재 검증
+      2. filename_parser 로 (bp_name, date, project) 분해 — 파일명 규약 위반 시 ValueError
+      3. collector_inbox UPDATE(parse_status=running, run_id) — message_id 가 state 에 있을 때만
+      4. state 에 메타 박아 mapper / 후속 노드가 사용
+
+    CLI 진입 (외부 listener 없이 main.py 로 graph 호출) 시 message_id 는 None — UPDATE skip.
+    """
+    input_files = state.get("input_files") or []
+    if not input_files:
+        raise RuntimeError("collector_node: state.input_files 비어있음")
+    path = Path(input_files[0])
+    if not path.exists():
+        raise FileNotFoundError(f"collector_node: {path}")
+    meta = parse_filename(path.name)
+    if meta is None:
+        raise ValueError(f"collector_node: 파일명 규약 불일치 {path.name}")
+    message_id = state.get("message_id")
+    if message_id and state.get("postgres_url"):
+        async with PGClient(state["postgres_url"]) as pg:
+            await pg.update_collector_inbox_status(
+                message_id, run_id=state["run_id"], parse_status="running",
+            )
+    log.info("collector_node: %s → bp=%s date=%s", path.name, meta.bp_name, meta.date)
+    return {
+        "bp_name": meta.bp_name or "_integrated",
+        "report_date": meta.date,
+        "project": meta.project,
+    }
+```
+
+#### parser_node — 기존 `parse_daily_report` 1줄 래퍼
+
+```python
+# pipeline/agents/parser_node.py
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+from typing import Any
+
+from pipeline.agents.parser import parse_daily_report  # 기존 함수 — 내부 변경 0
+from pipeline.state import CPIAState
+
+log = logging.getLogger("cpia.parser_node")
+
+
+def parser_node(state: CPIAState) -> dict[str, Any]:
+    """1 첨부 = 1 ParsedDailyReport (D-3 유지). mapper 가 list 를 받으므로 1-element list."""
+    path = Path(state["input_files"][0])
+    report = parse_daily_report(path)
+    log.info("parser_node: %s 파싱 완료 (bp_summaries=%d, activities=%d)",
+             path.name, len(report.bp_summaries), len(report.activities))
+    return {"parsed_reports": [report]}
+```
+
+#### graph.py 변경 (~6 줄, D-12)
+
+```python
+# pipeline/graph.py — 신규 import 2개
+from pipeline.agents.collector_node import collector_node as _collector
+from pipeline.agents.parser_node import parser_node as _parser
+
+# build_graph 함수 안 — 기존 add_node 위에 추가:
+graph.add_node("collector", _collector)
+graph.add_node("parser", _parser)
+
+# 기존:
+#   graph.add_edge(START, "mapper")
+# 교체:
+graph.add_edge(START, "collector")
+graph.add_edge("collector", "parser")
+graph.add_edge("parser", "mapper")
+```
+
+#### state.py 변경 (~4 줄, D-12)
+
+```python
+# pipeline/state.py — CPIAState TypedDict 에 필드 추가
+class CPIAState(TypedDict, total=False):
+    # ... 기존 필드 유지 ...
+    # D-12 추가 — collector_node / parser_node 산출
+    bp_name: str             # 첨부 파일명에서 분해된 BP 명 ('_integrated' 가능)
+    report_date: str         # YYYY-MM-DD
+    project: str             # 파일명 prefix
+    parsed_reports: list[ParsedDailyReport]  # 1-element list (D-3, 1 첨부 = 1 invoke)
+    message_id: str          # listener invoke 시 박힘. CLI 진입 시 absent
+```
+
+#### listener (§6.3) 의 ainvoke 인자 — D-12 반영
+
+```python
+# pipeline/collector/idle_worker.py — run_for_attachment 내부 (§6.3 의 ainvoke 호출 갱신)
+await build_graph(cfg.graph_cfg).ainvoke(
+    {
+        "run_id": str(run_id),
+        "input_files": [str(attachment_path)],
+        "site_id": site_id,                # D-11
+        "message_id": message_id,          # collector_node 가 collector_inbox UPDATE 용
+        "postgres_url": cfg.postgres_url,  # collector_node PG 접근
+        # date / bp_name / project 는 collector_node 가 채움 — listener 가 박지 않음 (single source of truth)
+    },
+    config={"configurable": {"thread_id": str(run_id)}},
+)
+```
+
+#### CLI 진입 호환 (`pipeline/main.py` 또는 외부 caller)
+
+기존 CLI: `python3 main.py 20250925` → `discover_daily_reports + collect_and_parse + graph.ainvoke({parsed_reports=...})` 패턴. D-12 이후엔 CLI 도 `input_files=[xlsx_path]` 만 박으면 collector_node + parser_node 가 알아서 처리. 단 `message_id` 없으면 collector_inbox UPDATE skip — listener 외 진입 경로는 invariant 깨지 않음.
 
 ---
 
@@ -697,12 +862,12 @@ PoC 단순화: **캐싱 안 함**. 매 호출 PG SELECT + render. xlsx ~150KB �
 ### 8.2 환경 변수 (`.env` 추가)
 
 ```bash
-# Collector
+# Collector — 계정/서버는 env 만으로 주입 (코드에 default 없음 — 누락 시 startup fail-fast)
 COLLECTOR_ENABLED=true                       # 로컬 / 테스트 환경은 false 로 끄기
-COLLECTOR_IMAP_HOST=imap.gmail.com
+COLLECTOR_IMAP_HOST=imap.gmail.com           # 다른 IMAP 서버 (사내 / 별 도메인) 로도 즉시 swap 가능
 COLLECTOR_IMAP_PORT=993
-COLLECTOR_IMAP_USER=cpia-collector@gmail.com
-COLLECTOR_IMAP_APP_PASSWORD=<16자 Gmail app password>
+COLLECTOR_IMAP_USER=<collector-account>      # 예: cpia-collector@gmail.com / poc-cpia-mail@gmail.com 등. 자유 변경
+COLLECTOR_IMAP_APP_PASSWORD=<16자 app password>
 COLLECTOR_DEFAULT_SITE_ID=m15x-ph3-ibl       # PoC 단일 site fallback
 COLLECTOR_INPUT_DIR=data/input
 COLLECTOR_DEAD_LETTER_DIR=data/input/dead_letter
@@ -712,12 +877,12 @@ CPIA_COLLECTOR_CONCURRENCY=2
 EXPORTER_TEMPLATE_PATH=pipeline/agents/exporter_templates/consolidated_template.xlsx
 ```
 
-데모용 Gmail 계정 발급 절차:
-1. cpia-collector@gmail.com (또는 유사) 신규 가입
+데모용 Gmail 계정 발급 절차 (주소는 예시 — spec / 코드 어디에도 박지 않으므로 `.env` 만 바꾸면 다른 주소 / 다른 Gmail 계정 / 다른 IMAP 서버로 즉시 교체 가능):
+1. 임의 주소 (예: cpia-collector@gmail.com) 로 Gmail 신규 가입 — 이미 데모용 계정이 있다면 그대로 재사용 가능
 2. 2FA 활성화
 3. App Password 발급 (Google Account → Security → 2-Step Verification → App passwords → "Mail" 16자)
 4. IMAP enable (Gmail 설정 → 전달 및 POP/IMAP → IMAP 사용)
-5. `.env.local` 에 `COLLECTOR_IMAP_APP_PASSWORD=<16자>` 박기
+5. `.env.local` 에 `COLLECTOR_IMAP_USER=<발급한 주소>` + `COLLECTOR_IMAP_APP_PASSWORD=<16자>` 박기 → FastAPI 재기동만 하면 반영 (재빌드 X)
 
 ### 8.3 PoC 일정 (D-17, 5/19~6/5)
 
@@ -779,13 +944,13 @@ EXPORTER_TEMPLATE_PATH=pipeline/agents/exporter_templates/consolidated_template.
 
 ## 10. Open questions (implementation 단계에서 결정)
 
-- 데모용 Gmail 계정의 정확한 주소 (cpia-collector@gmail.com 가용 여부)
 - B_Track 의 UI swap 방식: Next.js BFF proxy vs FastAPI 직접 fetch (CORS / NEXT_PUBLIC_FASTAPI_BASE 환경 변수 노출 정책)
 - dummy xlsx 4 시트 정확한 컬럼 인덱스 (§7.2 TODO) — implementation 단계 첫 작업
 - dead_letter 누적 시 운영자 알림 — 후속 cycle (PoC 외)
 
 **결정 완료** (본 spec review iteration 1):
 - `sites.project_code` 컬럼 신설 — **하지 않음**. `COLLECTOR_DEFAULT_SITE_ID` env fallback (D-11) 으로 PoC 충족.
+- 메일 계정 주소 / 비밀번호 / IMAP 서버 — `.env` (`COLLECTOR_IMAP_USER`, `COLLECTOR_IMAP_APP_PASSWORD`, `COLLECTOR_IMAP_HOST`, `COLLECTOR_IMAP_PORT`) 로만 주입. spec / 코드 / 테스트 fixture / docker-compose 어디에도 하드코딩 금지. `_collector_cfg()` 는 `COLLECTOR_IMAP_USER` / `COLLECTOR_IMAP_APP_PASSWORD` 가 비어있으면 startup `RuntimeError` (fail-fast — 코드 default 없음). 계정 교체 시 `.env` 한두 줄 갈아끼우고 FastAPI 재기동만 하면 됨 (재빌드 X, 코드 변경 0). 데모용 → 운영 / 다른 도메인 / 다른 Gmail 계정 전환 모두 동일 절차.
 
 ---
 

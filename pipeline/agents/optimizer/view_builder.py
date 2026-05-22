@@ -1051,16 +1051,26 @@ def _build_optimizer_view(
         ) or [matched_f.get("wa")]
 
         # 유사 사례 자연어 변환
+        # 2026-05-22: description 표현 fix — 단위 (main_unit) + 인원 수 명시.
+        # 이전: "생산성 0.5" → 어느 단위인지 모름 (m/인? ton/인? %?)
+        # 변경: "생산성 0.52 m/인 (인원 107명)" — main_unit 출처는 matched_f.main_unit (forecasts row).
+        main_unit = matched_f.get("main_unit") or ""
+        unit_suffix = f" {main_unit}/인" if main_unit else "/인"
         similar_cases = []
         for c in (advice.get("degradation_cases") or []):
             activities = c.get("activities") or []
             conditions = c.get("conditions") or ""
             productivity = c.get("productivity") or 0
+            workers = c.get("assigned_workers")
             recovery = c.get("recovery") or {}
             rd = recovery.get("recovery_days") if isinstance(recovery, dict) else None
+            workers_part = f" (인원 {workers:.0f}명)" if workers is not None else ""
             similar_cases.append({
                 "date": c.get("date") or "",
-                "description": f"{conditions} - {activities[0] if activities else ''}, 생산성 {productivity:.1f}",
+                "description": (
+                    f"{conditions} - {activities[0] if activities else ''}, "
+                    f"생산성 {productivity:.2f}{unit_suffix}{workers_part}"
+                ),
                 "outcome": f"{rd}일 후 회복" if rd is not None else "미회복",
             })
 
@@ -1078,7 +1088,19 @@ def _build_optimizer_view(
         rd_vals = [p.get("recovery_days") for p in rp if isinstance(p, dict) and p.get("recovery_days") is not None]
         avg_rd: Optional[float] = (sum(rd_vals) / len(rd_vals)) if rd_vals else None
         rdist = advice.get("recovery_distribution") or {}
-        rdist_text = " / ".join(f"{k}: {v}건" for k, v in rdist.items()) if isinstance(rdist, dict) else ""
+        # 2026-05-22: 회복분포 abbreviation 풀어쓰기.
+        # "d+2: 1건" → "2일 후 정상 회복 1건" (recovery 정의 = productivity ≥ baseline×0.95)
+        # "not_recovered: 1건" → "미회복 1건"
+        def _humanize(k: str) -> str:
+            if k == "not_recovered":
+                return "미회복"
+            if k.startswith("d+"):
+                return f"{k[2:]}일 후 정상 회복"
+            return k
+        rdist_text = (
+            " / ".join(f"{_humanize(k)} {v}건" for k, v in rdist.items())
+            if isinstance(rdist, dict) else ""
+        )
 
         details = [
             {"label": "위험 평가", "value": matched_f.get("risk_level") or "—"},

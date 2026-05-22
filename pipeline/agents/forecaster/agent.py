@@ -24,6 +24,7 @@ from .aggregate import (
     aggregate_today_by_unit,
     compute_delay,
     fetch_chroma_actual,
+    fetch_pg_actual_cum_qty,
 )
 from .classify import classify_assessment, classify_risk_level
 from .prompt import (
@@ -152,15 +153,29 @@ async def _forecast_one_group(
         plan_mh_sum=plan["plan_mh_sum"] if plan else None,
     )
 
-    # ⑤ compute_delay
-    actual_window_start, actual_cum_mh = fetch_chroma_actual(
+    # ⑤ compute_delay — 2026-05-22 qty 기반.
+    # actual_cum_qty 는 PG mapper_activities 가 source of truth (Chroma 는 mapper 의 일부만 backfill).
+    today_qty_main = today_qty_by_unit.get(main_unit, 0.0) if main_unit else 0.0
+    actual_window_start, actual_cum_mh, _chroma_qty = fetch_chroma_actual(
         coll,
         company,
         l6_main,
         today,
         today_assigned_workers,
+        today_qty_main=today_qty_main,
+        main_unit=main_unit,
     )
-    delay_info = compute_delay(plan, today, actual_window_start, actual_cum_mh)
+    pg_cum_qty = await fetch_pg_actual_cum_qty(pg, company, l6_main, today, main_unit)
+    actual_cum_qty = pg_cum_qty + today_qty_main
+    delay_info = compute_delay(
+        plan,
+        today,
+        actual_window_start,
+        actual_cum_mh,
+        actual_cum_qty=actual_cum_qty,
+        plan_total_qty_main=plan_main_qty,
+        today_qty_main=today_qty_main,
+    )
 
     # ⑥ LLM
     if assessment is None:
@@ -240,7 +255,7 @@ async def _forecast_one_group(
         "assessment": assessment,
         "reasoning": reasoning,
         "recovery_likelihood": recovery_likelihood,
-        "expected_completion": plan["plan_finish"] if plan else None,
+        "expected_completion": delay_info.get("expected_completion") or (plan["plan_finish"] if plan else None),
         "risk_level": risk_level,
         # v3.1 (optimizer cycle Task 1) — Optimizer / hil_2 가 소비할 2 필드
         "main_unit": main_unit,

@@ -349,14 +349,16 @@ async def hil_2_node(state: CPIAState, cfg: GraphConfig) -> dict:
             )
             continue
 
-        # F5: coll.get 1회 호출 후 두 함수에 metadatas/documents 전달
+        # F5: coll.get 1회 호출 후 두 함수에 metadatas/documents 전달.
+        # 2026-05-22: company hard filter 제거 — l6_main 만 매칭하여 cross-company case 활용
+        # (이전엔 합성 3사 외 75사가 case=0 cold_start fallback).
         result = coll.get(
-            where={"$and": [{"company": r["company"]}, {"l6_main": r["l6_main"]}]},
+            where={"l6_main": r["l6_main"]},
             include=["metadatas", "documents"],
         )
         metas, docs = result["metadatas"], result["documents"]
 
-        baseline_value = _group_baseline(metas, r["company"], r["l6_main"], baseline_unit)
+        baseline_value = _group_baseline(metas, None, r["l6_main"], baseline_unit)
         if baseline_value is None:
             # F7: None 분기 명시 — pre_cases[key]=[] 후 다음 그룹
             pre_cases[key] = []
@@ -375,7 +377,7 @@ async def hil_2_node(state: CPIAState, cfg: GraphConfig) -> dict:
         cases = fetch_degradation_cases(
             metas,
             docs,
-            r["company"],
+            None,  # 2026-05-22 cross-company retrieve
             r["l6_main"],
             today,
             baseline_unit,
@@ -385,7 +387,7 @@ async def hil_2_node(state: CPIAState, cfg: GraphConfig) -> dict:
         for c in cases:
             c["recovery"] = fetch_recovery_trajectory(
                 metas,
-                r["company"],
+                None,  # 2026-05-22 cross-company recovery 추세
                 r["l6_main"],
                 c["date"],
                 today,

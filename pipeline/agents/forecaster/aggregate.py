@@ -5,10 +5,39 @@ Spec: docs/superpowers/specs/2026-05-16-cpia-forecaster-design.md §5
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from typing import Any, Optional
 
 from .constants import WORK_HOURS_PER_DAY
+
+
+async def fetch_pg_actual_cum_qty(
+    pg,
+    company: str,
+    l6_main: str,
+    today: date,
+    main_unit: Optional[str],
+) -> float:
+    """PG mapper_activities 에서 (company, l6_main, main_unit) 의 today 이전 누적 today_qty 합.
+
+    2026-05-22: Chroma 는 mapper 의 일부만 backfill 되어 있어 actual_cum_qty 산출에 부적합.
+    PG mapper_activities 가 source of truth. 시연 환경 (mock=false) 만 합산.
+    """
+    if not main_unit:
+        return 0.0
+    rows = await pg.fetch_all(
+        """
+        SELECT COALESCE(SUM(ma.today_qty), 0)::float AS s
+        FROM mapper_activities ma
+        WHERE ma.company = $1 AND ma.l6_main = $2 AND ma.unit = $3
+          AND ma.report_date < $4 AND ma.is_mock = false
+        """,
+        company,
+        l6_main,
+        main_unit,
+        today,
+    )
+    return float(rows[0]["s"]) if rows else 0.0
 
 
 def aggregate_today_by_unit(activities: list[dict]) -> dict[str, float]:
@@ -25,14 +54,25 @@ def compute_delay(
     today: date,
     actual_window_start: Optional[date],
     actual_cum_mh: float,
+    *,
+    actual_cum_qty: float = 0.0,
+    plan_total_qty_main: Optional[float] = None,
+    today_qty_main: float = 0.0,
 ) -> dict[str, Any]:
-    """누적 mh window 비교 — 사용자 개념. plan 미등록 시 unknown.
+    """qty 기반 delay 산식 (2026-05-22 fix).
 
-    plan_mh_per_day  = plan_mh_sum / 공정_기간_일수
-    expected_in_w    = window_days × plan_mh_per_day
-    mh_gap           = expected - actual           (양수 = 부족)
-    delay_days       = mh_gap / plan_mh_per_day
+    이전: mh-window deficit / plan_mh_per_day → 양 충족인데도 mh 부족이면 큰 delay.
+    이제: 잔여 물량 / 페이스 → expected_completion → delay (expected − plan_finish).
 
+    핵심:
+      remaining_qty   = max(0, plan_total_qty_main − actual_cum_qty)
+      avg_pace_qty    = actual_cum_qty / window_days   (≤0 fallback = today_qty_main)
+      remaining_days  = remaining_qty / pace
+      expected_completion = today + remaining_days
+      delay_days      = (expected_completion − plan_finish).days
+                        (양수 = 지연, 음수 = 앞당김, 0 = 일정 충족)
+
+    부수 (mh) 값은 컬럼 유지 — reference 로만 (PG schema 영향 회피).
     schedule_state:
       plan 없음            → "unknown"
       today < plan_start   → "early"
@@ -49,6 +89,9 @@ def compute_delay(
             "actual_in_window_mh": actual_cum_mh,
             "mh_gap": None,
             "delay_days": None,
+            "expected_completion": None,
+            "remaining_qty": None,
+            "avg_pace_qty": None,
         }
 
     plan_start = plan["plan_start"]
@@ -68,8 +111,27 @@ def compute_delay(
     ws = actual_window_start or today
     window_days = max(1, (today - ws).days + 1)
     expected_in_w = window_days * plan_mh_per_day
-    mh_gap = expected_in_w - actual_cum_mh
-    delay_days = mh_gap / plan_mh_per_day if plan_mh_per_day > 0 else 0.0
+    mh_gap = expected_in_w - actual_cum_mh  # reference only
+
+    # qty 기반 delay 산식
+    if plan_total_qty_main is None or plan_total_qty_main <= 0:
+        # plan qty 없으면 delay 산출 불가 — None
+        delay_days = None
+        expected_completion = None
+        remaining_qty = None
+        avg_pace_qty = None
+    else:
+        remaining_qty = max(0.0, plan_total_qty_main - actual_cum_qty)
+        avg_pace_qty = actual_cum_qty / window_days if window_days > 0 else 0.0
+        pace = avg_pace_qty if avg_pace_qty > 0 else today_qty_main
+        if pace > 0:
+            remaining_days = remaining_qty / pace
+            expected_completion = today + timedelta(days=round(remaining_days))
+            delay_days = (expected_completion - plan_finish).days
+        else:
+            # 페이스 0 (실 진행 0 + 오늘도 0) — delay 산출 불가
+            delay_days = None
+            expected_completion = None
 
     return {
         "plan_mh_per_day": plan_mh_per_day,
@@ -80,6 +142,9 @@ def compute_delay(
         "actual_in_window_mh": actual_cum_mh,
         "mh_gap": mh_gap,
         "delay_days": delay_days,
+        "expected_completion": expected_completion,
+        "remaining_qty": remaining_qty,
+        "avg_pace_qty": avg_pace_qty,
     }
 
 
@@ -89,31 +154,37 @@ def fetch_chroma_actual(
     l6_main: str,
     today: date,
     today_assigned_workers: float,
-) -> tuple[Optional[date], float]:
-    """Chroma daily_activities 에서 (company, l6_main) date 별 unique workers 추출.
+    *,
+    today_qty_main: float = 0.0,
+    main_unit: Optional[str] = None,
+) -> tuple[Optional[date], float, float]:
+    """Chroma daily_activities 에서 (company, l6_main) date 별 workers + main_unit qty 누적.
 
-    Spec §5.4 정합 — reviewer #5 정정:
-    return: (actual_window_start, actual_cum_mh)
-      Chroma 에 과거 row 없음 (오늘만)  → (None, today_workers × WORK_HOURS_PER_DAY)
-      Chroma 에 과거 row 있음           → (min(Chroma date), Σ unique date workers × WORK_HOURS_PER_DAY)
+    2026-05-22 NOTE: Chroma 는 mapper_activities 의 일부만 backfill 되어 있어
+    (광건 수장공사 22% 만 적재 케이스 확인) actual_cum_qty 산출에는 부적합.
+    actual_cum_qty 는 PG `fetch_pg_actual_cum_qty` 로 별도 산출하여 호출자가 합칠 것.
+    여기서 반환하는 actual_cum_qty 는 Chroma window 의 보조 reference 만.
     """
     result = coll.get(
         where={"$and": [{"company": company}, {"l6_main": l6_main}]},
         include=["metadatas"],
     )
     date_to_workers: dict[str, float] = {}
+    date_to_qty: dict[str, float] = {}
     for m in result.get("metadatas") or []:
         d = m["date"]
         if d == today.isoformat():
-            continue  # 오늘 자기자신 제외
+            continue  # 오늘 자기자신 제외 (호출자가 따로 더함)
         date_to_workers[d] = float(m["assigned_workers"])
+        if main_unit and m.get("unit") == main_unit:
+            date_to_qty[d] = date_to_qty.get(d, 0.0) + float(m.get("today_qty") or 0.0)
 
-    # Chroma 에 과거 row 가 하나도 없음 → 오늘만 카운트, window_start = None
     if not date_to_workers:
-        return None, today_assigned_workers * WORK_HOURS_PER_DAY
+        return None, today_assigned_workers * WORK_HOURS_PER_DAY, today_qty_main
 
-    # 오늘 강제 추가 후 누적
     date_to_workers[today.isoformat()] = today_assigned_workers
+    date_to_qty[today.isoformat()] = date_to_qty.get(today.isoformat(), 0.0) + today_qty_main
     window_start = date.fromisoformat(min(date_to_workers.keys()))
     actual_cum_mh = sum(w * WORK_HOURS_PER_DAY for w in date_to_workers.values())
-    return window_start, actual_cum_mh
+    actual_cum_qty = sum(date_to_qty.values())
+    return window_start, actual_cum_mh, actual_cum_qty

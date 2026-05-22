@@ -187,9 +187,9 @@ async def optimize(
         if key not in hil_2_selection:
             continue
         cases = pre_optimizer_cases.get(key, [])
-        if len(cases) < 3:
-            advice_rows.append(_compose_cold_start_row(r, cases, run_id))
-            continue
+        # 2026-05-22: cold_start (cases<3) 도 LLM 호출 — SYSTEM_PROMPT 의 'degradation_cases 빈 array
+        # 처리' 가이드에 따라 today 정보만으로 진단·권고 생성. 이전: _compose_cold_start_row placeholder.
+        # 사유: UI 4분면 점 클릭 시 풍부한 진단 보장 (사용자 검증 9/22 광건 fab cold_start placeholder 화면).
         llm_input = build_llm_user_input(r, cases)
         llm_output = _call_azure_llm(llm_input, cfg, azure)  # fail-fast
         advice_rows.append(_compose_row(r, cases, llm_output, run_id))

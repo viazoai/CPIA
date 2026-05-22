@@ -40,6 +40,7 @@ PM 이 선택한 공종에 대해, 과거 유사 저하 케이스 5건 + 각 cas
 - 한자 사용 금지 (한글 + 영어).
 - `recovery_distribution` 은 코드단에서 산출되어 제공됨 — 참고만, 본인이 직접 세지 말 것.
 - activities (degradation_cases.activities) 는 단순 활동명 (예: "기초공사 : 거푸집 공사"). 조건/야간/돌관 정보는 today.today_conditions + 각 case 의 conditions 메타 (예: "맑음,장비대기") 에 박혀 있음. 둘 다 보고 진단.
+- **degradation_cases 가 빈 array 인 경우 (신규 작업 — 과거 유사 저하 사례 없음)**: today 의 assessment / today_productivity / today_conditions / main_unit / company / l6_main 만으로 진단. "과거 유사 사례 없음" 사실을 진단에 명시하고, 일반적 baseline 관리 권고 3~4건 (모니터링·조기 신호 감지·기록 누적·후행 공정 영향 점검 류) 을 작성. 추측성 회복 패턴 언급은 금지.
 
 출력 형식 (JSON):
 {

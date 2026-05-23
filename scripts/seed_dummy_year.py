@@ -186,7 +186,8 @@ async def load_anchor(pg: PGClient) -> dict[tuple[str, str, str], dict[str, Any]
 async def load_activity_master(pg: PGClient) -> list[dict[str, Any]]:
     rows = await pg._pool.fetch(
         """
-        SELECT site_id, wa, l5_disc, l6_main, company, unit,
+        SELECT site_id, wa, l5_disc, l6_main, l7_sub, l7_5_activity,
+               sub_work_area, company, unit,
                plan_total_qty, plan_mh_rev2, plan_start, plan_finish
         FROM activity_master
         WHERE site_id = $1 AND plan_start IS NOT NULL AND plan_finish IS NOT NULL

@@ -49,6 +49,10 @@ TRUNCATE_TABLES = [
     "pipeline_runs",
 ]
 
+# macOS Homebrew libpq 의 절대경로 (PATH 노출 안 됨)
+PG_DUMP_BIN = "/opt/homebrew/Cellar/libpq/18.4/bin/pg_dump"
+PSQL_BIN = "/opt/homebrew/Cellar/libpq/18.4/bin/psql"
+
 
 def run(cmd: list[str], env: dict | None = None) -> None:
     """subprocess + check + print."""
@@ -64,7 +68,7 @@ def backup_aws() -> None:
     print(f"=== AWS PG dump → {PG_DUMP_OUT} ===")
     run(
         [
-            "pg_dump",
+            PG_DUMP_BIN,
             "-h",
             AWS_PG_HOST,
             "-p",
@@ -138,7 +142,7 @@ def restore_from_local() -> None:
     env = {**os.environ, "PGPASSWORD": "cpia"}
     run(
         [
-            "pg_dump",
+            PG_DUMP_BIN,
             "-h",
             "localhost",
             "-p",
@@ -158,7 +162,7 @@ def restore_from_local() -> None:
     env_aws = {**os.environ, "PGPASSWORD": AWS_PG_PWD}
     run(
         [
-            "psql",
+            PSQL_BIN,
             "-h",
             AWS_PG_HOST,
             "-p",

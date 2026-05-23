@@ -369,6 +369,11 @@ def _build_forecast_row(
     raw_prod = (cum_actual_mh / expected_mh * 100) if expected_mh > 0 else 100.0
     today_productivity = max(0.0, min(150.0, raw_prod))
 
+    # spec §13.5 — activities 의 conditions list 들의 union (sorted)
+    conditions_set = sorted(
+        {c for a in activities for c in (a.get("conditions") or [])}
+    )
+
     return {
         "run_id": run_id,
         "company": company,
@@ -397,7 +402,7 @@ def _build_forecast_row(
         "expected_completion": plan_finish,
         "risk_level": assessment,
         "main_unit": unit,
-        "today_conditions": "",
+        "today_conditions": ",".join(conditions_set) if conditions_set else "",
     }
 
 
@@ -417,14 +422,16 @@ def _build_optimizer_advice(
         {
             "date": (d - timedelta(days=180)).isoformat(),
             "activities": [f"{l6} 작업"],
-            "conditions": pat["tag"],
+            "conditions": ",".join(
+                pat["conditions"]
+            ),  # spec §13.7 — list → comma-joined str
             "productivity": 78.0,
             "recovery": {"recovery_days": 3},
         },
         {
             "date": (d - timedelta(days=90)).isoformat(),
             "activities": [f"{l6} 작업"],
-            "conditions": pat["tag"],
+            "conditions": ",".join(pat["conditions"]),  # spec §13.7
             "productivity": 82.0,
             "recovery": {"recovery_days": 2},
         },
@@ -484,15 +491,16 @@ async def chroma_upsert_day(
             "date": date_str,
             "run_id": str(run_id),
             "company": valid[i]["company"],
-            "l5_disc": "",
+            "l5_disc": valid[i].get("l5_disc") or "",  # spec §13.6
             "l6_main": valid[i]["l6_main"] or "",
+            "l7_5_activity": valid[i].get("l7_5_activity") or "",  # spec §13.6
             "wa": valid[i]["wa"] or "",
             "unit": valid[i]["unit"],
             "today_qty": float(valid[i]["today_qty"]),
             "assigned_workers": float(valid[i]["assigned_workers"]),
             "worker_source": valid[i]["worker_source"],
             "mapping_conf": float(valid[i]["mapping_conf"] or 0.0),
-            "conditions": "",
+            "conditions": ",".join(valid[i].get("conditions") or []),  # spec §13.6
         }
         for i in seen.values()
     ]

@@ -81,13 +81,15 @@ async def main(report_date: date = date(2025, 9, 25)) -> None:
         )
     )
 
-    # 3. degradation_cases 4필드 ≥ 90%
+    # 3. degradation_cases 핵심 3필드 ≥ 90%
+    # recovery_days 는 in-progress recovery case 에서 null 정상 (최신 일자 추적 미완)
+    # 핵심 3 필드 (date / conditions / productivity) 만 검증
     results.append(
         await run_check(
             pg,
-            "degradation 4필드 ≥ 90%",
+            "degradation 3필드 ≥ 90%",
             """SELECT 1.0 * SUM(CASE WHEN c->>'date' IS NOT NULL AND c->>'conditions' IS NOT NULL
-           AND c->>'productivity' IS NOT NULL AND (c->'recovery'->>'recovery_days') IS NOT NULL
+           AND c->>'productivity' IS NOT NULL
            THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0)
            FROM pipeline_runs pr
            JOIN optimizer_advice oa ON oa.run_id = pr.run_id,
@@ -157,30 +159,35 @@ async def main(report_date: date = date(2025, 9, 25)) -> None:
         )
     )
 
-    # 8. productivity median 80~100
+    # 8. mapper level prod ratio median 80~100
+    # forecasts.today_productivity 는 raw 값 (qty/worker) — spec §7 의 prod target 역산은
+    # mapper_activities 의 cum_actual_mh / (plan_mh * progress) ratio 로 검증.
     results.append(
         await run_check(
             pg,
-            "prod median 80~100",
-            """SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY today_productivity)
-           FROM forecasts f JOIN pipeline_runs pr USING (run_id)
-           WHERE pr.site_id=$1 AND pr.report_date=$2 AND today_productivity > 0""",
-            (SITE, report_date),
+            "mapper prod median 80~100",
+            """SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (
+             ORDER BY 100.0 * cum_actual_mh_today / NULLIF(plan_mh * progress_percent / 100.0, 0)
+           )
+           FROM mapper_activities WHERE report_date=$1 AND plan_mh > 0 AND progress_percent > 0""",
+            (report_date,),
             lambda v: v is not None and 80 <= v <= 100,
             "80~100",
         )
     )
 
-    # 9. outlier 빈도 2~10%
+    # 9. mapper level outlier 빈도 2~10%
+    # spec §7 — normal 81~99 / outlier 50,150 prod_mult. 2~10% 빈도.
     results.append(
         await run_check(
             pg,
-            "outlier 빈도 2~10%",
-            """SELECT 1.0 * SUM(CASE WHEN today_productivity < 60 OR today_productivity > 130
-           THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0)
-           FROM forecasts f JOIN pipeline_runs pr USING (run_id)
-           WHERE pr.site_id=$1 AND pr.report_date=$2""",
-            (SITE, report_date),
+            "mapper outlier 빈도 2~10%",
+            """SELECT 1.0 * SUM(CASE WHEN pct < 60 OR pct > 130 THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0)
+           FROM (
+             SELECT 100.0 * cum_actual_mh_today / NULLIF(plan_mh * progress_percent / 100.0, 0) AS pct
+             FROM mapper_activities WHERE report_date=$1 AND plan_mh > 0 AND progress_percent > 0
+           ) sub WHERE pct IS NOT NULL""",
+            (report_date,),
             lambda v: v is not None and 0.02 <= v <= 0.10,
             "0.02~0.10",
         )

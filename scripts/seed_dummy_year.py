@@ -140,6 +140,7 @@ def _pick_diagnosis(date_str: str, wa: str, company: str, l6: str) -> dict[str, 
         "tag": pat["tag"],
         "diagnosis": pat["text"].format(l6=l6, company=company),
         "recommendations": [r.format(l6=l6, company=company) for r in pat["recs"]],
+        "conditions": TAG_TO_CONDS[pat["tag"]],  # spec §13.3
     }
 
 

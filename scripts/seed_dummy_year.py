@@ -32,7 +32,6 @@ from typing import Any, Optional
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from pipeline.db import PGClient  # noqa: E402
 from pipeline.agents.optimizer.view_builder import (  # noqa: E402
     _build_contractor_bars,
     _build_kpi,
@@ -44,6 +43,15 @@ from pipeline.agents.optimizer.view_builder import (  # noqa: E402
     _build_trade_bars,
     _build_wp_summary,
 )
+from pipeline.agents.synthetic.distributions import (  # noqa: E402,F401
+    P_NORM,
+    PEAK_MULT,
+    PLATEAU_END,
+    RAMP_END,
+    f3_cum_ratio,
+    f3_daily_ratio,
+)
+from pipeline.db import PGClient  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +103,23 @@ DIAGNOSIS_PATTERNS: list[dict[str, Any]] = [
         "recs": ["현 페이스 유지", "후행 공정 사전 협조"],
     },
 ]
+
+# F3 분포 import (Phase B Task B.1 분리 모듈)
+
+# spec §5 — 사용자 결정: 7 tag → conditions list 매핑
+TAG_TO_CONDS: dict[str, list[str]] = {
+    "weather_rain": ["우천"],
+    "manpower_short": ["인력부족"],
+    "material_delay": ["자재미입고"],
+    "rework": ["재작업"],
+    "trade_overlap": ["병행작업"],
+    "spec_change": ["사양변경"],
+    "normal_steady": ["정상"],
+}
+
+# spec §7 — prod target 역산 상수
+PROD_TARGET = 90.0
+OUTLIER_PROB = 0.05
 
 
 def _seeded_rng(seed_str: str) -> random.Random:

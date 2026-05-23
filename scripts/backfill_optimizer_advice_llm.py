@@ -50,7 +50,7 @@ from pipeline.graph import build_atomized_demo_graph  # noqa: E402
 from pipeline.state import Activity  # noqa: E402
 
 DEFAULT_SITE_ID = "m15x-ph3-ibl"
-DEFAULT_TRADES = ("건축", "토목")
+DEFAULT_TRADES = ("설비", "전기", "건축", "UT", "제어", "소방", "토목")
 DEFAULT_DAYS = 15
 
 

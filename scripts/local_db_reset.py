@@ -25,9 +25,26 @@ TRUNCATE_TABLES = [
 async def reset_pg() -> None:
     conn = await asyncpg.connect(LOCAL_PG)
     try:
+        # sites.last_run_id → pipeline_runs FK 를 일시 DROP:
+        # TRUNCATE ... CASCADE 가 sites 까지 cascade 되는 것을 차단.
+        # ON DELETE SET NULL 동작은 복원 후 유지됨.
+        await conn.execute(
+            "ALTER TABLE sites DROP CONSTRAINT IF EXISTS sites_last_run_id_fkey;"
+        )
+        print("  ✓ sites_last_run_id_fkey 임시 DROP (cascade 회피)")
+
+        tbl_list = ", ".join(TRUNCATE_TABLES)
+        await conn.execute(f"TRUNCATE TABLE {tbl_list} RESTART IDENTITY CASCADE;")
         for tbl in TRUNCATE_TABLES:
-            await conn.execute(f"TRUNCATE TABLE {tbl} RESTART IDENTITY CASCADE;")
             print(f"  ✓ TRUNCATE {tbl}")
+
+        await conn.execute(
+            "ALTER TABLE sites"
+            " ADD CONSTRAINT sites_last_run_id_fkey"
+            " FOREIGN KEY (last_run_id) REFERENCES pipeline_runs(run_id)"
+            " ON DELETE SET NULL;"
+        )
+        print("  ✓ sites_last_run_id_fkey 복원")
     finally:
         await conn.close()
 
@@ -38,7 +55,7 @@ def reset_chroma() -> None:
 
     chroma = ChromaClient(host="localhost", port=5533)
     try:
-        chroma.delete_collection("daily_activities")
+        chroma.client.delete_collection(name="daily_activities")
         print("  ✓ Chroma daily_activities collection deleted")
     except Exception as e:  # noqa: BLE001
         print(f"  · Chroma delete skipped (not exists): {type(e).__name__}: {e}")

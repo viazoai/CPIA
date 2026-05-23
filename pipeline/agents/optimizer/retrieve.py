@@ -20,10 +20,22 @@ from collections import defaultdict
 from datetime import date, timedelta
 from typing import Optional
 
-# spec §5.1 / §5.3 — degradation 트리거 incident 3종 (장비대기 / 자재미입고 / 돌관)
-_DEGRADATION_INCIDENTS = ("장비대기", "자재미입고", "돌관")
-# spec §5.3 — baseline 산출 시 제외해야 할 incident 5종 전수
-_ALL_INCIDENTS = ("장비대기", "자재미입고", "우천", "돌관", "야간연장")
+# spec §6 — degradation 트리거 + baseline 제외 통합 9종 (이전 _DEGRADATION_INCIDENTS 3종
+# + _ALL_INCIDENTS 5종 → 통일). seed TAG_TO_CONDS 의 7 tag 모두 발현 보장.
+INCIDENT_KEYWORDS: tuple[str, ...] = (
+    "장비대기",
+    "자재미입고",
+    "돌관",
+    "우천",
+    "야간연장",
+    "인력부족",
+    "재작업",
+    "병행작업",
+    "사양변경",  # spec §6 추가 4종
+)
+# backward compat alias (호출 site 점진 마이그 위함, 새 코드는 INCIDENT_KEYWORDS 직접 사용)
+_DEGRADATION_INCIDENTS = INCIDENT_KEYWORDS
+_ALL_INCIDENTS = INCIDENT_KEYWORDS
 # spec §5.1 / §5.3 — degradation 판정 컷오프 (baseline 대비 85% 미만)
 _DEGRADATION_RATIO = 0.85
 # spec §5.3 — recovery 판정 컷오프 (baseline 대비 95% 이상)

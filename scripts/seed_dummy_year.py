@@ -228,12 +228,15 @@ def _chroma_should_seed(d: date, mode: str, start: date) -> bool:
 def _build_mapper_row(
     d: date,
     am_row: dict[str, Any],
-    anchor_row: Optional[dict[str, Any]],
+    anchor_row: Optional[
+        dict[str, Any]
+    ],  # 인터페이스 보존 (호출자 영향 X), 내부 사용 X
     rng: random.Random,
 ) -> Optional[dict[str, Any]]:
-    """activity_master row + anchor → 일자별 mapper_activities row dict.
+    """activity_master row → 일자별 mapper_activities row.
 
-    Return None 이면 그 일자 비활성 (plan 기간 밖).
+    spec §10: 모든 일자 동일 F3 + prod target 역산 logic. Case A 분기 제거.
+    spec §13.4: 보존 항목 (mapping_conf, parser pass-through) + 교체 항목 (분포·prod·trade·conditions·l7.5).
     """
     plan_start = am_row["plan_start"]
     plan_finish = am_row["plan_finish"]
@@ -241,86 +244,50 @@ def _build_mapper_row(
         return None
 
     total_days = (plan_finish - plan_start).days + 1
-    days_elapsed = (d - plan_start).days + 1  # 1 ~ total_days
-    progress_ratio = days_elapsed / total_days
-    is_near_anchor = (ANCHOR_DATE - d).days <= 30 and d <= ANCHOR_DATE
-    qty_noise_scale = 0.05 if is_near_anchor else 0.10
+    days_elapsed = (d - plan_start).days + 1
+    progress = days_elapsed / total_days
 
-    if anchor_row is not None:
-        # Case A — anchor 정합 + Fix1 (NULL 역산) + Fix2 (cum_actual_mh cap)
-        anchor_cum = float(anchor_row.get("today_cum_qty") or 0)
-        anchor_today_qty = float(anchor_row.get("today_qty") or 0)
-        anchor_cum_mh = float(anchor_row.get("cum_actual_mh_today") or 0)
-        anchor_plan_mh = float(anchor_row.get("plan_mh") or 0)
-        anchor_plan_qty = float(anchor_row.get("plan_total_qty") or 0)
-        plan_total = float(am_row.get("plan_total_qty") or 0) or anchor_plan_qty
-        plan_mh = anchor_plan_mh or float(am_row.get("plan_mh_rev2") or 0)
-        # Fix 1: anchor_cum NULL/0 → cum_actual_mh / plan_mh × plan_total 역산
-        if anchor_cum <= 0:
-            if anchor_cum_mh > 0 and plan_mh > 0 and plan_total > 0:
-                anchor_cum = anchor_cum_mh / plan_mh * plan_total
-            elif plan_total > 0:
-                anchor_cum = plan_total * 0.95  # 평균 progress 95%
-        days_to_anchor = (ANCHOR_DATE - plan_start).days + 1
-        if days_to_anchor <= 0:
-            return None
-        ratio = min(1.0, days_elapsed / days_to_anchor)
-        today_cum_qty = anchor_cum * ratio * _noise(rng, qty_noise_scale)
-        # cum_actual_mh — 일관성 위해 항상 site mh/qty 비율 사용 (ANCHOR_SITE_MH_PER_QTY = 5.1747).
-        # row 의 anchor_cum_mh 그대로 사용하면 row 의 mh/qty 편차가 site EVM 에 outlier 로 노출
-        # (예: 토공사 wa=FAB 의 anchor mh/qty=0.09 → 1주차 적재 시 prod 4698%).
-        # 모든 row 가 같은 mh/qty 비율 사용 → site EVM CPI ≈ 86.1% 자동 정합.
-        cum_actual_mh = (
-            today_cum_qty * ANCHOR_SITE_MH_PER_QTY * _noise(rng, qty_noise_scale)
-        )
-        # cap 제거 — cum_actual_mh = today_cum_qty × ANCHOR_SITE_MH_PER_QTY 통일이라
-        # row plan_mh 기반 safety cap 이 over-progress row 에서 ac 를 잘라 prod inflate (198%) 발생.
-        # qty_safety 도 anchor over-progress 가 정상이라 제거.
-        base_daily_qty = (
-            max(anchor_cum - anchor_today_qty, 0.0) / max(1, days_to_anchor - 1)
-            if days_to_anchor > 1
-            else anchor_today_qty
-        )
-        today_qty = base_daily_qty * _noise(rng, 0.10)
-        company = anchor_row.get("company") or am_row["company"]
-        trade = anchor_row.get("trade") or am_row.get("trade") or "건축"
-        unit = anchor_row.get("unit") or am_row.get("unit") or "EA"
-        zone = anchor_row.get("zone") or ""
-        scope = anchor_row.get("scope") or ""
-        work_content = anchor_row.get("work_content") or f"{am_row['l6_main']} 진행"
+    plan_total = float(am_row.get("plan_total_qty") or 0)
+    plan_mh = float(am_row.get("plan_mh_rev2") or 0)
+
+    # F3 분포
+    ratio_today = f3_daily_ratio(progress)
+    cum_frac = f3_cum_ratio(progress)
+
+    # prod target 역산 (spec §7)
+    # _pick_diagnosis 는 내부에서 hashlib 기반 결정성 선택 — rng 사용 안 함
+    diag = _pick_diagnosis(str(d), am_row["wa"], am_row["company"], am_row["l6_main"])
+    is_outlier = rng.random() < OUTLIER_PROB
+    if is_outlier:
+        actual_prod_pct = rng.choice([50.0, 150.0])
     else:
-        # Case B — plan 분배. cum_actual_mh 는 row plan_mh 가 아니라
-        # site mh/qty 비율 (ANCHOR_SITE_MH_PER_QTY = 5.1747) 기반 → site EVM CPI ≈ 86.1% 자동.
-        # row plan_mh 기반으로 산출하면 초기 일자 active=1-2 시 view_builder CPI outlier (4698% 등) 발생.
-        plan_total = float(am_row.get("plan_total_qty") or 0)
-        plan_mh = float(am_row.get("plan_mh_rev2") or 0)
-        base_daily_qty = plan_total / total_days if total_days > 0 else 0
-        today_qty = base_daily_qty * _noise(rng, qty_noise_scale)
-        today_cum_qty = plan_total * progress_ratio * _noise(rng, qty_noise_scale)
-        cum_actual_mh = (
-            today_cum_qty * ANCHOR_SITE_MH_PER_QTY * _noise(rng, qty_noise_scale)
-        )
-        company = am_row["company"]
-        trade = am_row.get("trade") or "건축"
-        unit = am_row.get("unit") or "EA"
-        zone = ""
-        scope = ""
-        work_content = f"{am_row['l6_main']} 진행"
+        actual_prod_pct = PROD_TARGET * (1.0 + (rng.random() * 2 - 1) * 0.10)
 
+    today_qty = (
+        plan_total / total_days * ratio_today * (1.0 + (rng.random() * 2 - 1) * 0.10)
+    )
+    today_cum_qty = plan_total * cum_frac
+    cum_actual_mh = plan_mh * progress * actual_prod_pct / 100.0
     plan_mh_per_day = plan_mh / total_days if total_days > 0 else 0
-    today_assigned_workers = max(1.0, plan_mh_per_day / 8.0 * _noise(rng, 0.10))
+    today_assigned_workers = max(
+        1.0, plan_mh_per_day / 8.0 * (1.0 + (rng.random() * 2 - 1) * 0.10)
+    )
     cum_workers_today = cum_actual_mh / 8.0
 
     return {
-        "company": company,
-        "trade": trade,
-        "unit": unit,
+        "company": am_row["company"],
+        "trade": am_row["l5_disc"],  # spec §9 — l5_disc 그대로 trade 컬럼
+        "unit": am_row.get("unit") or "EA",
         "today_qty": today_qty,
         "today_cum_qty": today_cum_qty,
         "cum_actual_mh_today": cum_actual_mh,
         "cum_workers_today": cum_workers_today,
         "wa": am_row["wa"],
+        "l5_disc": am_row["l5_disc"],
         "l6_main": am_row["l6_main"],
+        "l7_sub": am_row.get("l7_sub") or "",
+        "l7_5_activity": am_row.get("l7_5_activity") or "",  # spec §8
+        "sub_work_area": am_row.get("sub_work_area") or "",
         "mapping_conf": 1.0,
         "mapping_source": "dummy_seed",
         "requires_review": False,
@@ -328,23 +295,24 @@ def _build_mapper_row(
         "worker_source": "dummy_seed",
         "plan_total_qty": plan_total,
         "plan_mh": plan_mh,
-        "conditions": [],
+        "conditions": diag["conditions"],  # spec §5 — TAG_TO_CONDS[tag]
         "alternatives": [],
-        "work_content": work_content,
-        "zone": zone,
-        "scope": scope,
-        # parser pass-through 컬럼들 (null 허용)
+        "work_content": f"{am_row['l6_main']} 진행",
+        "zone": "",
+        "scope": "",
         "yesterday_cum_qty": today_cum_qty - today_qty
         if today_cum_qty > today_qty
         else 0,
-        "progress_percent": progress_ratio * 100,
+        "progress_percent": progress * 100,
         "remaining_qty": max(0, plan_total - today_cum_qty),
-        "remaining_percent": max(0, (1.0 - progress_ratio)) * 100,
+        "remaining_percent": max(0, (1.0 - progress)) * 100,
         "note": "",
         "work_location_code": "",
         "wbs_mid_name": "",
         "wbs_sub_name": "",
         "wbs_detail_name": "",
+        # diag 추가 정보 (호출자가 _build_optimizer_advice 에서 재사용)
+        "_diag_tag": diag["tag"],
     }
 
 

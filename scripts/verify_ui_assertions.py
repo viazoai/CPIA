@@ -13,11 +13,13 @@ outlier 2-10%.
 from __future__ import annotations
 
 import asyncio
+import os
 from datetime import date
 
 import asyncpg
 
-LOCAL_PG = "postgresql://cpia:cpia@localhost:5532/cpia"
+# VERIFY_PG_URL 환경 변수로 AWS / 로컬 토글 (E.6 AWS 재검증 용).
+LOCAL_PG = os.environ.get("VERIFY_PG_URL", "postgresql://cpia:cpia@localhost:5532/cpia")
 SITE = "m15x-ph3-ibl"
 
 

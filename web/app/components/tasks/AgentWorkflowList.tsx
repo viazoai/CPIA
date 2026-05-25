@@ -23,7 +23,7 @@ const STEP_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   Collector: Inbox,
   Parser: FileSearch,
   Mapper: GitBranch,
-  "HIL Review": ClipboardCheck,
+  "Human Review": ClipboardCheck,
   Atomizer: Database,
   Exporter: FileText,
   Forecaster: Activity,
@@ -34,11 +34,23 @@ const KOREAN: Record<string, string> = {
   Collector: "수집",
   Parser: "파싱",
   Mapper: "매핑",
-  "HIL Review": "사람 검토",
-  Atomizer: "DB 적재",
+  "Human Review": "사람 검토",
+  Atomizer: "적재",
   Exporter: "출력",
   Forecaster: "진단",
-  Optimizer: "최적화",
+  Optimizer: "조언",
+};
+
+/* Home 화면(AgentWorkflow.tsx)과 동일 description — fixtures.ts AGENT_META 출처. */
+const DESCRIPTION: Record<string, string> = {
+  Collector: "작업일보 자동 수집",
+  Parser: "엑셀 → 구조화 JSON",
+  Mapper: "WBS 매핑 + 확신도 산출",
+  "Human Review": "확신도 낮은 WBS 매핑 항목을 담당자가 검토·수정",
+  Atomizer: "Vector DB 적재",
+  Exporter: "통합 작업일보 생성",
+  Forecaster: "생산성 진단",
+  Optimizer: "회복 조언",
 };
 
 export function AgentWorkflowList({ stages, selectedAgent, onSelect }: Props) {
@@ -73,7 +85,7 @@ export function AgentWorkflowList({ stages, selectedAgent, onSelect }: Props) {
           const active = selectedAgent === s.agent;
           const isLast = i === stages.length - 1;
           const isDone = s.received > 0 && s.processed === s.received && !s.waiting_hil;
-          const barColor = s.waiting_hil ? "bg-sun" : isDone ? "bg-mint" : "bg-sky";
+          const barColor = s.waiting_hil ? "bg-sun" : "bg-mint";
 
           return (
             <Fragment key={s.agent}>
@@ -107,9 +119,9 @@ export function AgentWorkflowList({ stages, selectedAgent, onSelect }: Props) {
                   </span>
                 </div>
 
-                {/* Name + counts + bar */}
+                {/* Name + description + counts + bar */}
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-baseline justify-between gap-2 mb-1.5">
+                  <div className="flex items-baseline justify-between gap-2">
                     <div className="flex items-baseline gap-1.5 min-w-0">
                       <span className="font-display text-body-sm font-semibold text-ink truncate">
                         {s.agent}
@@ -127,12 +139,17 @@ export function AgentWorkflowList({ stages, selectedAgent, onSelect }: Props) {
                       </span>
                       <span className={cn(
                         "font-mono text-[11px] font-bold w-9 text-right",
-                        s.waiting_hil ? "text-sun-text" : isDone ? "text-mint-text" : "text-brand-text"
+                        s.waiting_hil ? "text-sun-text" : "text-mint-text"
                       )}>
                         {s.percent}%
                       </span>
                     </div>
                   </div>
+                  {DESCRIPTION[s.agent] && (
+                    <div className="mt-0.5 mb-1.5 text-[11px] text-ink-light truncate">
+                      {DESCRIPTION[s.agent]}
+                    </div>
+                  )}
                   <div className="h-1.5 w-full overflow-hidden rounded-full bg-card">
                     <div className={cn("h-full transition-all", barColor)} style={{ width: `${s.percent}%` }} />
                   </div>

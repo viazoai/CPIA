@@ -51,7 +51,7 @@ export function deriveItemStatus(
       if ((row.mapping_conf ?? 0) >= 0.7) return "done";
       if ((row.mapping_conf ?? 0) >= 0.4) return "processing";
       return "received";
-    case "HIL Review":
+    case "Human Review":
       return row.has_correction ? "done" : "hil_pending";
     default:
       return "done";
@@ -133,7 +133,7 @@ export async function deriveStageProgress(date: string): Promise<AgentStageProgr
     },
     {
       step: 3.5,
-      agent: "HIL Review",
+      agent: "Human Review",
       is_hil: true,
       received: n("hil_received"),
       processed: n("hil_done"),
@@ -379,7 +379,7 @@ export async function deriveChatSequence(runId: string): Promise<ChatMessage[]> 
     },
     {
       ts: off(90),
-      agent: "HIL Review",
+      agent: "Human Review",
       type: hilCount > 0 ? "human_action" : "info",
       summary: hilCount > 0 ? `${hilCount}건 검토 대기.` : "HIL 검토 없음.",
     },

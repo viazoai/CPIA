@@ -62,11 +62,11 @@ describe("G11 deriveItemStatus", () => {
       deriveItemStatus("Mapper", { requires_review: false, mapping_conf: 0.2 }),
     ).toBe("received");
   });
-  it("HIL Review has_correction → done", () => {
-    expect(deriveItemStatus("HIL Review", { has_correction: true })).toBe("done");
+  it("Human Review has_correction → done", () => {
+    expect(deriveItemStatus("Human Review", { has_correction: true })).toBe("done");
   });
-  it("HIL Review no correction → hil_pending", () => {
-    expect(deriveItemStatus("HIL Review", { has_correction: false })).toBe(
+  it("Human Review no correction → hil_pending", () => {
+    expect(deriveItemStatus("Human Review", { has_correction: false })).toBe(
       "hil_pending",
     );
   });
@@ -134,13 +134,13 @@ describe("G10 deriveStageProgress", () => {
     // mapper 80/100 = 80%
     expect(r[2].percent).toBe(80);
     // HIL 4/10 = 40%, waiting true
-    expect(r[3].agent).toBe("HIL Review");
+    expect(r[3].agent).toBe("Human Review");
     expect(r[3].percent).toBe(40);
     expect(r[3].waiting_hil).toBe(true);
     expect(r[3].is_hil).toBe(true);
   });
 
-  it("anchor 9-25 시뮬레이션 — HIL Review 0% (462/0, waiting), Optimizer 100% (25/25)", async () => {
+  it("anchor 9-25 시뮬레이션 — Human Review 0% (462/0, waiting), Optimizer 100% (25/25)", async () => {
     (sql as any).mockResolvedValueOnce([
       {
         parser_reports: 1, parser_acts: 1162, mapper_acts: 1162,
@@ -153,7 +153,7 @@ describe("G10 deriveStageProgress", () => {
     expect(r.find((s) => s.agent === "Collector")?.percent).toBe(100);
     expect(r.find((s) => s.agent === "Parser")?.percent).toBe(100);
     expect(r.find((s) => s.agent === "Mapper")?.percent).toBe(100);
-    const hil = r.find((s) => s.agent === "HIL Review")!;
+    const hil = r.find((s) => s.agent === "Human Review")!;
     expect(hil.percent).toBe(0);
     expect(hil.waiting_hil).toBe(true);
     expect(r.find((s) => s.agent === "Atomizer")?.percent).toBe(100);
@@ -175,8 +175,8 @@ describe("G10 deriveStageProgress", () => {
     expect(r.find((s) => s.agent === "Collector")?.percent).toBe(100);
     expect(r.find((s) => s.agent === "Parser")?.percent).toBe(100);
     expect(r.find((s) => s.agent === "Mapper")?.percent).toBe(100);
-    expect(r.find((s) => s.agent === "HIL Review")?.percent).toBe(100);
-    expect(r.find((s) => s.agent === "HIL Review")?.waiting_hil).toBe(false);
+    expect(r.find((s) => s.agent === "Human Review")?.percent).toBe(100);
+    expect(r.find((s) => s.agent === "Human Review")?.waiting_hil).toBe(false);
     expect(r.find((s) => s.agent === "Atomizer")?.percent).toBe(100);
     expect(r.find((s) => s.agent === "Exporter")?.percent).toBe(100);
     expect(r.find((s) => s.agent === "Forecaster")?.percent).toBe(100);
@@ -197,7 +197,7 @@ describe("G10 deriveStageProgress", () => {
     expect(r.find((s) => s.agent === "Collector")?.percent).toBe(0);
     expect(r.find((s) => s.agent === "Parser")?.percent).toBe(0);
     expect(r.find((s) => s.agent === "Mapper")?.percent).toBe(0);
-    expect(r.find((s) => s.agent === "HIL Review")?.percent).toBe(100);
+    expect(r.find((s) => s.agent === "Human Review")?.percent).toBe(100);
     expect(r.find((s) => s.agent === "Atomizer")?.percent).toBe(0);
     expect(r.find((s) => s.agent === "Exporter")?.percent).toBe(0);
     expect(r.find((s) => s.agent === "Forecaster")?.percent).toBe(0);
@@ -267,7 +267,7 @@ describe("G4 deriveChatSequence", () => {
     expect(r[0].agent).toBe("Collector");
     expect(r[2].agent).toBe("Mapper");
     expect(r[2].type).toBe("info");
-    expect(r[3].agent).toBe("HIL Review");
+    expect(r[3].agent).toBe("Human Review");
     expect(r[7].agent).toBe("Optimizer");
   });
   it("HIL 발생 + 이상 risk → Mapper type=hil_request, Forecaster type=result", async () => {

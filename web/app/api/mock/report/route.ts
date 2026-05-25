@@ -3,18 +3,25 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import sql from "@/lib/pg";
 
+// /api/mock/report — 좌측 일별 목록만 반환 (페이로드 ~50KB).
+// detail jsonb (kpi/s_curve/wp_summary 등 9 컬럼 × 127 dates → 32MB) 는
+// /api/mock/report/[date] 로 분리. trend90 슬라이스를 위해 daily 에는
+// productivity_today / status / delay_days / recovery_days 만 포함.
+
 export async function GET() {
   const useMock = process.env.CPIA_DEMO_FALLBACK === "on";
 
-  // DISTINCT ON (report_date) — 같은 (site, date) 에 여러 cycle run_id row 가 있을 때
-  // 가장 최신 created_at 만 표시. 사용자 신고 'reports 같은 날짜 3개' fix.
+  // DISTINCT ON (report_date) — 같은 (site, date) 에 여러 cycle row 있으면 최신만.
+  // SELECT 컬럼을 jsonb 전체가 아닌 -> 연산자로 필요 필드만 추출 → 페이로드 600× 축소.
   const rows = await (sql as any)`
     SELECT DISTINCT ON (pr.report_date)
            pr.report_date,
-           dr.kpi_jsonb, dr.contractor_bars_jsonb, dr.trade_bars_jsonb,
-           dr.quadrant_jsonb, dr.wp_summary_jsonb, dr.s_curve_jsonb,
-           dr.optimizer_view_jsonb, dr.productivity_jsonb,
-           dr.scenarios_jsonb, dr.site_summary_text
+           dr.kpi_jsonb->>'risk_level'                                    AS risk_level,
+           (dr.kpi_jsonb->>'productivity_today')::numeric                 AS productivity_today,
+           (dr.kpi_jsonb->>'delay_days')::numeric                         AS delay_days,
+           (dr.kpi_jsonb->>'recovery_days')::numeric                      AS kpi_recovery_days,
+           (dr.scenarios_jsonb->'site'->'base_p50'->>'recovery_days')::numeric
+                                                                          AS scen_recovery_days
     FROM daily_reports dr
     JOIN pipeline_runs pr USING (run_id)
     JOIN sites s ON s.site_id = pr.site_id
@@ -29,33 +36,20 @@ export async function GET() {
   const daily = rows.map((r: any) => ({
     date: isoDate(r.report_date),
     status:
-      r.kpi_jsonb?.risk_level === "이상" ? "risk"
-      : r.kpi_jsonb?.risk_level === "주의" ? "caution"
+      r.risk_level === "이상" ? "risk"
+      : r.risk_level === "주의" ? "caution"
       : "normal",
-    productivity_today: r.kpi_jsonb?.productivity_today ?? 0,
-    delay_days: r.kpi_jsonb?.delay_days ?? 0,
+    productivity_today: r.productivity_today != null ? Number(r.productivity_today) : 0,
+    delay_days: r.delay_days != null ? Number(r.delay_days) : 0,
     // reports 상세 페이지와 동일: scenarios.site.base_p50 우선, kpi 는 fallback.
     recovery_days:
-      r.scenarios_jsonb?.site?.base_p50?.recovery_days
-      ?? r.kpi_jsonb?.recovery_days
-      ?? 0,
+      r.scen_recovery_days != null ? Number(r.scen_recovery_days)
+      : r.kpi_recovery_days != null ? Number(r.kpi_recovery_days)
+      : 0,
   }));
 
-  const details: Record<string, any> = {};
-  for (const r of rows) {
-    const date = isoDate(r.report_date);
-    details[date] = {
-      kpi: r.kpi_jsonb || {},
-      s_curve: r.s_curve_jsonb || [],
-      contractor_bars: r.contractor_bars_jsonb || [],
-      trade_bars: r.trade_bars_jsonb || [],
-      quadrant: r.quadrant_jsonb || [],
-      optimizer: r.optimizer_view_jsonb || { by_wp: {}, default_wp_id: null },
-      scenarios: r.scenarios_jsonb || { site: {}, by_wp: {} },
-      wp_summary: r.wp_summary_jsonb || [],
-      site_summary_text: r.site_summary_text || null,
-      raw_data: [],
-    };
-  }
-  return NextResponse.json({ daily, details });
+  return NextResponse.json(
+    { daily },
+    { headers: { "Cache-Control": "s-maxage=30, stale-while-revalidate=60" } },
+  );
 }

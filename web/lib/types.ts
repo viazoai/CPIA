@@ -67,7 +67,7 @@ export interface DailyRun {
 }
 
 export interface AgentProgress {
-  agent: string;                // "Collector" | "Parser" | "Mapper" | "HIL Review" | "Atomizer" | "Exporter" | "Forecaster" | "Optimizer"
+  agent: string;                // "Collector" | "Parser" | "Mapper" | "Human Review" | "Atomizer" | "Exporter" | "Forecaster" | "Optimizer"
   unit: "per_report" | "per_review" | "per_run";
   processed: number;
   total: number;
@@ -85,7 +85,7 @@ export interface DailyTask {
 
 export interface AgentStageProgress {
   step: number;                 // 1..7 + HIL은 3.5
-  agent: string;                // "Collector" ... "Optimizer" | "HIL Review"
+  agent: string;                // "Collector" ... "Optimizer" | "Human Review"
   is_hil: boolean;
   received: number;             // 접수 건수
   processed: number;            // 처리 건수

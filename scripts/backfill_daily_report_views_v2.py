@@ -45,7 +45,10 @@ _JSONB_COLS = (
     "quadrant_jsonb",
     "wp_summary_jsonb",
     "optimizer_view_jsonb",
-    "scenarios_jsonb",
+    # 2026-05-26: scenarios_jsonb 제거 — agent.py:248 의 LLM path 결과 보존.
+    # backfill_v2 가 PG SELECT 한 advice 에는 scenarios 키 없어서 (PG 컬럼 부재)
+    # _build_scenarios 가 deterministic fallback → daily_reports.scenarios_jsonb 덮어씀.
+    # "scenarios_jsonb",
     "s_curve_jsonb",
 )
 

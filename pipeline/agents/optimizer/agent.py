@@ -28,8 +28,10 @@ from openai import AzureOpenAI
 from pipeline.agents._concurrency import get_llm_semaphore
 from pipeline.agents.optimizer.prompt import (
     FEW_SHOT_MESSAGES,
+    SCENARIOS_PROMPT,
     SYSTEM_PROMPT,
     build_llm_user_input,
+    build_scenarios_llm_input,
 )
 from pipeline.agents.optimizer.view_builder import (
     _build_contractor_bars,
@@ -82,9 +84,9 @@ def _apply_augmentation_weight(rows: list[dict]) -> list[tuple[dict, float]]:
     ]
 
 
-def _compose_row(r: dict, cases: list[dict], llm_output: dict, run_id: uuid.UUID) -> dict:
+def _compose_row(r: dict, cases: list[dict], llm_output: dict, run_id: uuid.UUID, scenarios: Optional[dict] = None) -> dict:
     recovery_pattern = [{"date": c["date"], "recovery_days": c["recovery"]["recovery_days"]} for c in cases]
-    return {
+    row = {
         "run_id": run_id,
         "company": r["company"],
         "l6_main": r["l6_main"],
@@ -96,6 +98,9 @@ def _compose_row(r: dict, cases: list[dict], llm_output: dict, run_id: uuid.UUID
         "recovery_distribution": _compute_recovery_distribution(cases),
         "recommendations": llm_output["recommendations"],
     }
+    if scenarios is not None:
+        row["scenarios"] = scenarios
+    return row
 
 
 def _call_azure_llm(llm_input: dict, cfg: OptimizerConfig, azure: AzureOpenAI) -> dict:
@@ -113,9 +118,28 @@ def _call_azure_llm(llm_input: dict, cfg: OptimizerConfig, azure: AzureOpenAI) -
     return json.loads(resp.choices[0].message.content)
 
 
+def _call_azure_scenarios_llm(scenarios_input: dict, cfg: OptimizerConfig, azure: AzureOpenAI) -> dict:
+    """scenarios LLM 호출 — SCENARIOS_PROMPT 사용. fail-fast."""
+    messages = [
+        {"role": "system", "content": SCENARIOS_PROMPT},
+        {"role": "user", "content": json.dumps(scenarios_input, ensure_ascii=False)},
+    ]
+    resp = azure.chat.completions.create(
+        model=cfg.llm_model,
+        messages=messages,
+        response_format={"type": "json_object"},
+    )
+    return json.loads(resp.choices[0].message.content)
+
+
 async def _call_azure_llm_async(llm_input: dict, cfg: OptimizerConfig, azure: AzureOpenAI) -> dict:
     """sync _call_azure_llm 을 asyncio.to_thread 로 감쌈 — 실 병렬 효과."""
     return await asyncio.to_thread(_call_azure_llm, llm_input, cfg, azure)
+
+
+async def _call_azure_scenarios_llm_async(scenarios_input: dict, cfg: OptimizerConfig, azure: AzureOpenAI) -> dict:
+    """sync _call_azure_scenarios_llm 을 asyncio.to_thread 로 감쌈."""
+    return await asyncio.to_thread(_call_azure_scenarios_llm, scenarios_input, cfg, azure)
 
 
 async def optimize(
@@ -132,7 +156,7 @@ async def optimize(
 
     Args:
         forecast: Forecaster 산출 row list (state["forecast"]).
-        hil_2_selection: PM 이 hil_2 modal 에서 선택한 "{company}|{l6_main}" key list.
+        hil_2_selection: 자동 선택된 "{company}|{l6_main}" key list (hil_2 interrupt 폐기 후 전체 wp).
         pre_optimizer_cases: hil_2_node 가 사전 영속한 dict[key, cases].
             각 case 는 retrieve 모듈 산출물 (degradation case + 'recovery' 키 trajectory) 그대로.
             agent.py 본 함수는 retrieve 를 호출하지 않음 — state 사전 영속 값만 소비 (결정 #8).
@@ -160,7 +184,15 @@ async def optimize(
         async with sem:  # LLM 호출 부분만 Semaphore 안
             llm_input = build_llm_user_input(r, cases)
             llm_output = await _call_azure_llm_async(llm_input, cfg, azure)
-        return _compose_row(r, cases, llm_output, run_id)  # PG write 는 sem 밖
+            # 2026-05-26: 변경 3 — 진단 직후 scenarios LLM 호출 (동일 sem 블록 안, 동일 wp).
+            # _compute_recovery_distribution 은 cases 기반 deterministic (결정 #20) — LLM input 으로 전달.
+            recovery_dist = _compute_recovery_distribution(cases)
+            no_action_ec = r.get("expected_completion")
+            if isinstance(no_action_ec, date):
+                no_action_ec = no_action_ec.isoformat()
+            scenarios_input = build_scenarios_llm_input(r, no_action_ec, recovery_dist, cases)
+            scenarios_output = await _call_azure_scenarios_llm_async(scenarios_input, cfg, azure)
+        return _compose_row(r, cases, llm_output, run_id, scenarios=scenarios_output)  # PG write 는 sem 밖
 
     tasks = []
     for r in forecast:

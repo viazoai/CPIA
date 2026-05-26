@@ -42,7 +42,6 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 load_dotenv(ROOT / ".env.local")
 
-from langgraph.types import Command  # noqa: E402
 
 from pipeline.api import _build_prod_graph_config  # noqa: E402
 from pipeline.db import PGClient  # noqa: E402
@@ -226,32 +225,10 @@ async def _run_one_date(
     g_cfg = {"configurable": {"thread_id": thread_id}}
     state = _initial_state(run_id, d, mapped, site_id)
 
-    print("  forecaster 호출 (LLM x group 수)...")
-    first = await graph.ainvoke(state, config=g_cfg)
-    if "__interrupt__" not in first:
-        forecast = first.get("forecast", [])
-        n_risky = sum(1 for r in forecast if r.get("risk_level") in {"주의", "이상"})
-        print(f"  no interrupt — forecast={len(forecast)}, risky={n_risky}")
-        return {
-            "date": d.isoformat(),
-            "status": "no_risky",
-            "run_id": str(run_id),
-            "forecast_n": len(forecast),
-        }
-
-    payload = first["__interrupt__"][0].value
-    risky_groups = payload.get("risky_groups", [])
-    print(f"  HIL_2 interrupt — risky_groups={len(risky_groups)}")
-    selection = [
-        g["key"]
-        for g in risky_groups
-        if g.get("note") not in {"no_main_unit", "cold_start_no_baseline"}
-    ]
-    skipped = len(risky_groups) - len(selection)
-    print(f"  selection={len(selection)} (cold_start_skipped={skipped})")
-
-    print(f"  optimizer 호출 (LLM x {len(selection)})...")
-    final = await graph.ainvoke(Command(resume=selection), config=g_cfg)
+    # 2026-05-26: hil_2 interrupt 폐기 — 모든 forecast wp 자동 선택 후 optimizer 직행.
+    # graph.ainvoke 1회로 forecaster→hil_2→optimizer 전체 완주.
+    print("  forecaster→hil_2(auto)→optimizer 호출...")
+    final = await graph.ainvoke(state, config=g_cfg)
 
     advice = final.get("optimizer_advice", [])
     n_cold = sum(
@@ -275,6 +252,7 @@ async def _run_one_date(
             first_rec = recs[0]
             print(f"    rec[0]: {json.dumps(first_rec, ensure_ascii=False)[:250]}")
 
+    forecast = final.get("forecast", [])
     return {
         "date": d.isoformat(),
         "status": "ok",
@@ -282,7 +260,7 @@ async def _run_one_date(
         "advice_n": len(advice),
         "llm_n": n_llm,
         "cold_start_n": n_cold,
-        "risky_n": len(risky_groups),
+        "forecast_n": len(forecast),
     }
 
 

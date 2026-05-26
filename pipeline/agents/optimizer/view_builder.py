@@ -563,19 +563,17 @@ def _build_deterministic_cold_start(
             avg_recovery = "—"
     else:
         avg_recovery = "—"
+    # 2026-05-26: details schema 를 LLM advice schema 와 통일
+    # (위험 평가 / 진단 대상 / 유사 사례 수 / 평균 회복 일수 / 회복 분포 / 일정 영향).
+    # 두 schema 혼재 문제 해결 — data 부족 시 "—" 채움.
+    activity_label = q.get("l7_5_activity") or q.get("l6_main") or "—"
     details = [
         {"label": "위험 평가", "value": risk_level or "—"},
-        {"label": "계획 생산성", "value": f"{pp_master:.2f} {unit}/인" if pp_master else "—"},
-        {
-            "label": "금일 생산성",
-            "value": (
-                f"{pp_today:.2f} {unit}/인 ({pct:.1f}%)" if pp_master
-                else f"{pp_today:.2f} {unit}/인"
-            ),
-        },
-        {"label": "유사 사례", "value": f"{len(chroma_cases or [])}건"},
-        {"label": "유사 사례 생산성", "value": avg_recovery},
-        {"label": "공기 단축", "value": (
+        {"label": "진단 대상", "value": activity_label},
+        {"label": "유사 사례 수", "value": f"{len(chroma_cases or [])}건"},
+        {"label": "평균 회복 일수", "value": avg_recovery},
+        {"label": "회복 분포", "value": "—"},
+        {"label": "일정 영향", "value": (
             (lambda r: f"-{r}일" if r > 0 else "계획 동일")(
                 max(0, round((100 - float(q.get("productivity") or 0)) / 100 * impact * 0.3))
             )
@@ -1215,31 +1213,48 @@ def _scenario(no_action_date, recovery_days: int, case_count: int) -> dict:
 def _build_scenarios(advice_rows: list[dict], forecast: list[dict]) -> dict:
     """공기단축 4 시나리오 산출 — site + by_wp.
 
-    spec §5.1 shape + §5.2 산식.
+    2026-05-26 변경 3: advice["scenarios"] (LLM 출력) 우선 사용.
+    LLM 출력 없는 advice 는 deterministic percentile fallback (결정 #20 의 recovery_distribution 기반).
+
+    LLM scenarios key (no_action/optimistic/base/pessimistic) → 기존 key
+    (no_action/optimistic_p25/base_p50/pessimistic_p75) 로 매핑하여 FE 영향 0.
     """
-    site_days: list[int] = []
-    for advice in advice_rows:
-        site_days.extend(_expand_recovery_to_days(advice.get("recovery_distribution") or {}))
 
-    site_no_action = None
-    if forecast:
-        ecs = [_coerce_date(f.get("expected_completion")) for f in forecast]
-        ecs = [e for e in ecs if e is not None]
-        site_no_action = max(ecs) if ecs else None
+    def _wp_block_from_llm(s: dict, no_action_date) -> dict:
+        no_action_iso = (
+            no_action_date.isoformat() if isinstance(no_action_date, date) else None
+        )
 
-    site_scenarios = {
-        "no_action": {
-            "expected_completion": site_no_action.isoformat() if site_no_action else None,
-            "recovery_days": 0,
-            "delta_days": 0,
-            "case_count": len(site_days),
-        },
-        # 의미 정확화: P75 (큰 recovery_days) = 낙관, P25 (작은 recovery_days) = 비관.
-        # 기존 라벨↔값 매핑 swap 으로 "최적화 공기" 표시값이 실제 최대 만회를 반영.
-        "optimistic_p25":  _scenario(site_no_action, _percentile(site_days, 0.75), len(site_days)),
-        "base_p50":        _scenario(site_no_action, _percentile(site_days, 0.50), len(site_days)),
-        "pessimistic_p75": _scenario(site_no_action, _percentile(site_days, 0.25), len(site_days)),
-    }
+        def _slot(key: str, default_delta: int = 0) -> dict:
+            x = s.get(key) or {}
+            return {
+                "expected_completion": x.get("expected_completion") or no_action_iso,
+                "recovery_days": int(x.get("recovery_days") or 0),
+                "delta_days": int(x.get("delta_days") or default_delta),
+                "case_count": 1,
+                "rationale": x.get("rationale", ""),
+            }
+
+        return {
+            "no_action": _slot("no_action"),
+            "optimistic_p25": _slot("optimistic"),
+            "base_p50": _slot("base"),
+            "pessimistic_p75": _slot("pessimistic"),
+        }
+
+    def _wp_block_deterministic(advice: dict, no_action_date) -> dict:
+        wp_days = _expand_recovery_to_days(advice.get("recovery_distribution") or {})
+        return {
+            "no_action": {
+                "expected_completion": no_action_date.isoformat() if no_action_date else None,
+                "recovery_days": 0,
+                "delta_days": 0,
+                "case_count": len(wp_days),
+            },
+            "optimistic_p25": _scenario(no_action_date, _percentile(wp_days, 0.75), len(wp_days)),
+            "base_p50": _scenario(no_action_date, _percentile(wp_days, 0.50), len(wp_days)),
+            "pessimistic_p75": _scenario(no_action_date, _percentile(wp_days, 0.25), len(wp_days)),
+        }
 
     by_wp: dict[str, dict] = {}
     for advice in advice_rows:
@@ -1247,20 +1262,52 @@ def _build_scenarios(advice_rows: list[dict], forecast: list[dict]) -> dict:
         if f is None:
             continue
         wp_id = _wp_id_of(f.get("wa"), advice.get("l6_main"), advice.get("company"))
-        wp_days = _expand_recovery_to_days(advice.get("recovery_distribution") or {})
         wp_no_action = _coerce_date(f.get("expected_completion"))
-        by_wp[wp_id] = {
-            "no_action": {
-                "expected_completion": wp_no_action.isoformat() if wp_no_action else None,
+        llm_scenarios = advice.get("scenarios") or {}
+        if llm_scenarios and any(llm_scenarios.get(k) for k in ("no_action", "optimistic", "base", "pessimistic")):
+            by_wp[wp_id] = _wp_block_from_llm(llm_scenarios, wp_no_action)
+        else:
+            by_wp[wp_id] = _wp_block_deterministic(advice, wp_no_action)
+
+    # site = by_wp 의 집계 (no_action 은 max ec, 나머지는 median recovery_days)
+    def _site_slot(slot_key: str) -> dict:
+        items = [b[slot_key] for b in by_wp.values() if b.get(slot_key)]
+        if not items:
+            return {
+                "expected_completion": None,
                 "recovery_days": 0,
                 "delta_days": 0,
-                "case_count": len(wp_days),
-            },
-            # 의미 정확화: P75 = 낙관, P25 = 비관. (BE 산식 site 와 동일.)
-            "optimistic_p25":  _scenario(wp_no_action, _percentile(wp_days, 0.75), len(wp_days)),
-            "base_p50":        _scenario(wp_no_action, _percentile(wp_days, 0.50), len(wp_days)),
-            "pessimistic_p75": _scenario(wp_no_action, _percentile(wp_days, 0.25), len(wp_days)),
+                "case_count": 0,
+            }
+        ecs = [_coerce_date(it.get("expected_completion")) for it in items]
+        ecs = [e for e in ecs if e is not None]
+        max_ec = max(ecs) if ecs else None
+        recoveries = sorted(int(it.get("recovery_days") or 0) for it in items)
+        median_rec = recoveries[len(recoveries) // 2] if recoveries else 0
+        return {
+            "expected_completion": max_ec.isoformat() if max_ec else None,
+            "recovery_days": median_rec,
+            "delta_days": -median_rec if slot_key != "no_action" else 0,
+            "case_count": len(items),
         }
+
+    site_scenarios = {
+        "no_action": _site_slot("no_action"),
+        "optimistic_p25": _site_slot("optimistic_p25"),
+        "base_p50": _site_slot("base_p50"),
+        "pessimistic_p75": _site_slot("pessimistic_p75"),
+    }
+    # by_wp 가 비어있고 forecast 만 있는 경우 — 최후 fallback (site no_action 만 forecast.max ec)
+    if not by_wp and forecast:
+        ecs = [_coerce_date(f.get("expected_completion")) for f in forecast]
+        ecs = [e for e in ecs if e is not None]
+        if ecs:
+            site_scenarios["no_action"] = {
+                "expected_completion": max(ecs).isoformat(),
+                "recovery_days": 0,
+                "delta_days": 0,
+                "case_count": len(ecs),
+            }
 
     return {"site": site_scenarios, "by_wp": by_wp}
 
@@ -1444,7 +1491,6 @@ async def _build_productivity_views_v2(
           AND pr.site_id = $2
           AND ma.l7_5_activity IS NOT NULL
           AND m.ps IS NOT NULL AND $1 BETWEEN m.ps AND m.pf
-          AND ma.trade IN ('건축', '토목')
         """,
         today,
         site_id,

@@ -465,10 +465,12 @@ class PGClient:
         """mapped_history 테이블 batch INSERT (ON CONFLICT UPDATE 멱등성).
 
         INSERT 대상 = wa + l6_main 둘 다 not None 인 활동 (Phase 3 결정).
-        동일 (run_id, wa, l6_main, company) 재호출 시 today_qty / today_assigned_workers /
-        unit 을 EXCLUDED 값으로 갱신 (마지막 값 채택 — 합계 vs 마지막 은 Phase 0 에서 합의).
+        동일 (run_id, wa, l6_main, company) 재호출 시 trade / today_qty /
+        today_assigned_workers / unit 을 EXCLUDED 값으로 갱신 (마지막 값 채택 —
+        합계 vs 마지막 은 Phase 0 에서 합의).
 
-        rows: [{"wa", "l6_main", "company", "today_qty", "today_assigned_workers", "unit"}, ...]
+        rows: [{"wa", "l6_main", "company", "trade", "today_qty",
+                "today_assigned_workers", "unit"}, ...]
         """
         if not rows:
             return
@@ -478,9 +480,10 @@ class PGClient:
                 """
                 INSERT INTO mapped_history
                     (run_id, report_date, site_id, wa, l6_main, company,
-                     today_qty, today_assigned_workers, unit)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                     trade, today_qty, today_assigned_workers, unit)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                 ON CONFLICT (run_id, wa, l6_main, company) DO UPDATE SET
+                    trade                  = EXCLUDED.trade,
                     today_qty              = EXCLUDED.today_qty,
                     today_assigned_workers = EXCLUDED.today_assigned_workers,
                     unit                   = EXCLUDED.unit
@@ -493,6 +496,7 @@ class PGClient:
                         r["wa"],
                         r["l6_main"],
                         r["company"],
+                        r.get("trade"),
                         r["today_qty"],
                         r["today_assigned_workers"],
                         r["unit"],

@@ -3,6 +3,8 @@
 .env.local
 .env.homelab
 .env.backup-*
+.env.local.*backup
+.env.local.aws-backup
 pipeline/.env
 web/.env.local
 infra/.env
@@ -45,4 +47,5 @@ data/vector_db/
 
 # 다른 세션 캡쳐 로그 + Playwright 결과
 tmp/
+tmp/*.sql
 web/test-results/

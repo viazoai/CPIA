@@ -85,6 +85,7 @@ async def test_forecast_splits_rows_by_wa():
     pg_mock.close = AsyncMock()
     pg_mock.assert_pipeline_run_exists = AsyncMock()
     pg_mock.fetch_plan_for_group = AsyncMock(return_value=None)
+    pg_mock.fetch_all = AsyncMock(return_value=[])
     pg_mock.insert_forecast = AsyncMock()
 
     # Chroma collection mock — RAG 0건 (cold-start)

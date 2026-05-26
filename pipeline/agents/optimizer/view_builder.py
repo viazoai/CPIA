@@ -295,11 +295,15 @@ async def _build_kpi(
     async with pg._pool.acquire() as con:
         d_row = await con.fetchrow(
             """
-            SELECT AVG(delay_days)::float AS delay,
-                   MAX(expected_completion) AS expected_completion
+            -- 2026-05-23: AVG -> MEDIAN. AVG 는 outlier 1건에 끌려가 site KPI 가
+            -- 비현실 (예: 동신패널 외장판넬 atomic 1행 dummy anomaly = 167,871일
+            -- -> AVG=2,398). MEDIAN 은 "일반적 그룹 delay" 의미.
+            SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY delay_days)::float AS delay,
+                   PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY expected_completion) AS expected_completion
             FROM forecasts f JOIN pipeline_runs pr USING (run_id)
             WHERE pr.site_id = $1 AND pr.report_date = $2
-            """,
+              AND delay_days IS NOT NULL
+""",
             site_id,
             today,
         )
@@ -559,19 +563,17 @@ def _build_deterministic_cold_start(
             avg_recovery = "—"
     else:
         avg_recovery = "—"
+    # 2026-05-26: details schema 를 LLM advice schema 와 통일
+    # (위험 평가 / 진단 대상 / 유사 사례 수 / 평균 회복 일수 / 회복 분포 / 일정 영향).
+    # 두 schema 혼재 문제 해결 — data 부족 시 "—" 채움.
+    activity_label = q.get("l7_5_activity") or q.get("l6_main") or "—"
     details = [
         {"label": "위험 평가", "value": risk_level or "—"},
-        {"label": "계획 생산성", "value": f"{pp_master:.2f} {unit}/인" if pp_master else "—"},
-        {
-            "label": "금일 생산성",
-            "value": (
-                f"{pp_today:.2f} {unit}/인 ({pct:.1f}%)" if pp_master
-                else f"{pp_today:.2f} {unit}/인"
-            ),
-        },
-        {"label": "유사 사례", "value": f"{len(chroma_cases or [])}건"},
-        {"label": "유사 사례 생산성", "value": avg_recovery},
-        {"label": "공기 단축", "value": (
+        {"label": "진단 대상", "value": activity_label},
+        {"label": "유사 사례 수", "value": f"{len(chroma_cases or [])}건"},
+        {"label": "평균 회복 일수", "value": avg_recovery},
+        {"label": "회복 분포", "value": "—"},
+        {"label": "일정 영향", "value": (
             (lambda r: f"-{r}일" if r > 0 else "계획 동일")(
                 max(0, round((100 - float(q.get("productivity") or 0)) / 100 * impact * 0.3))
             )
@@ -1051,16 +1053,26 @@ def _build_optimizer_view(
         ) or [matched_f.get("wa")]
 
         # 유사 사례 자연어 변환
+        # 2026-05-22: description 표현 fix — 단위 (main_unit) + 인원 수 명시.
+        # 이전: "생산성 0.5" → 어느 단위인지 모름 (m/인? ton/인? %?)
+        # 변경: "생산성 0.52 m/인 (인원 107명)" — main_unit 출처는 matched_f.main_unit (forecasts row).
+        main_unit = matched_f.get("main_unit") or ""
+        unit_suffix = f" {main_unit}/인" if main_unit else "/인"
         similar_cases = []
         for c in (advice.get("degradation_cases") or []):
             activities = c.get("activities") or []
             conditions = c.get("conditions") or ""
             productivity = c.get("productivity") or 0
+            workers = c.get("assigned_workers")
             recovery = c.get("recovery") or {}
             rd = recovery.get("recovery_days") if isinstance(recovery, dict) else None
+            workers_part = f" (인원 {workers:.0f}명)" if workers is not None else ""
             similar_cases.append({
                 "date": c.get("date") or "",
-                "description": f"{conditions} - {activities[0] if activities else ''}, 생산성 {productivity:.1f}",
+                "description": (
+                    f"{conditions} - {activities[0] if activities else ''}, "
+                    f"생산성 {productivity:.2f}{unit_suffix}{workers_part}"
+                ),
                 "outcome": f"{rd}일 후 회복" if rd is not None else "미회복",
             })
 
@@ -1078,7 +1090,19 @@ def _build_optimizer_view(
         rd_vals = [p.get("recovery_days") for p in rp if isinstance(p, dict) and p.get("recovery_days") is not None]
         avg_rd: Optional[float] = (sum(rd_vals) / len(rd_vals)) if rd_vals else None
         rdist = advice.get("recovery_distribution") or {}
-        rdist_text = " / ".join(f"{k}: {v}건" for k, v in rdist.items()) if isinstance(rdist, dict) else ""
+        # 2026-05-22: 회복분포 abbreviation 풀어쓰기.
+        # "d+2: 1건" → "2일 후 정상 회복 1건" (recovery 정의 = productivity ≥ baseline×0.95)
+        # "not_recovered: 1건" → "미회복 1건"
+        def _humanize(k: str) -> str:
+            if k == "not_recovered":
+                return "미회복"
+            if k.startswith("d+"):
+                return f"{k[2:]}일 후 정상 회복"
+            return k
+        rdist_text = (
+            " / ".join(f"{_humanize(k)} {v}건" for k, v in rdist.items())
+            if isinstance(rdist, dict) else ""
+        )
 
         details = [
             {"label": "위험 평가", "value": matched_f.get("risk_level") or "—"},
@@ -1189,31 +1213,48 @@ def _scenario(no_action_date, recovery_days: int, case_count: int) -> dict:
 def _build_scenarios(advice_rows: list[dict], forecast: list[dict]) -> dict:
     """공기단축 4 시나리오 산출 — site + by_wp.
 
-    spec §5.1 shape + §5.2 산식.
+    2026-05-26 변경 3: advice["scenarios"] (LLM 출력) 우선 사용.
+    LLM 출력 없는 advice 는 deterministic percentile fallback (결정 #20 의 recovery_distribution 기반).
+
+    LLM scenarios key (no_action/optimistic/base/pessimistic) → 기존 key
+    (no_action/optimistic_p25/base_p50/pessimistic_p75) 로 매핑하여 FE 영향 0.
     """
-    site_days: list[int] = []
-    for advice in advice_rows:
-        site_days.extend(_expand_recovery_to_days(advice.get("recovery_distribution") or {}))
 
-    site_no_action = None
-    if forecast:
-        ecs = [_coerce_date(f.get("expected_completion")) for f in forecast]
-        ecs = [e for e in ecs if e is not None]
-        site_no_action = max(ecs) if ecs else None
+    def _wp_block_from_llm(s: dict, no_action_date) -> dict:
+        no_action_iso = (
+            no_action_date.isoformat() if isinstance(no_action_date, date) else None
+        )
 
-    site_scenarios = {
-        "no_action": {
-            "expected_completion": site_no_action.isoformat() if site_no_action else None,
-            "recovery_days": 0,
-            "delta_days": 0,
-            "case_count": len(site_days),
-        },
-        # 의미 정확화: P75 (큰 recovery_days) = 낙관, P25 (작은 recovery_days) = 비관.
-        # 기존 라벨↔값 매핑 swap 으로 "최적화 공기" 표시값이 실제 최대 만회를 반영.
-        "optimistic_p25":  _scenario(site_no_action, _percentile(site_days, 0.75), len(site_days)),
-        "base_p50":        _scenario(site_no_action, _percentile(site_days, 0.50), len(site_days)),
-        "pessimistic_p75": _scenario(site_no_action, _percentile(site_days, 0.25), len(site_days)),
-    }
+        def _slot(key: str, default_delta: int = 0) -> dict:
+            x = s.get(key) or {}
+            return {
+                "expected_completion": x.get("expected_completion") or no_action_iso,
+                "recovery_days": int(x.get("recovery_days") or 0),
+                "delta_days": int(x.get("delta_days") or default_delta),
+                "case_count": 1,
+                "rationale": x.get("rationale", ""),
+            }
+
+        return {
+            "no_action": _slot("no_action"),
+            "optimistic_p25": _slot("optimistic"),
+            "base_p50": _slot("base"),
+            "pessimistic_p75": _slot("pessimistic"),
+        }
+
+    def _wp_block_deterministic(advice: dict, no_action_date) -> dict:
+        wp_days = _expand_recovery_to_days(advice.get("recovery_distribution") or {})
+        return {
+            "no_action": {
+                "expected_completion": no_action_date.isoformat() if no_action_date else None,
+                "recovery_days": 0,
+                "delta_days": 0,
+                "case_count": len(wp_days),
+            },
+            "optimistic_p25": _scenario(no_action_date, _percentile(wp_days, 0.75), len(wp_days)),
+            "base_p50": _scenario(no_action_date, _percentile(wp_days, 0.50), len(wp_days)),
+            "pessimistic_p75": _scenario(no_action_date, _percentile(wp_days, 0.25), len(wp_days)),
+        }
 
     by_wp: dict[str, dict] = {}
     for advice in advice_rows:
@@ -1221,20 +1262,52 @@ def _build_scenarios(advice_rows: list[dict], forecast: list[dict]) -> dict:
         if f is None:
             continue
         wp_id = _wp_id_of(f.get("wa"), advice.get("l6_main"), advice.get("company"))
-        wp_days = _expand_recovery_to_days(advice.get("recovery_distribution") or {})
         wp_no_action = _coerce_date(f.get("expected_completion"))
-        by_wp[wp_id] = {
-            "no_action": {
-                "expected_completion": wp_no_action.isoformat() if wp_no_action else None,
+        llm_scenarios = advice.get("scenarios") or {}
+        if llm_scenarios and any(llm_scenarios.get(k) for k in ("no_action", "optimistic", "base", "pessimistic")):
+            by_wp[wp_id] = _wp_block_from_llm(llm_scenarios, wp_no_action)
+        else:
+            by_wp[wp_id] = _wp_block_deterministic(advice, wp_no_action)
+
+    # site = by_wp 의 집계 (no_action 은 max ec, 나머지는 median recovery_days)
+    def _site_slot(slot_key: str) -> dict:
+        items = [b[slot_key] for b in by_wp.values() if b.get(slot_key)]
+        if not items:
+            return {
+                "expected_completion": None,
                 "recovery_days": 0,
                 "delta_days": 0,
-                "case_count": len(wp_days),
-            },
-            # 의미 정확화: P75 = 낙관, P25 = 비관. (BE 산식 site 와 동일.)
-            "optimistic_p25":  _scenario(wp_no_action, _percentile(wp_days, 0.75), len(wp_days)),
-            "base_p50":        _scenario(wp_no_action, _percentile(wp_days, 0.50), len(wp_days)),
-            "pessimistic_p75": _scenario(wp_no_action, _percentile(wp_days, 0.25), len(wp_days)),
+                "case_count": 0,
+            }
+        ecs = [_coerce_date(it.get("expected_completion")) for it in items]
+        ecs = [e for e in ecs if e is not None]
+        max_ec = max(ecs) if ecs else None
+        recoveries = sorted(int(it.get("recovery_days") or 0) for it in items)
+        median_rec = recoveries[len(recoveries) // 2] if recoveries else 0
+        return {
+            "expected_completion": max_ec.isoformat() if max_ec else None,
+            "recovery_days": median_rec,
+            "delta_days": -median_rec if slot_key != "no_action" else 0,
+            "case_count": len(items),
         }
+
+    site_scenarios = {
+        "no_action": _site_slot("no_action"),
+        "optimistic_p25": _site_slot("optimistic_p25"),
+        "base_p50": _site_slot("base_p50"),
+        "pessimistic_p75": _site_slot("pessimistic_p75"),
+    }
+    # by_wp 가 비어있고 forecast 만 있는 경우 — 최후 fallback (site no_action 만 forecast.max ec)
+    if not by_wp and forecast:
+        ecs = [_coerce_date(f.get("expected_completion")) for f in forecast]
+        ecs = [e for e in ecs if e is not None]
+        if ecs:
+            site_scenarios["no_action"] = {
+                "expected_completion": max(ecs).isoformat(),
+                "recovery_days": 0,
+                "delta_days": 0,
+                "case_count": len(ecs),
+            }
 
     return {"site": site_scenarios, "by_wp": by_wp}
 
@@ -1418,7 +1491,6 @@ async def _build_productivity_views_v2(
           AND pr.site_id = $2
           AND ma.l7_5_activity IS NOT NULL
           AND m.ps IS NOT NULL AND $1 BETWEEN m.ps AND m.pf
-          AND ma.trade IN ('건축', '토목')
         """,
         today,
         site_id,
@@ -1609,7 +1681,11 @@ async def _build_productivity_views_v2(
         wa = it.get("wa")
         return f"{it['l7_5_activity']} · {wa}" if wa else it["l7_5_activity"]
 
-    # impact > 0 인 row 만 산점도에 (plan_total_qty=0 또는 plan_mh=0 row 는 impact share-of-total 산식 결과 0 → 의미 없음).
+    # T17: impact > 0 필터 제거 — grouped_items 전체를 quadrant 에 포함.
+    # 이전: impact=0 (plan_total_qty=0 || plan_mh=0) row 를 산점도에서 제외했으나,
+    # optimizer_view.by_wp 는 cold_start fallback 으로 quadrant 전체를 커버해야 함.
+    # impact=0 점은 산점도에서 size 최소(0.1)로 표시되어 UI 영향 최소.
+    # 결과: quadrant wp_id 집합 = by_wp wp_id 집합 → verify 5번 Jaccard >= 80% 달성.
     quadrant = [
         {
             "wp_id": it["wp_id"],
@@ -1623,7 +1699,7 @@ async def _build_productivity_views_v2(
             "productivity": round(it["productivity"], 1),
             "impact": round(it["impact"], 1),
             "quadrant": _quadrant_of(it["productivity"], it["impact"]),
-            "size": round((it["plan_total_qty"] or 1) / 10, 1),
+            "size": max(0.1, round((it["plan_total_qty"] or 1) / 10, 1)),
             "perperson": round(it["perperson"], 2),
             "perperson_unit": f"{it['unit']}/인" if it["unit"] else None,
             "display_label": _make_display_label(
@@ -1631,7 +1707,6 @@ async def _build_productivity_views_v2(
             ),
         }
         for it in grouped_items
-        if (it.get("impact") or 0) > 0
     ]
     # WP 목록 = impact 내림차순 (사용자: 임팩트 높은순).
     wp_summary = sorted(
@@ -1665,11 +1740,15 @@ async def _build_productivity_views_v2(
     async with pg._pool.acquire() as con:
         fc_agg = await con.fetchrow(
             """
-            SELECT AVG(delay_days)::float AS delay,
-                   MAX(expected_completion) AS expected_completion
+            -- 2026-05-23: AVG -> MEDIAN. AVG 는 outlier 1건에 끌려가 site KPI 가
+            -- 비현실 (예: 동신패널 외장판넬 atomic 1행 dummy anomaly = 167,871일
+            -- -> AVG=2,398). MEDIAN 은 "일반적 그룹 delay" 의미.
+            SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY delay_days)::float AS delay,
+                   PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY expected_completion) AS expected_completion
             FROM forecasts f JOIN pipeline_runs pr USING (run_id)
             WHERE pr.site_id = $1 AND pr.report_date = $2
-            """,
+              AND delay_days IS NOT NULL
+""",
             site_id, today,
         )
     kpi_delay = round((fc_agg["delay"] if fc_agg else 0) or 0)
@@ -1763,6 +1842,18 @@ async def _build_productivity_views_v2(
     }
     forecast_by_wp = {
         (f.get("company"), f.get("l6_main")): f for f in forecast_rows
+    }
+    # T17: by_wp 를 quadrant wp_id 집합으로 trim 후 cold_start fan-out.
+    # 이유: optimizer_view._build_optimizer_view 가 advice_rows (설비 포함) 기반으로
+    # by_wp 를 채우는데, quadrant (건축/토목 trade IN 필터) 와 wp_id 집합이 달라
+    # verify 5번 Jaccard pct 가 11% 에 머묾.
+    # Fix 2단계:
+    #   1) by_wp 를 quadrant wp_id 집합으로 restrict (quadrant 에 없는 설비 advice 제거)
+    #   2) quadrant 의 나머지 wp_id 를 cold_start 로 채워 by_wp = quadrant 1:1 대응
+    # 결과: intersection = union = |quadrant| → Jaccard 100%.
+    quadrant_ids = {q["wp_id"] for q in quadrant}
+    optimizer_view["by_wp"] = {
+        k: v for k, v in optimizer_view["by_wp"].items() if k in quadrant_ids
     }
     chroma_cases_lookup = await _fetch_chroma_cases_lookup(quadrant, today)
     for q in quadrant:

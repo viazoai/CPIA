@@ -20,10 +20,22 @@ from collections import defaultdict
 from datetime import date, timedelta
 from typing import Optional
 
-# spec §5.1 / §5.3 — degradation 트리거 incident 3종 (장비대기 / 자재미입고 / 돌관)
-_DEGRADATION_INCIDENTS = ("장비대기", "자재미입고", "돌관")
-# spec §5.3 — baseline 산출 시 제외해야 할 incident 5종 전수
-_ALL_INCIDENTS = ("장비대기", "자재미입고", "우천", "돌관", "야간연장")
+# spec §6 — degradation 트리거 + baseline 제외 통합 9종 (이전 _DEGRADATION_INCIDENTS 3종
+# + _ALL_INCIDENTS 5종 → 통일). seed TAG_TO_CONDS 의 7 tag 모두 발현 보장.
+INCIDENT_KEYWORDS: tuple[str, ...] = (
+    "장비대기",
+    "자재미입고",
+    "돌관",
+    "우천",
+    "야간연장",
+    "인력부족",
+    "재작업",
+    "병행작업",
+    "사양변경",  # spec §6 추가 4종
+)
+# backward compat alias (호출 site 점진 마이그 위함, 새 코드는 INCIDENT_KEYWORDS 직접 사용)
+_DEGRADATION_INCIDENTS = INCIDENT_KEYWORDS
+_ALL_INCIDENTS = INCIDENT_KEYWORDS
 # spec §5.1 / §5.3 — degradation 판정 컷오프 (baseline 대비 85% 미만)
 _DEGRADATION_RATIO = 0.85
 # spec §5.3 — recovery 판정 컷오프 (baseline 대비 95% 이상)
@@ -45,21 +57,26 @@ def _group_day_productivity(metas_of_day: list[dict], baseline_unit: str) -> flo
 
 def _group_baseline(
     metadatas: list[dict],
-    company: str,
+    company: Optional[str],
     l6_main: str,
     baseline_unit: str,
     *,
     l7_5_activity: Optional[str] = None,
 ) -> Optional[float]:
-    """같은 (company, l6_main, unit[, l7_5_activity]) 의 conditions 에 incident 없는 row productivity 평균.
+    """같은 (l6_main, unit[, company][, l7_5_activity]) 의 conditions 에 incident 없는 row productivity 평균.
 
     0 row → None (cold_start 신호 — 호출자가 pre_cases[key]=[] 분기).
     incident 키워드: 장비대기 / 자재미입고 / 우천 / 돌관 / 야간연장.
+    company is None → 회사 무관 (l6_main+unit 만 매칭) — 동종 공사 cross-company baseline.
     l7_5_activity 가 주어지면 동일 activity 만 남김 (phase 2).
     """
     prods: list[float] = []
     for m in metadatas:
-        if m["company"] != company or m["l6_main"] != l6_main or m["unit"] != baseline_unit:
+        if l6_main and m["l6_main"] != l6_main:
+            continue
+        if m["unit"] != baseline_unit:
+            continue
+        if company is not None and m["company"] != company:
             continue
         if l7_5_activity and m.get("l7_5_activity") != l7_5_activity:
             continue
@@ -74,7 +91,7 @@ def _group_baseline(
 def fetch_degradation_cases(
     metadatas: list[dict],
     documents: list[str],
-    company: str,
+    company: Optional[str],
     l6_main: str,
     today: date,
     baseline_unit: str,
@@ -83,32 +100,43 @@ def fetch_degradation_cases(
     *,
     l7_5_activity: Optional[str] = None,
 ) -> list[dict]:
-    """Step 1 — 같은 (company, l6_main) 의 저하 case top-N recency.
+    """Step 1 — 같은 (l6_main[, company]) 의 저하 case top-N recency.
 
-    저하 정의: conditions ∋ {장비대기, 자재미입고, 돌관} AND group productivity < baseline*0.85.
-    worker_source ∈ {"synthetic_v2", "mh_prorated"} 만 허용 (단순 synthetic 노이즈 회피).
+    company is None → 회사 무관 (l6_main 만 매칭) — 동종 공사 cross-company case.
+    저하 정의 (옵션 C, 2026-05-22):
+      conditions ∋ {장비대기, 자재미입고, 돌관, 우천, 야간연장} 등 incident keyword OR
+      group productivity < baseline*0.85 (둘 중 하나만 만족해도 case).
+    worker_source 화이트리스트 제거 — synthetic 포함 모든 source 채택
+      (이전: synthetic_v2 + mh_prorated 만; backfill_v2 의 conditions=[] row 가
+      과도 차단되던 문제 해소).
     date < today (미래 행 제외).
     conditions 는 comma-joined str → `substring in` 검사.
     """
     by_date: dict[str, list] = defaultdict(list)
     for m, d in zip(metadatas, documents):
-        if m["company"] != company or m["l6_main"] != l6_main:
+        if l6_main and m["l6_main"] != l6_main:
+            continue
+        if company is not None and m["company"] != company:
             continue
         if l7_5_activity and m.get("l7_5_activity") != l7_5_activity:
             continue
         if m["date"] >= today.isoformat():
             continue
-        if m.get("worker_source") not in ("synthetic_v2", "mh_prorated"):
-            continue
+        # 2026-05-22: worker_source 화이트리스트 제거.
+        # 이전엔 ('synthetic_v2','mh_prorated') 만 허용 → backfill_v2/dummy_seed 차단 → 광건/태우 등
+        # 합성 3사 외 75사가 case=0 cold_start. 이제 모든 source 인정.
         by_date[m["date"]].append((m, d))
 
     cases: list[dict] = []
     for d, rows in by_date.items():
         raw = rows[0][0].get("conditions") or ""
-        if not any(c in raw for c in _DEGRADATION_INCIDENTS):
-            continue
+        has_incident = any(c in raw for c in _DEGRADATION_INCIDENTS)
         prod = _group_day_productivity([m for m, _ in rows], baseline_unit)
-        if prod >= baseline_value * _DEGRADATION_RATIO:
+        is_degraded = prod < baseline_value * _DEGRADATION_RATIO
+        # 2026-05-22: degradation 정의 완화 — conditions ∋ incident OR prod 저하 둘 중 하나만 만족.
+        # 이전엔 AND (conditions ∋ incident + prod < baseline×0.85) → backfill_v2 의 conditions='[]'
+        # 빈 string row 가 모두 차단. 이제 prod 저하만으로도 충분 (수치 근거 기반).
+        if not (has_incident or is_degraded):
             continue
         cases.append(
             {
@@ -125,7 +153,7 @@ def fetch_degradation_cases(
 
 def fetch_recovery_trajectory(
     metadatas: list[dict],
-    company: str,
+    company: Optional[str],
     l6_main: str,
     case_date: str,
     today: date,
@@ -137,13 +165,16 @@ def fetch_recovery_trajectory(
 ) -> dict:
     """Step 2 — case_date+1 ~ +window 의 group productivity trajectory.
 
+    company is None → 회사 무관 매칭 (cross-company recovery 추세).
     회복 정의: productivity >= baseline_value * 0.95.
     recovery_days = 첫 ✓ 까지의 일수 (1-based, None 이면 미회복).
     target_d >= today 인 시점에서 break (window today clipped).
     """
     by_date: dict[str, list] = defaultdict(list)
     for m in metadatas:
-        if m["company"] != company or m["l6_main"] != l6_main:
+        if l6_main and m["l6_main"] != l6_main:
+            continue
+        if company is not None and m["company"] != company:
             continue
         if l7_5_activity and m.get("l7_5_activity") != l7_5_activity:
             continue

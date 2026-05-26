@@ -15,6 +15,7 @@ Spec: docs/superpowers/specs/2026-05-16-cpia-optimizer-hil2-design.md §7
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid
@@ -24,10 +25,13 @@ from datetime import date
 
 from openai import AzureOpenAI
 
+from pipeline.agents._concurrency import get_llm_semaphore
 from pipeline.agents.optimizer.prompt import (
     FEW_SHOT_MESSAGES,
+    SCENARIOS_PROMPT,
     SYSTEM_PROMPT,
     build_llm_user_input,
+    build_scenarios_llm_input,
 )
 from pipeline.agents.optimizer.view_builder import (
     _build_contractor_bars,
@@ -72,41 +76,6 @@ def _compute_recovery_distribution(cases: list[dict]) -> dict[str, int]:
     return dict(counter)
 
 
-def _compose_cold_start_row(r: dict, cases: list[dict], run_id: uuid.UUID) -> dict:
-    """history 3건 미만 — LLM skip 하되 UI 평이함 회피.
-    Phase 1 (2026-05-21): diagnosis 라벨 + master baseline 권고 1건 채움 (C9).
-    """
-    company = r["company"]
-    l6 = r["l6_main"]
-    diagnosis = (
-        f"신규 작업 — {company} {l6} 의 과거 유사 이력 부족. "
-        "마스터 baseline 기준 일일 quota 권고로 갈음."
-    )
-    recommendations = [
-        {
-            "rank": 1,
-            "action": (
-                f"{l6} 마스터 일일 quota 페이스 유지. 1주 누적 후 "
-                "ChromaDB 유사 이력 재조회로 진단 정밀화."
-            ),
-            "rationale": (
-                "history 3건 미만 -> LLM bypass. baseline 기반 진행 후 데이터 누적 대기."
-            ),
-        }
-    ]
-    return {
-        "run_id": run_id,
-        "company": company,
-        "l6_main": l6,
-        "forecast_assessment": r["assessment"],
-        "diagnosis": diagnosis,
-        "degradation_cases": cases,
-        "recovery_pattern": [],
-        "recovery_distribution": _compute_recovery_distribution(cases),
-        "recommendations": recommendations,
-    }
-
-
 def _apply_augmentation_weight(rows: list[dict]) -> list[tuple[dict, float]]:
     """augment 된 case 는 0.5 가중치, 일반 1.0. backfill 산출물 활용."""
     return [
@@ -115,9 +84,9 @@ def _apply_augmentation_weight(rows: list[dict]) -> list[tuple[dict, float]]:
     ]
 
 
-def _compose_row(r: dict, cases: list[dict], llm_output: dict, run_id: uuid.UUID) -> dict:
+def _compose_row(r: dict, cases: list[dict], llm_output: dict, run_id: uuid.UUID, scenarios: Optional[dict] = None) -> dict:
     recovery_pattern = [{"date": c["date"], "recovery_days": c["recovery"]["recovery_days"]} for c in cases]
-    return {
+    row = {
         "run_id": run_id,
         "company": r["company"],
         "l6_main": r["l6_main"],
@@ -125,10 +94,13 @@ def _compose_row(r: dict, cases: list[dict], llm_output: dict, run_id: uuid.UUID
         "diagnosis": llm_output["diagnosis"],
         "degradation_cases": cases,
         "recovery_pattern": recovery_pattern,
-        # ★ LLM 출력 override — 코드단 deterministic 값을 정답으로 박음
+        # LLM 출력 override — 코드단 deterministic 값을 정답으로 박음
         "recovery_distribution": _compute_recovery_distribution(cases),
         "recommendations": llm_output["recommendations"],
     }
+    if scenarios is not None:
+        row["scenarios"] = scenarios
+    return row
 
 
 def _call_azure_llm(llm_input: dict, cfg: OptimizerConfig, azure: AzureOpenAI) -> dict:
@@ -146,6 +118,30 @@ def _call_azure_llm(llm_input: dict, cfg: OptimizerConfig, azure: AzureOpenAI) -
     return json.loads(resp.choices[0].message.content)
 
 
+def _call_azure_scenarios_llm(scenarios_input: dict, cfg: OptimizerConfig, azure: AzureOpenAI) -> dict:
+    """scenarios LLM 호출 — SCENARIOS_PROMPT 사용. fail-fast."""
+    messages = [
+        {"role": "system", "content": SCENARIOS_PROMPT},
+        {"role": "user", "content": json.dumps(scenarios_input, ensure_ascii=False)},
+    ]
+    resp = azure.chat.completions.create(
+        model=cfg.llm_model,
+        messages=messages,
+        response_format={"type": "json_object"},
+    )
+    return json.loads(resp.choices[0].message.content)
+
+
+async def _call_azure_llm_async(llm_input: dict, cfg: OptimizerConfig, azure: AzureOpenAI) -> dict:
+    """sync _call_azure_llm 을 asyncio.to_thread 로 감쌈 — 실 병렬 효과."""
+    return await asyncio.to_thread(_call_azure_llm, llm_input, cfg, azure)
+
+
+async def _call_azure_scenarios_llm_async(scenarios_input: dict, cfg: OptimizerConfig, azure: AzureOpenAI) -> dict:
+    """sync _call_azure_scenarios_llm 을 asyncio.to_thread 로 감쌈."""
+    return await asyncio.to_thread(_call_azure_scenarios_llm, scenarios_input, cfg, azure)
+
+
 async def optimize(
     forecast: list[dict],
     hil_2_selection: list[str],
@@ -160,7 +156,7 @@ async def optimize(
 
     Args:
         forecast: Forecaster 산출 row list (state["forecast"]).
-        hil_2_selection: PM 이 hil_2 modal 에서 선택한 "{company}|{l6_main}" key list.
+        hil_2_selection: 자동 선택된 "{company}|{l6_main}" key list (hil_2 interrupt 폐기 후 전체 wp).
         pre_optimizer_cases: hil_2_node 가 사전 영속한 dict[key, cases].
             각 case 는 retrieve 모듈 산출물 (degradation case + 'recovery' 키 trajectory) 그대로.
             agent.py 본 함수는 retrieve 를 호출하지 않음 — state 사전 영속 값만 소비 (결정 #8).
@@ -174,7 +170,6 @@ async def optimize(
         advice row list (state["optimizer_advice"] 에 박힘).
     """
     mapped = mapped or []
-    advice_rows: list[dict] = []
     azure = AzureOpenAI(
         api_key=cfg.azure_api_key,
         api_version=cfg.azure_api_version,
@@ -182,17 +177,35 @@ async def optimize(
         timeout=cfg.azure_timeout,
         max_retries=cfg.azure_max_retries,
     )
+
+    sem = get_llm_semaphore()  # 함수 entry 에서 한 번 — closure 로 공유
+
+    async def _process_one(r: dict, cases: list[dict]) -> dict:
+        async with sem:  # LLM 호출 부분만 Semaphore 안
+            llm_input = build_llm_user_input(r, cases)
+            llm_output = await _call_azure_llm_async(llm_input, cfg, azure)
+            # 2026-05-26: 변경 3 — 진단 직후 scenarios LLM 호출 (동일 sem 블록 안, 동일 wp).
+            # _compute_recovery_distribution 은 cases 기반 deterministic (결정 #20) — LLM input 으로 전달.
+            recovery_dist = _compute_recovery_distribution(cases)
+            no_action_ec = r.get("expected_completion")
+            if isinstance(no_action_ec, date):
+                no_action_ec = no_action_ec.isoformat()
+            scenarios_input = build_scenarios_llm_input(r, no_action_ec, recovery_dist, cases)
+            scenarios_output = await _call_azure_scenarios_llm_async(scenarios_input, cfg, azure)
+        return _compose_row(r, cases, llm_output, run_id, scenarios=scenarios_output)  # PG write 는 sem 밖
+
+    tasks = []
     for r in forecast:
         key = f"{r['company']}|{r['l6_main']}"
         if key not in hil_2_selection:
             continue
         cases = pre_optimizer_cases.get(key, [])
-        if len(cases) < 3:
-            advice_rows.append(_compose_cold_start_row(r, cases, run_id))
-            continue
-        llm_input = build_llm_user_input(r, cases)
-        llm_output = _call_azure_llm(llm_input, cfg, azure)  # fail-fast
-        advice_rows.append(_compose_row(r, cases, llm_output, run_id))
+        # 2026-05-22: cold_start (cases<3) 도 LLM 호출 — SYSTEM_PROMPT 의 'degradation_cases 빈 array
+        # 처리' 가이드에 따라 today 정보만으로 진단·권고 생성. 이전: _compose_cold_start_row placeholder.
+        # 사유: UI 4분면 점 클릭 시 풍부한 진단 보장 (사용자 검증 9/22 광건 fab cold_start placeholder 화면).
+        tasks.append(_process_one(r, cases))
+
+    advice_rows = list(await asyncio.gather(*tasks)) if tasks else []
 
     pg = PGClient(cfg.postgres_url)
     await pg.connect()

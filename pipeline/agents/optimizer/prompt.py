@@ -40,6 +40,7 @@ PM 이 선택한 공종에 대해, 과거 유사 저하 케이스 5건 + 각 cas
 - 한자 사용 금지 (한글 + 영어).
 - `recovery_distribution` 은 코드단에서 산출되어 제공됨 — 참고만, 본인이 직접 세지 말 것.
 - activities (degradation_cases.activities) 는 단순 활동명 (예: "기초공사 : 거푸집 공사"). 조건/야간/돌관 정보는 today.today_conditions + 각 case 의 conditions 메타 (예: "맑음,장비대기") 에 박혀 있음. 둘 다 보고 진단.
+- **degradation_cases 가 빈 array 인 경우 (신규 작업 — 과거 유사 저하 사례 없음)**: today 의 assessment / today_productivity / today_conditions / main_unit / company / l6_main 만으로 진단. "과거 유사 사례 없음" 사실을 진단에 명시하고, 일반적 baseline 관리 권고 3~4건 (모니터링·조기 신호 감지·기록 누적·후행 공정 영향 점검 류) 을 작성. 추측성 회복 패턴 언급은 금지.
 
 출력 형식 (JSON):
 {
@@ -283,6 +284,39 @@ FEW_SHOT_MESSAGES = [
 # ---------------------------------------------------------------------------
 
 
+def build_scenarios_llm_input(
+    forecast_row: dict,
+    no_action_ec: str | None,
+    recovery_distribution: dict,
+    degradation_cases: list[dict],
+) -> dict:
+    """scenarios LLM 입력 빌드.
+
+    Args:
+        forecast_row: ForecastRow (company / l6_main / l7_5_activity).
+        no_action_ec: forecast 의 expected_completion ISO date (아무 조치 없을 때 완료 예상일).
+        recovery_distribution: _compute_recovery_distribution 결과 dict (결정 #20 deterministic).
+        degradation_cases: advice 진단에 사용된 degradation cases (recovery_days 포함).
+    """
+    return {
+        "wp": {
+            "company": forecast_row.get("company"),
+            "l6_main": forecast_row.get("l6_main"),
+            "l7_5_activity": forecast_row.get("l7_5_activity"),
+        },
+        "no_action_expected_completion": no_action_ec,
+        "recovery_distribution": recovery_distribution,
+        "degradation_cases": [
+            {
+                "date": c.get("date"),
+                "recovery_days": c.get("recovery", {}).get("recovery_days"),
+                "conditions": c.get("conditions"),
+            }
+            for c in (degradation_cases or [])
+        ],
+    }
+
+
 def build_llm_user_input(forecast_row: dict, degradation_cases: list[dict]) -> dict:
     """forecast_row 는 §2.2 의 ForecastRow schema 가정 — main_unit / today_productivity / today_conditions 박힘.
 
@@ -313,3 +347,41 @@ def build_llm_user_input(forecast_row: dict, degradation_cases: list[dict]) -> d
             for c in degradation_cases
         ],
     }
+
+
+# ---------------------------------------------------------------------------
+# §6.4 SCENARIOS_PROMPT + build_scenarios_llm_input (변경 3 — 2026-05-26)
+# ---------------------------------------------------------------------------
+
+SCENARIOS_PROMPT = """당신은 건설 현장 공기 만회 시나리오 분석 전문가입니다.
+
+WP (공종) 의 메타데이터 + 현재 예상 완료일 (조치 없을 때) + 과거 회복 분포 + 저하 사례를 받습니다.
+
+임무:
+4가지 시나리오 (no_action / optimistic / base / pessimistic) 각각에 대해:
+1. expected_completion: ISO date (YYYY-MM-DD)
+2. recovery_days: 만회 가능 일수 (no_action 은 0)
+3. delta_days: no_action 대비 단축 일수 (no_action 은 0, 나머지는 음수)
+4. rationale: 1문장 한국어 근거 (no_action 은 "현재 상태 유지 시 예상 완료일")
+
+시나리오 정의:
+- no_action: 아무 조치 없이 현재 속도 유지. recovery_days=0, delta_days=0.
+- optimistic: recovery_distribution 의 최단 회복 구간 기반 (과거 가장 빠른 회복 패턴). delta_days 는 음수.
+- base: recovery_distribution 의 중앙값 기반. delta_days 는 음수.
+- pessimistic: recovery_distribution 의 장기 회복 구간 기반 (과거 가장 느린 회복 패턴). delta_days 는 no_action 보다 작은 개선폭 (delta_days 음수이지만 optimistic/base 보다 절댓값 작음).
+
+원칙:
+- no_action_expected_completion 을 기준으로 각 시나리오의 expected_completion 을 산출 (no_action_date - recovery_days).
+- recovery_distribution 이 빈 dict 이거나 사례 없으면: optimistic=3일, base=5일, pessimistic=2일 기본값.
+- delta_days = -(recovery_days). expected_completion = no_action_date - recovery_days.
+- 수치 외 추측 금지. rationale 은 회복 분포 / 사례 근거만.
+- 한자 사용 금지 (한글 + 영어).
+
+출력 형식 (JSON):
+{
+  "no_action":   {"expected_completion": "YYYY-MM-DD", "recovery_days": 0,  "delta_days": 0,  "rationale": "..."},
+  "optimistic":  {"expected_completion": "YYYY-MM-DD", "recovery_days": N,  "delta_days": -N, "rationale": "..."},
+  "base":        {"expected_completion": "YYYY-MM-DD", "recovery_days": N,  "delta_days": -N, "rationale": "..."},
+  "pessimistic": {"expected_completion": "YYYY-MM-DD", "recovery_days": N,  "delta_days": -N, "rationale": "..."}
+}
+"""

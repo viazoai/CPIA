@@ -306,20 +306,21 @@ async def forecaster_node(state: CPIAState, cfg: GraphConfig) -> dict:
 
 
 async def hil_2_node(state: CPIAState, cfg: GraphConfig) -> dict:
-    """Forecaster 직후 — risky (주의/이상) 그룹별 degradation + recovery 사전 영속 + interrupt.
+    """Forecaster 직후 — 모든 forecast wp (정상 + 주의 + 이상) degradation + recovery 사전 영속.
 
-    Spec §8.2 (F5 정정 — coll.get 1회 + F7 정정 — None 분기).
+    2026-05-26: interrupt 폐기 — 모든 wp 를 자동 선택하여 optimizer 에 진입.
+    CLAUDE.md: "백엔드 interrupt:hil_2 노드는 우선순위에서 제외".
 
     원칙:
     - retrieve.fetch_* 호출은 본 노드 책임 (agent.py 는 import X — 결정 #8 / Task 6 test 6.5).
     - Chroma coll.get(...) 그룹당 1회만 호출 후 metadatas/documents 두 함수 (degradation/recovery)
       에 전달 (round-trip 절감).
-    - baseline None 또는 main_unit None 일 때 cold_start signal payload 박고 다음 그룹.
-    - resume payload (Command(resume=[group_key, ...])) 가 hil_2_selection 으로 영속.
-    - risky 0건 → interrupt 미발생, empty selection 반환 → conditional_edge 가 END 분기.
+    - baseline None 또는 main_unit None 일 때 cold_start signal 박고 다음 그룹.
+    - 모든 forecast row 처리 후 hil_2_selection = 전체 key list 자동 박음.
+    - forecast 0건 → empty selection 반환.
     """
-    risky = [r for r in state["forecast"] if r["risk_level"] in {"주의", "이상"}]
-    if not risky:
+    all_forecast = state.get("forecast") or []
+    if not all_forecast:
         return {"hil_2_selection": [], "pre_optimizer_cases": {}, "current_node": "hil_2"}
 
     chroma = ChromaClient(
@@ -331,51 +332,34 @@ async def hil_2_node(state: CPIAState, cfg: GraphConfig) -> dict:
     today = _date.fromisoformat(state["date"])
 
     pre_cases: dict[str, list[dict]] = {}
-    payload_groups: list[dict] = []
-    for r in risky:
+    all_keys: list[str] = []
+    for r in all_forecast:
         key = f"{r['company']}|{r['l6_main']}"
+        all_keys.append(key)
         baseline_unit = r.get("main_unit")
         if baseline_unit is None:
             pre_cases[key] = []
-            payload_groups.append(
-                {
-                    "key": key,
-                    "assessment": r["assessment"],
-                    "risk_level": r["risk_level"],
-                    "reasoning": r["reasoning"],
-                    "preview_cases": [],
-                    "note": "no_main_unit",
-                }
-            )
             continue
 
-        # F5: coll.get 1회 호출 후 두 함수에 metadatas/documents 전달
+        # F5: coll.get 1회 호출 후 두 함수에 metadatas/documents 전달.
+        # 2026-05-22: company hard filter 제거 — l6_main 만 매칭하여 cross-company case 활용
+        # (이전엔 합성 3사 외 75사가 case=0 cold_start fallback).
         result = coll.get(
-            where={"$and": [{"company": r["company"]}, {"l6_main": r["l6_main"]}]},
+            where={"l6_main": r["l6_main"]},
             include=["metadatas", "documents"],
         )
         metas, docs = result["metadatas"], result["documents"]
 
-        baseline_value = _group_baseline(metas, r["company"], r["l6_main"], baseline_unit)
+        baseline_value = _group_baseline(metas, None, r["l6_main"], baseline_unit)
         if baseline_value is None:
             # F7: None 분기 명시 — pre_cases[key]=[] 후 다음 그룹
             pre_cases[key] = []
-            payload_groups.append(
-                {
-                    "key": key,
-                    "assessment": r["assessment"],
-                    "risk_level": r["risk_level"],
-                    "reasoning": r["reasoning"],
-                    "preview_cases": [],
-                    "note": "cold_start_no_baseline",
-                }
-            )
             continue
 
         cases = fetch_degradation_cases(
             metas,
             docs,
-            r["company"],
+            None,  # 2026-05-22 cross-company retrieve
             r["l6_main"],
             today,
             baseline_unit,
@@ -385,7 +369,7 @@ async def hil_2_node(state: CPIAState, cfg: GraphConfig) -> dict:
         for c in cases:
             c["recovery"] = fetch_recovery_trajectory(
                 metas,
-                r["company"],
+                None,  # 2026-05-22 cross-company recovery 추세
                 r["l6_main"],
                 c["date"],
                 today,
@@ -394,21 +378,10 @@ async def hil_2_node(state: CPIAState, cfg: GraphConfig) -> dict:
                 window=7,
             )
         pre_cases[key] = cases
-        payload_groups.append(
-            {
-                "key": key,
-                "assessment": r["assessment"],
-                "risk_level": r["risk_level"],
-                "reasoning": r["reasoning"],
-                "today_productivity": r.get("today_productivity"),
-                "today_conditions": r.get("today_conditions", ""),
-                "preview_cases": cases,
-            }
-        )
 
-    selected = interrupt({"risky_groups": payload_groups})
+    # 모든 forecast wp 를 자동 선택 — interrupt 없이 optimizer 직행.
     return {
-        "hil_2_selection": list(selected) if selected else [],
+        "hil_2_selection": all_keys,
         "pre_optimizer_cases": pre_cases,
         "current_node": "hil_2",
     }
@@ -444,17 +417,24 @@ async def reporter_node(state: CPIAState, cfg: GraphConfig) -> dict:
 
     Spec §5.3. hil_2_selection=[] (Optimizer skip) 또는 risky 0건 path 에서도
     본 노드 진입. mapped empty → fallback MD + PG INSERT skip.
+
+    2026-05-26: CPIA_REPORTER_SKIP=1 env 시 LLM 호출 skip (backfill 용).
+    site_summary 가 daily_reports.site_summary_text 별도 산출하므로 backfill 시 reporter 불필요.
     """
     run_id = uuid.UUID(state["run_id"]) if isinstance(state["run_id"], str) else state["run_id"]
     today = _date.fromisoformat(state["date"])
-    report_md, _summary = await report(
-        mapped=state["mapped"],
-        forecast_rows=state.get("forecast", []),
-        optimizer_advice=state.get("optimizer_advice", []),
-        run_id=run_id,
-        today=today,
-        cfg=cfg.reporter,
-    )
+    skip_reporter_llm = os.environ.get("CPIA_REPORTER_SKIP", "").lower() in {"1", "true", "on", "yes"}
+    if skip_reporter_llm:
+        report_md = f"# Daily Report ({today.isoformat()})\n\n_reporter LLM skipped (CPIA_REPORTER_SKIP=1)_"
+    else:
+        report_md, _summary = await report(
+            mapped=state["mapped"],
+            forecast_rows=state.get("forecast", []),
+            optimizer_advice=state.get("optimizer_advice", []),
+            run_id=run_id,
+            today=today,
+            cfg=cfg.reporter,
+        )
 
     # G8 — reporter→END 진입 시 sites.last_run_id 갱신.
     # G2 — atomized_count 기반 사람 수작업 절감 시간(h) 누적.
@@ -515,6 +495,50 @@ def build_demo_graph(cfg: GraphConfig):
     graph.add_node("optimizer", _optimizer)
     graph.add_node("reporter", _reporter)
     graph.add_edge(START, "forecaster")
+    graph.add_edge("forecaster", "hil_2")
+    graph.add_conditional_edges(
+        "hil_2",
+        lambda s: "optimizer" if s.get("hil_2_selection") else "reporter",
+        {"optimizer": "optimizer", "reporter": "reporter"},
+    )
+    graph.add_edge("optimizer", "reporter")
+    graph.add_edge("reporter", END)
+    return graph.compile(checkpointer=build_checkpointer())
+
+
+def build_atomized_demo_graph(cfg: GraphConfig):
+    """START -> atomizer -> forecaster -> hil_2 -> (optimizer | reporter) -> END.
+
+    2026-05-22 (Plan B6) — mapper / hil_1 만 skip. mapped 는 호출자가
+    PG mapper_activities 에서 hydrate 해서 state['mapped'] 에 주입한 상태로 진입.
+    pipeline_runs INSERT 도 호출자 책임 (atomizer.assert_pipeline_run_exists fail-fast).
+
+    15일 backfill 의 표준 graph. build_demo_graph 의 node 패턴 + atomizer 추가.
+    """
+    graph = StateGraph(CPIAState)
+
+    async def _atomizer(state: CPIAState) -> dict:
+        return await atomizer_node(state, cfg)
+
+    async def _forecaster(state: CPIAState) -> dict:
+        return await forecaster_node(state, cfg)
+
+    async def _hil_2(state: CPIAState) -> dict:
+        return await hil_2_node(state, cfg)
+
+    async def _optimizer(state: CPIAState) -> dict:
+        return await optimizer_node(state, cfg)
+
+    async def _reporter(state: CPIAState) -> dict:
+        return await reporter_node(state, cfg)
+
+    graph.add_node("atomizer", _atomizer)
+    graph.add_node("forecaster", _forecaster)
+    graph.add_node("hil_2", _hil_2)
+    graph.add_node("optimizer", _optimizer)
+    graph.add_node("reporter", _reporter)
+    graph.add_edge(START, "atomizer")
+    graph.add_edge("atomizer", "forecaster")
     graph.add_edge("forecaster", "hil_2")
     graph.add_conditional_edges(
         "hil_2",

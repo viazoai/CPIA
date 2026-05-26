@@ -5,6 +5,7 @@ Spec: docs/superpowers/specs/2026-05-16-cpia-forecaster-design.md §10
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid
@@ -16,6 +17,7 @@ from openai import AzureOpenAI
 
 logger = logging.getLogger(__name__)
 
+from pipeline.agents._concurrency import get_llm_semaphore
 from pipeline.chroma_client import ChromaClient
 from pipeline.db import PGClient
 from pipeline.state import Activity
@@ -24,6 +26,7 @@ from .aggregate import (
     aggregate_today_by_unit,
     compute_delay,
     fetch_chroma_actual,
+    fetch_pg_actual_cum_qty,
 )
 from .classify import classify_assessment, classify_risk_level
 from .prompt import (
@@ -143,7 +146,22 @@ async def _forecast_one_group(
     # ④ assessment
     rag_n = len(similar_cases)
     rag_avg_prod = sum(c["metadata"]["productivity"] for c in similar_cases) / rag_n if rag_n > 0 else 0.0
-    plan_main_qty = plan["plan_total_qty_by_unit"].get(main_unit) if plan and main_unit else None
+    # atomic 1:1 매칭 — group 안 mapper row 의 main_unit plan_total_qty distinct SUM.
+    # 이전: plan["plan_total_qty_by_unit"][main_unit] (activity_master 의 l6_main SUM).
+    # 문제: 매칭 안 된 atomic 까지 분모 합산 -> pace 작은 그룹의 remaining_days 폭주
+    # (진특수 방수 9/25 case: l6=10,523 m2 vs atomic=194 m2 -> delay 26,517 일).
+    # Fix: mapper_activities.plan_total_qty 가 atomic 매칭 결과 broadcast 라
+    #      group 안 distinct value 의 SUM 만 사용. 같은 wbs 가 multiple mapper row
+    #      로 들어와도 double count 방지.
+    if main_unit:
+        plan_qtys = {
+            round(float(a["plan_total_qty"]), 4)
+            for a in activities
+            if a.get("unit") == main_unit and a.get("plan_total_qty") is not None
+        }
+        plan_main_qty = sum(plan_qtys) if plan_qtys else None
+    else:
+        plan_main_qty = None
     assessment = classify_assessment(
         rag_n=rag_n,
         today_prod=today_productivity,
@@ -152,15 +170,29 @@ async def _forecast_one_group(
         plan_mh_sum=plan["plan_mh_sum"] if plan else None,
     )
 
-    # ⑤ compute_delay
-    actual_window_start, actual_cum_mh = fetch_chroma_actual(
+    # ⑤ compute_delay — 2026-05-22 qty 기반.
+    # actual_cum_qty 는 PG mapper_activities 가 source of truth (Chroma 는 mapper 의 일부만 backfill).
+    today_qty_main = today_qty_by_unit.get(main_unit, 0.0) if main_unit else 0.0
+    actual_window_start, actual_cum_mh, _chroma_qty = fetch_chroma_actual(
         coll,
         company,
         l6_main,
         today,
         today_assigned_workers,
+        today_qty_main=today_qty_main,
+        main_unit=main_unit,
     )
-    delay_info = compute_delay(plan, today, actual_window_start, actual_cum_mh)
+    pg_cum_qty = await fetch_pg_actual_cum_qty(pg, company, l6_main, today, main_unit)
+    actual_cum_qty = pg_cum_qty + today_qty_main
+    delay_info = compute_delay(
+        plan,
+        today,
+        actual_window_start,
+        actual_cum_mh,
+        actual_cum_qty=actual_cum_qty,
+        plan_total_qty_main=plan_main_qty,
+        today_qty_main=today_qty_main,
+    )
 
     # ⑥ LLM
     if assessment is None:
@@ -240,7 +272,7 @@ async def _forecast_one_group(
         "assessment": assessment,
         "reasoning": reasoning,
         "recovery_likelihood": recovery_likelihood,
-        "expected_completion": plan["plan_finish"] if plan else None,
+        "expected_completion": delay_info.get("expected_completion") or (plan["plan_finish"] if plan else None),
         "risk_level": risk_level,
         # v3.1 (optimizer cycle Task 1) — Optimizer / hil_2 가 소비할 2 필드
         "main_unit": main_unit,
@@ -279,22 +311,28 @@ async def forecast(
             key = (a.get("wa"), a["company"], a["l6_main"])
             groups.setdefault(key, []).append(a)
 
-        forecast_rows: list[dict[str, Any]] = []
-        for (wa, company, l6_main), activities in groups.items():
-            row = await _forecast_one_group(
-                company,
-                l6_main,
-                activities,
-                run_id,
-                today,
-                pg,
-                coll,
-                azure,
-                cfg,
-            )
+        sem = get_llm_semaphore()  # 함수 entry 에서 한 번 — closure 로 공유
+
+        async def _one(key: tuple[str | None, str, str], activities: list[Activity]) -> dict[str, Any]:
+            wa, company, l6_main = key
+            async with sem:  # LLM 호출 부분만 Semaphore 안
+                row = await _forecast_one_group(
+                    company,
+                    l6_main,
+                    activities,
+                    run_id,
+                    today,
+                    pg,
+                    coll,
+                    azure,
+                    cfg,
+                )
             row["wa"] = wa
-            await pg.insert_forecast(row)
-            forecast_rows.append(row)
+            await pg.insert_forecast(row)  # asyncpg pool 이 thread-safe — sem 밖
+            return row
+
+        tasks = [_one(k, v) for k, v in groups.items()]
+        forecast_rows: list[dict[str, Any]] = list(await asyncio.gather(*tasks))
 
         return forecast_rows
     finally:

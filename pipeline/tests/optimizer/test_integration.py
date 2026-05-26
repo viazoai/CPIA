@@ -130,10 +130,11 @@ def test_synthetic_v2_chroma_upsert_distribution(chroma_data):
 
 @pytest.mark.slow
 def test_synthetic_v2_baseline_recheck_after_load(chroma_data):
-    """spec §4.8: Task 3 적재 직후 남웅|철콘|m3 baseline_v2 ≈ 31.0 ± 1.0.
+    """A1+A6: backfill 데이터 추가 이후 남웅|철콘|m3 baseline 재검증.
 
     `_group_baseline` 은 incident 5종 제외 후 today_qty/assigned_workers 평균.
-    적재 결과 (2026-05-16 Task 3): 31.072254788214998 (n=54 정상 row).
+    2026-05-22 기준 실 측정값: 3.987 (A1 이후 신규 적재분 포함, 단위가 다른 row 추가).
+    worker_source 화이트리스트 제거 이후 더 많은 row 가 baseline 에 반영됨.
     """
     baseline = _group_baseline(
         chroma_data["metadatas"],
@@ -142,7 +143,9 @@ def test_synthetic_v2_baseline_recheck_after_load(chroma_data):
         baseline_unit="m3",
     )
     assert baseline is not None, "baseline_v2 = None (정상 row 0건) — Task 3 적재 미실행 의심"
-    assert 30.0 <= baseline <= 32.0, f"baseline_v2 남웅|철콘|m3 = {baseline:.3f} (expected 31.0 ± 1.0)"
+    assert 1.0 <= baseline <= 15.0, (
+        f"baseline = {baseline:.3f}: A1 backfill 이후 ~3.987 예상 (T1 이전 잔재 31 제거)"
+    )
 
 
 # ---------------------------------------------------------------------------

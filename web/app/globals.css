@@ -209,27 +209,33 @@ body::after {
   opacity: 0.92;
 }
 
-/* 슬라이드 콘텐츠 vertical centering — 콘텐츠 < 슬라이드 → 가운데, 콘텐츠 > 슬라이드 → 위에서부터 자연 overflow.
- * (flex auto margin trick: 여유 공간이 있을 때만 margin auto 가 채워지고, overflow 시엔 0 으로 동작) */
+/* 슬라이드 콘텐츠 vertical centering — 섹션이 슬라이드 풀높이를 채워야 배경(gradient · bg-*) 도 가득 찬다.
+ * - .slide > 섹션 을 min-h-full + grid 로 만들고 place-content: safe center 로 콘텐츠 중앙.
+ * - safe 키워드: 콘텐츠 > 슬라이드 일 때 top-align 으로 fallback → overflow 가 위쪽으로 안 잘림.
+ * - Hero 의 absolute inset-0 backdrop 이 section 전체를 덮으므로 그라데이션이 풀화면. */
 .slide {
   display: flex;
   flex-direction: column;
 }
-.slide > * {
-  margin-top: auto;
-  margin-bottom: auto;
+/* 높은 specificity (0,2,1) — 다른 .presentation-mode section 규칙을 트럼프. */
+.presentation-mode .slide > section,
+.presentation-mode .slide > * {
+  flex: 1 0 auto;
+  min-height: 100%;
+  width: 100%;
+  display: grid;
+  place-content: safe center;
 }
 
-/* 슬라이드 모드일 때 섹션의 큰 패딩 / 풀높이 보정.
- * 각 섹션 컴포넌트를 건드리지 않고 일괄 처리. */
-.presentation-mode section {
-  min-height: 0 !important;
+/* 슬라이드 안쪽 섹션의 큰 패딩만 축소 — Slide.tsx 의 .slide 래퍼 자체엔 적용 안 함
+ * (slide 에 padding 이 들어가면 안쪽 섹션 풀높이가 줄어 배경이 잘려 보임). */
+.presentation-mode .slide > section {
   border-top: none !important;
   padding-top: 1.25rem !important;
   padding-bottom: 1.25rem !important;
 }
 @media (min-width: 768px) {
-  .presentation-mode section {
+  .presentation-mode .slide > section {
     padding-top: 2rem !important;
     padding-bottom: 2rem !important;
   }

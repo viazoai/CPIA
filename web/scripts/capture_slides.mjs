@@ -13,10 +13,12 @@ const SLIDE_NAMES = [
   "01-hero",
   "02-background",
   "03-as-is-to-be",
-  "04-core-ai",
-  "05-impact",
-  "06-scalability",
-  "07-final-cta",
+  "04-core-ai-mapper",
+  "05-core-ai-forecaster",
+  "06-core-ai-optimizer",
+  "07-impact",
+  "08-scalability",
+  "09-final-cta",
 ];
 
 async function main() {

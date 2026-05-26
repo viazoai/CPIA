@@ -51,13 +51,23 @@ const FEATURES: CoreFeature[] = [
   },
 ];
 
-export function CoreAiSection() {
+/* CoreAi 는 슬라이드 발표 모드에서 3장 분할:
+ *   index=0 → Mapper (+ 섹션 타이틀)
+ *   index=1 → Forecaster
+ *   index=2 → Optimizer
+ * 각 슬라이드는 자체 글로우 + 한 feature 만 크게 표시. */
+export function CoreAiFeatureSlide({ index }: { index: 0 | 1 | 2 }) {
+  const f = FEATURES[index];
+  // alternating flip: 0=mockup 오른쪽, 1=왼쪽, 2=오른쪽 — 발표 시 시선 변화
+  const flip = index === 1;
+  const isIntro = index === 0;
+
   return (
     <section
-      id="ai-features"
-      className="relative overflow-hidden border-t border-border-soft bg-card py-24 md:py-32"
+      id={index === 0 ? "ai-features" : undefined}
+      className="relative overflow-hidden bg-card"
     >
-      {/* 배경 글로우 — Hero 와 같은 분위기 */}
+      {/* 배경 글로우 */}
       <div
         aria-hidden
         className="pointer-events-none absolute -top-40 right-[10%] -z-0 h-[480px] w-[480px] rounded-full bg-brand-light/40 blur-3xl"
@@ -68,45 +78,56 @@ export function CoreAiSection() {
       />
 
       <div className="relative mx-auto max-w-wrap px-6 md:px-10">
-        {/* Header */}
-        <div className="max-w-3xl">
-          <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-brand-text">
-            / 03 — Core AI
+        {/* 섹션 eyebrow + 진행 표기 (Core AI · 0X / 03) */}
+        <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.12em] text-brand-text">
+          <span>/ 03 — Core AI</span>
+          <span className="text-ink-light">·</span>
+          <span className="font-mono text-ink-light">
+            {f.index} <span className="text-ink-light/60">/ 03</span>
           </span>
-          <h2 className="mt-3 font-display text-h3 text-ink">
-            CPIA, 어떻게{" "}
-            <span className="text-brand">사람을 대신</span>하는가
-          </h2>
-          <p className="mt-6 text-body text-ink-mid">
-            시스템으로는 대체 불가능한 사람이 필요한 판단·해석 영역을 
-            <br />아래와 세 가지 CORE AI가 직접 수행합니다.
-          </p>
         </div>
 
-        {/* Feature rows — 슬라이드 1장에 들어오도록 vertical gap 축소 */}
-        <div className="mt-10 flex flex-col gap-10 md:mt-12 md:gap-12" data-stagger>
-          {FEATURES.map((f, i) => (
-            <FeatureRow key={f.agent} feature={f} flip={i % 2 === 1} />
-          ))}
+        {/* 첫 슬라이드에만 섹션 타이틀 표시 — 후속 슬라이드는 feature 에 집중 */}
+        {isIntro && (
+          <div className="mt-3 max-w-3xl">
+            <h2 className="font-display text-h3 text-ink">
+              CPIA, 어떻게{" "}
+              <span className="text-brand">사람을 대신</span>하는가
+            </h2>
+            <p className="mt-4 text-body text-ink-mid">
+              시스템으로는 대체 불가능한 사람이 필요한 판단·해석 영역을 아래 세 가지 CORE AI가 직접 수행합니다.
+            </p>
+          </div>
+        )}
+
+        <div className={isIntro ? "mt-8" : "mt-4"}>
+          <FeatureRow feature={f} flip={flip} large />
         </div>
       </div>
     </section>
   );
 }
 
-function FeatureRow({ feature, flip }: { feature: CoreFeature; flip: boolean }) {
+function FeatureRow({
+  feature,
+  flip,
+  large,
+}: {
+  feature: CoreFeature;
+  flip: boolean;
+  /** 슬라이드 1장에 한 feature 만 있을 때 — mockup 크기 확대 */
+  large?: boolean;
+}) {
   const { Icon } = feature;
+  const mockMax = large ? "max-w-md" : "max-w-sm";
 
   return (
     <div className="grid items-center gap-12 md:grid-cols-2 md:gap-16">
       {/* TEXT */}
       <div className={flip ? "md:order-2" : ""}>
-        <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink-light">
-          Core AI · {feature.index}
-        </span>
-        <div className="mt-3 flex items-center gap-3">
-          <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-brand-light text-brand-text">
-            <Icon className="h-4 w-4" />
+        <div className="flex items-center gap-3">
+          <span className="inline-flex h-10 w-10 items-center justify-center rounded-md bg-brand-light text-brand-text">
+            <Icon className="h-5 w-5" />
           </span>
           <span className="font-display text-h5 font-semibold text-brand-text">{feature.agent}</span>
         </div>
@@ -127,8 +148,8 @@ function FeatureRow({ feature, flip }: { feature: CoreFeature; flip: boolean }) 
         <p className="mt-5 text-body text-ink-mid">{feature.body}</p>
       </div>
 
-      {/* IMAGE / MOCKUP — 텍스트 카피보다 작게, 셀 안쪽 정렬 (flip 에 따라 좌·우 끝으로) */}
-      <div className={`${flip ? "md:order-1 md:justify-self-start" : "md:justify-self-end"} mx-auto w-full max-w-sm`}>
+      {/* IMAGE / MOCKUP */}
+      <div className={`${flip ? "md:order-1 md:justify-self-start" : "md:justify-self-end"} mx-auto w-full ${mockMax}`}>
         <FeatureMock agent={feature.agent} />
       </div>
     </div>

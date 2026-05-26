@@ -1,6 +1,10 @@
+/* 풀스크린 랜딩 (슬라이드 발표 모드) — 페이지 전체 스크롤 잠금. */
 export default function LandingLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  /* 풀스크린 랜딩 — TopBar / Sidebar 없음. body 의 blob 은 그대로 노출. */
-  return <div className="relative min-h-screen">{children}</div>;
+  return (
+    <div className="relative h-screen overflow-hidden">
+      {children}
+    </div>
+  );
 }

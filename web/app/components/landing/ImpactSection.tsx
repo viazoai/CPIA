@@ -92,7 +92,7 @@ export function ImpactSection() {
         </div>
 
         {/* KPI grid */}
-        <div className="mt-14 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-14 grid gap-4 md:grid-cols-2 xl:grid-cols-4" data-stagger>
           {KPIS.map((k) => {
             const Icon = k.icon;
             return (

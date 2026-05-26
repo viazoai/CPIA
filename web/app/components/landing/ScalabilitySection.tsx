@@ -52,7 +52,7 @@ export function ScalabilitySection() {
           </p>
         </div>
 
-        <ol className="mt-14 grid gap-4 md:grid-cols-3">
+        <ol className="mt-14 grid gap-4 md:grid-cols-3" data-stagger>
           {AXES.map((a) => {
             const Icon = a.icon;
             return (

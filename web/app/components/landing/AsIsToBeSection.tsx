@@ -47,7 +47,7 @@ export function AsIsToBeSection() {
           </p>
         </div>
 
-        <div className="mt-14 grid gap-6 md:grid-cols-[1fr_auto_1fr]">
+        <div className="mt-14 grid gap-6 md:grid-cols-[1fr_auto_1fr]" data-stagger>
           {/* AS-IS */}
           <div className="rounded-card-lg border border-border bg-surface-soft/40 p-8">
             <div className="flex items-center gap-2">

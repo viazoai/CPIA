@@ -83,8 +83,8 @@ export function CoreAiSection() {
           </p>
         </div>
 
-        {/* Feature rows */}
-        <div className="mt-16 flex flex-col gap-24 md:gap-28">
+        {/* Feature rows — 슬라이드 1장에 들어오도록 vertical gap 축소 */}
+        <div className="mt-10 flex flex-col gap-10 md:mt-12 md:gap-12" data-stagger>
           {FEATURES.map((f, i) => (
             <FeatureRow key={f.agent} feature={f} flip={i % 2 === 1} />
           ))}

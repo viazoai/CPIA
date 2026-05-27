@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from pipeline.agents.optimizer.prompt import RECS_PROMPT_V10
+from pipeline.agents.optimizer.prompt import DIAG_PROMPT_V10, RECS_PROMPT_V10
 
 
 def test_recs_prompt_has_keyword_schema():
@@ -13,6 +13,43 @@ def test_recs_prompt_has_keyword_schema():
     assert "action" in RECS_PROMPT_V10
     assert "reason" in RECS_PROMPT_V10
     assert "5~10자" in RECS_PROMPT_V10  # keyword 가이드
+
+
+def test_diag_prompt_g6_enhanced():
+    """G6 강화 — risk_level=이상 시 '정상범주' 금지 명시."""
+    assert "정상범주" in DIAG_PROMPT_V10  # 금지 표현 명시
+    assert "risk_level" in DIAG_PROMPT_V10
+    assert "절대 금지" in DIAG_PROMPT_V10 or "절대 룰" in DIAG_PROMPT_V10
+
+
+def test_diag_prompt_delay_two_dimensions():
+    """delay 두 차원 인용 강제."""
+    assert "forward_delay_days" in DIAG_PROMPT_V10
+    assert "point_in_time_delay_days" in DIAG_PROMPT_V10
+    assert "두 차원" in DIAG_PROMPT_V10
+
+
+def test_diag_prompt_mh_gap_inclusion():
+    """mh_gap 자연 인용 가이드."""
+    assert "mh_gap" in DIAG_PROMPT_V10
+    assert "oversupply" in DIAG_PROMPT_V10 or "undersupply" in DIAG_PROMPT_V10
+
+
+def test_diag_prompt_g8_trade_frame():
+    """G8 공종 고유 가드."""
+    assert "trade_frame" in DIAG_PROMPT_V10
+    assert "공종" in DIAG_PROMPT_V10
+
+
+def test_diag_prompt_no_kanji():
+    """한자 0건."""
+    found = re.findall(r"[一-鿿]", DIAG_PROMPT_V10)
+    assert not found, f"한자 발견: {found}"
+
+
+def test_diag_prompt_json_output():
+    """출력 JSON {diagnosis: '...'} schema."""
+    assert "diagnosis" in DIAG_PROMPT_V10
 
 
 def test_recs_prompt_no_kanji():

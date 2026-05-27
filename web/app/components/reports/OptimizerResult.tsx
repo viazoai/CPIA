@@ -16,7 +16,7 @@ export function OptimizerResult({ output }: { output: OptimizerOutput }) {
       <Row icon={<History className="h-4 w-4" />} tone="brand" title="유사 과거 사례" topBorder>
         {output.similar_cases?.length ? (
           <ul className="space-y-1.5">
-            {output.similar_cases.map((c, i) => (
+            {output.similar_cases.slice(0, 3).map((c, i) => (
               <li key={i} className="text-sm text-ink-mid leading-relaxed">
                 <span className="font-semibold text-ink">{c.date}</span>{" "}
                 · {c.description}

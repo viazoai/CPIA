@@ -275,6 +275,7 @@ export default function ReportPage() {
                     .sort((a, b) => (b.impact ?? 0) - (a.impact ?? 0))
                     .slice(0, 3);
                   const by_wp = detail.optimizer?.by_wp ?? {};
+                  const wpScenarios = (detail.scenarios as any)?.by_wp ?? {};
                   return top
                     .map((w) => {
                       const o = by_wp[w.wp_id];
@@ -284,9 +285,12 @@ export default function ReportPage() {
                       ).filter(Boolean);
                       const dg = o.diagnosis && o.diagnosis !== "cold_start" ? o.diagnosis : undefined;
                       if (recs.length === 0 && !dg) return null;
+                      const wpScen = wpScenarios[w.wp_id];
+                      const wpRecoveryDays = wpScen?.base_p50?.recovery_days;
                       return {
                         wp_name: w.wp_name,
                         trade: w.trade,
+                        recovery_days: typeof wpRecoveryDays === "number" ? wpRecoveryDays : undefined,
                         diagnosis: dg,
                         recommendations: recs,
                       };

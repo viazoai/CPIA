@@ -1104,9 +1104,15 @@ def _build_optimizer_view(
             if isinstance(rdist, dict) else ""
         )
 
+        # 2026-05-27: 금일 생산성 추가 (사용자 요청 — 유사 사례 옆 직관 비교).
+        today_prod = matched_f.get("today_productivity")
+        today_prod_text = (
+            f"{float(today_prod):.2f}{unit_suffix}" if today_prod is not None else "—"
+        )
         details = [
             {"label": "위험 평가", "value": matched_f.get("risk_level") or "—"},
             {"label": "진단 대상", "value": f"{advice.get('company') or ''} · {advice.get('l6_main') or ''}"},
+            {"label": "금일 생산성", "value": today_prod_text},
             {"label": "유사 사례 수", "value": f"{len(advice.get('degradation_cases') or [])}건"},
             {"label": "평균 회복 일수", "value": f"{avg_rd:.1f}일" if avg_rd is not None else "—"},
             {"label": "회복 분포", "value": rdist_text or "—"},
@@ -1415,6 +1421,20 @@ def _status_of(pct: float) -> str:
     return "risk"
 
 
+def _risk_level_to_status(risk_level: Optional[str]) -> str:
+    """2026-05-27: forecaster.risk_level (정상/주의/이상) → FE status (normal/caution/risk).
+
+    wp_summary.status 를 forecaster RAG delta 기반 평가와 일관성 있게 통일.
+    """
+    if risk_level == "이상":
+        return "risk"
+    if risk_level == "주의":
+        return "caution"
+    if risk_level == "정상":
+        return "normal"
+    return "normal"
+
+
 def _quadrant_of(prod: float, impact: float) -> str:
     if prod < 70 and impact >= 50:
         return "risk"
@@ -1498,6 +1518,23 @@ async def _build_productivity_views_v2(
     if not rows:
         return dict(_VIEWS_V2_EMPTY)
 
+    # 2026-05-27: forecasts.risk_level lookup — wp_summary.status 통일용.
+    # (company, l6_main) → risk_level dict.
+    fc_rows = await pg.fetch_all(
+        """
+        SELECT f.company, f.l6_main, f.risk_level
+        FROM forecasts f JOIN pipeline_runs pr USING (run_id)
+        WHERE pr.report_date = $1 AND pr.site_id = $2
+        """,
+        today,
+        site_id,
+    )
+    risk_lookup: dict[tuple[str, str], str] = {
+        (fr["company"], fr["l6_main"]): fr["risk_level"]
+        for fr in (fc_rows or [])
+        if fr.get("risk_level")
+    }
+
     # row 별 산식
     items: list[dict] = []
     for r in rows:
@@ -1540,6 +1577,8 @@ async def _build_productivity_views_v2(
                 "master_perperson": master_perperson,
                 "master_daily_qty": daily_qty_master,
                 "master_daily_workers": daily_workers_master,
+                # 2026-05-27: forecaster risk_level 동기 — wp_summary.status 통일.
+                "risk_level": risk_lookup.get((r["company"], r["l6_main"])),
                 "productivity": productivity,
                 "impact_raw": impact_raw,
             }
@@ -1724,7 +1763,8 @@ async def _build_productivity_views_v2(
                 "productivity": round(it["productivity"], 1),
                 "impact": round(it["impact"], 1),
                 "baseline": 100,
-                "status": _status_of(it["productivity"]),
+                # 2026-05-27: forecaster risk_level 기준 — UI 평가/status 일관.
+                "status": _risk_level_to_status(it.get("risk_level")),
                 "perperson": round(it["perperson"], 2),
                 "perperson_unit": f"{it['unit']}/인" if it["unit"] else None,
                 "display_label": _make_display_label(

@@ -28,8 +28,18 @@ class ChromaClient:
         )
 
     def get_or_create_daily_activities(self) -> Collection:
-        """1 doc = 1 Activity (시트4 line). doc text = work_content."""
+        """1 doc = 1 Activity (시트4 line). doc text = work_content.
+
+        2026-05-26: HNSW M / ef 확대 (16/10 → 32/200/100) — 좁은 filter
+        ((company, l6_main) 매칭 vector 3-5개) 에서 n_results=5 가져오기 실패
+        ("Cannot return the results in a contigious 2D array") 회피.
+        """
         return self.client.get_or_create_collection(
             name=self.DAILY_ACTIVITIES,
-            metadata={"hnsw:space": "cosine"},
+            metadata={
+                "hnsw:space": "cosine",
+                "hnsw:M": 32,
+                "hnsw:construction_ef": 200,
+                "hnsw:search_ef": 100,
+            },
         )

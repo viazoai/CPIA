@@ -113,8 +113,8 @@ async def gate_month(month: int, site_id: str = "m15x-ph3-ibl") -> dict:
             end,
             site_id,
         )
-        # 2026-05-28: 건축·토목 한정 시 ~15-20 wp — 기준 완화
-        checks["wp_count_reasonable"] = v >= 15 if v else False
+        # 2026-05-28: 건축·토목 한정 + windowed (9월 24일 등) ~10-20 wp — 기준 완화
+        checks["wp_count_reasonable"] = v >= 10 if v else False
 
         # 7. point_in_time_delay_days 적재 (NULL 비율 < 20%)
         v_null = await pg.fetchval(

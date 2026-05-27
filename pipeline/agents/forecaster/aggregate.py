@@ -141,7 +141,10 @@ def compute_delay(
         if pace > 0:
             remaining_days = remaining_qty / pace
             expected_completion = today + timedelta(days=round(remaining_days))
-            delay_days = (expected_completion - plan_finish).days
+            delay_days_raw = (expected_completion - plan_finish).days
+            # 2026-05-27 Task 5: delay cap — total_days × 1.0 (spec §4.2.3, over-pessimistic 차단)
+            # delay 가 wp 자체 기간을 초과하지 못함. 음수 (앞당김) 케이스는 min 으로 보호.
+            delay_days = min(delay_days_raw, round(total_days * 1.0))
         else:
             # 페이스 0 (실 진행 0 + 오늘도 0) — delay 산출 불가
             delay_days = None

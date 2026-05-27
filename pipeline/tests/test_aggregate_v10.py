@@ -1,9 +1,13 @@
-"""Task 4 (2026-05-27): pace floor 헬퍼 unit tests.
+"""Task 4·5 (2026-05-27): pace floor + delay cap unit tests.
 
 spec: docs/superpowers/specs/2026-05-27-cpia-report-redesign-design.md §4.2.3
-의도: avg_pace_qty == 0 인 케이스에서 pace 가 today_qty_main 만 사용되어
-over-pessimistic delay (>300일) 가 산출되던 문제 차단.
-floor = max(today_qty_main, plan_per_day_qty * 0.3) 로 minimum pace 보장.
+의도:
+  Task 4 — avg_pace_qty == 0 인 케이스에서 pace 가 today_qty_main 만 사용되어
+  over-pessimistic delay (>300일) 가 산출되던 문제 차단.
+  floor = max(today_qty_main, plan_per_day_qty * 0.3) 로 minimum pace 보장.
+
+  Task 5 — pace floor 적용 후에도 raw delay 가 클 수 있어 추가 cap 필요.
+  cap = total_days × 1.0 → delay 가 wp 자체 기간을 초과하지 못함.
 """
 
 from __future__ import annotations
@@ -96,3 +100,41 @@ def test_pace_floor_when_today_qty_normal():
     assert out["delay_days"] <= 0, (
         f"today_qty 가 floor 보다 클 땐 앞당김(<=0) 이어야 함: delay_days={out['delay_days']}"
     )
+
+
+def test_delay_cap_total_days():
+    """delay_raw > total_days × 1.0 → cap 됨.
+
+    setup:
+      plan_start  = 2025-06-10
+      plan_finish = 2025-06-30   (total_days = 21)
+      today       = 2025-06-30
+      actual_cum_qty = 0          → avg_pace_qty = 0
+      plan_total_qty_main = 1.0   → plan_per_day_qty ≈ 0.0476
+      today_qty_main = 0.0001     → 매우 작음
+      pace floor = max(0.0001, 0.0476 × 0.3 = 0.0143) = 0.0143
+      remaining_days = 1.0 / 0.0143 ≈ 70일
+      today→plan_finish = 0
+      delay_raw ≈ 70일 (cap 없으면 70일까지 튐)
+
+    Task 5 cap = total_days × 1.0 = 21
+      → delay_days = min(70, 21) = 21
+    """
+    plan = {
+        "plan_start": date(2025, 6, 10),
+        "plan_finish": date(2025, 6, 30),  # 21일짜리 wp
+        "plan_mh_sum": 100.0,
+    }
+    out = compute_delay(
+        plan=plan,
+        today=date(2025, 6, 30),
+        actual_window_start=date(2025, 6, 10),
+        actual_cum_mh=50.0,
+        actual_cum_qty=0.0,
+        plan_total_qty_main=1.0,
+        today_qty_main=0.0001,  # 매우 작음
+    )
+    # total_days = 21, cap = 21 × 1.0 = 21
+    # pace floor 적용 후도 delay_raw 큼 → cap 적용
+    assert out["delay_days"] is not None
+    assert out["delay_days"] <= 21, f"delay cap 미적용: delay_days={out['delay_days']} > 21 (total_days)"

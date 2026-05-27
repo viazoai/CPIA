@@ -139,8 +139,15 @@ async def check_recommendations(
             recs = json.loads(recs)
         for rec in recs:
             total += 1
-            # {rank, text} schema — text empty 확인
-            text = rec.get("text") or ""
+            # 2026-05-27: polymorphic schema 지원
+            # - 옛: string OR {rank, text}
+            # - V10: {rank, keyword, action, reason}
+            if isinstance(rec, str):
+                text = rec
+            elif isinstance(rec, dict):
+                text = rec.get("text") or rec.get("action") or ""
+            else:
+                text = ""
             if not text.strip():
                 empty += 1
     empty_pct = empty / total * 100 if total else 100.0

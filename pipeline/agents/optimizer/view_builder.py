@@ -766,13 +766,32 @@ async def _build_wp_summary(
 ) -> list[dict[str, Any]]:
     """WP 표 — quadrant 와 같은 단위 + baseline + status.
 
+    2026-05-27 Task 14: status = forecasts.risk_level 단일 source 통일 (spec §4.2.6).
+    사용자 의도: 분포도 (왼쪽 wp_summary) 와 진단 (오른쪽 카드) 의 평가 일관성 보장.
+    v2 (_build_productivity_views_v2) 와 동일 lookup 패턴 — 정합성 유지.
+
     baseline / bp_name / progress / dates 는 후속 task 에서 보강.
-    본 task 는 quadrant 기반 status 만.
     """
+    # forecasts.risk_level lookup (v2 와 동일 패턴)
+    fc_rows = await pg.fetch_all(
+        """
+        SELECT f.company, f.l6_main, f.risk_level
+        FROM forecasts f JOIN pipeline_runs pr USING (run_id)
+        WHERE pr.report_date = $1 AND pr.site_id = $2
+        """,
+        today,
+        site_id,
+    )
+    risk_lookup: dict[tuple[str, str], str] = {
+        (fr["company"], fr["l6_main"]): fr["risk_level"]
+        for fr in (fc_rows or [])
+        if fr.get("risk_level")
+    }
+
     out: list[dict[str, Any]] = []
     for q in quadrant_jsonb:
-        cpi = q.get("productivity") or 0
-        status = "normal" if cpi >= 90 else "caution" if cpi >= 80 else "risk"
+        risk_level = risk_lookup.get((q.get("company"), q.get("l6_main")))
+        status = _risk_level_to_status(risk_level)
         out.append(
             {
                 **q,

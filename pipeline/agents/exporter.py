@@ -6,11 +6,14 @@ Spec: docs/superpowers/specs/2026-05-19-cpia-collector-exporter-design.md §7
 from __future__ import annotations
 
 import json
+import logging
+import uuid as _uuid
 from dataclasses import dataclass
 from datetime import date as _date
+from datetime import datetime as _dt
 
-
-from pipeline.db import PGClient
+from pipeline.db import PGClient, fetch_site_by_id, upsert_consolidated_report
+from pipeline.state import CPIAState
 
 
 class NoDataError(Exception):
@@ -299,3 +302,74 @@ def render_xlsx(sheet_data: SheetData, report_date: _date, project: str) -> byte
     buf = BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Graph node — Spec §6.4
+# ──────────────────────────────────────────────────────────────────────────────
+
+log = logging.getLogger("cpia.exporter_node")
+
+
+async def consolidated_xlsx_node(state: CPIAState) -> dict[str, Any]:
+    """graph 노드 — Atomizer 끝나면 fan-out 으로 호출 (D-3 N-1).
+
+    1) fetch_sheet_data -> 자기 run + 이전 run 합집합 (D-12 invariant 유지)
+    2) render_xlsx -> bytes (~150KB)
+    3) upsert_consolidated_reports -> PG UPSERT (D-2 last write wins)
+    4) state 에 meta 만 박음 (D-7 bytes 는 안 박음)
+
+    예외 처리 (D-8 / 거동 B 대응):
+      - 모든 예외 catch + log.exception + return {} — LangGraph 1.2.0 은 multi-end
+        fault isolation 미지원 (issue #6170). 노드가 raise 하면 cycle 전체 실패.
+        cycle 보호 위해 silent skip — D-6 EC 패턴으로 다음 cycle 자동 회복.
+        NoDataError: WARN 레벨 (예상되는 cold-start). 기타: log.exception (운영 모니터링).
+    """
+    site_id = state["site_id"]
+    report_date = _date.fromisoformat(state["date"])
+    run_id = _uuid.UUID(state["run_id"])
+
+    pg = PGClient(state["postgres_url"])
+    await pg.connect()
+    try:
+        try:
+            data = await fetch_sheet_data(pg, site_id, report_date)
+        except NoDataError:
+            log.warning(
+                "consolidated_xlsx_node: NoData site=%s date=%s — skip UPSERT",
+                site_id,
+                report_date,
+            )
+            return {}
+        try:
+            site_row = await fetch_site_by_id(pg, site_id)
+            project = (site_row or {}).get("name") or state.get("project") or "CPIA"
+            xlsx_bytes = render_xlsx(data, report_date, project=project)
+            await upsert_consolidated_report(
+                pg,
+                site_id=site_id,
+                report_date=report_date,
+                xlsx_bytes=xlsx_bytes,
+                run_id=run_id,
+            )
+            log.info(
+                "consolidated_xlsx_node: UPSERT site=%s date=%s bytes=%d run=%s",
+                site_id,
+                report_date,
+                len(xlsx_bytes),
+                run_id,
+            )
+        except Exception:
+            log.exception(
+                "consolidated_xlsx_node: render/upsert 실패 site=%s date=%s — skip + EC 회복",
+                site_id,
+                report_date,
+            )
+            return {}
+    finally:
+        await pg.close()
+
+    return {
+        "consolidated_xlsx_run_id": str(run_id),
+        "consolidated_xlsx_generated_at": _dt.utcnow().isoformat() + "Z",
+    }

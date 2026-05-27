@@ -347,7 +347,7 @@ async def fetch_consolidated_report(
     return row["xlsx_bytes"] if row else None
 ```
 
-(import 들이 이미 파일 상단에 있다면 중복 추가 X — 기존 imports 확인 후 add)
+**Import 명시 (`pipeline/db.py:8~10` 확인 결과)**: `import uuid` / `from datetime import date as _date` / `from typing import Any` 이미 존재. 본 task 가 추가할 것은 **`Optional` 만** — `from typing import Any` 를 `from typing import Any, Optional` 로 변경. 나머지 import 추가 X.
 
 - [ ] **Step 4: 테스트 재실행 → PASS**
 
@@ -887,6 +887,34 @@ async def test_topology_atomizer_has_two_outgoing_edges() -> None:
 
 (NOTE: `test_exporter_failure_does_not_break_reporter_path` 는 LangGraph multi-end 의 fault-isolation 거동이 버전 의존이라 — pass / skip 양쪽 거동 capture. 거동 B (single-failure-fails-cycle) 면 spec §7.1 의 "exporter path 만 'failed'" 가정이 무너지므로 spec 재논의 필요. **시연 risk 의 핵심 검증 포인트**.)
 
+**LangGraph 거동 사전 확정 게이트 (Step 1.5 — 신규)**: 위 테스트 작성 후 즉시 **실 LangGraph 호출 1회** 로 거동 capture:
+```bash
+PYTHONPATH=. python3 -c "
+import asyncio, uuid
+from unittest.mock import AsyncMock, patch
+from langgraph.graph import StateGraph, END
+from langgraph.checkpoint.memory import MemorySaver
+
+async def main():
+    sg = StateGraph(dict)
+    async def n1(s): return {'a': 1}
+    async def n2(s): raise RuntimeError('expected')
+    sg.add_node('n1', n1); sg.add_node('n2', n2)
+    sg.add_edge('__start__', 'n1'); sg.add_edge('__start__', 'n2')
+    sg.add_edge('n1', END); sg.add_edge('n2', END)
+    g = sg.compile(checkpointer=MemorySaver())
+    try:
+        r = await g.ainvoke({}, config={'configurable': {'thread_id': str(uuid.uuid4())}})
+        print('거동 A (path 격리):', r)
+    except Exception as e:
+        print('거동 B (single-failure-fails):', type(e).__name__, e)
+
+asyncio.run(main())
+"
+```
+거동 A 확인 시: spec §7.1 / D-8 그대로. Step 1 의 test 가 PASS path 로.
+거동 B 확인 시: **spec §7.1 의 "exporter path 만 'failed', reporter path 정상" 가정 무효**. 즉시 spec/plan 재논의 게이트 — exporter 노드 안에서 모든 예외 catch 후 swallow (return {}) 하는 패턴으로 변경 필요. 본 task 일시정지 후 사용자에게 보고.
+
 - [ ] **Step 2: 테스트 실행 → fail 확인**
 
 ```bash
@@ -967,106 +995,95 @@ Spec: §4.1 / §6.5"
 
 **의도:** (D-5 E-2) cache hit 우선, miss 시 live render fallback. `request.app.state.pg` 사용으로 #N21 (Medium) 의 HTTP path 자연 해소.
 
-- [ ] **Step 1: 기존 테스트 백업 확인 + 신 assertion 추가**
+- [ ] **Step 1: 기존 테스트 패턴 따라 신 assertion 추가**
 
-`pipeline/tests/test_exporter_endpoint.py` 의 기존 테스트 확인:
+기존 `pipeline/tests/test_exporter_endpoint.py` 가 **미니 FastAPI app fixture 패턴** 사용 중 (line ~103~107):
+```python
+@pytest.fixture
+def app() -> FastAPI:
+    app = FastAPI()
+    app.include_router(exporter_router)
+    return app
+```
+이 패턴이 **prod lifespan 미실행** — Azure / Chroma / Collector idle_loop 다 회피. (E-2) hybrid 가 `request.app.state.pg` 사용하므로 fixture 안에서 **`app.state.pg = pg` 1줄 추가 필요**.
 
-```bash
-cat pipeline/tests/test_exporter_endpoint.py
+신 fixture (기존 `app` fixture 교체):
+
+```python
+# pipeline/tests/test_exporter_endpoint.py — 기존 app fixture 교체 (line ~103)
+@pytest.fixture
+async def app(pg: PGClient) -> FastAPI:
+    """미니 app — lifespan 회피 + state.pg 수동 set (E-2 hybrid 가 request.app.state.pg 사용)."""
+    app = FastAPI()
+    app.state.pg = pg
+    app.include_router(exporter_router)
+    return app
 ```
 
-기존 테스트가 `os.environ["POSTGRES_URL"]` 기반 PGClient 새로 만드는 path 라면, hit / miss 양 path 분리 필요. 다음 테스트 추가:
+그 다음 신 testcase 3개 추가:
 
 ```python
 # pipeline/tests/test_exporter_endpoint.py 끝에 append
 
-async def test_export_run_cache_hit() -> None:
+async def test_export_run_cache_hit(app, pg, seeded_run) -> None:
     """(E-2) consolidated_reports 에 row 있으면 cache hit 응답."""
-    from fastapi.testclient import TestClient
-    from pipeline.api import app
     import io
     from openpyxl import load_workbook
+    from pipeline.agents.exporter import TEMPLATE_PATH
+    from pipeline.db import upsert_consolidated_report
 
-    # 사전 시드: consolidated_reports 에 fake xlsx bytes 박기
-    # (TestClient 가 lifespan 실행 — app.state.pg 가 set 됨)
-    with TestClient(app) as client:
-        pg = app.state.pg
-        run_id = uuid.uuid4()
-        site_id = "m15x-ph3-ibl"
-        report_date = _date(2025, 9, 25)
+    run_id, site_id, rdate = seeded_run
 
-        # FK 만족용 pipeline_runs row
-        async with pg._pool.acquire() as con:
-            await con.execute(
-                """
-                INSERT INTO pipeline_runs (run_id, site_id, report_date, status)
-                VALUES ($1, $2, $3, 'completed') ON CONFLICT DO NOTHING
-                """,
-                run_id, site_id, report_date,
-            )
-            await con.execute(
-                "DELETE FROM consolidated_reports WHERE site_id=$1 AND report_date=$2",
-                site_id, report_date,
-            )
+    # 사전 cleanup + cache row 시드
+    async with pg._pool.acquire() as con:
+        await con.execute(
+            "DELETE FROM consolidated_reports WHERE site_id=$1 AND report_date=$2",
+            site_id, rdate,
+        )
+    wb = load_workbook(TEMPLATE_PATH)
+    buf = io.BytesIO()
+    wb.save(buf)
+    cache_bytes = buf.getvalue()
+    await upsert_consolidated_report(
+        pg, site_id=site_id, report_date=rdate,
+        xlsx_bytes=cache_bytes, run_id=run_id,
+    )
 
-        # 실 xlsx template 사용 — load_workbook 검증 가능
-        from pipeline.agents.exporter import TEMPLATE_PATH
-        wb = load_workbook(TEMPLATE_PATH)
-        buf = io.BytesIO()
-        wb.save(buf)
-        cache_bytes = buf.getvalue()
+    # endpoint 호출 — hit path (httpx AsyncClient + ASGITransport — 기존 패턴 일관)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.get(f"/export/run?site_id={site_id}&date={rdate.isoformat()}")
+    assert r.status_code == 200
+    assert r.content == cache_bytes  # 사전시드한 그 bytes 그대로
+    assert "통합작업일보" in r.headers["content-disposition"]
+    # 검증: 받은 bytes 가 valid xlsx
+    wb_check = load_workbook(io.BytesIO(r.content))
+    assert "1.출력인원 현황" in wb_check.sheetnames
 
-        await upsert_consolidated_report(
-            pg, site_id=site_id, report_date=report_date,
-            xlsx_bytes=cache_bytes, run_id=run_id,
+
+async def test_export_run_cache_miss_fallback(app, pg, seeded_run) -> None:
+    """(E-2) consolidated_reports 에 row 없으면 live render fallback."""
+    run_id, site_id, rdate = seeded_run
+
+    # 사전 cleanup — cache miss 강제
+    async with pg._pool.acquire() as con:
+        await con.execute(
+            "DELETE FROM consolidated_reports WHERE site_id=$1 AND report_date=$2",
+            site_id, rdate,
         )
 
-        # endpoint 호출 — hit path
-        resp = client.get(f"/export/run?site_id={site_id}&date=2025-09-25")
-        assert resp.status_code == 200
-        assert resp.content == cache_bytes  # 사전시드한 그 bytes 그대로
-        cd = resp.headers["content-disposition"]
-        assert "통합작업일보_2025-09-25.xlsx" in cd
-        # load_workbook 으로 valid xlsx 검증
-        wb_check = load_workbook(io.BytesIO(resp.content))
-        assert "1.출력인원 현황" in wb_check.sheetnames
-
-
-async def test_export_run_cache_miss_fallback() -> None:
-    """(E-2) consolidated_reports 에 row 없으면 live render fallback (200 OK)."""
-    from fastapi.testclient import TestClient
-    from pipeline.api import app
-
-    with TestClient(app) as client:
-        pg = app.state.pg
-        site_id = "m15x-ph3-ibl"
-        report_date = _date(2025, 9, 25)
-
-        # 사전 cleanup
-        async with pg._pool.acquire() as con:
-            await con.execute(
-                "DELETE FROM consolidated_reports WHERE site_id=$1 AND report_date=$2",
-                site_id, report_date,
-            )
-        # parser_reports 가 있어야 live render 성공 — 기존 시드 데이터 가정
-        # 만약 parser_reports 0건이면 400. 본 테스트는 seed 가 있는 환경 가정.
-
-        resp = client.get(f"/export/run?site_id={site_id}&date=2025-09-25")
-        # 두 가지 거동 capture:
-        # (a) seed 있음 → 200 + xlsx bytes
-        # (b) seed 없음 → 400 NoData
-        assert resp.status_code in (200, 400)
-
-
-async def test_export_run_404_site_not_found() -> None:
-    """site_id 가 없으면 404 (cache miss 후 fallback path)."""
-    from fastapi.testclient import TestClient
-    from pipeline.api import app
-
-    with TestClient(app) as client:
-        resp = client.get("/export/run?site_id=no-such-site-zzz&date=2025-09-25")
-        assert resp.status_code == 404
-        assert "no-such-site-zzz" in resp.text
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.get(f"/export/run?site_id={site_id}&date={rdate.isoformat()}")
+    # seeded_run 이 parser_reports + parser_activities 시드해줘서 live render 성공
+    assert r.status_code == 200
+    assert "통합작업일보" in r.headers["content-disposition"]
+    assert len(r.content) > 1000  # render_xlsx 결과
+    # cache miss path 는 UPSERT 안 함 — consolidated_reports row 여전히 없음 (E-2 정책)
+    async with pg._pool.acquire() as con:
+        row = await con.fetchrow(
+            "SELECT 1 FROM consolidated_reports WHERE site_id=$1 AND report_date=$2",
+            site_id, rdate,
+        )
+    assert row is None  # E-2: live render 후 UPSERT 안 함
 ```
 
 - [ ] **Step 2: 테스트 실행 → fail 확인**
@@ -1108,7 +1125,7 @@ async def export_consolidated(
     except ValueError:
         raise HTTPException(400, "date must be YYYY-MM-DD")
 
-    pg = request.app.state.pg  # ★ #N21 자연 해소 (lifespan pool 재사용)
+    pg = request.app.state.pg  # ★ #N21 부분 해소 (lifespan pool 재사용 — pg.close() 안 함, lifespan 책임)
 
     # (D-5 E-2) hit 우선
     cached = await fetch_consolidated_report(
@@ -1200,12 +1217,13 @@ grep -n "def _backfill\|def main\|def seed\|^async def" scripts/seed_dummy_year.
 ```python
 # scripts/seed_dummy_year.py 에 append
 
-async def _backfill_consolidated_reports(pg: PGClient, sites: list[dict], dates: list[_date]) -> int:
-    """(D-11) 시연 site×date 의 consolidated_reports mock backfill.
+async def _backfill_consolidated_reports(pg: PGClient, start: date, end: date) -> int:
+    """(D-11) 단일 SITE_ID 의 consolidated_reports mock backfill.
 
-    각 site×date 에 대해 실 fetch_sheet_data + render_xlsx 호출 (parser_reports 가
-    이미 seed 됐어야 함, 보통 _backfill_parser_reports 다음에 호출).
-    실패 (NoDataError) 는 skip + log.
+    `scripts/seed_dummy_year.py:58` 의 단일 상수 `SITE_ID = "m15x-ph3-ibl"` 사용.
+    `amain()` 의 `while d <= end:` 루프 다음에 별도 두 번째 루프로 호출.
+
+    실패 (NoDataError / pipeline_runs 없음) 는 skip + log.
 
     Returns: backfill 된 row 수.
     """
@@ -1217,51 +1235,54 @@ async def _backfill_consolidated_reports(pg: PGClient, sites: list[dict], dates:
     )
 
     count = 0
-    for site in sites:
-        site_id = site["site_id"]
-        site_row = await fetch_site_by_id(pg, site_id)
-        project_name = (site_row or {}).get("name") or "CPIA"
-        for report_date in dates:
-            try:
-                data = await fetch_sheet_data(pg, site_id, report_date)
-            except NoDataError:
-                logging.info("seed consolidated_reports skip — site=%s date=%s (no parser data)", site_id, report_date)
-                continue
-            xlsx_bytes = render_xlsx(data, report_date, project=project_name)
-            # 어느 run_id 든 FK 만족하면 OK — 가장 최근 run 사용
-            async with pg._pool.acquire() as con:
-                run_row = await con.fetchrow(
-                    """
-                    SELECT run_id FROM pipeline_runs
-                    WHERE site_id=$1 AND report_date=$2
-                    ORDER BY started_at DESC NULLS LAST LIMIT 1
-                    """,
-                    site_id, report_date,
-                )
-            if not run_row:
-                logging.warning("seed consolidated_reports skip — no pipeline_runs for %s/%s", site_id, report_date)
-                continue
-            await upsert_consolidated_report(
-                pg, site_id=site_id, report_date=report_date,
-                xlsx_bytes=xlsx_bytes, run_id=run_row["run_id"],
+    site_row = await fetch_site_by_id(pg, SITE_ID)
+    project_name = (site_row or {}).get("name") or PROJECT  # PROJECT 상수 line 59 사용
+
+    d = start
+    while d <= end:
+        try:
+            data = await fetch_sheet_data(pg, SITE_ID, d)
+        except NoDataError:
+            logging.info("seed consolidated_reports skip — date=%s (no parser data)", d)
+            d = d + timedelta(days=1)
+            continue
+        xlsx_bytes = render_xlsx(data, d, project=project_name)
+        # 어느 run_id 든 FK 만족하면 OK — 해당 date 의 (가장 최근) run 사용
+        async with pg._pool.acquire() as con:
+            run_row = await con.fetchrow(
+                """
+                SELECT run_id FROM pipeline_runs
+                WHERE site_id=$1 AND report_date=$2
+                ORDER BY started_at DESC NULLS LAST LIMIT 1
+                """,
+                SITE_ID, d,
             )
-            # is_mock=true 마크 (선행 8 테이블 일관성, D-11)
-            async with pg._pool.acquire() as con:
-                await con.execute(
-                    "UPDATE consolidated_reports SET is_mock=TRUE WHERE site_id=$1 AND report_date=$2",
-                    site_id, report_date,
-                )
-            count += 1
-            logging.info("seed consolidated_reports OK — site=%s date=%s bytes=%d", site_id, report_date, len(xlsx_bytes))
+        if not run_row:
+            logging.warning("seed consolidated_reports skip — no pipeline_runs for date=%s", d)
+            d = d + timedelta(days=1)
+            continue
+        await upsert_consolidated_report(
+            pg, site_id=SITE_ID, report_date=d,
+            xlsx_bytes=xlsx_bytes, run_id=run_row["run_id"],
+        )
+        # is_mock=true 마크 (선행 8 테이블 일관성, D-11)
+        async with pg._pool.acquire() as con:
+            await con.execute(
+                "UPDATE consolidated_reports SET is_mock=TRUE WHERE site_id=$1 AND report_date=$2",
+                SITE_ID, d,
+            )
+        count += 1
+        logging.info("seed consolidated_reports OK — date=%s bytes=%d", d, len(xlsx_bytes))
+        d = d + timedelta(days=1)
     return count
 ```
 
-`seed_dummy_year.py` 의 main / orchestrator 함수 안에서 호출 추가 (다른 `_backfill_*` 다음, 기존 코드 위에서 site_list / dates 변수 확인 후):
+`seed_dummy_year.py:amain()` 의 `while d <= end:` (line 877) 루프 **다음** 에 호출 1줄:
 
 ```python
-# main/orchestrator 안 — _backfill_parser_reports / _backfill_mapper_activities 등 다음
-count = await _backfill_consolidated_reports(pg, sites, dates)
-logging.info("seed_dummy_year: consolidated_reports backfill = %d rows", count)
+# amain() 안 — while 루프 종료 후
+c_count = await _backfill_consolidated_reports(pg, start, end)
+logging.info("seed_dummy_year: consolidated_reports backfill = %d rows", c_count)
 ```
 
 - [ ] **Step 3: 실 seed 실행 + 결과 검증**
@@ -1312,20 +1333,40 @@ sed -n '660,710p' pipeline/api.py
 
 - [ ] **Step 2: Exporter entry 추가**
 
-`_AGENTS_META` list 의 적절한 위치 (Atomizer 와 Reporter 사이 — 시각화상 fan-out 분기 표시) 또는 Reporter 다음 (단순 linear 표시). spec §10 open question Q2 — 본 cycle 은 **Reporter 다음 단순 linear 표시** 채택 (시연 임팩트는 "Exporter 가 끝난 단계로 보임" 으로 충분):
+`pipeline/api.py:662~719` 의 실 schema 확인 결과 = `{step, name, korean_name, description, model, group}`. 순서 = Collector(1) / Parser(2) / Mapper(3) / Atomizer(4) / **Reporter(5) / Forecaster(6) / Optimizer(7)** (Reporter 가 Forecaster 앞 — group "collect" → "analyze" 전환 직후 첫 entry).
 
+본 cycle 의 D-3 (graph 토폴로지 = Atomizer ‖ Exporter fan-out) 와 group 분류 의도 (시각화상 "수집 단계"인지 "분석 단계"인지) 정합 — Exporter 는 **collect group** 에 속함 (Atomizer 와 같은 fan-out 분기, parser_reports 만 보고 xlsx 생성하는 단계). 그러나 시연 임팩트 ("AI Agent 자동 빌드 완료") 강조 측면에선 analyze group 끝 (step 8) 이 자연. 본 plan 은 **collect group + step 5** 채택 후 기존 5,6,7 을 6,7,8 로 shift (Atomizer 다음 자연 위치).
+
+대안 A (group="collect", Atomizer 다음 = step 5, 기존 5~7 shift):
 ```python
-# pipeline/api.py:_AGENTS_META 에 entry 추가 (Reporter 다음)
-# 기존 schema 와 정확히 일치하는 키 사용 — 위 sed 출력 확인 후
+# pipeline/api.py:_AGENTS_META — Atomizer (step 4) 다음에 삽입 + 기존 step 5/6/7 의 step 값 6/7/8 로 shift
 {
-    "id": "exporter",  # ← schema 의 ID 키 (실 schema 에 맞춰)
+    "step": 5,
     "name": "Exporter",
-    "order": 8,  # 기존 Reporter=7 이라면 8
-    "description": "graph cycle 마다 통합 작업일보 xlsx 사전생성 (consolidated_reports UPSERT)",
-}
+    "korean_name": "내보내기",
+    "description": "graph cycle 마다 통합 xlsx 사전생성 (consolidated_reports UPSERT)",
+    "model": "openpyxl",
+    "group": "collect",
+},
+# 기존:
+# {step: 5, name: "Reporter", ...} → {step: 6, name: "Reporter", ...}
+# {step: 6, name: "Forecaster", ...} → {step: 7, name: "Forecaster", ...}
+# {step: 7, name: "Optimizer", ...} → {step: 8, name: "Optimizer", ...}
 ```
 
-(실 schema 의 정확한 키는 기존 7 entry 의 첫 번째를 mimic — implementation 단계에서 확인 후 박기)
+대안 B (group="analyze", Optimizer 다음 = step 8, 기존 5~7 유지):
+```python
+{
+    "step": 8,
+    "name": "Exporter",
+    "korean_name": "내보내기",
+    "description": "graph cycle 마다 통합 xlsx 사전생성 (consolidated_reports UPSERT)",
+    "model": "openpyxl",
+    "group": "analyze",
+},
+```
+
+**채택**: 대안 B (step 8, group="analyze") — 기존 7 entry 의 step 값을 건드리지 않아 회귀 영향 0. 시연 임팩트도 "분석 완료 → Exporter 가 마지막에 빌드" 흐름이 자연. 단, graph 토폴로지상 Exporter 는 Atomizer 와 병렬 (D-3 N-1) 이라는 사실은 spec §10 open question Q2 의 "본 cycle 은 단순 linear 표시" 결정과 정합.
 
 - [ ] **Step 3: `/api/agents/status` 호출 검증**
 
@@ -1338,13 +1379,13 @@ curl http://localhost:8000/api/agents/status | python3 -m json.tool
 
 Expected: 8 entry, 8번째가 "Exporter".
 
-- [ ] **Step 4: `web/lib/transforms.ts` 확인 + 필요 시 mapping 추가**
+- [ ] **Step 4: `web/lib/transforms.ts` 검증 only (변경 X)**
 
 ```bash
-grep -n "Collector\|Parser\|Mapper\|Atomizer\|Forecaster\|Optimizer\|Reporter\|Exporter" web/lib/transforms.ts
+grep -n "exporter\|Exporter" web/lib/transforms.ts
 ```
 
-만약 stage name → 한국어 label / 색상 mapping 이 있으면 Exporter 추가. 없으면 backend `_AGENTS_META` 만으로 충분.
+Expected: line 23 (`exporter: 70`), line 154 (`agent: "Exporter"`), line 157 (`processed: n("exporter")`), line 158 (`percent: n("exporter") > 0 ? 100 : 0`), line 394 (`agent: "Exporter"`) — **이미 존재**. 본 task 의 transforms.ts 변경 X. backend `_AGENTS_META` Exporter entry 추가만으로 UI 노출 자동 완료.
 
 - [ ] **Step 5: UI 시각 검증**
 
@@ -1359,11 +1400,12 @@ npm run dev  # port 5536 (또는 3000)
 - [ ] **Step 6: Commit**
 
 ```bash
-git add pipeline/api.py web/lib/transforms.ts
-git commit -m "feat(agents/ui): _AGENTS_META + transforms 에 Exporter stage 추가 (D-10)
+git add pipeline/api.py
+git commit -m "feat(agents): _AGENTS_META 에 Exporter stage 8 추가 (D-10)
 
 시연 임팩트 — Tasks 페이지 Agent stage progress 에 Exporter 노출.
-(B-1) graph 사전생성의 가시화. 8번째 stage 로 linear 표시.
+(B-1) graph 사전생성의 가시화. step=8, group=analyze, model=openpyxl.
+web/lib/transforms.ts 의 exporter mapping 이미 존재 (변경 X).
 
 Spec: §1.3 / §7.3 잠재영향"
 ```
@@ -1373,68 +1415,96 @@ Spec: §1.3 / §7.3 잠재영향"
 ## Task 8: B_Track UI swap — `ConsolidatedReportCard.handleExport` (#R-N2 해소)
 
 **Files:**
-- Modify: `web/app/components/export/ConsolidatedReportCard.tsx` — `handleExport` 본문 swap
+- Modify: `web/app/(app)/export/page.tsx` — `siteId` 상수 추가 + ConsolidatedReportCard 에 prop 전달
+- Modify: `web/app/components/export/ConsolidatedReportCard.tsx` — Props 인터페이스에 `siteId` 추가 + `handleExport` 본문 swap
 - Modify: `web/.env.local.example` — `NEXT_PUBLIC_FASTAPI_BASE` 추가
 - Modify: `web/.env.local` (gitignored — 실 값 박기)
 
-**의도:** 선행 cycle backlog #R-N2 해소 — 정적 fallback (`/sample/cpia-consolidated-report.xlsx`) → FastAPI `/export/run` 호출 swap.
+**의도:** 선행 cycle backlog #R-N2 해소 — 정적 fallback (`/sample/cpia-consolidated-report.xlsx`) → FastAPI `/export/run` 호출 swap. 현 `ConsolidatedReportCard` 의 Props 인터페이스 (`web/app/components/export/ConsolidatedReportCard.tsx:16-18` = `{ report: ConsolidatedReport }`) 에 `siteId: string` 추가 + page.tsx 가 PoC 단일 site `"m15x-ph3-ibl"` 하드코드 전달.
 
-- [ ] **Step 1: 현 `handleExport` 확인**
+- [ ] **Step 1: 현 `handleExport` + Props 인터페이스 확인**
 
 ```bash
-grep -A 20 "handleExport\|onExport" web/app/components/export/ConsolidatedReportCard.tsx | head -40
+sed -n '15,30p' web/app/components/export/ConsolidatedReportCard.tsx
+grep -n "handleExport\|onExport\|interface Props" web/app/components/export/ConsolidatedReportCard.tsx
 ```
 
-- [ ] **Step 2: `handleExport` swap**
+기존 Props = `{ report: ConsolidatedReport }`. `siteId` 없음 — 본 task 가 추가.
 
-기존 정적 fallback 부분을 다음으로 교체:
+- [ ] **Step 2: `web/app/(app)/export/page.tsx` 에 siteId 전달**
+
+기존 `<ConsolidatedReportCard report={report} />` 를 다음으로:
+
+```typescript
+// web/app/(app)/export/page.tsx 변경
+// PoC 단일 site — env 또는 하드코드. spec D-11 의 COLLECTOR_DEFAULT_SITE_ID 와 정합.
+const SITE_ID = "m15x-ph3-ibl";
+
+// ... JSX 안
+<ConsolidatedReportCard report={report} siteId={SITE_ID} />
+```
+
+- [ ] **Step 3: `ConsolidatedReportCard.tsx` Props + handleExport 변경**
 
 ```typescript
 // web/app/components/export/ConsolidatedReportCard.tsx
-// handleExport 본문 — 정적 fallback 제거, /export/run 직접 호출
 
-async function handleExport() {
-  if (!report?.date || !siteId) return;
-  try {
-    const base = process.env.NEXT_PUBLIC_FASTAPI_BASE || "http://localhost:8000";
-    const url = `${base}/export/run?site_id=${encodeURIComponent(siteId)}&date=${report.date}`;
-    const res = await fetch(url);
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Export 실패 (${res.status}): ${text}`);
+// Props 인터페이스 확장
+interface Props {
+  report: ConsolidatedReport;
+  siteId: string;  // ★ 신규 — page.tsx 가 전달
+}
+
+export function ConsolidatedReportCard({ report, siteId }: Props) {
+  // ... 기존 hooks ...
+
+  async function handleExport() {
+    if (!report?.date || !siteId) return;
+    try {
+      const base = process.env.NEXT_PUBLIC_FASTAPI_BASE || "http://localhost:8000";
+      const url = `${base}/export/run?site_id=${encodeURIComponent(siteId)}&date=${report.date}`;
+      const res = await fetch(url);
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`Export 실패 (${res.status}): ${text}`);
+      }
+      const blob = await res.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `통합작업일보_${report.date}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    } catch (err) {
+      console.error("Export 실패:", err);
+      // 기존 sonner toast 패턴 사용 (line 4: `import { toast } from "sonner";`)
+      toast.error(`다운로드 실패: ${err instanceof Error ? err.message : "알 수 없는 오류"}`);
     }
-    const blob = await res.blob();
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `통합작업일보_${report.date}.xlsx`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(a.href);
-  } catch (err) {
-    console.error("Export 실패:", err);
-    // 사용자에게 toast 또는 alert (기존 패턴 따라)
-    alert(`다운로드 실패: ${err instanceof Error ? err.message : "알 수 없는 오류"}`);
   }
+
+  // ... 기존 JSX (Export 버튼이 handleExport 호출) ...
 }
 ```
 
-(siteId 변수 / report 객체의 정확한 구조는 기존 ConsolidatedReportCard props 확인 후 박기 — `report.date` / `siteId` 가 이미 props 로 들어오는지)
-
-- [ ] **Step 3: `.env.local.example` 변경**
+- [ ] **Step 4: `.env.local.example` 변경**
 
 `web/.env.local.example` 끝에 추가:
 
 ```bash
 # Exporter graph 통합 (2026-05-27 spec) — FastAPI base URL.
-# 로컬: http://localhost:8000 / homelab: Cloudflare Tunnel 경유 도메인
+# 로컬: http://localhost:8000 / homelab: Cloudflare Tunnel 경유 도메인.
+# NEXT_PUBLIC_* prefix 는 Next.js build time 에 client bundle 에 inline 됨 —
+# 값 변경 시 반드시 `npm run dev` 재기동 (HMR 안 잡힘).
 NEXT_PUBLIC_FASTAPI_BASE=http://localhost:8000
 ```
 
-- [ ] **Step 4: 실 검증 — Chrome DevTools**
+- [ ] **Step 5: 실 검증 — Chrome DevTools**
 
 ```bash
 cd web
+# 환경 변수 적용 위해 npm run dev 재기동 필수 (NEXT_PUBLIC_* 는 build time inline)
+pkill -f "next dev" || true
 npm run dev  # port 5536
 ```
 
@@ -1454,12 +1524,14 @@ npm run dev  # port 5536
 - [ ] **Step 5: Commit**
 
 ```bash
-git add web/app/components/export/ConsolidatedReportCard.tsx web/.env.local.example
+git add web/app/\(app\)/export/page.tsx web/app/components/export/ConsolidatedReportCard.tsx web/.env.local.example
 git commit -m "feat(web/export): handleExport swap — 정적 fallback → /export/run (D-9 / #R-N2)
 
-NEXT_PUBLIC_FASTAPI_BASE env. blob download + 한글 파일명. 선행 cycle
-의 정적 /sample/cpia-consolidated-report.xlsx fallback 제거. Chrome
-DevTools 로 200 + 4 시트 검증.
+ConsolidatedReportCard Props 에 siteId 추가 + page.tsx 가 PoC 단일
+site (m15x-ph3-ibl) 하드코드 전달. NEXT_PUBLIC_FASTAPI_BASE env (build
+time inline, 변경 시 npm run dev 재기동). blob download + 한글 파일명
++ sonner toast 에러. 선행 cycle 의 정적 /sample/cpia-consolidated-report.xlsx
+fallback 제거. Chrome DevTools 로 200 + 4 시트 검증.
 
 Spec: §4.2 / §8.1 T8"
 ```
@@ -1504,10 +1576,10 @@ import asyncio
 import os
 import uuid
 from pipeline.graph import build_graph
-from pipeline.api import _build_graph_config_from_env
+from pipeline.api import _build_prod_graph_config  # api.py:67
 
 async def main():
-    cfg = _build_graph_config_from_env()  # 또는 GraphConfig() 직접
+    cfg = _build_prod_graph_config()
     graph = build_graph(cfg)
     run_id = str(uuid.uuid4())
     result = await graph.ainvoke(

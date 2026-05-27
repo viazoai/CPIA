@@ -33,9 +33,24 @@ export function OptimizerResult({ output }: { output: OptimizerOutput }) {
       <Row icon={<Lightbulb className="h-4 w-4" />} tone="sun" title="권고사항" topBorder>
         {output.recommendations?.length ? (
           <ul className="space-y-1.5 list-decimal list-inside marker:text-sun-text marker:font-semibold">
-            {output.recommendations.map((r, i) => (
-              <li key={i} className="text-sm text-ink-mid leading-relaxed">{r}</li>
-            ))}
+            {output.recommendations.map((r, i) => {
+              if (typeof r === "string") {
+                return <li key={i} className="text-sm text-ink-mid leading-relaxed">{r}</li>;
+              }
+              return (
+                <li key={i} className="mb-3 text-sm text-ink-mid leading-relaxed">
+                  <div className="inline-flex items-baseline gap-2 align-baseline">
+                    <span className="rounded bg-mint-soft px-1.5 py-0.5 text-[12px] font-semibold text-mint-text">
+                      {r.keyword}
+                    </span>
+                    <span className="text-ink">{r.action}</span>
+                  </div>
+                  <div className="ml-2 mt-1 text-[12.5px] text-ink-mid">
+                    <span className="font-semibold">이유:</span> {r.reason}
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         ) : (
           <p className="text-sm text-ink-light leading-relaxed">권고 미산출 — cold_start</p>

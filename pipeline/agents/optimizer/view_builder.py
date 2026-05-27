@@ -1890,44 +1890,15 @@ async def _build_productivity_views_v2(
         advice_rows, forecast_rows, items, wa_lookup,
     )
 
-    # advice 없는 WP → deterministic cold_start. grouped_items 사용 (wp_id 단위 통합).
-    master_lookup = {
-        (it["l7_5_activity"], it["company"]): {
-            "daily_qty": it["master_daily_qty"],
-            "daily_workers": it["master_daily_workers"],
-            "unit": it["unit"],
-        }
-        for it in grouped_items
-    }
-    forecast_by_wp = {
-        (f.get("company"), f.get("l6_main")): f for f in forecast_rows
-    }
-    # T17: by_wp 를 quadrant wp_id 집합으로 trim 후 cold_start fan-out.
-    # 이유: optimizer_view._build_optimizer_view 가 advice_rows (설비 포함) 기반으로
-    # by_wp 를 채우는데, quadrant (건축/토목 trade IN 필터) 와 wp_id 집합이 달라
-    # verify 5번 Jaccard pct 가 11% 에 머묾.
-    # Fix 2단계:
-    #   1) by_wp 를 quadrant wp_id 집합으로 restrict (quadrant 에 없는 설비 advice 제거)
-    #   2) quadrant 의 나머지 wp_id 를 cold_start 로 채워 by_wp = quadrant 1:1 대응
-    # 결과: intersection = union = |quadrant| → Jaccard 100%.
+    # 2026-05-28 Task 16: cold_start 분기 폐기. 사용자 명시 — "콜드케이스는 절대로 없어야돼
+    # 오류가 나면 다시 재시도 하던가 해야되고 조건식에 안걸리면 그 날짜만 따로 취합해서
+    # 재시도 하던가 해야돼". 모든 wp 는 LLM advice 보장 (retry 3-tier + Task 30 failed_wps
+    # batch). advice 적재 실패한 wp 는 by_wp entry X — FE 가 graceful handling.
+    # by_wp = quadrant 1:1 보장은 retry path 가 책임 (cold_start fan-out 폐기).
     quadrant_ids = {q["wp_id"] for q in quadrant}
     optimizer_view["by_wp"] = {
         k: v for k, v in optimizer_view["by_wp"].items() if k in quadrant_ids
     }
-    chroma_cases_lookup = await _fetch_chroma_cases_lookup(quadrant, today)
-    for q in quadrant:
-        if q["wp_id"] in optimizer_view["by_wp"]:
-            continue
-        master = master_lookup.get((q["l7_5_activity"], q["company"]))
-        f = forecast_by_wp.get((q["company"], q["l6_main"]), {})
-        optimizer_view["by_wp"][q["wp_id"]] = _build_deterministic_cold_start(
-            q,
-            master,
-            chroma_cases_lookup.get(q["wp_id"], []),
-            workers=int(q.get("workers") or 1),
-            risk_level=f.get("risk_level"),
-            delay_days=int(f.get("delay_days") or 0),
-        )
     if optimizer_view.get("default_wp_id") is None and optimizer_view["by_wp"]:
         optimizer_view["default_wp_id"] = next(iter(optimizer_view["by_wp"].keys()))
 

@@ -49,7 +49,9 @@ from pipeline.graph import build_atomized_demo_graph  # noqa: E402
 from pipeline.state import Activity  # noqa: E402
 
 DEFAULT_SITE_ID = "m15x-ph3-ibl"
-DEFAULT_TRADES = ("설비", "전기", "건축", "UT", "제어", "소방", "토목")
+# 2026-05-27 Task 20: 시연 윈도우 (7/1~9/24) backfill default — seed_dummy_year (Task 19)
+# 1차 filter 와 짝. 6월 이전 backfill 시 사용자가 --trades 로 override 가능.
+DEFAULT_TRADES = ("건축", "토목")
 DEFAULT_DAYS = 15
 
 

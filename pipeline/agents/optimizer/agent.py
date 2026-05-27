@@ -23,14 +23,22 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import date
 
+import openai
 from openai import AzureOpenAI
 
 from pipeline.agents._concurrency import get_llm_semaphore
+from pipeline.agents.optimizer._trade_frames import lookup_frame
 from pipeline.agents.optimizer.prompt import (
+    DIAG_PROMPT_V10,
     FEW_SHOT_MESSAGES,
+    RECS_PROMPT_V10,
     SCENARIOS_PROMPT,
+    SCENARIOS_PROMPT_V10,
     SYSTEM_PROMPT,
+    build_diag_input_v10,
     build_llm_user_input,
+    build_recs_input_v10,
+    build_scenarios_input_v10,
     build_scenarios_llm_input,
 )
 from pipeline.agents.optimizer.view_builder import (
@@ -142,6 +150,113 @@ async def _call_azure_scenarios_llm_async(scenarios_input: dict, cfg: OptimizerC
     return await asyncio.to_thread(_call_azure_scenarios_llm, scenarios_input, cfg, azure)
 
 
+# ────────────────────────────────────────────────────────────────────────────────
+# V10 — 2단계 호출 (recs ‖ scenarios 병렬 + diag 순차) + retry 3회
+# Task 13 (2026-05-27). 사용자 의도:
+#   1. recs/diag 분리 — diag 가 recs.recommendations 를 명시적으로 인용 (Action Plan 핵심 포인트).
+#   2. scenarios 는 진단 path 와 독립 — asyncio.gather(recs, scenarios) → recs 완료 후 diag.
+#   3. cold case 절대 금지 — cases<3 도 LLM 호출 (cold_start dispatch X).
+#   4. Azure 일시 오류 (timeout / rate limit / JSON 파싱 실패) 시 in-line retry 3회 + exponential
+#      backoff. 마지막 실패 시 failed_wps 취합 (Task 30 종합 retry batch 처리).
+# ────────────────────────────────────────────────────────────────────────────────
+
+
+def _call_v10_llm(prompt: str, payload: dict, cfg: OptimizerConfig, azure: AzureOpenAI) -> dict:
+    """V10 LLM 호출 — prompt 인자화. fail-fast. retry 는 caller 가 처리."""
+    messages = [
+        {"role": "system", "content": prompt},
+        {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+    ]
+    resp = azure.chat.completions.create(
+        model=cfg.llm_model,
+        messages=messages,
+        response_format={"type": "json_object"},
+    )
+    return json.loads(resp.choices[0].message.content)
+
+
+async def _call_v10_llm_async(prompt: str, payload: dict, cfg: OptimizerConfig, azure: AzureOpenAI) -> dict:
+    """sync _call_v10_llm 을 asyncio.to_thread 로 감쌈 — 실 병렬 효과."""
+    return await asyncio.to_thread(_call_v10_llm, prompt, payload, cfg, azure)
+
+
+async def _process_one_v10_with_retry(
+    r: dict,
+    cases: list[dict],
+    run_id: uuid.UUID,
+    today: date,
+    cfg: OptimizerConfig,
+    azure: AzureOpenAI,
+    sem: asyncio.Semaphore,
+    failed_wps: list,
+    max_retries: int = 3,
+):
+    """V10 2단계 + scenarios 병렬 + retry 3회.
+
+    1. recs ‖ scenarios 병렬 (asyncio.gather) — 독립 path.
+    2. recs 결과 받은 후 diag 순차 (recs.recommendations 인용).
+    3. retry: openai.APIError / asyncio.TimeoutError / json.JSONDecodeError / KeyError 발생 시
+       exponential backoff (2^(attempt+1) 초) 후 재시도.
+    4. 3회 모두 실패 → failed_wps 에 append + None 반환 (caller 가 skip).
+
+    사용자 의도: cold case 절대 금지 → cases<3 도 LLM 호출. 실패만 retry batch.
+    """
+    category, frame_text = lookup_frame(r.get("l6_main"))
+    today_iso = today.isoformat()
+
+    # 결정론적 산출 (LLM 외)
+    recovery_dist = _compute_recovery_distribution(cases)
+    no_action_ec = r.get("expected_completion")
+    if isinstance(no_action_ec, date):
+        no_action_ec = no_action_ec.isoformat()
+
+    recs_payload = build_recs_input_v10(r, cases, today_iso, category, frame_text)
+    scen_payload = build_scenarios_input_v10(
+        r, no_action_ec, recovery_dist, cases, category, frame_text
+    )
+
+    for attempt in range(max_retries):
+        try:
+            async with sem:
+                # recs ‖ scenarios 병렬 — 진단 path 와 시나리오 path 독립
+                recs_task = _call_v10_llm_async(RECS_PROMPT_V10, recs_payload, cfg, azure)
+                scen_task = _call_v10_llm_async(SCENARIOS_PROMPT_V10, scen_payload, cfg, azure)
+                recs_out, scen_out = await asyncio.gather(recs_task, scen_task)
+
+                # recs 완료 후 diag 순차 — diag 가 recs.recommendations 를 인용
+                diag_payload = build_diag_input_v10(
+                    r,
+                    cases,
+                    today_iso,
+                    category,
+                    frame_text,
+                    recs_out.get("recommendations") or [],
+                )
+                diag_out = await _call_v10_llm_async(DIAG_PROMPT_V10, diag_payload, cfg, azure)
+
+            # _compose_row 가 기존 llm_output dict 구조 ({"diagnosis", "recommendations"}) 기대
+            merged_llm_output = {
+                "diagnosis": diag_out.get("diagnosis"),
+                "recommendations": recs_out.get("recommendations") or [],
+            }
+            return _compose_row(r, cases, merged_llm_output, run_id, scenarios=scen_out)
+
+        except (openai.APIError, asyncio.TimeoutError, json.JSONDecodeError, KeyError) as e:
+            if attempt == max_retries - 1:
+                failed_wps.append(
+                    {
+                        "company": r.get("company"),
+                        "l6_main": r.get("l6_main"),
+                        "error": f"{type(e).__name__}: {e}",
+                    }
+                )
+                return None
+            # exponential backoff: 2s / 4s / 8s
+            await asyncio.sleep(2 ** (attempt + 1))
+
+    return None
+
+
 async def optimize(
     forecast: list[dict],
     hil_2_selection: list[str],
@@ -194,18 +309,33 @@ async def optimize(
             scenarios_output = await _call_azure_scenarios_llm_async(scenarios_input, cfg, azure)
         return _compose_row(r, cases, llm_output, run_id, scenarios=scenarios_output)  # PG write 는 sem 밖
 
+    # 2026-05-27 Task 13: V10 2단계 (recs ‖ scenarios 병렬 + diag 순차) + retry 3회.
+    # cold case 절대 금지 — cases<3 도 LLM 호출. 실패만 failed_wps 에 모아서 종합 retry batch (Task 30) 가 처리.
+    failed_wps: list[dict] = []
     tasks = []
     for r in forecast:
         key = f"{r['company']}|{r['l6_main']}"
         if key not in hil_2_selection:
             continue
         cases = pre_optimizer_cases.get(key, [])
-        # 2026-05-22: cold_start (cases<3) 도 LLM 호출 — SYSTEM_PROMPT 의 'degradation_cases 빈 array
-        # 처리' 가이드에 따라 today 정보만으로 진단·권고 생성. 이전: _compose_cold_start_row placeholder.
-        # 사유: UI 4분면 점 클릭 시 풍부한 진단 보장 (사용자 검증 9/22 광건 fab cold_start placeholder 화면).
-        tasks.append(_process_one(r, cases))
+        tasks.append(
+            _process_one_v10_with_retry(
+                r, cases, run_id, today, cfg, azure, sem, failed_wps, max_retries=3
+            )
+        )
 
-    advice_rows = list(await asyncio.gather(*tasks)) if tasks else []
+    results = list(await asyncio.gather(*tasks)) if tasks else []
+    advice_rows = [row for row in results if row is not None]
+
+    # 실패 wp 로깅 (Task 30 종합 retry batch 가 처리)
+    if failed_wps:
+        logger.warning(
+            "Day %s: %d wp failed after 3 retries — failed_wps_today=%s. "
+            "To be retried in batch (Task 30).",
+            today.isoformat(),
+            len(failed_wps),
+            failed_wps,
+        )
 
     pg = PGClient(cfg.postgres_url)
     await pg.connect()

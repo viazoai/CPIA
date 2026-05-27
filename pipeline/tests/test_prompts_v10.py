@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import re
 
-from pipeline.agents.optimizer.prompt import DIAG_PROMPT_V10, RECS_PROMPT_V10
+from pipeline.agents.optimizer.prompt import (
+    DIAG_PROMPT_V10,
+    RECS_PROMPT_V10,
+    SCENARIOS_PROMPT_V10,
+)
 
 
 def test_recs_prompt_has_keyword_schema():
@@ -97,3 +101,34 @@ def test_recs_prompt_json_output_schema():
     assert '"keyword"' in RECS_PROMPT_V10
     assert '"action"' in RECS_PROMPT_V10
     assert '"reason"' in RECS_PROMPT_V10
+
+
+def test_scenarios_prompt_v10_g8():
+    """G8 강화 — trade_frame 고유 회복 전략 명시."""
+    assert "trade_frame" in SCENARIOS_PROMPT_V10
+    assert "rationale" in SCENARIOS_PROMPT_V10
+    assert "가드 8" in SCENARIOS_PROMPT_V10 or "G8" in SCENARIOS_PROMPT_V10
+
+
+def test_scenarios_prompt_v10_no_generic_phrases():
+    """일반론 금지 명시."""
+    # "인력 보강 / 공정 가속 / 모니터링 강화" 일반론 금지 명시되어 있어야 함
+    assert "일반론" in SCENARIOS_PROMPT_V10 or "단독 사용 금지" in SCENARIOS_PROMPT_V10
+
+
+def test_scenarios_prompt_v10_categories():
+    """공종 카테고리별 고유 수법 예시 명시."""
+    for kw in ["골조", "외장", "토공", "마감", "포장"]:
+        assert kw in SCENARIOS_PROMPT_V10, f"{kw} 예시 누락"
+
+
+def test_scenarios_prompt_v10_no_kanji():
+    """한자 0건."""
+    found = re.findall(r"[一-鿿]", SCENARIOS_PROMPT_V10)
+    assert not found, f"한자 발견: {found}"
+
+
+def test_scenarios_prompt_v10_four_scenarios():
+    """4 시나리오 정의 명시."""
+    for sc in ["no_action", "optimistic", "base", "pessimistic"]:
+        assert sc in SCENARIOS_PROMPT_V10, f"{sc} 시나리오 누락"

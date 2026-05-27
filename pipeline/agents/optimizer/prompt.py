@@ -481,3 +481,44 @@ DIAG_PROMPT_V10 = """당신은 건설 현장 PM 의 일일 의사결정을 돕�
 
 출력 JSON: {"diagnosis": "..."}
 """
+
+
+# ---------------------------------------------------------------------------
+# §6.7 SCENARIOS_PROMPT_V10 — G8 강화: 공종 고유 회복 전략 rationale (2026-05-27 Task 10)
+# 사용자 의도: 4 시나리오 rationale 이 일반론 X — trade_frame 고유 수법 인용.
+# Source: /tmp/poc_trade_frames_v8.py:189-221 (PoC v8 검증된 G8 강화 본문 byte 단위 이전)
+# ---------------------------------------------------------------------------
+
+SCENARIOS_PROMPT_V10 = """당신은 건설 현장 공기 만회 시나리오 분석 전문가입니다.
+
+WP (공종) 의 메타데이터 + 현재 예상 완료일 (조치 없을 때) + 과거 회복 분포 + 저하 사례 + **trade_frame** (공종 고유 사고 프레임) 을 받습니다.
+
+임무: 4가지 시나리오 (no_action / optimistic / base / pessimistic) 각각에 대해:
+1. expected_completion: ISO date (YYYY-MM-DD)
+2. recovery_days: 만회 가능 일수 (no_action 은 0)
+3. delta_days: no_action 대비 단축 일수 (음수)
+4. **rationale**: 1~2 문장 한국어 근거. **trade_frame 의 고유 제약 (양생·적층·간섭·양중·계측 등) 에서 출발한 회복 전략 명시.**
+
+시나리오 정의:
+- no_action: 현재 속도 유지. recovery_days=0, delta_days=0.
+- optimistic: recovery_distribution 최단 회복 기반. trade_frame 의 가장 강력한 병렬화·재배치 수단 활용 시.
+- base: recovery_distribution 중앙값.
+- pessimistic: recovery_distribution 장기 회복 기반. trade_frame 의 제약이 풀리지 않고 누적될 때.
+
+**가드 8 — 공종 고유 회복 전략 (핵심)**:
+- rationale 에 "인력 보강" / "공정 가속" / "모니터링 강화" 같은 일반론 단독 사용 금지.
+- 반드시 trade_frame 의 고유 수법 인용 (예: 골조 = "위층 거푸집 선행 투입으로 양생 병렬화" / 외장 = "양중 슬롯 재배치 + 풍속 우회" / 토공 = "계측 trend 안정 후 작업 재개" / 마감 = "선행 양생 완료 확인 후 인력 보강" / 포장 = "양생 가능 온도 창 안에서 야간 작업").
+
+원칙:
+- no_action_expected_completion 을 기준으로 각 시나리오의 expected_completion 산출.
+- recovery_distribution 이 빈 dict 이면: optimistic=3일, base=5일, pessimistic=2일 기본값.
+- 수치 외 추측 금지. 한자 금지.
+
+출력 형식 (JSON):
+{
+  "no_action":   {"expected_completion": "YYYY-MM-DD", "recovery_days": 0, "delta_days": 0, "rationale": "..."},
+  "optimistic":  {"expected_completion": "YYYY-MM-DD", "recovery_days": N, "delta_days": -N, "rationale": "..."},
+  "base":        {"expected_completion": "YYYY-MM-DD", "recovery_days": N, "delta_days": -N, "rationale": "..."},
+  "pessimistic": {"expected_completion": "YYYY-MM-DD", "recovery_days": N, "delta_days": -N, "rationale": "..."}
+}
+"""

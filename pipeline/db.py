@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date as _date
-from typing import Any
+from typing import Any, Optional
 
 import asyncpg
 
@@ -1231,3 +1231,55 @@ async def fetch_site_by_id(pg: PGClient, site_id: str) -> dict | None:
             site_id,
         )
     return dict(row) if row else None
+
+
+async def upsert_consolidated_report(
+    pg: PGClient,
+    *,
+    site_id: str,
+    report_date: _date,
+    xlsx_bytes: bytes,
+    run_id: uuid.UUID,
+) -> None:
+    """consolidated_reports 에 UPSERT.
+
+    ON CONFLICT (site_id, report_date) — last write wins (D-2 / D-4 / D-6 EC).
+    graph 의 consolidated_xlsx_node 가 cycle 마다 호출 + seed mock backfill 도 호출.
+    """
+    assert pg._pool is not None, "connect() 미호출"
+    async with pg._pool.acquire() as con:
+        await con.execute(
+            """
+            INSERT INTO consolidated_reports
+              (site_id, report_date, xlsx_bytes, run_id, generated_at)
+            VALUES ($1, $2, $3, $4, NOW())
+            ON CONFLICT (site_id, report_date) DO UPDATE
+              SET xlsx_bytes   = EXCLUDED.xlsx_bytes,
+                  run_id       = EXCLUDED.run_id,
+                  generated_at = EXCLUDED.generated_at
+            """,
+            site_id,
+            report_date,
+            xlsx_bytes,
+            run_id,
+        )
+
+
+async def fetch_consolidated_report(
+    pg: PGClient,
+    *,
+    site_id: str,
+    report_date: _date,
+) -> Optional[bytes]:
+    """(D-5 E-2) cache hit -> bytes, miss -> None.
+
+    /export/run 핸들러가 호출 — hit 면 즉시 응답, miss 면 live render fallback.
+    """
+    assert pg._pool is not None, "connect() 미호출"
+    async with pg._pool.acquire() as con:
+        row = await con.fetchrow(
+            "SELECT xlsx_bytes FROM consolidated_reports WHERE site_id=$1 AND report_date=$2",
+            site_id,
+            report_date,
+        )
+    return row["xlsx_bytes"] if row else None

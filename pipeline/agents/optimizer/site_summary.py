@@ -21,6 +21,8 @@ from typing import Any, Optional
 
 from openai import AzureOpenAI
 
+from pipeline.agents.optimizer._trade_frames import lookup_frame
+
 
 SYSTEM_PROMPT = """당신은 건설 현장의 진척 상황을 경영진에게 보고하는 분석가입니다.
 
@@ -40,6 +42,34 @@ SYSTEM_PROMPT = """당신은 건설 현장의 진척 상황을 경영진에게 �
 - 통계 용어 (P25/P50/P75, MH 가중, EVM 등) 사용 금지. 경영진 자연어만.
 - 추측/과장/입력에 없는 사실 추가 금지.
 - 한자 사용 금지 — 한글 또는 영어 고유명사만.
+"""
+
+
+# §6.8 SYSTEM_PROMPT_V10 — G8 강화: top_risk_wps 의 frame_category 인용 (2026-05-27 Task 11)
+# 사용자 의도: 시연 시 경영진 narrative 가 일반론 X — 공종 고유 회복 액션 인용.
+# Source: /tmp/poc_trade_frames_v8.py:226-247 (PoC v8 검증된 G8 강화 본문)
+
+SYSTEM_PROMPT_V10 = """당신은 건설 현장의 진척 상황을 경영진에게 보고하는 분석가입니다.
+
+입력 JSON 데이터를 받아 현재 진척 상황과 AI 권고 적용 시 만회 가능성을
+1~2 단락 (총 200~300자) 의 한국어 경영진 문체로 자연스럽게 정리하세요.
+
+받는 정보:
+- 현장 진척 (planned/actual %, delay_days, ai_recovery_days)
+- top_risk_wps: 상위 위험 wp (각 wp 별 trade·frame_category·diagnosis·top_recommendation)
+
+출력 형식 (JSON): {"summary": "..."}
+
+작성 원칙:
+- 1단락: 오늘 진척 — "기준일 시점 진척률 X% 로 계획 (Y%) 대비 Z%p 뒤처짐. 이대로 가면 D+N 일 지연 완공 예상" 형식.
+- 2단락: AI 권고 적용 효과 — 위험 wp 1~3개 자연스럽게 언급 + **각 wp 의 카테고리 고유 액션** (양생 병렬화 / 양중 재배치 / 계측 안정 / 선행 양생 / 온도 창 작업 등) 인용. N일 만에 따라잡고 동일 완공일 유지 가능 형식.
+- 통계 용어 (P25/P50/P75, MH, EVM) 사용 금지. 경영진 자연어만.
+
+**가드 8 — 공종 고유 회복 액션 인용 (핵심)**:
+- 위험 wp 언급 시 "인력 재배치 / 공정 가속 / 모니터링 강화" 같은 일반론 표현 금지.
+- top_risk_wps 의 frame_category 에 맞는 고유 수법 인용 (골조=양생 병렬화 / 외장=양중 재배치 / 토공=계측 안정 / 마감=선행 양생 확인 등).
+- 숫자는 입력값 그대로 인용 (소수점 1자리 이내).
+- 한자 금지 — 한글 또는 영어 고유명사만.
 """
 
 
@@ -89,10 +119,12 @@ def build_site_summary_payload(
                 t = str(r)
             if t:
                 recs.append(t)
+        cat, _ = lookup_frame(w.get("l6_main"))
         top_risk_wps.append(
             {
                 "wp_name": w.get("wp_name"),
                 "trade": w.get("trade"),
+                "frame_category": cat,  # 2026-05-27 Task 11: 공종 고유 인사이트 inject
                 "diagnosis": diag,
                 "top_recommendation": recs[0] if recs else None,
             }
@@ -129,7 +161,7 @@ def generate_site_summary(
         )
     model = model or os.environ.get("LLM_MODEL", "gpt-5.1-chat-ai-board-test")
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": SYSTEM_PROMPT_V10},
         {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
     ]
     resp = azure.chat.completions.create(

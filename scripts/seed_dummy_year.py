@@ -761,6 +761,81 @@ async def seed_day(
 
 
 # ============================================================================
+# consolidated_reports backfill
+# ============================================================================
+
+
+async def _backfill_consolidated_reports(pg: PGClient, start: date, end: date) -> int:
+    """(D-11) 단일 SITE_ID 의 consolidated_reports mock backfill.
+
+    `scripts/seed_dummy_year.py:58` 의 단일 상수 SITE_ID = "m15x-ph3-ibl" 사용.
+    `amain()` 의 `while d <= end:` 루프 다음에 별도 두 번째 루프로 호출.
+
+    실패 (NoDataError / pipeline_runs 없음) 는 skip + log.
+
+    Returns: backfill 된 row 수.
+    """
+    from pipeline.agents.exporter import (  # noqa: PLC0415
+        NoDataError,
+        fetch_sheet_data,
+        render_xlsx,
+    )
+    from pipeline.db import (  # noqa: PLC0415
+        fetch_site_by_id,
+        upsert_consolidated_report,
+    )
+
+    count = 0
+    site_row = await fetch_site_by_id(pg, SITE_ID)
+    project_name = (site_row or {}).get("name") or PROJECT
+
+    d = start
+    while d <= end:
+        try:
+            data = await fetch_sheet_data(pg, SITE_ID, d)
+        except NoDataError:
+            logging.info("seed consolidated_reports skip — date=%s (no parser data)", d)
+            d = d + timedelta(days=1)
+            continue
+        xlsx_bytes = render_xlsx(data, d, project=project_name)
+        async with pg._pool.acquire() as con:
+            run_row = await con.fetchrow(
+                """
+                SELECT run_id FROM pipeline_runs
+                WHERE site_id=$1 AND report_date=$2
+                ORDER BY started_at DESC NULLS LAST LIMIT 1
+                """,
+                SITE_ID,
+                d,
+            )
+        if not run_row:
+            logging.warning(
+                "seed consolidated_reports skip — no pipeline_runs for date=%s", d
+            )
+            d = d + timedelta(days=1)
+            continue
+        await upsert_consolidated_report(
+            pg,
+            site_id=SITE_ID,
+            report_date=d,
+            xlsx_bytes=xlsx_bytes,
+            run_id=run_row["run_id"],
+        )
+        async with pg._pool.acquire() as con:
+            await con.execute(
+                "UPDATE consolidated_reports SET is_mock=TRUE WHERE site_id=$1 AND report_date=$2",
+                SITE_ID,
+                d,
+            )
+        count += 1
+        logging.info(
+            "seed consolidated_reports OK — date=%s bytes=%d", d, len(xlsx_bytes)
+        )
+        d = d + timedelta(days=1)
+    return count
+
+
+# ============================================================================
 # Main
 # ============================================================================
 
@@ -893,6 +968,11 @@ async def amain() -> None:
                 chroma_msg = f" chroma={n_chroma}" if n_chroma else ""
                 print(f"  [{d}] day#{day_count} active={active_n}{chroma_msg}")
             d += timedelta(days=1)
+
+        c_count = await _backfill_consolidated_reports(pg, start, end)
+        logging.info(
+            "seed_dummy_year: consolidated_reports backfill = %d rows", c_count
+        )
 
         print(f"=== TOTAL ({day_count} days) ===")
         for k, v in totals.items():

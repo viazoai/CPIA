@@ -80,7 +80,7 @@ PoC 데모 마감 = 2026-06-05 (목), D-9.
 | **D-5** | `/export/run` 동작 | **(E-2) hybrid — hit 우선, miss 시 live render fallback** | 시연 안전. graph 가 어떤 이유로 exporter 노드 실패해도 UI 다운로드 보장. miss 시 UPSERT 안 함 — 다음 cycle 이 만들어줌. |
 | **D-6** | race 처리 | **Eventual Consistency (EC)** — advisory lock 없이 last write wins | PoC 단순. 시연 시 PM 이 메일 순차 보내면 race 발현 가능성 낮음. race 시 1~2 cycle stale 후 자동 회복. |
 | **D-7** | State 폭증 방지 | **bytes 안 박음, meta 2 필드만** (`consolidated_xlsx_run_id`, `consolidated_xlsx_generated_at`) | PostgresSaver checkpoint 폭증 방지. bytes 는 `consolidated_reports` 테이블에만. |
-| **D-8** | dual-END 정책 | **multi-end** — exporter 와 reporter 양 path 모두 END 도달 시 cycle 'completed' | LangGraph multi-end 자연 지원. cycle 종료 마크 책임은 reporter (보통 더 늦게 끝남). exporter 실패 시 reporter path 정상 진행. |
+| **D-8** | dual-END 정책 | **multi-end** — exporter 와 reporter 양 path 모두 END 도달 시 cycle 'completed' | LangGraph 1.2.0 은 native multi-end fault isolation 미지원 (issue #6170 open) — exporter 노드 안에서 `try/except Exception` swallow 패턴 (NoDataError 외 모든 예외 catch + log.exception + return {}) 으로 application level 격리. 그래서 exporter 가 LangGraph 입장에서 항상 'completed' (silent skip 포함) → reporter path 영향 0. |
 | **D-9** | UI swap (#R-N2) | **본 cycle 에 포함** | (B-1) 선택의 결실 — UI 가 mock fallback 이면 사전생성 의의 없음. |
 | **D-10** | Agent stage UI | **본 cycle 에 Exporter stage 추가** | 시연 임팩트. tasks 페이지의 Agent stage progress 에 Exporter 노출. |
 | **D-11** | seed mock backfill | **본 cycle 에 포함** | 시연 site×date 가 cycle 0번 실행 시 cache miss → UI 가 NoData 400 보면 시연 risk. `scripts/seed_dummy_year.py` 에 `consolidated_reports` mock UPSERT 추가. |
@@ -205,7 +205,7 @@ GET /export/run?site_id=...&date=...
 - LangGraph multi-end 자연 지원 — state values 가 양 path update merge
 - cycle 완료 판단 = 양 path 모두 END 도달
 - `update_run_status='completed'` 마크 책임 = reporter_node (보통 더 늦게 끝남)
-- exporter path 실패 (`NoDataError` skip / openpyxl 예외 / PG drop) 시 → reporter path 정상 진행 → cycle 'completed'
+- exporter 노드 안에서 모든 예외 swallow (try/except Exception + log.exception + return {}) — LangGraph 1.2.0 multi-end fault isolation 미지원 회피. exporter path 는 LangGraph 입장에서 항상 'completed' (NoDataError / render / PG 예외 모두 silent skip) → reporter path 정상 진행 → cycle 'completed'
 - 그 경우 `consolidated_reports` row 없음 → `/export/run` 의 (E-2) fallback live render 가 보장
 
 ---
@@ -338,7 +338,7 @@ async def consolidated_xlsx_node(state: CPIAState) -> dict[str, Any]:
         graph 흐름상 자기 cycle 의 parser_reports INSERT 는 atomizer 도달 전에 끝나므로
         (graph.py:594~597 collector → parser → mapper → hil_1 → atomizer 순서) 자기 run 데이터는
         항상 존재. NoDataError 는 D-11 seed backfill 이 누락된 site×date 의 첫 cycle 에서만 가능.
-      - render_xlsx 또는 PG 예외: raise → exporter path 'failed'. reporter path 와 별개.
+      - render_xlsx / fetch_site_by_id / upsert 예외: log.exception + return {} (silent skip) — D-8 / 거동 B 대응 (LangGraph 1.2.0 multi-end fault isolation 미지원).
     """
     site_id = state["site_id"]
     report_date = _date.fromisoformat(state["date"])
@@ -474,9 +474,9 @@ async def lifespan(app: FastAPI):
 
 | 시나리오 | exporter 노드 | cycle | UI |
 |---|---|---|---|
-| site×date 의 cold-start (seed 미적용 + 어떤 run 도 진입 안 함) | NoDataError catch → log + skip UPSERT | exporter path 만 END, reporter 정상 → 'completed' | `/export/run` cache miss → live render도 NoData → 400 |
-| `render_xlsx` openpyxl 예외 | raise → exporter path 'failed' | reporter 와 별개 | cache miss → fallback 도 예외 → 500 |
-| PG drop on UPSERT | raise → exporter path 'failed' | reporter 정상 → 'completed' | cache miss → fallback OK |
+| site×date 의 cold-start (seed 미적용 + 어떤 run 도 진입 안 함) | NoDataError catch → log.warning + return {} | exporter path END (skip UPSERT), reporter 정상 → 'completed' | `/export/run` cache miss → live render도 NoData → 400 |
+| `render_xlsx` openpyxl 예외 | except Exception swallow → log.exception + return {} | exporter path END (skip UPSERT), reporter 정상 → 'completed' | cache miss → fallback 도 예외 → 500 |
+| PG drop on UPSERT | except Exception swallow → log.exception + return {} | exporter path END (skip UPSERT), reporter 정상 → 'completed' | cache miss → fallback OK |
 | race (자기 fetch 시점 다른 cycle parser 진행 중) | 부분 합집합 → stale row | UPSERT atomic, last write wins | 다음 cycle 자동 회복 (D-6 EC) |
 | forecaster LLM 실패 | exporter path 영향 0 (별 path) | reporter path 가 forecaster 실패 전파 받음 가능 → 'failed' | exporter 결과 PG 저장됨 → 다운로드 정상 |
 | collector_node 파일명 regex 미일치 | exporter path 도달 안 함 | cycle 'failed', collector_inbox.parse_status='dead_letter' | 기존 row 있으면 그대로, 없으면 cache miss → 400 |
@@ -515,7 +515,7 @@ async def lifespan(app: FastAPI):
 | Risk | 발현 가능성 | 시연 영향 | 완화책 |
 |---|---|---|---|
 | 첨부 도착 후 exporter cache 적재 ~15초 안에 사용자 클릭 | 낮음 | (E-2) fallback ~100ms 응답 — 사용자는 "정상" 인식 | (E-2) 자체가 완화책 |
-| LangGraph fan-out + dual-END multi-end 처리 버그 | 중 | cycle 'running' 영구 stuck 가능 | `tests/test_graph_dual_end.py` + 통합 테스트 |
+| LangGraph 1.2.0 multi-end fault isolation 미지원 (issue #6170 open) | 확정 (B 거동) | 단일 노드 예외 시 cycle 전체 fail | exporter 노드 안에서 except Exception swallow 패턴 (T3 commit `0dbd449`) + `tests/test_graph_dual_end.py` 거동 capture |
 | 시연 site×date 의 cycle 0번 실행 (row 없음 + UI 가 list 노출) | 중 | UI list 에 보이지만 다운로드 시 NoData 400 | `scripts/seed_dummy_year.py` 에 `consolidated_reports` mock UPSERT (D-11) |
 | PG pool 고갈 (대량 동시 cycle) | 낮음 | exporter UPSERT 지연 | 기존 semaphore `CPIA_COLLECTOR_CONCURRENCY=2` 직렬화 |
 | AWS 마이그 시 pg_dump 크기 폭증 | 낮음 | dump 시간 증가 ~수십 초 | 365일 × 6 site × 150KB ≈ 330MB/년 — 무시 가능 |

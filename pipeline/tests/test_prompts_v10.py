@@ -8,7 +8,90 @@ from pipeline.agents.optimizer.prompt import (
     DIAG_PROMPT_V10,
     RECS_PROMPT_V10,
     SCENARIOS_PROMPT_V10,
+    build_diag_input_v10,
+    build_recs_input_v10,
+    build_scenarios_input_v10,
 )
+
+_SAMPLE_ROW = {
+    "company": "남웅건설",
+    "l6_main": "철근콘크리트공사",
+    "main_unit": "ea",
+    "assessment": "주의",
+    "risk_level": "이상",
+    "today_productivity": 0.5,
+    "today_conditions": "정상",
+    "delay_days": 7,
+    "point_in_time_delay_days": 5,
+    "mh_gap": 12.3,
+}
+
+_SAMPLE_CASE = {
+    "date": "2025-06-28",
+    "conditions": "우천",
+    "productivity": 0.3,
+    "activities": ["타설 중단"],
+    "recovery": {"recovery_days": 3, "trajectory": []},
+}
+
+
+def test_build_recs_input_v10_has_all_required_fields():
+    """recs payload — today + trade_frame + degradation_cases 필수 필드."""
+    out = build_recs_input_v10(_SAMPLE_ROW, [_SAMPLE_CASE], "2025-07-01", "골조", "골조 frame text")
+    assert out["today"]["frame_category"] == "골조"
+    assert out["today"]["forward_delay_days"] == 7
+    assert out["today"]["point_in_time_delay_days"] == 5
+    assert out["today"]["mh_gap"] == 12.3
+    assert out["today"]["risk_level"] == "이상"
+    assert out["trade_frame"] == "골조 frame text"
+    assert len(out["degradation_cases"]) == 1
+    assert out["degradation_cases"][0]["recovery_days"] == 3
+
+
+def test_build_diag_input_v10_includes_recs_out():
+    """diag payload — recs 결과 포함."""
+    recs = [{"rank": 1, "keyword": "양생 병렬화", "action": "지시", "reason": "trade frame 인용"}]
+    out = build_diag_input_v10(_SAMPLE_ROW, [_SAMPLE_CASE], "2025-07-01", "골조", "골조 frame text", recs)
+    assert out["recommendations"] == recs
+    assert out["trade_frame"] == "골조 frame text"
+    assert out["today"]["frame_category"] == "골조"
+
+
+def test_build_scenarios_input_v10_has_trade_frame():
+    """scenarios payload — wp + trade_frame + recovery_distribution."""
+    out = build_scenarios_input_v10(
+        _SAMPLE_ROW,
+        no_action_ec="2025-12-30",
+        recovery_distribution={"p50": 5},
+        degradation_cases=[_SAMPLE_CASE],
+        frame_category="골조",
+        frame_text="골조 frame text",
+    )
+    assert out["wp"]["frame_category"] == "골조"
+    assert out["trade_frame"] == "골조 frame text"
+    assert out["no_action_expected_completion"] == "2025-12-30"
+    assert out["recovery_distribution"] == {"p50": 5}
+    assert len(out["degradation_cases"]) == 1
+
+
+def test_build_recs_input_v10_empty_cases():
+    """RAG cold (cases 빈 array) — degradation_cases = [], 다른 필드 정상."""
+    out = build_recs_input_v10(_SAMPLE_ROW, [], "2025-07-01", "외장", "외장 frame")
+    assert out["degradation_cases"] == []
+    assert out["today"]["frame_category"] == "외장"
+
+
+def test_build_recs_input_v10_missing_optional_fields():
+    """forecast_row 에 일부 optional 필드 누락 → KeyError 없음 (defensive)."""
+    minimal = {
+        "company": "co",
+        "l6_main": "wp",
+        # main_unit, assessment, risk_level, today_productivity 등 미포함
+    }
+    out = build_recs_input_v10(minimal, [], "2025-07-01", "일반", "일반 frame")
+    assert out["today"]["main_unit"] is None
+    assert out["today"]["forward_delay_days"] is None
+    assert out["today"]["mh_gap"] is None
 
 
 def test_recs_prompt_has_keyword_schema():

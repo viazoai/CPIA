@@ -522,3 +522,101 @@ WP (공종) 의 메타데이터 + 현재 예상 완료일 (조치 없을 때) + 
   "pessimistic": {"expected_completion": "YYYY-MM-DD", "recovery_days": N, "delta_days": -N, "rationale": "..."}
 }
 """
+
+
+# ---------------------------------------------------------------------------
+# §6.9 build_*_input_v10 — trade_frame + delay 두 차원 + mh_gap inject (2026-05-27 Task 12)
+# ---------------------------------------------------------------------------
+
+
+def build_recs_input_v10(
+    forecast_row: dict,
+    degradation_cases: list[dict],
+    today_date: str,
+    frame_category: str,
+    frame_text: str,
+) -> dict:
+    """RECS_PROMPT_V10 LLM 입력 빌드.
+
+    Spec §4.2.4. PoC v10 payload 구조 그대로:
+    - today: 오늘 데이터 + 평가 두 차원 (assessment + risk_level) + delay 두 차원 + mh_gap + frame_category
+    - trade_frame: 공종 고유 사고 프레임 텍스트 (lookup_frame 결과)
+    - degradation_cases: 최근 5건 비슷한 저하 사례
+    """
+    return {
+        "today": {
+            "date": today_date,
+            "company": forecast_row["company"],
+            "l6_main": forecast_row["l6_main"],
+            "main_unit": forecast_row.get("main_unit"),
+            "assessment": forecast_row.get("assessment"),
+            "risk_level": forecast_row.get("risk_level"),
+            "today_productivity": forecast_row.get("today_productivity"),
+            "today_conditions": forecast_row.get("today_conditions", ""),
+            "frame_category": frame_category,
+            "forward_delay_days": forecast_row.get("delay_days"),
+            "point_in_time_delay_days": forecast_row.get("point_in_time_delay_days"),
+            "mh_gap": forecast_row.get("mh_gap"),
+        },
+        "trade_frame": frame_text,
+        "degradation_cases": [
+            {
+                "date": c["date"],
+                "conditions": c["conditions"],
+                "productivity": c["productivity"],
+                "activities": c["activities"],
+                "recovery_days": c["recovery"]["recovery_days"],
+            }
+            for c in (degradation_cases or [])
+        ],
+    }
+
+
+def build_diag_input_v10(
+    forecast_row: dict,
+    degradation_cases: list[dict],
+    today_date: str,
+    frame_category: str,
+    frame_text: str,
+    recs_out: list[dict],
+) -> dict:
+    """DIAG_PROMPT_V10 LLM 입력 빌드.
+
+    recs_out: RECS_PROMPT_V10 결과의 recommendations array. DIAG 가 진단에 참조.
+    """
+    base = build_recs_input_v10(forecast_row, degradation_cases, today_date, frame_category, frame_text)
+    base["recommendations"] = recs_out or []
+    return base
+
+
+def build_scenarios_input_v10(
+    forecast_row: dict,
+    no_action_ec: str | None,
+    recovery_distribution: dict,
+    degradation_cases: list[dict],
+    frame_category: str,
+    frame_text: str,
+) -> dict:
+    """SCENARIOS_PROMPT_V10 LLM 입력 빌드. 기존 build_scenarios_llm_input 확장.
+
+    추가: frame_category + trade_frame text (G8 강화 — 공종 고유 회복 전략 rationale).
+    """
+    return {
+        "wp": {
+            "company": forecast_row.get("company"),
+            "l6_main": forecast_row.get("l6_main"),
+            "l7_5_activity": forecast_row.get("l7_5_activity"),
+            "frame_category": frame_category,
+        },
+        "trade_frame": frame_text,
+        "no_action_expected_completion": no_action_ec,
+        "recovery_distribution": recovery_distribution,
+        "degradation_cases": [
+            {
+                "date": c.get("date"),
+                "recovery_days": c.get("recovery", {}).get("recovery_days"),
+                "conditions": c.get("conditions"),
+            }
+            for c in (degradation_cases or [])
+        ],
+    }

@@ -24,7 +24,7 @@
   - `web/app/(app)/export/page.tsx` — 좌측 일자 list + 우측 4 시트 탭 화면
   - `web/app/components/export/ConsolidatedReportCard.tsx` — 4 시트 탭 + Export 다운로드 버튼
 - **미시행 (선행 cycle 의 backlog #R-N2)**: `ConsolidatedReportCard.handleExport` 가 여전히 정적 `/sample/cpia-consolidated-report.xlsx` fallback. FastAPI `/export/run` 호출 swap 안 됨.
-- **선행 Critical 이슈 #N21**: `/export/run` 매 요청마다 PGClient 새로 만듦 (`os.environ["POSTGRES_URL"]`) — lifespan pool 미재사용.
+- **선행 Medium 이슈 #N21** (deep-dive #N21, Medium 등급): `/export/run` 매 요청마다 PGClient 새로 만듦 (`os.environ["POSTGRES_URL"]`) — lifespan pool 미재사용.
 
 ### 1.2 선행 cycle 의 D-6 / D-9 결정 — 본 cycle 의 변경 의도
 
@@ -35,7 +35,7 @@
 - **D-6 retract**: Exporter 를 LangGraph 노드로 편입. CLAUDE.md 원안 (`Atomizer → Exporter ‖ Forecaster`) 토폴로지 회귀.
 - **D-9 유지**: `reporter.py` 그대로. exporter 는 별 노드 / 별 PATH.
 - **선행 #R-N2 해소**: B_Track 의 `handleExport` swap 본 cycle 에 포함.
-- **선행 #N21 자연 해소**: `/export/run` 의 `request.app.state.pg` 사용 (E-2 변경의 부수 효과).
+- **선행 #N21 부분 해소**: `/export/run` 핸들러의 `request.app.state.pg` 사용 (E-2 변경의 부수 효과) — **HTTP path 만** 해소. exporter 그래프 노드 자체는 다른 graph 노드 (`collector_node` / `mapper_node` 등) 와 동일하게 `state["postgres_url"]` 로 PGClient 매 cycle 생성 (graph 노드는 FastAPI Request 못 받음). 노드측 pool 공유는 별 cycle 의 graph-wide refactor 사안.
 
 ### 1.3 사용자 의도 (본 brainstorming)
 
@@ -53,7 +53,7 @@ PoC 데모 마감 = 2026-06-05 (목), D-9.
 - graph cycle 마다 통합 xlsx 사전생성 → `consolidated_reports` PG BYTEA 테이블 UPSERT
 - `Atomizer → Exporter ‖ Forecaster` fan-out 토폴로지 (CLAUDE.md 원안)
 - `/export/run` 의 hybrid 동작: cache hit → 즉시 응답, miss → live render fallback (E-2)
-- 선행 cycle 의 #N21 (lifespan PG pool 미재사용) 자연 해소 — `request.app.state.pg`
+- 선행 cycle 의 #N21 (Medium, lifespan PG pool 미재사용) 의 **HTTP path 만** 자연 해소 — `request.app.state.pg`. 노드측은 선행 collector_node 패턴 유지
 - 선행 cycle 의 #R-N2 (B_Track UI swap) 본 cycle 에 포함
 - 시연 임팩트: tasks 페이지의 Agent stage progress 에 Exporter stage 노출
 - 단위 / 통합 테스트 (LLM bypass, 결정론적)
@@ -240,22 +240,25 @@ COMMENT ON TABLE consolidated_reports IS
 설계 디테일:
 - `(site_id, report_date)` PK → `ON CONFLICT` UPSERT 자연
 - `byte_size` GENERATED COLUMN — 운영 모니터링 (비정상 row 탐지)
-- `is_mock` — 선행 7 테이블 (`sites` / `daily_reports` / `forecasts` / `optimizer_advice` / `mapping_corrections` / `mapper_activities` / `mapped_history`) 일관성 + seed mock backfill (D-11) 식별
+- `is_mock` — 선행 8 테이블 (sites 선행 존재 + 2026-05-20 마이그로 추가된 7개: `pipeline_runs` / `parser_reports` / `parser_activities` / `mapper_activities` / `forecasts` / `optimizer_advice` / `daily_reports` — `infra/postgres/migrations/2026-05-20_add_is_mock.sql` 참조) 일관성 + seed mock backfill (D-11) 식별
 - `run_id` FK pipeline_runs — 마지막 write cycle audit
 - index 2 (date DESC + run_id) — UI list / audit 양 path 커버
 
 ### 6.2 `pipeline/state.py` 변경
 
 ```python
-class CPIAState(TypedDict, total=False):
-    # ... 기존 필드 유지 (선행 cycle D-12 의 4 필드 포함) ...
+# pipeline/state.py:226 — class CPIAState(TypedDict):  (total=True, 기본값)
+# 선행 cycle 의 D-12 4 필드 (bp_name / project / message_id / postgres_url) 가 이미
+# 같은 total=True 에 끼워넣어진 패턴. 본 cycle 도 동일 패턴.
+class CPIAState(TypedDict):
+    # ... 기존 필드 유지 (선행 D-12 의 4 필드 포함) ...
 
     # (D-7) exporter_node 산출 meta — bytes 는 박지 않음 (PostgresSaver checkpoint 폭증 방지)
     consolidated_xlsx_run_id: str          # str(uuid.UUID)
     consolidated_xlsx_generated_at: str    # ISO 8601 (datetime.utcnow().isoformat()+"Z")
 ```
 
-`total=False` 라 미설정 cycle (예: CLI 진입, 회귀 테스트) 호환 OK.
+`TypedDict` 는 정적 타입 관점에선 `total=True` 가 모든 키 필수지만, **런타임은 dict** 라 absent 키 안전 (선행 D-12 의 `message_id` / `postgres_url` 도 CLI 진입 시 absent 패턴으로 사용). 본 cycle 의 신 필드 2개도 CLI / 회귀 테스트 진입에서 absent 호환.
 
 ### 6.3 `pipeline/db.py` helper 추가
 
@@ -330,8 +333,11 @@ async def consolidated_xlsx_node(state: CPIAState) -> dict[str, Any]:
     4) state 에 meta 만 박음 (D-7 bytes 는 안 박음 — checkpoint 폭증 방지)
 
     예외 처리:
-      - NoDataError (자기 cycle parser INSERT 실패 등 희박): log + skip UPSERT, return {}
-        → exporter path 만 조용히 END. reporter path 정상.
+      - NoDataError: log + skip UPSERT, return {}
+        발현 조건 = site×date 의 cold-start (seed 미적용 + 그 어떤 run 도 진입 안 함).
+        graph 흐름상 자기 cycle 의 parser_reports INSERT 는 atomizer 도달 전에 끝나므로
+        (graph.py:594~597 collector → parser → mapper → hil_1 → atomizer 순서) 자기 run 데이터는
+        항상 존재. NoDataError 는 D-11 seed backfill 이 누락된 site×date 의 첫 cycle 에서만 가능.
       - render_xlsx 또는 PG 예외: raise → exporter path 'failed'. reporter path 와 별개.
     """
     site_id = state["site_id"]
@@ -468,7 +474,7 @@ async def lifespan(app: FastAPI):
 
 | 시나리오 | exporter 노드 | cycle | UI |
 |---|---|---|---|
-| 자기 cycle parser INSERT 실패 (희박) | NoDataError catch → log + skip UPSERT | exporter path 만 END, reporter 정상 → 'completed' | `/export/run` cache miss → live render fallback |
+| site×date 의 cold-start (seed 미적용 + 어떤 run 도 진입 안 함) | NoDataError catch → log + skip UPSERT | exporter path 만 END, reporter 정상 → 'completed' | `/export/run` cache miss → live render도 NoData → 400 |
 | `render_xlsx` openpyxl 예외 | raise → exporter path 'failed' | reporter 와 별개 | cache miss → fallback 도 예외 → 500 |
 | PG drop on UPSERT | raise → exporter path 'failed' | reporter 정상 → 'completed' | cache miss → fallback OK |
 | race (자기 fetch 시점 다른 cycle parser 진행 중) | 부분 합집합 → stale row | UPSERT atomic, last write wins | 다음 cycle 자동 회복 (D-6 EC) |
@@ -559,7 +565,9 @@ async def lifespan(app: FastAPI):
 - **T3**: `pytest tests/test_exporter_node.py -v` — fetch_sheet_data mock + render_xlsx mock + upsert assert + NoDataError skip path 4건 PASS
 - **T4**: `pytest tests/test_graph_dual_end.py -v` — fan-out + 양 path END + cycle 'completed' + exporter 실패 시 reporter 'completed' 4건 PASS
 - **T5**: `pytest tests/test_exporter_endpoint.py -v` — hit path + miss path + 404 + 400 + 500 5건 PASS. `request.app.state.pg` 호출 검증
-- **T9**: 실 메일 도착 → graph cycle 'completed' → `consolidated_reports` row 존재 + `/export/run` cache hit + UI 다운로드 정상
+- **T7** (수반 — UI): `curl http://localhost:8000/api/agents/status` 응답에 Exporter stage entry 존재 + tasks 페이지 visual 확인 — Agent stage progress 에 Exporter 가 시각적으로 노출
+- **T8** (수반 — B_Track swap): `npm run dev` (port 5536) → export 페이지 진입 → 다운로드 버튼 클릭 → Chrome DevTools Network 탭에서 `/export/run?site_id=...&date=...` 요청 보임 + 200 응답 + `통합작업일보_2025-09-25.xlsx` 파일명 다운로드 + openpyxl 로 열어 4 시트 검증
+- **T9**: 실 메일 도착 → graph cycle 'completed' → `psql -c "SELECT site_id, report_date, byte_size, generated_at FROM consolidated_reports ORDER BY generated_at DESC LIMIT 5"` 으로 row 존재 검증 → `curl -o /tmp/test.xlsx 'http://localhost:8000/export/run?site_id=m15x-ph3-ibl&date=2025-09-25'` cache hit 응답 검증 (X-Cache 헤더 등 없으니 raw_headers 의 content-disposition 한글 + bytes 200 확인) → UI 다운로드 정상 + Agent stage progress 7단계 확인
 
 ---
 
@@ -616,8 +624,8 @@ async def lifespan(app: FastAPI):
 
 - **PG advisory lock 추가 여부**: D-6 의 EC 정책이 PoC 충분 — 하지만 1줄이라 보험으로 추가할 가치 평가. implementation 단계에서 `tests/test_graph_dual_end.py` 의 race 시나리오 실행 후 stale 발생 빈도 측정 → 빈번 시 보험 추가
 - **`_AGENTS_META` 의 Exporter stage 표시 위치**: tasks 페이지에서 Forecaster 와 같은 row 의 다른 칸 (병렬 표시) vs Reporter 다음 row (linear 표시). 시연자 의도 확인 — 본 cycle 의 시각화 폴리시 결정
-- **`consolidated_xlsx_generated_at` 의 timestamp 정확도**: 현 spec `_dt.utcnow().isoformat()+"Z"` — Python 시각. PG `generated_at` 컬럼 (NOW()) 과 ~수십 ms drift 가능. UI 노출 정밀도 결정
-- **seed mock backfill 의 `consolidated_reports.is_mock=true` 처리**: `/api/mock/consolidated` (BFF mock) 와 `/export/run` (실 endpoint) 의 데이터 분리 정책
+- **UI 가 노출할 timestamp 선택**: PG 컬럼 `consolidated_reports.generated_at` (NOW() — PG 시각) vs state meta `consolidated_xlsx_generated_at` (Python `_dt.utcnow()` — graph 노드 시각). 두 값 둘 다 보존됨 (drift ~수십 ms 무관). 단순 표시 선택 사항.
+- **노드 PG 접근 패턴 graph-wide refactor (별 cycle)**: 현재 `collector_node` / `consolidated_xlsx_node` 등 일부 노드가 `state["postgres_url"]` 로 PGClient 매 cycle 새로 생성. `mapper_node` / `atomizer_node` 등은 `build_graph(cfg)` 의 cfg 클로저 패턴. 두 패턴 공존 — graph 전체 일관성 위해 cfg 클로저 또는 lifespan pool 공유 (예: cfg 안에 pool 핸들 박기) 로 통일 검토. **본 cycle 범위 밖 — 신 노드 (`consolidated_xlsx_node`) 는 선행 `collector_node` 와 동일 패턴 (state[postgres_url]) 채택**.
 
 ---
 

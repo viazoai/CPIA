@@ -1,139 +1,206 @@
 {
-  "generated_at": "2026-05-19T00:00:00Z",
-  "cycle_name": "tasks-scope-G2-verification",
-  "skill_first_use": "data-contract-mapping",
-  "git_sha_fe": "a8d5c8c",
-  "git_sha_be": "a83ec7d",
-  "git_branch_be": "A_Track",
-  "git_branch_fe": "main",
-  "scope": "tasks scope (G-2) 정합 검증 cycle. A_Track Phase 4 11/11 endpoint GREEN 후 `/api/tasks` (api.py:1022) vs G-2 카탈로그 결정 line-by-line 검증. 6 mismatch + 7 BE-T backlog + 3 신규 결정 (옵션 Y evolve, mapped_history.trade 신설, pipeline_runs UPDATE path D-17). main pull (#23 DB migration + API contract spec, #24 /reports v3, #25 /dashboard fleet) 후 baseline.",
-  "previous_cycle_2026_05_18": "fe-be-bridge-delta-and-decisions — PR #19/#20/#22 흡수 + 10 gap 명시 + 9 신규 결정 (D-3 EWMA 드랍 / WPSummary grain triplet / mapped_history / wp_id 산식 / tasks BE 정합 / item status 5 치 BE / optimizer 배열 / hil_1 resume / G-3~G-9 일괄). git SHA d9eb603.",
+  "generated_at": "2026-05-26T00:00:00Z",
+  "cycle_name": "post-mock-redesign-and-site-summary",
+  "skill_used": ["data-contract-mapping", "deep-dive", "design-intent"],
+  "git_sha_fe": "1ba783f",
+  "git_sha_be": "1ba783f",
+  "git_branch": "A_Track",
+  "previous_snapshot_sha": "a83ec7d",
+  "previous_snapshot_date": "2026-05-22",
+  "commits_since_previous": 70,
+  "files_changed": 204,
+  "lines_inserted": 30151,
+  "lines_deleted": 3055,
+  "scope": "전수 재갱신 — Mock 재설계 PR #40 + AWS 마이그 + view_builder MEDIAN + backfill_v2 --with-summary + ForecastChart catch-up + site_summary LLM cycle. baseline a83ec7d → HEAD 1ba783f. 70+ commits 흡수.",
+  "previous_cycles": [
+    "2026-05-19: tasks-scope-G2-verification — A_Track Phase 4 11/11 endpoint GREEN, 6 mismatch + 7 BE-T backlog + 3 신규 결정 D-15~D-17",
+    "2026-05-18: fe-be-bridge-delta-and-decisions — PR #19/#20/#22 흡수, 10 gap + 9 신규 결정",
+    "2026-05-17: fe-be-bridge brainstorming — D-1~D-14 14 결정"
+  ],
   "fe_catalog": {
-    "types_total": 33,
-    "types_scoped": 26,
-    "types_excluded": ["SimulationSequence (dead)", "DiagnosisInput (preview-only)", "Status alias", "Persona alias", "DiagStatus alias", "RecoveryEstimate (internal)"],
-    "types_new_2026_05_18": ["WPSummaryRow (§5 신규)", "ProductivityDiagnosis (13 field)", "ScenarioPoint", "DailyTask", "AgentStageProgress", "AgentTaskItem"],
-    "fields_total": 190,
+    "types_total": 48,
+    "types_previous": 33,
+    "types_delta": 15,
+    "fields_total_approx": 220,
+    "fields_previous": 190,
+    "fields_delta_approx": 30,
     "fixtures_total": 10,
+    "fixtures_pg_swap_completed": 8,
     "pages_total": 8,
-    "lib_utilities": 5
+    "lib_utilities": 5,
+    "fe_only_issues_total": 11,
+    "new_types_this_cycle": [
+      "ScenarioPoint.catch_up: { date: string; percent: number } | undefined",
+      "ReportDetail.site_summary_text: string | null",
+      "ForecastChart props 4 신규 (scenarios / reportDate / aiAdvice / aiSummaryText)",
+      "bar-filters.ts 모듈 신규"
+    ],
+    "fe_md_loc": 683
   },
   "be_catalog": {
-    "db_tables_user": 7,
-    "db_columns_user": 105,
-    "db_tables_langgraph_auto": 4,
-    "db_columns_langgraph_auto": 12,
-    "db_tables_stash_2026_05_19": 3,
-    "db_columns_stash_2026_05_19": 40,
-    "db_columns_schema_changes_2026_05_19": 1,
-    "jsonb_keys": 33,
-    "state_attrs": 17,
-    "agent_output_fields": 90,
-    "db_py_helpers": 21,
-    "fastapi_endpoints_green": 11,
-    "be_catalog_changes_2026_05_18": "PR #19 흡수 — Reporter agent 신규 (161 lines) + checkpointer.py _LazyAsyncPostgresSaver + db.py helpers 2 (insert_mapping_correction / insert_daily_report). api-contract.md 신규 source 인지 (PG↔types.ts 매핑 + 8 endpoint 명세).",
-    "be_catalog_changes_2026_05_19": "A_Track Phase 4 11/11 endpoint GREEN — FastAPI 11 endpoint 구현 (api.py 1050 lines, hil_1_resume + sites + runs/optimizer + runs/wp_summary + sites/reports + dashboard/performance + dashboard/impact + agents/status + sites/wbs_tree + tasks). stash 신설 인프라 3 테이블 (parser_reports/parser_activities/mapper_activities, 옵션 Y path). mapped_history.trade 신설 (D-16). pipeline_runs UPDATE helper 2 신설 (D-17)."
+    "db_tables_user": 17,
+    "db_tables_stash": 4,
+    "db_tables_collector_inbox_new": 1,
+    "db_tables_langgraph_ckpt": 3,
+    "db_tables_total": 23,
+    "db_rows_total_catalogued": 316,
+    "db_jsonb_views_in_daily_reports": 9,
+    "fastapi_endpoints_total": 12,
+    "fastapi_endpoints_new_this_cycle": 1,
+    "exporter_route_loc": 47,
+    "db_py_loc": 1229,
+    "api_py_loc": 1073,
+    "view_builder_loc": 1929,
+    "site_summary_loc": 141,
+    "state_py_loc": 310,
+    "be_only_issues_total": 21,
+    "new_sources_this_cycle": [
+      "collector_inbox 테이블 (5-19 migration, Gmail IMAP dedup)",
+      "daily_reports.site_summary_text 컬럼 (★ migration 파일 없음 — 이슈 #N13)",
+      "mapper_activities.l5_disc / l7_sub / l7_5_activity / sub_work_area 4 컬럼 (5-23 migration)",
+      "mapped_history.trade 컬럼 (5-19 migration, ★ atomizer INSERT 누락 — 이슈 #C3)",
+      "7 테이블 is_mock boolean (5-20 migration)",
+      "POST /export/run endpoint (exporter_routes.py)",
+      "api.py lifespan collector idle_loop task + app.include_router(exporter_router)",
+      "daily_reports.scenarios_jsonb (이전 cycle 흡수, percentile 4)",
+      "mapper_activities.alternatives JSONB GIN",
+      "sites.hours_saved_cum + update_site_hours_saved_cum",
+      "Chroma daily_activities HNSW M/ef 확대 (effect 없음 — get_or_create_collection 한계)"
+    ],
+    "be_md_loc": 1043
   },
   "crosswalk": {
-    "fe_fields_mapped": 190,
-    "high": 80,
-    "medium": 50,
-    "low": 25,
-    "tbd": 35
+    "fe_fields_mapped_total": 220,
+    "confidence": {
+      "high": 115,
+      "medium": 38,
+      "low": 26,
+      "tbd": 0
+    },
+    "this_cycle_marking": {
+      "new": 23,
+      "changed": 10,
+      "drift": 6
+    },
+    "forecast_chart_4lines_mapped": true,
+    "integrity_questions_total": 15,
+    "crosswalk_md_loc": 596
   },
   "gaps": {
-    "fe_only": 10,
-    "be_only": 6,
-    "mismatch": 9,
-    "gap_list_2026_05_18": [
-      "G-1 WPSummaryRow 9 field (BE source 신규)",
-      "G-2 DailyTask + AgentStageProgress + AgentTaskItem (tasks BE 산출)",
-      "G-3 WBSNode (recursive tree, /review)",
-      "G-4 ReportDaily (/reports 좌측 일자 리스트)",
-      "G-5 DashboardFixture.performance.fleet_kpi 4 field",
-      "G-6 ImpactSiteDistribution 4 field",
-      "G-7 AgentStatus 동적 (active_count + state)",
-      "G-8 D-12 OptimizerOutput 배열 (FE 단일 mismatch 해결)",
-      "G-9 s_curve 산식 정의 보류 (계획 MH 누적 + 실적 mapped_history + 회복 forecaster 가공)",
-      "G-10 hil_1 resume api-contract §3.8 (BE 구현 0 lines)"
+    "fe_only": {
+      "total": 11,
+      "new_this_cycle": 5,
+      "carried": 5,
+      "changed": 1
+    },
+    "be_only": {
+      "total": 9,
+      "new_this_cycle": 5,
+      "carried": 4
+    },
+    "mismatch": {
+      "total": 16,
+      "new_this_cycle": 11,
+      "carried": 4,
+      "changed": 1
+    },
+    "decisions_pending": 12,
+    "decisions_critical_before_demo": 5,
+    "decisions_next_cycle": 7,
+    "gaps_md_loc": 533
+  },
+  "user_decisions_cumulative": {
+    "catalog_phase_d1_to_d14": 14,
+    "2026_05_18_cycle": 9,
+    "2026_05_19_cycle": 3,
+    "this_cycle_new": 0,
+    "total_resolved": 26,
+    "pending_this_cycle": 12
+  },
+  "critical_before_demo_2026_06_05": [
+    {
+      "id": "D-1 / C-1 / #N13",
+      "area": "persistence",
+      "desc": "daily_reports.site_summary_text migration sql 부재 — commit 21c10f7 runtime ALTER 만, sql 파일 없음, fresh DB rebuild 시 UndefinedColumnError",
+      "fix_loc": "infra/postgres/migrations/2026-05-26_daily_reports_site_summary.sql (5 LOC ALTER)",
+      "recommendation": "즉시 적용"
+    },
+    {
+      "id": "D-2 / C-3",
+      "area": "atomizer + persistence",
+      "desc": "mapped_history.trade atomizer INSERT 누락 — 컬럼 신설 (5-19 migration) vs db.py:478~487 SET 절 + atomizer.py:130 INSERT path 양쪽 trade 미박힘. 사용자 D-16 (억지 매핑 금지) 위반",
+      "fix_loc": "atomizer.py + db.py (5 LOC)",
+      "recommendation": "즉시 적용"
+    },
+    {
+      "id": "D-3 / C-2",
+      "area": "persistence",
+      "desc": "/export/run ad-hoc PG pool — exporter_routes.py:23~34 가 매 요청마다 PGClient(...).connect() 신규 풀, 시연 동시 다운로드 시 PG 연결 고갈",
+      "fix_loc": "exporter_routes.py Depends(get_pg) 주입 (10 LOC)",
+      "recommendation": "즉시 적용"
+    },
+    {
+      "id": "D-4",
+      "area": "optimizer",
+      "desc": "site_summary live optimize() 미연결 — backfill_v2 --with-summary 만 호출, live 일보 site_summary_text NULL → FE 룰베이스 fallback",
+      "options": "(가) optimize() 안에 호출 추가 (7 site × 1 LLM call ~$0.5) (나) backfill_v2 only 유지",
+      "recommendation": "시연 화면이 site_summary 핵심이면 (가)"
+    },
+    {
+      "id": "D-5",
+      "area": "optimizer",
+      "desc": "productivity_jsonb v1 ↔ v2 drift — agent.py:187 v1 EVM vs backfill v2 wv-median, 같은 컬럼 다른 shape",
+      "options": "(가) v1 제거 v2 일원화 (나) v1 유지",
+      "recommendation": "v2 일원화 (drift 해소)"
+    }
+  ],
+  "next_cycle_pending": [
+    "D-6: reporter → exporter 파일명 rename (CLAUDE.md 약속 vs 실 코드)",
+    "D-7: B_Track exporter FE swap (NEXT_PUBLIC_FASTAPI_BASE + ConsolidatedReportCard.tsx)",
+    "D-8: ForecastChart firstUndef 정순 vs diagnose() todayIdx 역순 정합",
+    "D-9: wp_id 포맷 통일 (FE 2 컴포넌트 vs BE 3 컴포넌트 triplet)",
+    "D-10: scenarios P25/P75 라벨↔값 swap 명시 또는 fix",
+    "D-11: CPIA_HIL_AUTO_BYPASS prod 가드",
+    "D-12: HIL2 AUTO_BYPASS env"
+  ],
+  "files": {
+    "INDEX.md": {"loc": 250, "purpose": "마스터 매핑 요약 + gap 카운트 + 결정 게이트"},
+    "frontend_catalog.md": {"loc": 683, "purpose": "FE type / fixture / page / component / lib 인벤토리"},
+    "backend_catalog.md": {"loc": 1043, "purpose": "DB schema 23 테이블 + 9 jsonb + state + agent + endpoint"},
+    "crosswalk.md": {"loc": 596, "purpose": "3 면 표 FE field × BE source × derived rule + confidence"},
+    "gaps.md": {"loc": 533, "purpose": "3 분류 (FE only / BE only / Mismatch) + 결정 게이트"},
+    "sim_results.md": {"loc": 80, "purpose": "정합 시뮬레이션 — 본 cycle 미갱신 (backlog)"},
+    "db-runtime-catalog.md": {"loc": 290, "purpose": "실 PG row sample dump — 본 cycle 미갱신 (backlog)"}
+  },
+  "pair_skills_outputs": {
+    "deep_dive": {
+      "architecture_overview": "deep-dive/architecture_overview.md (415 줄)",
+      "subsystem_deep_dives": "deep-dive/deep_dive_*.md × 8 (5705 줄 합계)",
+      "updated_at": "2026-05-26"
+    },
+    "design_intent": {
+      "index": "deep-dive/design-intent/INDEX.md (425 줄)",
+      "subsystem_cards": "deep-dive/design-intent/design_intent_*.md × 8 (4048 줄 합계)",
+      "meta": "deep-dive/design-intent/_meta.json",
+      "updated_at": "2026-05-26"
+    }
+  },
+  "completion_gate": {
+    "frontend_catalog_exists": true,
+    "backend_catalog_exists": true,
+    "crosswalk_all_fe_fields_rowed": true,
+    "gaps_3_categories": true,
+    "index_headline_decisions": true,
+    "meta_git_sha_matches_head": true,
+    "fe_be_location_grep_verified": "subagent 가 file:line grep 통과 보고 (각 카탈로그 5+ row 무작위 sample)"
+  },
+  "last_checked_at": "2026-05-26T00:00:00Z",
+  "demo_deadline": "2026-06-05",
+  "working_tree_status": {
+    "modified": ["pipeline/agents/optimizer/view_builder.py (1 줄, 다른 세션, v2 trade 필터 제거)"],
+    "untracked": [
+      "docs/superpowers/plans/2026-05-21-cpia-collector-env-bootstrap.md",
+      "pipeline/scripts/"
     ]
-  },
-  "decisions_resolved": [
-    {"id": "D-1", "topic": "sites.last_run_id update path", "decision": "graph END node + db.update_site_last_run helper"},
-    {"id": "D-2", "topic": "pipeline_runs.status update path", "decision": "각 node 진입 시 db.update_run_status helper 호출"},
-    {"id": "D-3", "topic": "ProductivityDiagnosis 13 fields", "decision": "본 cycle scope 밖 (future cycle: BE EWMA 정합 후 adapter)"},
-    {"id": "D-4", "topic": "ChatMessage source", "decision": "본 cycle mock 유지 (future: Hybrid DB derive)"},
-    {"id": "D-5", "topic": "SitesSummary cumulative 3 fields (yearly_saving / total_processed / total_hours_saved_cum)", "decision": "mock 유지 (hard-code)"},
-    {"id": "D-6", "topic": "checkpoint state 읽기 path", "decision": "graph.aget_state(thread_id=run_id)"},
-    {"id": "D-7", "topic": "ai_mapped_path PoC fallback", "decision": "'{l5_disc} > {l6_main} > {wa}' (wa 를 leaf)"},
-    {"id": "D-8", "topic": "SitesSummary.today_count 단위", "decision": "activity 단위 — SUM(pipeline_runs.atomized_count WHERE report_date=today)"},
-    {"id": "D-9", "topic": "AgentStatus 정적 메타 source", "decision": "BE FastAPI hard-code 반환 (단일 source of truth)"},
-    {"id": "D-10", "topic": "OptimizerOutput shape adapter", "decision": "similar_cases.{description=conditions+activities, outcome=recovery_days}; recommendations text only sorted by rank"},
-    {"id": "D-11", "topic": "RawDataRow.equipment source", "decision": "API layer가 EquipmentAllocation join (company 일치 equipment_big list comma-join)"},
-    {"id": "D-12", "topic": "ReportDetail.optimizer N rows", "decision": "FE type 변경 → optimizer: OptimizerOutput[]"},
-    {"id": "D-13", "topic": "SCurvePoint time-series source", "decision": "plan-only derive (activity_master.plan_*), actual = sites.actual_progress 단일 점. historical 누적은 future"},
-    {"id": "D-14", "topic": "forecasts assessment vs risk_level", "decision": "endpoint 응답에 risk_level 만 노출 (의미 중복, spec 전반 risk_level 일관)"}
-  ],
-  "decisions_resolved_2026_05_18": [
-    {"slug": "decisions/cpia-d3-ewma-drop-2026-05-18", "topic": "D-3 ProductivityDiagnosis 결정 변경", "decision": "EWMA 드랍 — BE 안 만듦. FE diagnosis-adapter.ts mock 영구. D-3-followup status: dropped"},
-    {"slug": "decisions/cpia-wpsummary-grain-2026-05-18", "topic": "G-1 Q1 WPSummaryRow grain", "decision": "(wa, l6_main, company) triplet — forecasts.wa 컬럼 추가 + Forecaster agent group_by 재구조"},
-    {"slug": "decisions/cpia-wpsummary-progress-path-2026-05-18", "topic": "G-1 Q2 progress_pct 누적 today_qty path", "decision": "mapped_history 신규 PG 테이블 — Atomizer INSERT + FastAPI SELECT. row 수 ~2000 (시뮬 검증)"},
-    {"slug": "decisions/cpia-wpsummary-wpid-formula-2026-05-18", "topic": "G-1 Q3 wp_id 산식", "decision": "f'{wa}-{slug(l6_main)}-{slug(company)}' triplet 명시. mock fixture 재생성 필요"},
-    {"slug": "decisions/cpia-tasks-page-be-formulas-2026-05-18", "topic": "G-2 /tasks 페이지 정합", "decision": "DailyTask.total_count = WP group 수 (mapped_history) + AgentStageProgress.received/processed = 방향 A (BE 활동 단계별 산출). 두 결정 통합. mock 영구 결정 REVISED"},
-    {"slug": "decisions/cpia-tasks-item-status-2026-05-18", "topic": "G-2 AgentTaskItem.status 5 치", "decision": "BE 5 치 산출 (FE 시각화 chip/색상/아이콘 그대로). processing / blocked 정의는 BE 협의 사항"},
-    {"slug": "decisions/cpia-optimizer-array-grain-2026-05-18", "topic": "G-8 D-12 OptimizerOutput 배열", "decision": "BE 배열 응답 + FE OptimizerOutput[] 수신. PG row grain 그대로 흐름. D-12 카탈로그 결정의 실 구현 확정"},
-    {"slug": "decisions/cpia-hil1-resume-connection-2026-05-18", "topic": "G-10 hil_1 resume 연결", "decision": "api-contract.md §3.8 명세 그대로 + FE 가 corrections 객체 변환 산식 추가 (~30 lines). BE FastAPI 구현 (현재 0 lines) 필요"},
-    {"slug": "decisions/cpia-six-gaps-decisions-2026-05-18", "topic": "G-3~G-9 일괄 결정", "decision": "G-3 WBSNode + G-4 ReportDaily + G-5 fleet_kpi + G-6 site_distribution + G-7 AgentStatus 동적 = BE 연결. G-9 s_curve 산식 정의 다음 cycle 보류"}
-  ],
-  "decisions_future": [
-    {"id": "D-4-followup", "topic": "ChatMessage Hybrid (DB derive)", "trigger": "본 cycle (FastAPI + BFF) 완결 + 시연 후"},
-    {"id": "D-3-followup-REVISED", "topic": "ProductivityDiagnosis BE adapter", "status": "dropped 2026-05-18", "note": "EWMA 드랍 결정 — BE endpoint 안 만듦. FE adapter mock 영구. [[cpia-d3-ewma-drop-2026-05-18]]"},
-    {"id": "G-9-followup", "topic": "s_curve BE 가공 산식 정의", "trigger": "BE 구현 cycle Phase 0 합의 — 계획 MH 누적 + 실적 mapped_history + 회복 forecaster 가공", "note": "사용자 의도 명시 — 데이터 있지만 FE 형식 가공 단계 미정의"}
-  ],
-  "mock_kept": [
-    "MiddleOfficeAutomation 4 rows (정적, BE scope 밖)",
-    "ImpactTrendPoint (월별 cumulative_fte, historical 미보유)",
-    "AgentWorkflow.COUNTS (FE 하드코딩, step 별 today/total)",
-    "NotificationBell.MOCK_NOTIFS (FE 하드코딩, 3 알림)",
-    "UserMenu.USERS (FE 하드코딩, persona 별 user info)",
-    "daily_reports.report_md (FE 노출 X, 추후 viewer 추가 시)",
-    "ProductivityDiagnosis 13 field — D-3 EWMA 드랍 (2026-05-18), FE diagnosis-adapter.ts 영구 mock",
-    "ForecastChart 의 예측 / 회복 곡선 — FE adapter mock 영구 (D-3 정합)"
-  ],
-  "feedback_memory_2026_05_18": [
-    "옵션·결정 자연어 설명 의무 — 함수명/코드 형식만 나열 X. UI 어디 쓰이는지 + 의도 + BE 산식 자연어로 풀어 설명",
-    "FE↔BE 공식 차이 일원화 의무 — 억지 매핑 금지. 한 쪽으로 공식 통일. 5단계 분석 의무",
-    "사용자 의도 — FE 시각화/디자인 요소 절대 X. BE 가 FE 기획 따라가야 함"
-  ],
-  "decisions_resolved_2026_05_19": [
-    {"slug": "decisions/cpia-tasks-stage-source-y-2026-05-19", "topic": "G-2 AgentStageProgress source evolve (옵션 X → Y)", "decision": "received/processed source = PG row count (parser_reports/parser_activities/mapper_activities + atomized_count/forecasts/optimizer_advice). 기존 옵션 X (LangGraph state checkpoint) 폐기. PoC 단순화: LangGraph batch 안 % 추적 불가 → percent binary 0/100"},
-    {"slug": "decisions/cpia-mapped-history-trade-column-2026-05-19", "topic": "D-16 mapped_history.trade TEXT 컬럼 신설", "decision": "AgentTaskItem.trade FE 의도 (한글 공종 Activity.trade str) 와 BE 현 구현 (mapped_history.l6_main, WBS 매핑 후 카테고리) 의미 다름. migration sql `2026-05-19_mapped_history_trade.sql` 신규 + atomizer.py:130 mh_rows 생성 시 trade 박기"},
-    {"slug": "decisions/cpia-run-status-update-path-2026-05-19", "topic": "D-17 pipeline_runs UPDATE path 신설 (D-2 구현)", "decision": "db.py 에 update_run_status(run_id, status) + update_run_current_node(run_id, node) 2 helper 추가. graph.py 의 mapper_node / hil_1_node / atomizer_node / reporter_node / forecaster_node / hil_2_node / optimizer_node 진입 시 호출. progress_percent / waiting_hil / DailyTask.status BE 산식의 source 확정"}
-  ],
-  "be_implementation_backlog_2026_05_19": [
-    {"id": "BE-T1", "scope": "api.py:853-887 _TASKS_SQL.total_count", "change": "COUNT(*) FROM pipeline_runs → COUNT(DISTINCT (wa,l6_main,company)) FROM mapped_history"},
-    {"id": "BE-T2", "scope": "db.py + graph.py 모든 노드", "change": "current_node UPDATE path 신설 (D-17 helper 호출)"},
-    {"id": "BE-T3", "scope": "api.py:871-875 status 매핑", "change": "waiting_hil_1/waiting_hil_2 → review_pending 추가, failed 잘못 매핑 제거"},
-    {"id": "BE-T4", "scope": "api.py:922-960 _build_progress_by_date", "change": "received/processed = 옵션 Y SQL (단계별 PG row count) 로 정정"},
-    {"id": "BE-T5", "scope": "api.py:956 waiting_hil 하드코드", "change": "(pipeline_runs.status IN waiting_hil_*) AND is_hil 로 fix"},
-    {"id": "BE-T6", "scope": "infra/postgres/migrations/2026-05-19_mapped_history_trade.sql 신규 + atomizer.py:130", "change": "mapped_history.trade TEXT 컬럼 + Atomizer INSERT 시 박기 (D-16)"},
-    {"id": "BE-T7", "scope": "api.py:963-1019 _build_items_by_date", "change": "itemsByDate[date][agent_name] 분배 로직 — current_node 라우팅 + status 3 치 BE 산출"}
-  ],
-  "outputs": {
-    "catalog_files": [
-      "data-contract/INDEX.md",
-      "data-contract/frontend_catalog.md",
-      "data-contract/backend_catalog.md",
-      "data-contract/crosswalk.md",
-      "data-contract/gaps.md",
-      "data-contract/_meta.json",
-      "data-contract/db-runtime-catalog.md (untracked, 2026-05-18 stash pop)"
-    ],
-    "design_spec": "docs/superpowers/specs/2026-05-17-cpia-fe-be-bridge-design.md",
-    "schema_migrations_2026_05_19": [
-      "infra/postgres/migrations/2026-05-19_mapped_history_trade.sql (D-16 신설)"
-    ],
-    "implementation_plan": "(다음 BE 구현 cycle — writing-plans skill 산출, BE-T1~BE-T7)"
-  },
-  "last_checked_at": "2026-05-19T00:00:00Z"
+  }
 }

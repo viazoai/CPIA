@@ -42,15 +42,7 @@ from pipeline.agents.optimizer.prompt import (
     build_scenarios_llm_input,
 )
 from pipeline.agents.optimizer.view_builder import (
-    _build_contractor_bars,
-    _build_kpi,
-    _build_optimizer_view,
-    _build_productivity_views,
-    _build_quadrant,
-    _build_s_curve,
-    _build_scenarios,
-    _build_trade_bars,
-    _build_wp_summary,
+    _build_productivity_views_v2,
 )
 from pipeline.db import PGClient
 
@@ -343,39 +335,25 @@ async def optimize(
         for row in advice_rows:
             await pg.insert_optimizer_advice(row)
 
-        # view builder 8 jsonb 산출 + daily_reports partial UPSERT
+        # view builder 9 jsonb 산출 + daily_reports partial UPSERT
+        # 2026-05-27 Task 15 (#N19): v2 일원화 — backfill_v2 와 동일 산식 source.
+        # v2 가 kpi/productivity/contractor_bars/trade_bars/quadrant/wp_summary/
+        #        optimizer_view/scenarios/s_curve 9 키를 번들로 산출.
+        # advice_rows 는 직전 insert_optimizer_advice() 로 PG 영속화 — v2 가 PG SELECT
+        # 로 advice 재조회하여 optimizer_view/scenarios 산출 (deterministic).
         if site_id:
             try:
-                productivity = await _build_productivity_views(pg, run_id, site_id, today, forecast, mapped)
-                quadrant = await _build_quadrant(pg, site_id, today, productivity)
-                # wa_lookup: (l6_main, company) → DISTINCT wa list (NULL 제외).
-                # spec §8.3 — quadrant dot 의 wp_id 와 by_wp key 매칭 보장 (fan-out).
-                wa_rows = await pg._pool.fetch(
-                    """
-                    SELECT l6_main, company,
-                           array_agg(DISTINCT wa) FILTER (WHERE wa IS NOT NULL) AS wa_list
-                    FROM mapper_activities
-                    WHERE run_id = $1
-                    GROUP BY l6_main, company
-                    """,
-                    run_id,
-                )
-                wa_lookup = {
-                    (r["l6_main"], r["company"]): list(r["wa_list"] or [])
-                    for r in wa_rows
-                }
+                v2_result = await _build_productivity_views_v2(pg, site_id, today)
                 view_jsonbs = {
-                    "productivity_jsonb": productivity,
-                    "kpi_jsonb": await _build_kpi(pg, site_id, today, productivity),
-                    "contractor_bars_jsonb": _build_contractor_bars(productivity),
-                    "trade_bars_jsonb": _build_trade_bars(productivity),
-                    "quadrant_jsonb": quadrant,
-                    "wp_summary_jsonb": await _build_wp_summary(pg, site_id, today, productivity, quadrant),
-                    "s_curve_jsonb": await _build_s_curve(pg, site_id, today),
-                    "optimizer_view_jsonb": _build_optimizer_view(
-                        advice_rows, forecast, mapped, wa_lookup=wa_lookup
-                    ),
-                    "scenarios_jsonb": _build_scenarios(advice_rows, forecast),
+                    "productivity_jsonb": v2_result.get("productivity", {}),
+                    "kpi_jsonb": v2_result.get("kpi", {}),
+                    "contractor_bars_jsonb": v2_result.get("contractor_bars", []),
+                    "trade_bars_jsonb": v2_result.get("trade_bars", []),
+                    "quadrant_jsonb": v2_result.get("quadrant", []),
+                    "wp_summary_jsonb": v2_result.get("wp_summary", []),
+                    "s_curve_jsonb": v2_result.get("s_curve", []),
+                    "optimizer_view_jsonb": v2_result.get("optimizer_view", {}),
+                    "scenarios_jsonb": v2_result.get("scenarios", {}),
                 }
                 for col, val in view_jsonbs.items():
                     try:

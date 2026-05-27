@@ -124,7 +124,8 @@ CLAUDE.md (`feedback_no_design_change.md`) — FE layout/style/markup 변경 시
 | `pipeline/agents/optimizer/agent.py` | `_call_azure_llm` 2단계 (recs → diag). scenarios 별도 호출. retry 정책 추가 |
 | `pipeline/agents/optimizer/site_summary.py` | SYSTEM_PROMPT_V10 (G8 + frame_category 인용). build_site_summary_payload 에 frame_category 포함 |
 | `pipeline/agents/optimizer/view_builder.py` | (a) wp_summary.status = forecasts.risk_level 인용 (b) **v2 일원화 (#N19)** — `agent.py:219` live LangGraph node 도 `_build_productivity_views_v2` 호출 (live demo cycle 영향 — Section 4.5.4 E2E 에서 검증) (c) line 1447 trade 필터 안전망 (#N17) (d) `view_builder.py:1904 _build_deterministic_cold_start` 폐기 — 호출 분기 삭제 후 cases<3 도 LLM path |
-| `infra/postgres/migrations/2026-05-27_report_redesign.sql` | `daily_reports.site_summary_text` + `forecasts.point_in_time_delay_days` |
+| `infra/postgres/migrations/2026-05-27_daily_reports_site_summary_text.sql` (pre-existing, commit `21c10f7`) | `daily_reports.site_summary_text` |
+| `infra/postgres/migrations/2026-05-27_forecasts_point_in_time_delay_days.sql` (Task 1, commit `0329f0f`) | `forecasts.point_in_time_delay_days` |
 | `scripts/backfill_optimizer_advice_llm.py` | `DEFAULT_TRADES = ('건축','토목')` 안전망 + retry 정책 |
 
 #### FE 변경 (2 파일)
@@ -330,14 +331,18 @@ status = {"정상": "normal", "주의": "caution", "이상": "risk"}.get(
 
 #### 4.2.7 Migration + db.py INSERT 확장
 
-**SQL migration**:
+**SQL migration** (실 구현은 sibling 두 파일로 분할 — 단일 책임 + COMMENT ON COLUMN 보강):
+
 ```sql
--- 2026-05-27_report_redesign.sql
+-- infra/postgres/migrations/2026-05-27_daily_reports_site_summary_text.sql (commit 21c10f7)
 ALTER TABLE daily_reports
   ADD COLUMN IF NOT EXISTS site_summary_text TEXT;
+COMMENT ON COLUMN daily_reports.site_summary_text IS '...writer/reader path...';
 
+-- infra/postgres/migrations/2026-05-27_forecasts_point_in_time_delay_days.sql (commit 0329f0f, Task 1)
 ALTER TABLE forecasts
   ADD COLUMN IF NOT EXISTS point_in_time_delay_days INTEGER;
+COMMENT ON COLUMN forecasts.point_in_time_delay_days IS '...산식 + writer/reader...';
 ```
 
 **`db.py:insert_forecast` 확장** (28 → 29 컬럼, $29 placeholder 추가):
@@ -591,7 +596,9 @@ backfill_daily_report_views_v2 --date 2025-07-01 --with-summary
 
 ### 5.1 Pre-flight
 
-1. SQL migration 적용: `psql < 2026-05-27_report_redesign.sql` (idempotent, metadata-only)
+1. SQL migration 적용 (sibling 2 파일, idempotent, metadata-only):
+   - `psql -f infra/postgres/migrations/2026-05-27_daily_reports_site_summary_text.sql`
+   - `psql -f infra/postgres/migrations/2026-05-27_forecasts_point_in_time_delay_days.sql`
 2. `data/trade_frames.json` commit
 3. PoC v10 결과 commit (Reference: `/tmp/poc_v10_keyword_schema.py`)
 4. 코드 변경 commit (atomic 단위로 — db/atomizer/aggregate/prompt/agent/view_builder/seed/backfill 분리)

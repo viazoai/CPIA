@@ -43,6 +43,7 @@ from pipeline.agents.optimizer.prompt import (
 )
 from pipeline.agents.optimizer.view_builder import (
     _build_productivity_views_v2,
+    _build_scenarios,
 )
 from pipeline.db import PGClient
 
@@ -353,7 +354,9 @@ async def optimize(
                     "wp_summary_jsonb": v2_result.get("wp_summary", []),
                     "s_curve_jsonb": v2_result.get("s_curve", []),
                     "optimizer_view_jsonb": v2_result.get("optimizer_view", {}),
-                    "scenarios_jsonb": v2_result.get("scenarios", {}),
+                    # 2026-05-27 Task 15 fix: scenarios 는 LLM rich rationale 보존 (G8 trade_frame
+                    # 고유 회복 전략). 다른 8 jsonb 는 v2 deterministic (#N19 일원화).
+                    "scenarios_jsonb": _build_scenarios(advice_rows, forecast),
                 }
                 for col, val in view_jsonbs.items():
                     try:

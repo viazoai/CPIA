@@ -503,7 +503,7 @@ async def lifespan(app: FastAPI):
 - `AWS 마이그` — `scripts/aws_backup_and_migrate.py` 가 pg_dump 자동, `consolidated_reports` 도 같이 dump/restore
 
 **영향 검증 필요 (테스트로 보장)**:
-- **PostgresSaver checkpoint** — state 신 필드 2개 (`total=False` 호환), checkpoint resume 시 신 필드 None — 안전. 회귀: 새 graph cycle 실행 + interrupt + resume + 끝까지
+- **PostgresSaver checkpoint** — state 신 필드 2개 (TypedDict total=True 지만 런타임 dict 라 absent 키 안전 — §6.2 참조), checkpoint resume 시 신 필드 None — 안전. 회귀: 새 graph cycle 실행 + interrupt + resume + 끝까지
 - **graph dual-END** — LangGraph multi-end 시 cycle 'completed' 판단. `tests/test_graph_dual_end.py` 신규 — fan-out 양 path 모두 END 도달 + 한 path 실패 시 cycle 거동
 
 **잠재 영향 (선택적 작업, 본 cycle 권장)**:

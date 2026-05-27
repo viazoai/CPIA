@@ -12,11 +12,7 @@ from typing import Optional, Tuple
 
 _DATA_PATH = Path(__file__).resolve().parents[3] / "data" / "trade_frames.json"
 _DATA = json.loads(_DATA_PATH.read_text(encoding="utf-8"))
-FALLBACK = (
-    "일반",
-    "본 공종은 건축·토목 카테고리 외이므로 일반 공정 관점에서 진단합니다. "
-    "단위 생산성 + 계획 진척 + MH 효율 3 차원 균형을 본다.",
-)
+FALLBACK = ("일반", "단위 생산성·계획 진척·MH 효율 3 차원 균형을 본다.")
 
 
 def lookup_frame(l6_main: Optional[str]) -> Tuple[str, str]:

@@ -280,9 +280,16 @@ export default function ReportPage() {
                     .map((w) => {
                       const o = by_wp[w.wp_id];
                       if (!o) return null;
-                      const recs = (o.recommendations ?? []).map((r: any) =>
-                        typeof r === "string" ? r : r.text ?? ""
-                      ).filter(Boolean);
+                      // 2026-05-27 Task 22 후속: V10 schema (keyword/action/reason) 인식.
+                      // 옛 string + 옛 {text} + V10 {keyword, action, reason} 셋 다 합성.
+                      const recs = (o.recommendations ?? []).map((r: any) => {
+                        if (typeof r === "string") return r;
+                        if (r.text) return r.text;
+                        if (r.keyword && r.action) {
+                          return `[${r.keyword}] ${r.action}${r.reason ? ` (이유: ${r.reason})` : ""}`;
+                        }
+                        return "";
+                      }).filter(Boolean);
                       const dg = o.diagnosis && o.diagnosis !== "cold_start" ? o.diagnosis : undefined;
                       if (recs.length === 0 && !dg) return null;
                       const wpScen = wpScenarios[w.wp_id];

@@ -565,12 +565,16 @@ async def seed_day(
     am_list: list[dict[str, Any]],
     chroma_cfg: Optional[dict[str, Any]] = None,
     chroma_only: bool = False,
+    trades: Optional[list[str]] = None,
 ) -> dict[str, int]:
     """단일 일자 적재. return: counts dict.
 
     chroma_cfg None  → PG 만 (기존 동작).
     chroma_cfg dict  → PG + Chroma sample 일자 (_chroma_should_seed 충족 시).
     chroma_only True → PG INSERT skip, Chroma 만 (T4 용).
+    trades None      → trade filter 비활성 (기존 동작 보존).
+    trades list      → 해당 trade row 만 mapper_rows 에 append. (2026-05-27 Task 19:
+                       사용자 의도 — 적재 단계에서 건축·토목 외 trade row 자체를 차단.)
     """
     run_id = _date_run_id(d)
 
@@ -583,6 +587,10 @@ async def seed_day(
         rng = _seeded_rng(rng_seed_prefix + "|".join(str(k) for k in key) + f"|{i}")
         r = _build_mapper_row(d, am, anchor_row, rng)
         if r is not None:
+            # 2026-05-27 Task 19: trade filter — 적재 단계 차단 (사용자 의도).
+            # trades None 이면 filter 비활성 (회귀 0). list 면 trade not in trades → skip.
+            if trades is not None and r.get("trade") not in trades:
+                continue
             mapper_rows.append(r)
     n_active = len(mapper_rows)
     if n_active == 0:
@@ -867,13 +875,20 @@ async def amain() -> None:
     p.add_argument(
         "--pg-url", type=str, default=os.environ.get("POSTGRES_URL", DEFAULT_PG_URL)
     )
+    p.add_argument(
+        "--trades",
+        nargs="+",
+        default=["건축", "토목"],
+        help="적재할 trade list (default: 건축 토목). 사용자 의도: 시연 윈도우 trade 좁히기.",
+    )
     args = p.parse_args()
 
     start = date.fromisoformat(args.start)
     end = date.fromisoformat(args.end)
     print(
         f"=== seed_dummy_year: {start} ~ {end} "
-        f"(chroma_on={args.chroma_on}, mode={args.chroma_mode}, chroma_only={args.chroma_only}) ==="
+        f"(chroma_on={args.chroma_on}, mode={args.chroma_mode}, chroma_only={args.chroma_only}, "
+        f"trades={args.trades}) ==="
     )
 
     # Chroma cfg build (--chroma-on 또는 --chroma-only 일 때만)
@@ -957,6 +972,7 @@ async def amain() -> None:
                 am_list,
                 chroma_cfg=chroma_cfg,
                 chroma_only=args.chroma_only,
+                trades=args.trades,
             )
             for k, v in counts.items():
                 totals[k] = totals.get(k, 0) + v

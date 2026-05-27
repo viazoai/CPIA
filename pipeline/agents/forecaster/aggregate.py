@@ -129,7 +129,15 @@ def compute_delay(
     else:
         remaining_qty = max(0.0, plan_total_qty_main - actual_cum_qty)
         avg_pace_qty = actual_cum_qty / window_days if window_days > 0 else 0.0
-        pace = avg_pace_qty if avg_pace_qty > 0 else today_qty_main
+        # 2026-05-27 Task 4: plan_per_day_qty 정의 + pace floor — over-pessimistic 방지
+        # (spec §4.2.3). avg_pace_qty=0 인 케이스에서 today_qty_main 만 쓰면 오늘 값이
+        # 비현실적으로 작을 때 pace 가 폭락해 delay 가 300~800일 까지 튐. floor 로
+        # 일평균 계획의 30% 를 minimum 보장.
+        plan_per_day_qty = plan_total_qty_main / total_days if total_days > 0 else 0.0
+        if avg_pace_qty > 0:
+            pace = avg_pace_qty
+        else:
+            pace = max(today_qty_main, plan_per_day_qty * 0.3)
         if pace > 0:
             remaining_days = remaining_qty / pace
             expected_completion = today + timedelta(days=round(remaining_days))

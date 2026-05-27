@@ -12,7 +12,7 @@
 
 **Branch:** `A_Track`. baseline SHA = `b38d667` (spec iteration 2 final).
 
-**다른 세션 충돌 영역 (read-only)**: `data-contract/`, `deep-dive/`, `pipeline/agents/optimizer/view_builder.py`, `pipeline/chroma_client.py`. 본 plan 의 변경 영역 (`graph.py` / `state.py` / `db.py` / `exporter.py` / `exporter_routes.py` / `api.py:_AGENTS_META` / `scripts/seed_dummy_year.py` / `infra/postgres/migrations/` / `pipeline/tests/` / `web/app/components/export/` / `web/lib/transforms.ts`) 와 직접 충돌 0.
+**다른 세션 충돌 영역 (read-only)**: `data-contract/`, `deep-dive/`, `pipeline/agents/optimizer/view_builder.py`, `pipeline/chroma_client.py`. 본 plan 의 변경 영역 (`graph.py` / `state.py` / `db.py` / `exporter.py` / `exporter_routes.py` / `api.py:_AGENTS_META` / `scripts/seed_dummy_year.py` / `infra/postgres/migrations/` / `pipeline/tests/` / `web/app/(app)/export/page.tsx` / `web/app/components/export/ConsolidatedReportCard.tsx`) 와 직접 충돌 0. `web/lib/transforms.ts` 는 Exporter mapping 이미 존재 (line 154 등) — 본 cycle 변경 X.
 
 **Iron Law:** "Real code or no claim". 각 task 의 "done" = (a) 실 명령 실행 + (b) 실 출력 원본 인용 + (c) 의미적 검증. 추측 / 통과할 것 / no-op 같은 표현 금지.
 
@@ -34,7 +34,8 @@
 - `pipeline/exporter_routes.py` — 핸들러 본문 변경 + `_build_xlsx_response` helper 분리
 - `pipeline/api.py` — `_AGENTS_META` 에 Exporter entry 추가 (1 entry)
 - `scripts/seed_dummy_year.py` — `_backfill_consolidated_reports` 신 함수 append + 호출 1줄
-- `web/lib/transforms.ts` — Agent stage mapping 에 Exporter 추가
+- `web/lib/transforms.ts` — verify only (Exporter mapping 이미 존재, line 23/154/157/158/394 — 본 cycle 변경 X)
+- `web/app/(app)/export/page.tsx` — ConsolidatedReportCard 에 `siteId` prop 전달 (PoC 단일 site 하드코드)
 - `web/app/components/export/ConsolidatedReportCard.tsx` — `handleExport` 본문 swap (정적 fallback → `/export/run`)
 - `web/.env.local.example` — `NEXT_PUBLIC_FASTAPI_BASE` 추가
 
@@ -887,7 +888,9 @@ async def test_topology_atomizer_has_two_outgoing_edges() -> None:
 
 (NOTE: `test_exporter_failure_does_not_break_reporter_path` 는 LangGraph multi-end 의 fault-isolation 거동이 버전 의존이라 — pass / skip 양쪽 거동 capture. 거동 B (single-failure-fails-cycle) 면 spec §7.1 의 "exporter path 만 'failed'" 가정이 무너지므로 spec 재논의 필요. **시연 risk 의 핵심 검증 포인트**.)
 
-**LangGraph 거동 사전 확정 게이트 (Step 1.5 — 신규)**: 위 테스트 작성 후 즉시 **실 LangGraph 호출 1회** 로 거동 capture:
+- [ ] **Step 1.5: LangGraph 거동 사전 확정 게이트 (신규)**
+
+위 테스트 작성 직후 즉시 **실 LangGraph 호출 1회** 로 multi-end fault isolation 거동 capture. 본 게이트는 spec §7.1 / D-8 의 핵심 가정 검증 — fail-fast 거동이면 spec 재논의:
 ```bash
 PYTHONPATH=. python3 -c "
 import asyncio, uuid
@@ -1319,17 +1322,17 @@ Spec: §7.4 / §8.1 T6"
 
 **Files:**
 - Modify: `pipeline/api.py:662` — `_AGENTS_META` 에 Exporter entry 추가
-- Modify: `web/lib/transforms.ts` — Agent stage mapping 에 Exporter 추가 (필요 시)
+- Verify only: `web/lib/transforms.ts` — Exporter mapping 이미 존재 (변경 X, Step 4 참조)
 
 **의도:** tasks 페이지의 Agent stage progress 에 Exporter 노출 — (B-1) 선택 동기 (시연 임팩트 "AI Agent 가 자동으로 통합 빌드 완료") 실현.
 
 - [ ] **Step 1: `pipeline/api.py:_AGENTS_META` 확인**
 
 ```bash
-sed -n '660,710p' pipeline/api.py
+sed -n '660,725p' pipeline/api.py
 ```
 
-기존 7 agent (Collector / Parser / Mapper / Atomizer / Forecaster / Optimizer / Reporter) entry 의 schema 파악 — 각 entry 의 키 (name / order / description 등).
+기존 7 agent (Collector / Parser / Mapper / Atomizer / **Reporter / Forecaster / Optimizer**) entry. 실 schema 키 = `{step, name, korean_name, description, model, group}`. 순서는 Reporter(5) 가 Forecaster(6) / Optimizer(7) 앞 — group "collect"(step 1-4) → "analyze"(step 5-7) 전환 직후 첫 entry.
 
 - [ ] **Step 2: Exporter entry 추가**
 
@@ -1521,7 +1524,7 @@ npm run dev  # port 5536
    ```
    Expected: `['1.출력인원 현황', '2.직종별 인원현황', '3.장비현황', '4.물량']`
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add web/app/\(app\)/export/page.tsx web/app/components/export/ConsolidatedReportCard.tsx web/.env.local.example
@@ -1750,7 +1753,8 @@ pkill -f "uvicorn pipeline.api:app" || true
 
 본 plan 의 변경 영역:
 - **신규 only** (충돌 0): `infra/postgres/migrations/2026-05-27_consolidated_reports.sql`, `pipeline/tests/test_db_consolidated_reports.py`, `pipeline/tests/test_exporter_node.py`, `pipeline/tests/test_graph_dual_end.py`, `docs/exporter-graph-integration-e2e-report-*.md`
-- **변경 라인 최소** (다른 세션 read-only 영역과 충돌 없음): `pipeline/db.py` (append), `pipeline/state.py` (2 줄), `pipeline/agents/exporter.py` (append, 기존 fn 변경 0), `pipeline/graph.py` (4 줄), `pipeline/exporter_routes.py` (본문), `pipeline/api.py` (_AGENTS_META 1 entry), `scripts/seed_dummy_year.py` (append), `web/lib/transforms.ts` (~5 줄), `web/app/components/export/ConsolidatedReportCard.tsx` (~10 줄), `web/.env.local.example` (1 줄)
+- **변경 라인 최소** (다른 세션 read-only 영역과 충돌 없음): `pipeline/db.py` (append), `pipeline/state.py` (2 줄), `pipeline/agents/exporter.py` (append, 기존 fn 변경 0), `pipeline/graph.py` (4 줄), `pipeline/exporter_routes.py` (본문), `pipeline/api.py` (_AGENTS_META 1 entry), `scripts/seed_dummy_year.py` (append), `web/app/(app)/export/page.tsx` (siteId prop 전달 ~2줄), `web/app/components/export/ConsolidatedReportCard.tsx` (~10 줄), `web/.env.local.example` (1 줄)
+- **변경 X (verify only)**: `web/lib/transforms.ts` — Exporter mapping 이미 존재
 
 다른 세션이 작업 중인 `data-contract/`, `deep-dive/`, `pipeline/agents/optimizer/view_builder.py`, `pipeline/chroma_client.py` 와 **직접 충돌 0**.
 

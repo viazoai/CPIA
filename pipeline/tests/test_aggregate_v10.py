@@ -1,4 +1,4 @@
-"""Task 4·5 (2026-05-27): pace floor + delay cap unit tests.
+"""Task 4·5·6 (2026-05-27): pace floor + delay cap + point_in_time deficit unit tests.
 
 spec: docs/superpowers/specs/2026-05-27-cpia-report-redesign-design.md §4.2.3
 의도:
@@ -8,6 +8,11 @@ spec: docs/superpowers/specs/2026-05-27-cpia-report-redesign-design.md §4.2.3
 
   Task 5 — pace floor 적용 후에도 raw delay 가 클 수 있어 추가 cap 필요.
   cap = total_days × 1.0 → delay 가 wp 자체 기간을 초과하지 못함.
+
+  Task 6 — point_in_time_delay_days 차원 추가.
+  forward delay (남은 양 / 페이스) 와 별개로 "그 날짜의 누계 부족분 / 일평균 계획"
+  을 산출. 진단 LLM (DIAG_PROMPT_V10) 이 사용자에게 "왜 지연 N일 산출됐는지"
+  보조 설명용으로 인용.
 """
 
 from __future__ import annotations
@@ -138,3 +143,115 @@ def test_delay_cap_total_days():
     # pace floor 적용 후도 delay_raw 큼 → cap 적용
     assert out["delay_days"] is not None
     assert out["delay_days"] <= 21, f"delay cap 미적용: delay_days={out['delay_days']} > 21 (total_days)"
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Task 6 — point_in_time_delay_days
+# spec: 2026-05-27-cpia-report-redesign-design.md §4.2.3
+#   plan_qty_to_date = min(plan_per_day_qty × today_offset, plan_total_qty_main)
+#   deficit_qty      = max(0, plan_qty_to_date - actual_cum_qty)
+#   point_in_time_delay_days = round(deficit_qty / plan_per_day_qty)
+# 의도: forward delay 와 별개 차원 ("오늘 시점 누계 부족이 며칠치인지").
+# ────────────────────────────────────────────────────────────────────────────
+
+
+def test_point_in_time_deficit_normal():
+    """30일 30루베 plan, 15일째 실 7루베 → deficit 7 = 7일."""
+    plan = {
+        "plan_start": date(2025, 6, 1),
+        "plan_finish": date(2025, 6, 30),  # total_days = 30
+        "plan_mh_sum": 100.0,
+    }
+    out = compute_delay(
+        plan=plan,
+        today=date(2025, 6, 15),
+        actual_window_start=date(2025, 6, 1),
+        actual_cum_mh=50.0,
+        actual_cum_qty=7.0,
+        plan_total_qty_main=30.0,
+        today_qty_main=0.5,
+    )
+    # plan_per_day_qty = 30/30 = 1.0
+    # today_offset = (2025-06-15 - 2025-06-01).days = 14
+    # plan_qty_to_date = min(1.0 × 14, 30.0) = 14
+    # deficit = max(0, 14 - 7) = 7
+    # point_in_time = round(7 / 1.0) = 7
+    assert out["point_in_time_delay_days"] == 7
+
+
+def test_point_in_time_before_plan_start():
+    """today < plan_start → point_in_time = 0 (today_offset <= 0)."""
+    plan = {
+        "plan_start": date(2025, 7, 1),
+        "plan_finish": date(2025, 12, 30),
+        "plan_mh_sum": 100.0,
+    }
+    out = compute_delay(
+        plan=plan,
+        today=date(2025, 6, 30),
+        actual_window_start=date(2025, 6, 30),
+        actual_cum_mh=0.0,
+        actual_cum_qty=0.0,
+        plan_total_qty_main=10.0,
+        today_qty_main=0.0,
+    )
+    assert out["point_in_time_delay_days"] == 0
+
+
+def test_point_in_time_after_plan_finish():
+    """today > plan_finish → plan_qty_to_date cap (plan_total_qty_main) 작동."""
+    plan = {
+        "plan_start": date(2025, 5, 1),
+        "plan_finish": date(2025, 5, 31),  # total_days = 31
+        "plan_mh_sum": 100.0,
+    }
+    out = compute_delay(
+        plan=plan,
+        today=date(2025, 6, 15),
+        actual_window_start=date(2025, 5, 1),
+        actual_cum_mh=80.0,
+        actual_cum_qty=8.0,
+        plan_total_qty_main=10.0,
+        today_qty_main=0.3,
+    )
+    # plan_per_day_qty = 10 / 31 ≈ 0.3226
+    # today_offset = (2025-06-15 - 2025-05-01).days = 45
+    # plan_qty_to_date = min(0.3226 × 45 ≈ 14.5, 10.0) = 10.0  ← cap 적용
+    # deficit = max(0, 10 - 8) = 2
+    # point_in_time = round(2 / 0.3226) ≈ 6
+    assert out["point_in_time_delay_days"] > 0
+
+
+def test_point_in_time_no_qty_returns_zero():
+    """plan_total_qty_main is None → point_in_time_delay_days = 0 (안전 처리)."""
+    plan = {
+        "plan_start": date(2025, 6, 1),
+        "plan_finish": date(2025, 6, 30),
+        "plan_mh_sum": 100.0,
+    }
+    out = compute_delay(
+        plan=plan,
+        today=date(2025, 6, 15),
+        actual_window_start=date(2025, 6, 1),
+        actual_cum_mh=50.0,
+        actual_cum_qty=0.0,
+        plan_total_qty_main=None,
+        today_qty_main=0.0,
+    )
+    assert "point_in_time_delay_days" in out
+    assert out["point_in_time_delay_days"] == 0
+
+
+def test_point_in_time_no_plan_returns_zero():
+    """plan is None → dict 에 point_in_time_delay_days 키 포함, 값 0."""
+    out = compute_delay(
+        plan=None,
+        today=date(2025, 6, 15),
+        actual_window_start=None,
+        actual_cum_mh=0.0,
+        actual_cum_qty=0.0,
+        plan_total_qty_main=None,
+        today_qty_main=0.0,
+    )
+    assert "point_in_time_delay_days" in out
+    assert out["point_in_time_delay_days"] == 0

@@ -1302,7 +1302,9 @@ def _build_scenarios(advice_rows: list[dict], forecast: list[dict]) -> dict:
         else:
             by_wp[wp_id] = _wp_block_deterministic(advice, wp_no_action)
 
-    # site = by_wp 의 집계 (no_action 은 max ec, 나머지는 median recovery_days)
+    # site = by_wp 의 집계 (no_action 은 max ec, 나머지는 sum recovery_days)
+    # 2026-05-28: median → sum 변경 (사용자 의도: "a공종 2일+b공종 1일+c공종 2일=5일").
+    # 모든 advice 있는 wp 의 recovery_days 단순 합. 사용자가 산출 근거 직접 추적 가능.
     def _site_slot(slot_key: str) -> dict:
         items = [b[slot_key] for b in by_wp.values() if b.get(slot_key)]
         if not items:
@@ -1315,12 +1317,11 @@ def _build_scenarios(advice_rows: list[dict], forecast: list[dict]) -> dict:
         ecs = [_coerce_date(it.get("expected_completion")) for it in items]
         ecs = [e for e in ecs if e is not None]
         max_ec = max(ecs) if ecs else None
-        recoveries = sorted(int(it.get("recovery_days") or 0) for it in items)
-        median_rec = recoveries[len(recoveries) // 2] if recoveries else 0
+        sum_rec = sum(int(it.get("recovery_days") or 0) for it in items)
         return {
             "expected_completion": max_ec.isoformat() if max_ec else None,
-            "recovery_days": median_rec,
-            "delta_days": -median_rec if slot_key != "no_action" else 0,
+            "recovery_days": sum_rec,
+            "delta_days": -sum_rec if slot_key != "no_action" else 0,
             "case_count": len(items),
         }
 

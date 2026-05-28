@@ -175,7 +175,7 @@ export function BackgroundSection() {
             Construction Site — 3-Layer Structure
           </div>
 
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-3" data-stagger>
             {LAYERS.map((l) => {
               const Icon = l.icon;
               return (
@@ -273,7 +273,7 @@ export function BackgroundSection() {
           <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink-light">
             Pain Points — 현장 Activity 전수 조사 데이터 기반
           </div>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4" data-stagger>
             {PAINS.map((p, i) => {
               const Icon = p.icon;
               return (

@@ -27,7 +27,7 @@ export function LandingHero() {
       />
 
       <div className="mx-auto max-w-wrap px-6 pb-40 pt-28 md:px-10 md:pb-56 md:pt-36">
-        <div className="grid items-center gap-12 md:grid-cols-2 md:gap-16">
+        <div className="grid items-center gap-12 md:grid-cols-2 md:gap-16" data-stagger>
         {/* LEFT — copy */}
         <div className="relative z-10">
           {/* Badge */}

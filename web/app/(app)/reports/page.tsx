@@ -41,7 +41,13 @@ export default function ReportPage() {
       .then((r) => r.json())
       .then((d) => {
         setDaily(d.daily);
-        if (d.daily.length > 0) setSelectedDate(d.daily[0].date);
+        // 2026-05-28: URL ?date= 우선 + fallback list[0] (사용자 navigate 의도 보존)
+        const urlDate = new URLSearchParams(window.location.search).get("date");
+        if (urlDate && /^\d{4}-\d{2}-\d{2}$/.test(urlDate)) {
+          setSelectedDate(urlDate);
+        } else if (d.daily.length > 0) {
+          setSelectedDate(d.daily[0].date);
+        }
       });
   }, []);
 
@@ -54,7 +60,7 @@ export default function ReportPage() {
       return;
     }
     let cancelled = false;
-    fetch(`/api/mock/report/${selectedDate}`)
+    fetch(`/api/mock/report/${selectedDate}`, { cache: "no-store" })
       .then((r) => r.json())
       .then((d: ReportDetail) => {
         if (cancelled) return;

@@ -1111,6 +1111,8 @@ def _build_optimizer_view(
                     recommendations.append(str(r))
             else:
                 recommendations.append(str(r))
+        # 2026-05-28: LLM 우회 (4건 출력) 차단 — wp 당 최대 3건 trim (사용자 의도: 1-2건 default, 복잡 시 3건).
+        recommendations = recommendations[:3]
 
         # 6칸 details
         rp = advice.get("recovery_pattern") or []

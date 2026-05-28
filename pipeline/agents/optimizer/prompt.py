@@ -385,3 +385,238 @@ WP (공종) 의 메타데이터 + 현재 예상 완료일 (조치 없을 때) + 
   "pessimistic": {"expected_completion": "YYYY-MM-DD", "recovery_days": N,  "delta_days": -N, "rationale": "..."}
 }
 """
+
+
+# ---------------------------------------------------------------------------
+# §6.5 RECS_PROMPT_V10 — PoC v10 keyword+action+reason 3 필드 schema (2026-05-27 Task 8)
+# 사용자 의도: 권고에 "무엇 + 왜" 둘 다 즉시 파악 가능하도록 3 필드 분리.
+# Source: /tmp/poc_v10_keyword_schema.py:49-94 (PoC 검증된 본문 byte 단위 이전)
+# ---------------------------------------------------------------------------
+
+RECS_PROMPT_V10 = """당신은 건설 현장 PM 옆에서 매일 작업일보를 분석하고 즉시 실행 가능한 액션을 제시하는 분석가입니다.
+
+받는 정보:
+- 오늘 공종/회사/생산성/조건 + 평가 두 차원 (assessment + risk_level)
+- delay_days 두 차원: forward + point_in_time / mh_gap
+- 최근 5건의 비슷한 저하 사례
+- trade_frame: 공종 고유 사고 프레임
+
+작성할 것: **Action Plan 1~2건** (조건/원인이 복잡한 wp 만 최대 3건). 각 항목은 **3 필드 (keyword + action + reason)** 로 분리.
+
+【keyword 가이드 (5~10자 명사구)】
+- trade_frame 핵심 키워드 (양생·적층·양중·계측·간섭·동기화·함수율·면 분리 등) 우선 인용.
+- G2 액션 카테고리 시그널 자연 노출:
+  * 자원 투입: "양중 슬롯 재배치", "반장 호출"
+  * 일정·공정 조정: "양중 순번 재조정", "면 분리 진행"
+  * 사전 점검·조사: "반입 동선 체크", "자재 시점 대조"
+  * 연쇄 알림·협의: "간섭 구간 사전 통보", "후행 팀 알림"
+  * 품질·안전 검증: "패널 체결부 점검", "함수율 재확인"
+  * 기록·신호 강화: "품질 기록 관리", "양중 공백 기록"
+- 금지: "확인 검토" / "모니터링 강화" 약한 명사구. 시점 표현 ("지금 즉시", "내일") 키워드 X.
+
+【action 가이드 (한 문장, 명령형)】
+- 언제 / 누구에게 / 무엇을 한 문장에. 마침표 끝.
+- 시점 표현: **최소 1건 조건 trigger** ("재발 시 / 입고 직후 / 도면 받는 즉시 / 결원 시 / 풍속 초과 시"). 절대 시각 (지금 즉시 / 내일) 은 보조로만.
+- 명령형 동사: 지시하세요 / 통보하세요 / 배치하세요 / 점검하세요 / 전화하세요. "확인 권장 / 검토" 금지.
+
+【reason 가이드 (한 문장, 사례 인용)】
+- raw 사례 또는 trade_frame 제약 직접 인용. 일반론 금지.
+- "예시 사례 → 결과" 패턴 자연스럽게: "우천 시(6/28) 사례처럼 양중이 밀리면 외장판넬은 손을 못 대는 구간이 길어집니다."
+- 사례 빈 array (RAG cold) 일 때는 trade_frame 의 물리적 제약만 인용.
+
+【가드 (v9 유지)】
+G1 시점 다양화 / G2 액션 카테고리 4개 / G3 환각 방지 (today_conditions 에 있어도 raw 5건에 없으면 사례 인용 금지, 회사명 today.company 일치)
+G4 약한 동사 금지 / G6 risk_level=이상 시 "정상범주" 금지 / G8 공종 고유 인사이트 자가 검열
+
+원칙: 한자 금지.
+
+출력 JSON:
+{
+  "recommendations": [
+    {"rank": 1, "keyword": "...", "action": "...", "reason": "..."},
+    {"rank": 2, "keyword": "...", "action": "...", "reason": "..."},
+    ...
+  ]
+}
+"""
+
+
+# ---------------------------------------------------------------------------
+# §6.6 DIAG_PROMPT_V10 — G6 강화 + delay 두 차원 + mh_gap (2026-05-27 Task 9)
+# 사용자 의도: status 이상인데 진단 "정상범주" 라는 mismatch 제거 + delay 산출 근거 명시.
+# Source: /tmp/poc_v9_g6_enhanced.py:68-101 (PoC v9 검증된 본문 byte 단위 이전)
+# ---------------------------------------------------------------------------
+
+DIAG_PROMPT_V10 = """당신은 건설 현장 PM 의 일일 의사결정을 돕는 분석가입니다.
+
+받는 정보:
+- 오늘 데이터 (공종/회사/생산성/조건 + assessment + risk_level)
+- delay_days 두 차원:
+  * forward_delay_days: 현 페이스 유지 시 며칠 늦어질지
+  * point_in_time_delay_days: 지금까지 며칠치 부족
+- mh_gap: 계획 인시 대비 실 인시 (음수 = MH 많이 투입했는데 진척 안남 / 양수 = MH 부족)
+- 최근 5건의 비슷한 저하 사례
+- 다른 분석가가 작성한 Action Plan 4건
+- trade_frame
+
+작성할 것: 진단 1~3 문장 — PM 용 요약/총평.
+
+진단 작성 원칙:
+1. **첫 문장에 두 차원 delay 둘 다 인용**: 예 "현재 8일 뒤처졌으며 (계획 누계 15루베 대비 실 7루베), 이 페이스가 유지될 경우 완공이 34일 지연될 우려입니다."
+2. **MH gap 도 자연 인용** (mh_gap 이 큰 경우 — oversupply 또는 undersupply): 예 "MH 는 계획 대비 540시간 oversupply 인데 진척이 거의 없어 효율 문제가 핵심" 또는 "MH 부족 240시간이 페이스를 누름".
+
+**가드 6 강화 (절대 룰)**:
+- **risk_level = "이상" 이면 "정상범주 / 정상 범위 / 평시 대비 충분히 높음" 표현 절대 금지.**
+- 대신 "단위 생산성 X 이지만 계획 진척 기준 위험 / 진척 격차 N일 / 효율 문제" 등 risk_level 차원 인용 필수.
+- assessment vs risk_level 충돌 시 항상 risk_level 우선 (PM 의사결정과 직결).
+- today_productivity 가 raw 사례 평균보다 명백히 낮으면 "정상" 단어 사용 금지.
+
+**가드 8 (공종 고유)**:
+- trade_frame 의 제약 (예: 양생·적층·간섭·양중·계측) 에서 출발한 위험 신호 1가지 인용.
+- 공종 이름만 바꾸면 다른 공종에 쓸 수 있는 일반 문장 금지.
+
+**Action Plan 의 핵심 의사결정 포인트** 1~2 가지를 진단에 녹여 표현 (권고 4건 단순 나열 X).
+
+피해야 할 표현: 권고 4건 나열, "확인 권장" 약한 동사, 사례 인용 없는 일반 명제, "today/D+1" 영어/약어.
+
+출력 JSON: {"diagnosis": "..."}
+"""
+
+
+# ---------------------------------------------------------------------------
+# §6.7 SCENARIOS_PROMPT_V10 — G8 강화: 공종 고유 회복 전략 rationale (2026-05-27 Task 10)
+# 사용자 의도: 4 시나리오 rationale 이 일반론 X — trade_frame 고유 수법 인용.
+# Source: /tmp/poc_trade_frames_v8.py:189-221 (PoC v8 검증된 G8 강화 본문 byte 단위 이전)
+# ---------------------------------------------------------------------------
+
+SCENARIOS_PROMPT_V10 = """당신은 건설 현장 공기 만회 시나리오 분석 전문가입니다.
+
+WP (공종) 의 메타데이터 + 현재 예상 완료일 (조치 없을 때) + 과거 회복 분포 + 저하 사례 + **trade_frame** (공종 고유 사고 프레임) 을 받습니다.
+
+임무: 4가지 시나리오 (no_action / optimistic / base / pessimistic) 각각에 대해:
+1. expected_completion: ISO date (YYYY-MM-DD)
+2. recovery_days: 만회 가능 일수 (no_action 은 0)
+3. delta_days: no_action 대비 단축 일수 (음수)
+4. **rationale**: 1~2 문장 한국어 근거. **trade_frame 의 고유 제약 (양생·적층·간섭·양중·계측 등) 에서 출발한 회복 전략 명시.**
+
+시나리오 정의:
+- no_action: 현재 속도 유지. recovery_days=0, delta_days=0.
+- optimistic: recovery_distribution 최단 회복 기반. trade_frame 의 가장 강력한 병렬화·재배치 수단 활용 시.
+- base: recovery_distribution 중앙값.
+- pessimistic: recovery_distribution 장기 회복 기반. trade_frame 의 제약이 풀리지 않고 누적될 때.
+
+**가드 8 — 공종 고유 회복 전략 (핵심)**:
+- rationale 에 "인력 보강" / "공정 가속" / "모니터링 강화" 같은 일반론 단독 사용 금지.
+- 반드시 trade_frame 의 고유 수법 인용 (예: 골조 = "위층 거푸집 선행 투입으로 양생 병렬화" / 외장 = "양중 슬롯 재배치 + 풍속 우회" / 토공 = "계측 trend 안정 후 작업 재개" / 마감 = "선행 양생 완료 확인 후 인력 보강" / 포장 = "양생 가능 온도 창 안에서 야간 작업").
+
+원칙:
+- no_action_expected_completion 을 기준으로 각 시나리오의 expected_completion 산출.
+- recovery_distribution 이 빈 dict 이면: optimistic=3일, base=5일, pessimistic=2일 기본값.
+- 수치 외 추측 금지. 한자 금지.
+
+출력 형식 (JSON):
+{
+  "no_action":   {"expected_completion": "YYYY-MM-DD", "recovery_days": 0, "delta_days": 0, "rationale": "..."},
+  "optimistic":  {"expected_completion": "YYYY-MM-DD", "recovery_days": N, "delta_days": -N, "rationale": "..."},
+  "base":        {"expected_completion": "YYYY-MM-DD", "recovery_days": N, "delta_days": -N, "rationale": "..."},
+  "pessimistic": {"expected_completion": "YYYY-MM-DD", "recovery_days": N, "delta_days": -N, "rationale": "..."}
+}
+"""
+
+
+# ---------------------------------------------------------------------------
+# §6.9 build_*_input_v10 — trade_frame + delay 두 차원 + mh_gap inject (2026-05-27 Task 12)
+# ---------------------------------------------------------------------------
+
+
+def build_recs_input_v10(
+    forecast_row: dict,
+    degradation_cases: list[dict],
+    today_date: str,
+    frame_category: str,
+    frame_text: str,
+) -> dict:
+    """RECS_PROMPT_V10 LLM 입력 빌드.
+
+    Spec §4.2.4. PoC v10 payload 구조 그대로:
+    - today: 오늘 데이터 + 평가 두 차원 (assessment + risk_level) + delay 두 차원 + mh_gap + frame_category
+    - trade_frame: 공종 고유 사고 프레임 텍스트 (lookup_frame 결과)
+    - degradation_cases: 최근 5건 비슷한 저하 사례
+    """
+    return {
+        "today": {
+            "date": today_date,
+            "company": forecast_row["company"],
+            "l6_main": forecast_row["l6_main"],
+            "main_unit": forecast_row.get("main_unit"),
+            "assessment": forecast_row.get("assessment"),
+            "risk_level": forecast_row.get("risk_level"),
+            "today_productivity": forecast_row.get("today_productivity"),
+            "today_conditions": forecast_row.get("today_conditions", ""),
+            "frame_category": frame_category,
+            "forward_delay_days": forecast_row.get("delay_days"),
+            "point_in_time_delay_days": forecast_row.get("point_in_time_delay_days"),
+            "mh_gap": forecast_row.get("mh_gap"),
+        },
+        "trade_frame": frame_text,
+        "degradation_cases": [
+            {
+                "date": c["date"],
+                "conditions": c["conditions"],
+                "productivity": c["productivity"],
+                "activities": c["activities"],
+                "recovery_days": c["recovery"]["recovery_days"],
+            }
+            for c in (degradation_cases or [])
+        ],
+    }
+
+
+def build_diag_input_v10(
+    forecast_row: dict,
+    degradation_cases: list[dict],
+    today_date: str,
+    frame_category: str,
+    frame_text: str,
+    recs_out: list[dict],
+) -> dict:
+    """DIAG_PROMPT_V10 LLM 입력 빌드.
+
+    recs_out: RECS_PROMPT_V10 결과의 recommendations array. DIAG 가 진단에 참조.
+    """
+    base = build_recs_input_v10(forecast_row, degradation_cases, today_date, frame_category, frame_text)
+    base["recommendations"] = recs_out or []
+    return base
+
+
+def build_scenarios_input_v10(
+    forecast_row: dict,
+    no_action_ec: str | None,
+    recovery_distribution: dict,
+    degradation_cases: list[dict],
+    frame_category: str,
+    frame_text: str,
+) -> dict:
+    """SCENARIOS_PROMPT_V10 LLM 입력 빌드. 기존 build_scenarios_llm_input 확장.
+
+    추가: frame_category + trade_frame text (G8 강화 — 공종 고유 회복 전략 rationale).
+    """
+    return {
+        "wp": {
+            "company": forecast_row.get("company"),
+            "l6_main": forecast_row.get("l6_main"),
+            "l7_5_activity": forecast_row.get("l7_5_activity"),
+            "frame_category": frame_category,
+        },
+        "trade_frame": frame_text,
+        "no_action_expected_completion": no_action_ec,
+        "recovery_distribution": recovery_distribution,
+        "degradation_cases": [
+            {
+                "date": c.get("date"),
+                "recovery_days": c.get("recovery", {}).get("recovery_days"),
+                "conditions": c.get("conditions"),
+            }
+            for c in (degradation_cases or [])
+        ],
+    }

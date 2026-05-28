@@ -89,6 +89,10 @@ async def main() -> None:
     parser.add_argument("--date", default=None)
     parser.add_argument("--all-dates", action="store_true")
     parser.add_argument(
+        "--start-date", default=None, help="윈도우 시작 일자 (--end-date 와 함께)"
+    )
+    parser.add_argument("--end-date", default=None, help="윈도우 종료 일자")
+    parser.add_argument(
         "--site", default=None, help="단일 site_id 만 (기본 mock=false 전체)"
     )
     parser.add_argument(
@@ -113,7 +117,19 @@ async def main() -> None:
         print(f"대상 site: {len(sites)} -> {sites}")
 
         # 일자 목록
-        if args.all_dates:
+        if args.start_date and args.end_date:
+            # 윈도우 — 2026-05-27 Task 21
+            s = _date.fromisoformat(args.start_date)
+            e = _date.fromisoformat(args.end_date)
+            d_rows = await raw.fetch(
+                "SELECT DISTINCT report_date FROM mapper_activities "
+                "WHERE report_date BETWEEN $1::date AND $2::date "
+                "ORDER BY 1",
+                s,
+                e,
+            )
+            dates = [r["report_date"] for r in d_rows]
+        elif args.all_dates:
             d_rows = await raw.fetch(
                 "SELECT DISTINCT report_date FROM mapper_activities ORDER BY 1"
             )

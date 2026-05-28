@@ -1,175 +1,161 @@
 # CPIA Data Contract — INDEX
 
-> 생성: 2026-05-17 (cycle: fe-be-bridge brainstorming).
-> **2026-05-18 갱신** (cycle: fe-be-bridge-delta-and-decisions) — PR #19/#20/#22 흡수 + 10 gap 명시 + 9 신규 결정 (D-3 EWMA 드랍 / WPSummary grain / mapped_history / wp_id / tasks BE 정합 / item status / optimizer 배열 / hil_1 resume / 6 gap 일괄).
-> **2026-05-19 갱신** (cycle: tasks-scope-G2-verification) — A_Track Phase 4 11/11 endpoint GREEN 후 `/api/tasks` (api.py:1022) vs G-2 결정 정합 검증. 6 mismatch + 7 BE-T backlog + 3 신규 결정 (옵션 Y evolve / mapped_history.trade / pipeline_runs UPDATE path).
-> git SHA: a83ec7d (A_Track HEAD, Phase 4 11/11 GREEN).
+> 생성: 2026-05-17 (cycle: fe-be-bridge brainstorming)
+> **2026-05-26 갱신** (cycle: post-mock-redesign-and-site-summary) — Mock 재설계 PR #40 + AWS 마이그 + view_builder MEDIAN + backfill_v2 + ForecastChart catch-up + site_summary LLM cycle 후 전수 재갱신. **70+ commits, 204 files, +30,151 / -3,055 LOC** 흡수.
+> baseline = `a83ec7d` (2026-05-22) → HEAD = `1ba783f` (2026-05-26). 본 cycle 전 영역 재카탈로그.
+> git SHA: `1ba783f` (A_Track HEAD). main 머지 완료 — `7e9e1a1` 산식 A + site_summary / `1ba783f` Mock 재설계 sync.
 
-본 data-contract/ 디렉토리는 CPIA 의 **FE (web/) ↔ BE (pipeline/) 데이터 계약** 산출. 4 카탈로그 + 결정 사항 + 연결 계획.
+본 data-contract/ 디렉토리는 CPIA 의 **FE (web/) ↔ BE (pipeline/) 데이터 계약** 산출. 6 카탈로그 + 결정 사항 + 연결 계획.
+
+사용자 강조 (본 cycle): **"BE↔FE 데이터 연결할 때 서로 어느 적재된 데이터로 연결되는지 어떤 스키마인지 정확한 layer 가 보이게끔"**. 본 INDEX + crosswalk.md §0 layer 표 + §3 ForecastChart 4선 매핑 + gaps.md §D 결정 게이트로 응답.
 
 ---
 
-## 헤드라인 (2026-05-19 갱신)
+## 헤드라인 (2026-05-26 갱신)
 
 | 분류 | 통계 |
 |---|---|
-| **FE catalog** | 33 type (PR #22 신규 5 흡수) / ~190 field / 10 mock fixture / 8 page × N component / 5 lib utility (diagnosis-adapter.ts 신규) |
-| **BE catalog** | 7 사용자 테이블 (105 col) + 4 LangGraph 자동 + **stash 신설 3 (parser_reports/parser_activities/mapper_activities, 40 col)** + **mapped_history.trade 신설 1 col** = ~146 col / 33 JSONB key / 17 state attr / ~90 agent output field / 16 db.py helper + 5 신규 (PR #19 의 2 + stash 의 3 + D-17 의 2) = 21 |
-| **FastAPI endpoint** | **11 GREEN (a83ec7d Phase 4 11/11)** — 본 cycle 검증 = `/api/tasks` 1 개. 나머지 10 = 별 cycle |
-| **Crosswalk** | 26 type 매핑 / ~190 FE field × BE source. tasks 3 type (DailyTask/AgentStageProgress/AgentTaskItem) 본 cycle 정합 검증 |
-| **Confidence** | high 80 / medium 50 / low 25 / TBD 35 (변동 없음 — 본 cycle 은 결정 → backlog 명시화) |
-| **Gaps** | §A FE-only 10 / §B BE-only 6 / §C Mismatch 9 / **§G 본 cycle 6 mismatch + 7 BE-T backlog** |
-| **사용자 결정 누계** | 14 (카탈로그 D-1~D-14) + 9 (2026-05-18) + 3 (2026-05-19 D-15/D-16/D-17) = **26 확정** |
+| **FE catalog** | **48 type** (이전 33 → +15) / **~220 field** (이전 190 → +30) / 10 mock fixture (8 PG swap 됨) / 8 page × N component / 5 lib utility (diagnosis-adapter / bar-filters NEW) |
+| **BE catalog** | **23 테이블** (17 user + 4 stash + 1 collector_inbox NEW + 3 ckpt) / **316 row** / **9 jsonb view** 산식 변경 / **★ NEW 컬럼**: site_summary_text / mapper_l7.5 4종 / trade / 7 테이블 is_mock |
+| **FastAPI endpoint** | **12 + 1 NEW** = 13 — 본 cycle `/export/run` (exporter_routes.py 47 LOC) + lifespan collector idle task |
+| **Crosswalk** | **220 FE field 매핑** — high 115 (52%) / medium 38 (17%) / low 26 (12%) / TBD 0 (D-3 EWMA / D-12 optimizer 배열 결정 완료) |
+| **본 cycle 마킹** | **★ NEW 23** (FE 직접 6 + BE 신규 산출 ↔ FE 기존 17) / **★ CHG 10** (산식 A 3 + MEDIAN 2 + quadrant 3 + bars + wp_name + delta_completion_days) / **★ DRIFT 6** (productivity v1↔v2 / kpi.productivity_today / contractor·trade bars / quadrant.wp_name / wp_summary 정렬 / mapped_history.trade) |
+| **Gaps** | §A FE only **11** (★ NEW 5) / §B BE only **9** (★ NEW 5) / §C Mismatch **16** (★ NEW 11) / §D 결정 게이트 **12** (Critical 시연 6/5 전 **5** / 다음 cycle **7**) |
+| **사용자 결정 누계** | 14 (카탈로그 시점 D-1~D-14) + 9 (2026-05-18) + 3 (2026-05-19 D-15~D-17) + 0 (본 cycle 신규 — 모두 backlog) = **26 확정 / 12 pending** |
 
 ---
 
-## 카탈로그 4 파일 + 산출 1
+## 본 cycle 핵심 FE↔BE 변경 (사용자 강조 layer 명확화)
 
-| 파일 | 역할 | 라인 수 |
+### Layer 1 — Raw Source (외부 입력)
+
+| 종류 | 적재처 | 본 cycle 변경 |
 |---|---|---|
-| [frontend_catalog.md](./frontend_catalog.md) | FE type 인벤토리 + fixture + page→component→field 매핑 + lib utility 분류 | 432 |
-| [backend_catalog.md](./backend_catalog.md) | DB schema + JSONB key + LangGraph state attr + agent output + db.py helper | 412 |
-| [crosswalk.md](./crosswalk.md) | 3 면 표 (FE field ↔ BE source ↔ derived rule + confidence) — 26 type | ~430 |
-| [gaps.md](./gaps.md) | 3 분류 (FE-only / BE-only / mismatch) + 옵션 + 권고 + 결정 게이트 §D + **§F 2026-05-18 갱신 (G-1~G-10)** | ~310 |
+| 작업일보 xlsx | `pipeline/data/` 또는 Gmail attachment | ★ NEW Gmail IMAP IDLE — `pipeline/collector/idle_worker.py` |
+| Master List xlsx | `activity_master` 테이블 | `C_PLAN_WV=32` 추가 (5-23 migration) |
+| Gmail IMAP | `collector_inbox` 테이블 (NEW) | ★ NEW dedup `(message_id, attachment_filename) UNIQUE` |
+
+### Layer 2 — LangGraph State (중간)
+
+| State 키 | 채우는 노드 | 읽는 노드 | 영속화 | 본 cycle |
+|---|---|---|---|---|
+| `parsed` (이전 parsed_reports) | parser_node | mapper_node | parser_reports / parser_activities | ★ CHG state-key drift fix (6b9db7c) |
+| `mapped` | mapper_node | hil_1 / atomizer / forecaster | mapper_activities (37 컬럼) | ★ 4 컬럼 추가 (l5_disc/l7_sub/l7_5_activity/sub_work_area) |
+| `atomized_ids` | atomizer_node | forecaster / optimizer | Chroma daily_activities | ★ batch 16→64 / metadata 12→15 |
+| `forecasts` | forecaster_node | hil_2 / optimizer / reporter | forecasts (28 컬럼) | ★ plan_main_qty atomic distinct SUM |
+| `optimizer_advice` | optimizer_node | reporter_node | optimizer_advice + daily_reports.optimizer_view_jsonb | ★ 4섹션 풍부화 + INCIDENT 9종 |
+| `daily_report` | reporter_node | (terminal) | daily_reports (9 jsonb + ★ NEW site_summary_text) | ★ site_summary_text 컬럼 (★ migration 없음 #N13) |
+
+### Layer 3 — Persistent Storage (PG / Chroma / Checkpoints)
+
+| 테이블 | 본 cycle 변경 | 읽는 FE 페이지 |
+|---|---|---|
+| `daily_reports` | ★ +`site_summary_text` (migration 없음 #N13) + 9 jsonb 산식 변경 (산식 A / MEDIAN / scenarios percentile 4) | reports/[date] detail (ForecastChart / WPSummary / Quadrant / Optimizer / **site_summary_text aiSummaryText**) |
+| `mapper_activities` | ★ +4 컬럼 (l5_disc / l7_sub / l7_5_activity / sub_work_area, 5-23 migration) | review WBSTree alternatives |
+| `mapped_history` | ★ +`trade` 컬럼 (5-19 migration) — **★ atomizer INSERT 누락 #C3, 항상 NULL** | tasks AgentTaskItem.trade (NULL fallback) |
+| `collector_inbox` | ★ NEW (5-19 migration) — Gmail IMAP dedup | (없음 — 내부) |
+| 7 테이블 | ★ NEW `is_mock` boolean (5-20 migration) — sites/daily_reports/forecasts/optimizer_advice/mapping_corrections/mapper_activities/mapped_history | `/api/mock/*` route `WHERE is_mock = $1` |
+| Chroma daily_activities | ★ `_format_document` live/backfill 2 모드 + 15 metadata | (없음 — forecaster/optimizer 가 RAG read) |
+
+### Layer 4 — FE Consumer (web/lib/types.ts → page/component)
+
+★ **ForecastChart 4선 매핑 (사용자가 가장 강조)**:
+
+| Line (FE) | Source (BE) | Derived |
+|---|---|---|
+| 검정 실선 — actual | `daily_reports.s_curve_jsonb[].actual` | view_builder.py:942 산식 A WV×MH × MIN(1, cum/plan), full_grid + WINDOW SUM 단조 |
+| 빨강 dashed — forecast | `daily_reports.s_curve_jsonb[].forecast` | view_builder.py:824 `_extend_forecast` EWMA 7 일 |
+| 회색 실선 — planned | `daily_reports.s_curve_jsonb[].planned` | view_builder.py:914 산식 A × linear_progress |
+| mint dashed — AI 시나리오 (base) | **FE 산출** — `diagnosis.ts:55 buildScenarioCurve` (catch-up slope → plan 동행) | BE input = `scenarios.site.base_p50.recovery_days` 만 |
+| narrative | `daily_reports.site_summary_text` (★ NEW) | Optimizer LLM `site_summary.py:generate_site_summary` (Azure JSON) — **★ live 미연결 #N20, backfill_v2 만 채움** |
 
 ---
 
-## 사용자 결정 (확정) — 카탈로그 시점 14
+## 카탈로그 4 + 보조 2
 
-### D-1 ~ D-4 핵심 결정
+| 파일 | 역할 | 라인 수 | 본 cycle |
+|---|---|---:|---|
+| [frontend_catalog.md](./frontend_catalog.md) | FE type 인벤토리 + fixture + page→component→field 매핑 + lib utility | **683** (이전 432, +251) | 48 type / 220 field / ★ NEW 5 field / FE 단독 이슈 11 |
+| [backend_catalog.md](./backend_catalog.md) | DB schema 23 테이블 + 9 jsonb key + LangGraph state + agent output + db.py 35+ helper + 13 FastAPI endpoint | **1043** (이전 412, +631) | ★ NEW 5+ source / ★ Critical 3 / BE 단독 이슈 21 |
+| [crosswalk.md](./crosswalk.md) | 3 면 표 (FE field ↔ BE source ↔ derived rule + confidence) — 220 field | **596** (이전 ~430, +166) | high 115 / medium 38 / low 26 / ★ NEW 23 / ★ CHG 10 / ★ DRIFT 6 / 정합 의문 15 |
+| [gaps.md](./gaps.md) | 3 분류 (FE-only 11 / BE-only 9 / Mismatch 16) + 옵션 + 권고 + 결정 게이트 §D 12 | **533** (이전 ~310, +223) | Critical 시연 6/5 전 5 / 다음 cycle 7 |
+| [sim_results.md](./sim_results.md) | 정합 시뮬레이션 (이전 cycle, stale 가능) | ~80 | 본 cycle 미갱신 — 다음 cycle backlog |
+| [db-runtime-catalog.md](./db-runtime-catalog.md) | 실 PG row sample dump (이전 cycle) | ~290 | 본 cycle 미갱신 — 다음 cycle backlog (collector_inbox + site_summary_text 추가 필요) |
 
-| # | 결정 | 채택 | 영향 |
+---
+
+## ★ Critical 시연 6/5 전 필수 처리 (3 건)
+
+| # | 영역 | 위치 | 해결 LOC |
 |---|---|---|---|
-| D-1 | sites.last_run_id 갱신 path | **graph END 노드** | `pipeline/graph.py` 의 reporter → END edge 안에 `db.update_site_last_run(site_id, run_id)` 신규 helper 호출 |
-| D-2 | pipeline_runs.status 갱신 path | **각 node 진입 시 db helper 호출** | `pipeline/db.py` 에 `update_run_status(run_id, status)` 신규 |
-| D-3 | ProductivityDiagnosis 13 필드 | ~~본 cycle scope 밖~~ → **2026-05-18 REVISED: EWMA 드랍, FE adapter mock 영구** | [[decisions/cpia-d3-ewma-drop-2026-05-18]] |
-| D-4 | ChatMessage source | **본 cycle mock 유지** + 다음 cycle 연결 (Hybrid) | `mock_chat_sequence.json` 그대로 |
-
-### D-5 ~ D-12 권고 confirm (카탈로그 시점)
-
-| # | 결정 | 채택 |
-|---|---|---|
-| D-5 | SitesSummary 누적 3 필드 | mock 유지 (hard-code) |
-| D-6 | checkpoint state 읽기 path | `graph.aget_state(thread_id=run_id)` |
-| D-7 | ai_mapped_path PoC fallback | `f"{l5_disc} > {l6_main} > {wa}"` |
-| D-8 | SitesSummary.today_count 단위 | activity 단위 |
-| D-9 | AgentStatus 정적 메타 source | BE FastAPI hard-code 반환 |
-| D-10 | OptimizerOutput shape adapter | similar_cases / recommendations text 추출 |
-| D-11 | RawDataRow.equipment source | API layer 가 EquipmentAllocation join |
-| D-12 | ReportDetail.optimizer N rows | ~~FE type 변경 `optimizer: OptimizerOutput[]`~~ → **2026-05-18 실 구현 확정**: [[decisions/cpia-optimizer-array-grain-2026-05-18]] |
-| D-13 | SCurvePoint time-series source | plan-only derive |
-| D-14 | forecasts assessment vs risk_level | endpoint 응답에 risk_level 만 노출 |
+| ✅ **D-1 / C-1 / #N13** | persistence | `daily_reports.site_summary_text` migration sql 부재 → fresh rebuild UndefinedColumnError | **완료** 2026-05-27 `b310f36` — `infra/postgres/migrations/2026-05-27_daily_reports_site_summary_text.sql` (IF NOT EXISTS, 운영 DB skip 확인) |
+| ✅ **D-2 / C-3** | atomizer + persistence | `mapped_history.trade` atomizer INSERT 누락 → 60,147 row 전부 NULL (운영 DB SELECT 확인) | **코드 fix 완료** 2026-05-27 `ec0ecce` — atomizer.py mh_rows + db.py SQL ($1~$10 + ON CONFLICT SET) 양쪽. **⚠️ 기존 60K row backfill 잔존 (D-2.1)** |
+| **D-3 / C-2** | persistence | `/export/run` ad-hoc PG pool — `exporter_routes.py:23~34` 가 매 요청마다 `PGClient(...).connect()` 신규 풀 생성. 시연 동시 다운로드 시 PG 연결 고갈 | 10 LOC: `Depends(get_pg)` 주입 |
 
 ---
 
-## 2026-05-19 신규 결정 (3 건) — tasks scope G-2 정합 검증
+## ★ 정합 의문 (시연 영향 — 8 건, crosswalk.md §17)
 
-본 cycle 의 사용자 의도 = "main pull 최신 FE 기반 data contract 갱신 / tasks 부터 / FE 시각화 수정 X / 연동을 위한 schema 수정 OK".
-
-| # | 결정 | 사유 요약 | brain slug |
+| # | FE 기대 | BE 실제 | 영향 |
 |---|---|---|---|
-| **D-15** | AgentStageProgress.received/processed source = **옵션 Y (PG row count)** | G-2 옵션 X (LangGraph state checkpoint) → 옵션 Y evolve. stash 가 parser_reports/parser_activities/mapper_activities 3 테이블 신설로 인프라 마련. BI / 대시보드 친화 + FastAPI 구현 간단 + checkpoint state query 회피 | [[decisions/cpia-tasks-stage-source-y-2026-05-19]] |
-| **D-16** | mapped_history.trade TEXT 컬럼 신설 | AgentTaskItem.trade 의 FE 의도 (한글 공종) vs BE 현 구현 (l6_main 매핑 후 카테고리) 의미 다름. 사용자 "억지 매핑 금지" feedback 직접 위반. migration sql + atomizer INSERT 변경 | [[decisions/cpia-mapped-history-trade-column-2026-05-19]] |
-| **D-17** | pipeline_runs.status / current_node UPDATE path 신설 (D-2 구현) | backend_catalog drift 명시: UPDATE helper 0 개 (atomizer 만 current_node 박음). progress_percent / waiting_hil / status 의 BE 산식이 다 이 컬럼 의존. db.update_run_status + update_run_current_node 2 helper + graph.py 모든 노드 호출 | [[decisions/cpia-run-status-update-path-2026-05-19]] |
-
-본 cycle 으로 만들어진 backlog: **BE-T1 ~ BE-T7** (`crosswalk.md §F.4-F.6` + `backend_catalog.md §G.3` + `gaps.md §G.3` 명시) — 별 BE 구현 cycle 의 plan 항목.
+| 1 | `ReportDetail.site_summary_text` 채워짐 | live optimize() 미연결, backfill_v2 --with-summary 만 (#N14 / #N20) | **시연 핵심 narrative 비어있음** → FE 룰베이스 fallback |
+| 2 | (위) | `site_summary_text` 컬럼 migration 부재 (#C1 / #N13) | fresh rebuild UndefinedColumnError |
+| 3 | `productivity_jsonb` 단일 산식 | v1 EVM (agent.py:187) ↔ v2 wv-median (backfill) drift | FE 가 어느 버전 박혔는지 분간 불가 |
+| 4 | `scenarios_jsonb` percentile 라벨 그대로 | P25/P75 라벨↔값 swap (view_builder.py:1237 자인) | FE diagnosis-adapter 가 inverse 매핑 — 라벨 다중역할 |
+| 5 | `AgentTaskItem.trade` 한글 공종 | mapped_history.trade NULL (#C3) → l6_main fallback | ⚠️ 코드 fix 완료 (D-2, ec0ecce) — 기존 60K row backfill 잔존 (D-2.1) |
+| 6 | `ForecastChart` ReferenceDot 정확한 today 점 | `firstUndef/lastIdx` 정순 vs `diagnose() todayIdx` 역순 불일치 | sparse hole 시 dot 잘못된 위치 |
+| 7 | `ScenarioPoint.catch_up` BE source 있음 | FE 자체 산출, BE 산식 변경이 FE 에 자동 반영 안 됨 | 산식 drift 위험 |
+| 8 | `wp_id` 정합 | FE `${kebab(wa)}-${kebab(l6_main)}` 2 컴포넌트 vs BE `_wp_id_of` 3 컴포넌트 triplet | `detail.optimizer.by_wp[selectedWpId]` lookup 빈 카드 |
 
 ---
 
-## 2026-05-18 신규 결정 (9 건)
+## 사용자 결정 게이트 (★ 다음 cycle 진입 트리거)
 
-본 cycle (fe-be-bridge-delta-and-decisions) 의 사용자 의도 = "FE 시각화 절대 X / BE 가 FE 기획 따라가야 함 / 시연 안 보고 연결 자체 우선".
+12 결정 (gaps.md §D). 우선순위:
 
-| # | 결정 | brain slug |
+### 시연 6/5 전 (Critical 5)
+1. ✅ **D-1**: site_summary_text migration sql 신규 — **완료** (2026-05-27 commit `b310f36`). `infra/postgres/migrations/2026-05-27_daily_reports_site_summary_text.sql` 신설. IF NOT EXISTS idempotent — 운영 DB 안전 + fresh rebuild 안전.
+2. ✅ **D-2**: mapped_history.trade INSERT path fix — **코드 fix 완료** (2026-05-27 commit `ec0ecce`). atomizer.py:185 mh_rows + db.py:478 insert_mapped_history_batch SQL ($1~$10) + ON CONFLICT SET trade 추가. **⚠️ 기존 60,147 row backfill 미처리** (D-2.1 별도, 아래).
+3. **D-3**: /export/run PG pool Depends 주입 — **권고: 즉시 적용**
+4. **D-4**: site_summary live `optimize()` 연결 — **옵션** (가) optimize() 안에 호출 추가 — 7 site × 1 LLM call (~$0.5) (나) backfill_v2 only 유지 — fallback 룰베이스 narrative. **권고: 시연 화면이 site_summary 핵심이면 (가)**
+5. **D-5**: productivity_jsonb v1 ↔ v2 통일 — **옵션** (가) v1 제거, v2 로 일원화 (나) v1 유지. **권고: v2 로 일원화 (drift 해소)**
+
+### 본 cycle 누적된 backlog (시연 전 결정)
+- **D-2.1**: `mapped_history.trade` 기존 60K row backfill — 코드 fix 만으로는 새 row 만 채워짐. 시연 데이터 (이미 backfill 된 5일 + 1년치 dummy) 의 trade 가 NULL 유지 → tasks 페이지 `AgentTaskItem.trade` 가 l6_main fallback. **옵션** (가) `mapper_activities.trade` 또는 `activity_master.trade` JOIN 으로 한 줄 UPDATE — 무비용 (나) 다음 cycle 재실행 — LLM 비용 듬 (다) 시연 직전 재 backfill 때 자연 해소. **권고: (가) — `scripts/backfill_mapped_history_trade.py` 신규 1 파일**.
+
+### 다음 cycle (7)
+6. D-6: reporter → exporter 파일명 rename (CLAUDE.md 약속 vs 실 코드)
+7. D-7: B_Track exporter FE swap (NEXT_PUBLIC_FASTAPI_BASE)
+8. D-8: ForecastChart firstUndef vs todayIdx 정합
+9. D-9: wp_id 포맷 통일 (2 vs 3 컴포넌트)
+10. D-10: scenarios P25/P75 라벨↔값 swap 명시 또는 fix
+11. D-11: AUTO_BYPASS prod 가드
+12. D-12: HIL2 AUTO_BYPASS env
+
+---
+
+## Pair Skills 산출물
+
+| 스킬 | 산출물 | 본 cycle |
 |---|---|---|
-| **D-3 REVISED** | ProductivityDiagnosis EWMA 드랍 — BE endpoint 안 만듦, FE diagnosis-adapter.ts mock 영구 | [[decisions/cpia-d3-ewma-drop-2026-05-18]] |
-| **G-1 Q1** | WPSummaryRow grain = (wa, l6_main, company) triplet — forecasts.wa 컬럼 추가 + Forecaster 재구조 | [[decisions/cpia-wpsummary-grain-2026-05-18]] |
-| **G-1 Q2** | progress_pct 누적 today_qty path = mapped_history 신규 PG 테이블 (Atomizer INSERT + FastAPI SELECT) | [[decisions/cpia-wpsummary-progress-path-2026-05-18]] |
-| **G-1 Q3** | wp_id 산식 = `f"{wa}-{slug(l6_main)}-{slug(company)}"` triplet 명시 | [[decisions/cpia-wpsummary-wpid-formula-2026-05-18]] |
-| **G-2 통합** | /tasks 페이지 BE 정합 — DailyTask + AgentStageProgress 둘 다 BE 산출 (mapped_history 활용 + LangGraph state 단계별 binary + FE 시각화 단순화) | [[decisions/cpia-tasks-page-be-formulas-2026-05-18]] |
-| **G-2 item** | AgentTaskItem.status 5 치 — BE 가 5 치 다 산출 (FE 시각화 chip/색상/아이콘 그대로). processing / blocked 정의 BE 협의 사항 | [[decisions/cpia-tasks-item-status-2026-05-18]] |
-| **G-8 (D-12 실 구현)** | OptimizerOutput 배열 — BE 배열 응답 + FE OptimizerOutput[] 수신. PG row grain 그대로 흐름 | [[decisions/cpia-optimizer-array-grain-2026-05-18]] |
-| **G-10** | hil_1 resume = api-contract §3.8 그대로 + FE 가 corrections 객체 변환 산식 추가 (~30 lines). BE FastAPI 구현 0 → 신규 | [[decisions/cpia-hil1-resume-connection-2026-05-18]] |
-| **G-3~G-9 일괄** | G-3 WBSNode (활동 마스터 → 트리 derive) + G-4 ReportDaily + G-5 fleet_kpi + G-6 site_distribution + G-7 AgentStatus 동적 = BE 연결. G-9 s_curve 산식 정의 다음 cycle 보류 | [[decisions/cpia-six-gaps-decisions-2026-05-18]] |
+| `deep-dive` | `deep-dive/architecture_overview.md` (415) + `deep_dive_*.md` × 8 (5705) | 2026-05-26 갱신 |
+| `design-intent` | `deep-dive/design-intent/INDEX.md` (425) + `design_intent_*.md` × 8 (4048) + `_meta.json` | 2026-05-26 갱신 |
+| `data-contract-mapping` | (본 디렉토리) — 4 카탈로그 + 2 보조 | **2026-05-26 본 cycle** |
 
 ---
 
 ## 다음 cycle 위임 (future)
 
-| 영역 | 사유 | 트리거 |
-|---|---|---|
-| ChatMessage Hybrid (DB derive) | 본 cycle 산출 (FastAPI + BFF) 완결 후 | 본 cycle 종료 + 시연 후 |
-| G-9 s_curve BE 가공 산식 정의 | 데이터 있지만 FE 형식 가공 단계 미정의 | BE 구현 cycle Phase 0 합의 |
-| ProductivityDiagnosis BE adapter | ~~Phase 2~~ → **DROPPED 2026-05-18** | (D-3 EWMA 드랍 결정으로 폐기) |
-| processing / blocked status BE 정의 | AgentTaskItem.status 5 치 산식 | BE 구현 cycle Phase 0 합의 |
-| `/dashboard/diagnosis-preview` 라우트 제거 | dead route | D-3 EWMA 드랍 확정 후 |
-| `mock_simulation.json` shape 정정 또는 삭제 | dead fixture | scope 정리 cycle |
-| ReviewItem.alternative_wps Phase 2 | Mapper LLM 이 top-3 후보 반환 확장 | Mapper 개선 cycle |
-| SCurvePoint time-series historical 누적 | daily_reports row 누적으로 actual 곡선 | 30 일 + 운영 후 |
+| 영역 | 사유 |
+|---|---|
+| sim_results.md 갱신 | 이전 cycle 시뮬레이션 stale — 산식 A + MEDIAN + scenarios percentile 4 정합 재시뮬 |
+| db-runtime-catalog.md 갱신 | 실 PG row sample dump — collector_inbox + site_summary_text + 9 jsonb 실 키 + 7 테이블 is_mock 분포 |
+| api-contract.md (docs/architecture/) | 본 카탈로그에서 derive — 13 endpoint 응답 shape spec |
+| FastAPI swap 완료 후 재 catalog | `/api/mock/*` 9 route 가 모두 `/api/*` (FastAPI) 로 swap 되면 BFF layer 단순화 |
 
 ---
 
-## mock 유지 (BE 신규 산식 안 만듦)
-
-- MiddleOfficeAutomation 4 row (정적 메타)
-- ImpactTrendPoint 월별 cumulative_fte (historical 미보유)
-- FE 하드코딩 mock 3 종: AgentWorkflow.COUNTS / NotificationBell.MOCK_NOTIFS / UserMenu.USERS
-- daily_reports.report_md (906 chars markdown)
-- **ProductivityDiagnosis 13 field — D-3 EWMA 드랍 (2026-05-18), FE diagnosis-adapter.ts 영구 mock**
-- **ForecastChart 예측 / 회복 곡선 — FE adapter mock 영구 (D-3 정합)**
-
----
-
-## 본 cycle 산출 (2026-05-17 + 2026-05-18)
-
-### Catalog (data-contract/, 6 파일)
-1. `data-contract/INDEX.md` (이 파일, 2026-05-18 갱신)
-2. `data-contract/frontend_catalog.md` (~432 lines, PR #22 갱신 예정)
-3. `data-contract/backend_catalog.md` (~412 lines, PR #19 갱신 예정)
-4. `data-contract/crosswalk.md` (~430 lines)
-5. `data-contract/gaps.md` (~310 lines, §F 2026-05-18 갱신 예정)
-6. `data-contract/_meta.json` (2026-05-18 갱신 완료)
-
-### Design spec (1 파일)
-7. `docs/superpowers/specs/2026-05-17-cpia-fe-be-bridge-design.md`
-
-### Brain decisions (9 신규 — 2026-05-18)
-- `decisions/cpia-d3-ewma-drop-2026-05-18`
-- `decisions/cpia-wpsummary-grain-2026-05-18`
-- `decisions/cpia-wpsummary-progress-path-2026-05-18`
-- `decisions/cpia-wpsummary-wpid-formula-2026-05-18`
-- `decisions/cpia-tasks-page-be-formulas-2026-05-18` + (REVISED) `decisions/cpia-tasks-total-count-mock-2026-05-18`
-- `decisions/cpia-tasks-item-status-2026-05-18`
-- `decisions/cpia-optimizer-array-grain-2026-05-18`
-- `decisions/cpia-hil1-resume-connection-2026-05-18`
-- `decisions/cpia-six-gaps-decisions-2026-05-18`
-
-### Feedback memory (2 신규 — 2026-05-18)
-- `feedback_natural_lang_explain.md` — 함수명/코드 형식만 X. UI + 의도 + BE 산식 자연어 풀어 설명 의무
-- `feedback_unify_fe_be_formula.md` — FE↔BE 공식 차이 시 한 쪽으로 일원화 (5단계 분석)
-
----
-
-## 사용자 의도 (2026-05-18 명시)
-
-1. **FE 가 기획 source of truth** — BE 가 따라가야 함
-2. **FE 시각화 / 디자인 요소 절대 X** — chip / 색상 / 아이콘 / 라벨 그대로 유지
-3. **억지 매핑 금지** — FE↔BE 공식 차이 시 한 쪽으로 일원화
-4. **시연 안 보고 순수 연결 우선** — BE↔FE 통신이 깨끗하면 OK, 시연 가시화는 후속
-5. **자연어 설명 의무** — 함수명/코드 형식만 X
-
----
-
-## 다음 단계
-
-본 cycle 종결 후:
-
-1. **frontend_catalog + backend_catalog + crosswalk + gaps 본격 갱신** — PR #22 component / type / 5 섹션 매핑 + PR #19 BE 변경 + 10 gap 표 (~290 line incremental)
-2. **BE 구현 cycle plan 작성** — Forecaster wa 재구조 + mapped_history schema + Atomizer 변경 + Optimizer 배열 + tasks BE + hil_1 resume + 5 BE 연결 endpoint. superpowers writing-plans 형식
-3. **조형준 프로님 PR + main 머지** — main 머지 결정은 조형준 프로 권한
-
-전역 룰:
-- PoC 마감 = 2026-06-05 (D-18 남음, 2026-05-18 기준)
-- pipeline/.venv/bin/python3 절대경로 (uv 관리)
-- POSTGRES_URL=prod (5532 cloudflared tunnel cpia-pg.zoai.uk)
-- 한자 0 / 한국어 작성
+*최종 수정: 2026-05-26 (1ba783f) — Mock 재설계 + AWS 마이그 + view_builder MEDIAN + backfill_v2 + ForecastChart catch-up + site_summary LLM cycle 후 전수 재갱신.*
+*이전 수정: 2026-05-19 — tasks-scope-G2-verification cycle (a83ec7d).*
+*이전 수정: 2026-05-18 — fe-be-bridge-delta-and-decisions cycle (9 결정).*
+*이전 수정: 2026-05-17 — fe-be-bridge brainstorming cycle (D-1~D-14 14 결정).*

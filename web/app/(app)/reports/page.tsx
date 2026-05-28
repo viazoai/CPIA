@@ -41,7 +41,13 @@ export default function ReportPage() {
       .then((r) => r.json())
       .then((d) => {
         setDaily(d.daily);
-        if (d.daily.length > 0) setSelectedDate(d.daily[0].date);
+        // 2026-05-28: URL ?date= 우선 + fallback list[0] (사용자 navigate 의도 보존)
+        const urlDate = new URLSearchParams(window.location.search).get("date");
+        if (urlDate && /^\d{4}-\d{2}-\d{2}$/.test(urlDate)) {
+          setSelectedDate(urlDate);
+        } else if (d.daily.length > 0) {
+          setSelectedDate(d.daily[0].date);
+        }
       });
   }, []);
 
@@ -54,7 +60,7 @@ export default function ReportPage() {
       return;
     }
     let cancelled = false;
-    fetch(`/api/mock/report/${selectedDate}`)
+    fetch(`/api/mock/report/${selectedDate}`, { cache: "no-store" })
       .then((r) => r.json())
       .then((d: ReportDetail) => {
         if (cancelled) return;
@@ -270,23 +276,41 @@ export default function ReportPage() {
                 aiAdvice={(() => {
                   // wp_summary impact desc top 3 → optimizer.by_wp[wp_id] 의 diagnosis + recommendations 추출.
                   // 룰베이스 fallback (cold_start) 인 wp 는 제외 — LLM 산출 텍스트만.
+                  // 2026-05-28: top 3 제한 + impact>0 filter 모두 제거 — advice 있는 모든 wp 표시.
+                  // 사용자 의도: site=sum(wp recoveries) 의 산출 근거 추적 가능 (impact=0 도 recovery_days 합산).
+                  // wp_summary 중복 row dedup — 같은 wp_id 첫 번째만.
+                  const seen = new Set<string>();
                   const top = [...(detail.wp_summary ?? [])]
-                    .filter((w) => (w.impact ?? 0) > 0)
-                    .sort((a, b) => (b.impact ?? 0) - (a.impact ?? 0))
-                    .slice(0, 3);
+                    .filter((w) => {
+                      if (!w.wp_id || seen.has(w.wp_id)) return false;
+                      seen.add(w.wp_id);
+                      return true;
+                    })
+                    .sort((a, b) => (b.impact ?? 0) - (a.impact ?? 0));
                   const by_wp = detail.optimizer?.by_wp ?? {};
+                  const wpScenarios = (detail.scenarios as any)?.by_wp ?? {};
                   return top
                     .map((w) => {
                       const o = by_wp[w.wp_id];
                       if (!o) return null;
-                      const recs = (o.recommendations ?? []).map((r: any) =>
-                        typeof r === "string" ? r : r.text ?? ""
-                      ).filter(Boolean);
+                      // 2026-05-27 Task 22 후속: V10 schema (keyword/action/reason) 인식.
+                      // 옛 string + 옛 {text} + V10 {keyword, action, reason} 셋 다 합성.
+                      const recs = (o.recommendations ?? []).map((r: any) => {
+                        if (typeof r === "string") return r;
+                        if (r.text) return r.text;
+                        if (r.keyword && r.action) {
+                          return `[${r.keyword}] ${r.action}${r.reason ? ` (이유: ${r.reason})` : ""}`;
+                        }
+                        return "";
+                      }).filter(Boolean);
                       const dg = o.diagnosis && o.diagnosis !== "cold_start" ? o.diagnosis : undefined;
                       if (recs.length === 0 && !dg) return null;
+                      const wpScen = wpScenarios[w.wp_id];
+                      const wpRecoveryDays = wpScen?.base_p50?.recovery_days;
                       return {
                         wp_name: w.wp_name,
                         trade: w.trade,
+                        recovery_days: typeof wpRecoveryDays === "number" ? wpRecoveryDays : undefined,
                         diagnosis: dg,
                         recommendations: recs,
                       };

@@ -33,6 +33,7 @@ interface Props {
   aiAdvice?: Array<{
     wp_name: string;
     trade: string;
+    recovery_days?: number;
     diagnosis?: string;
     recommendations: string[];
   }>;
@@ -395,20 +396,29 @@ export function ForecastChart({
             <ul className="space-y-2.5 text-sm text-ink">
               {aiAdvice.map((wp, idx) => (
                 <li key={idx} className="rounded bg-card px-3 py-2 ring-1 ring-border-soft">
-                  <div className="text-[12px] font-semibold text-ink">
-                    {wp.wp_name}
-                    <span className="ml-1.5 font-normal text-ink-light">({wp.trade})</span>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[12px] font-semibold text-ink">
+                        {wp.wp_name}
+                        <span className="ml-1.5 font-normal text-ink-light">({wp.trade})</span>
+                      </div>
+                      {wp.diagnosis && (
+                        <p className="mt-1 text-[12.5px] text-ink-mid">{wp.diagnosis}</p>
+                      )}
+                      {wp.recommendations.length > 0 && (
+                        <ul className="mt-1.5 ml-3 list-disc space-y-0.5 text-[12.5px] text-ink-mid">
+                          {wp.recommendations.slice(0, 2).map((r, ri) => (
+                            <li key={ri}>{r}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                    {typeof wp.recovery_days === "number" && (
+                      <span className="shrink-0 text-[16px] font-bold text-mint-text">
+                        {wp.recovery_days > 0 ? `−${wp.recovery_days}일 만회` : "0일 만회"}
+                      </span>
+                    )}
                   </div>
-                  {wp.diagnosis && (
-                    <p className="mt-1 text-[12.5px] text-ink-mid">{wp.diagnosis}</p>
-                  )}
-                  {wp.recommendations.length > 0 && (
-                    <ul className="mt-1.5 ml-3 list-disc space-y-0.5 text-[12.5px] text-ink-mid">
-                      {wp.recommendations.slice(0, 2).map((r, ri) => (
-                        <li key={ri}>{r}</li>
-                      ))}
-                    </ul>
-                  )}
                 </li>
               ))}
             </ul>

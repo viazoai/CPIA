@@ -716,6 +716,14 @@ _AGENTS_META: list[dict[str, Any]] = [
         "model": "Opus 4.7",
         "group": "analyze",
     },
+    {
+        "step": 8,
+        "name": "Exporter",
+        "korean_name": "내보내기",
+        "description": "graph cycle 마다 통합 xlsx 사전생성 (consolidated_reports UPSERT)",
+        "model": "openpyxl",
+        "group": "analyze",
+    },
 ]
 
 _AGENT_ACTIVE_COUNT_SQL = """

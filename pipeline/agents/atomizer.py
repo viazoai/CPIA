@@ -181,6 +181,7 @@ async def atomize(
                     "wa": a["wa"],
                     "l6_main": a["l6_main"],
                     "company": a["company"],
+                    "trade": a.get("trade"),
                     "today_qty": a.get("today_qty"),
                     "today_assigned_workers": a.get("today_assigned_workers"),
                     "unit": a.get("unit"),

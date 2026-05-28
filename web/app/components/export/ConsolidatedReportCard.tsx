@@ -15,6 +15,7 @@ import {
 
 interface Props {
   report: ConsolidatedReport;
+  siteId: string;  // PoC 단일 site — page.tsx 가 전달
 }
 
 const TAB_LABELS: Record<SheetTab, string> = {
@@ -24,39 +25,38 @@ const TAB_LABELS: Record<SheetTab, string> = {
   quantity:            "4. 물량",
 };
 
-export function ConsolidatedReportCard({ report }: Props) {
+export function ConsolidatedReportCard({ report, siteId }: Props) {
   const [tab, setTab] = useState<SheetTab>("output_manpower");
   const [busy, setBusy] = useState(false);
 
   const counts = report.sheet_row_counts;
 
-  /**
-   * PoC: Exporter 에이전트 호출은 A_Track 구현 대기.
-   * 시연 fallback — 약 1.5초 로딩 토스트 후 docs/sample 의 통합 작업일보 그대로 다운로드.
-   * 추후 A_Track FastAPI POST /export/run?date= 가 준비되면 a.href 를 그 응답 URL 로 swap.
-   */
-  const handleExport = async () => {
-    if (busy) return;
+  async function handleExport() {
+    if (busy || !report?.date || !siteId) return;
     setBusy(true);
-    const id = toast.loading(
-      `Exporter 에이전트 작동 중… (${report.date} 통합 작업일보 생성)`,
-      { description: "업체별 작업일보 4 시트를 한 파일로 통합하고 있습니다." }
-    );
     try {
-      await new Promise((r) => setTimeout(r, 1500));
+      const base = process.env.NEXT_PUBLIC_FASTAPI_BASE || "http://localhost:8000";
+      const url = `${base}/export/run?site_id=${encodeURIComponent(siteId)}&date=${report.date}`;
+      const res = await fetch(url);
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`Export 실패 (${res.status}): ${text}`);
+      }
+      const blob = await res.blob();
       const a = document.createElement("a");
-      a.href = "/sample/cpia-consolidated-report.xlsx";
+      a.href = URL.createObjectURL(blob);
       a.download = `통합작업일보_${report.date}.xlsx`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      toast.success(`통합 작업일보 다운로드 완료 (${report.date})`, { id });
-    } catch {
-      toast.error("Exporter 실행에 실패했습니다.", { id });
+      URL.revokeObjectURL(a.href);
+    } catch (err) {
+      console.error("Export 실패:", err);
+      toast.error(`다운로드 실패: ${err instanceof Error ? err.message : "알 수 없는 오류"}`);
     } finally {
       setBusy(false);
     }
-  };
+  }
 
   return (
     <div className="rounded-card border border-border-soft bg-card shadow-xs flex flex-col h-full overflow-hidden">

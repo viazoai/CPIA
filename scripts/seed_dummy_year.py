@@ -565,12 +565,16 @@ async def seed_day(
     am_list: list[dict[str, Any]],
     chroma_cfg: Optional[dict[str, Any]] = None,
     chroma_only: bool = False,
+    trades: Optional[list[str]] = None,
 ) -> dict[str, int]:
     """단일 일자 적재. return: counts dict.
 
     chroma_cfg None  → PG 만 (기존 동작).
     chroma_cfg dict  → PG + Chroma sample 일자 (_chroma_should_seed 충족 시).
     chroma_only True → PG INSERT skip, Chroma 만 (T4 용).
+    trades None      → trade filter 비활성 (기존 동작 보존).
+    trades list      → 해당 trade row 만 mapper_rows 에 append. (2026-05-27 Task 19:
+                       사용자 의도 — 적재 단계에서 건축·토목 외 trade row 자체를 차단.)
     """
     run_id = _date_run_id(d)
 
@@ -583,6 +587,10 @@ async def seed_day(
         rng = _seeded_rng(rng_seed_prefix + "|".join(str(k) for k in key) + f"|{i}")
         r = _build_mapper_row(d, am, anchor_row, rng)
         if r is not None:
+            # 2026-05-27 Task 19: trade filter — 적재 단계 차단 (사용자 의도).
+            # trades None 이면 filter 비활성 (회귀 0). list 면 trade not in trades → skip.
+            if trades is not None and r.get("trade") not in trades:
+                continue
             mapper_rows.append(r)
     n_active = len(mapper_rows)
     if n_active == 0:
@@ -761,6 +769,81 @@ async def seed_day(
 
 
 # ============================================================================
+# consolidated_reports backfill
+# ============================================================================
+
+
+async def _backfill_consolidated_reports(pg: PGClient, start: date, end: date) -> int:
+    """(D-11) 단일 SITE_ID 의 consolidated_reports mock backfill.
+
+    `scripts/seed_dummy_year.py:58` 의 단일 상수 SITE_ID = "m15x-ph3-ibl" 사용.
+    `amain()` 의 `while d <= end:` 루프 다음에 별도 두 번째 루프로 호출.
+
+    실패 (NoDataError / pipeline_runs 없음) 는 skip + log.
+
+    Returns: backfill 된 row 수.
+    """
+    from pipeline.agents.exporter import (  # noqa: PLC0415
+        NoDataError,
+        fetch_sheet_data,
+        render_xlsx,
+    )
+    from pipeline.db import (  # noqa: PLC0415
+        fetch_site_by_id,
+        upsert_consolidated_report,
+    )
+
+    count = 0
+    site_row = await fetch_site_by_id(pg, SITE_ID)
+    project_name = (site_row or {}).get("name") or PROJECT
+
+    d = start
+    while d <= end:
+        try:
+            data = await fetch_sheet_data(pg, SITE_ID, d)
+        except NoDataError:
+            logging.info("seed consolidated_reports skip — date=%s (no parser data)", d)
+            d = d + timedelta(days=1)
+            continue
+        xlsx_bytes = render_xlsx(data, d, project=project_name)
+        async with pg._pool.acquire() as con:
+            run_row = await con.fetchrow(
+                """
+                SELECT run_id FROM pipeline_runs
+                WHERE site_id=$1 AND report_date=$2
+                ORDER BY started_at DESC NULLS LAST LIMIT 1
+                """,
+                SITE_ID,
+                d,
+            )
+        if not run_row:
+            logging.warning(
+                "seed consolidated_reports skip — no pipeline_runs for date=%s", d
+            )
+            d = d + timedelta(days=1)
+            continue
+        await upsert_consolidated_report(
+            pg,
+            site_id=SITE_ID,
+            report_date=d,
+            xlsx_bytes=xlsx_bytes,
+            run_id=run_row["run_id"],
+        )
+        async with pg._pool.acquire() as con:
+            await con.execute(
+                "UPDATE consolidated_reports SET is_mock=TRUE WHERE site_id=$1 AND report_date=$2",
+                SITE_ID,
+                d,
+            )
+        count += 1
+        logging.info(
+            "seed consolidated_reports OK — date=%s bytes=%d", d, len(xlsx_bytes)
+        )
+        d = d + timedelta(days=1)
+    return count
+
+
+# ============================================================================
 # Main
 # ============================================================================
 
@@ -792,13 +875,20 @@ async def amain() -> None:
     p.add_argument(
         "--pg-url", type=str, default=os.environ.get("POSTGRES_URL", DEFAULT_PG_URL)
     )
+    p.add_argument(
+        "--trades",
+        nargs="+",
+        default=["건축", "토목"],
+        help="적재할 trade list (default: 건축 토목). 사용자 의도: 시연 윈도우 trade 좁히기.",
+    )
     args = p.parse_args()
 
     start = date.fromisoformat(args.start)
     end = date.fromisoformat(args.end)
     print(
         f"=== seed_dummy_year: {start} ~ {end} "
-        f"(chroma_on={args.chroma_on}, mode={args.chroma_mode}, chroma_only={args.chroma_only}) ==="
+        f"(chroma_on={args.chroma_on}, mode={args.chroma_mode}, chroma_only={args.chroma_only}, "
+        f"trades={args.trades}) ==="
     )
 
     # Chroma cfg build (--chroma-on 또는 --chroma-only 일 때만)
@@ -882,6 +972,7 @@ async def amain() -> None:
                 am_list,
                 chroma_cfg=chroma_cfg,
                 chroma_only=args.chroma_only,
+                trades=args.trades,
             )
             for k, v in counts.items():
                 totals[k] = totals.get(k, 0) + v
@@ -893,6 +984,11 @@ async def amain() -> None:
                 chroma_msg = f" chroma={n_chroma}" if n_chroma else ""
                 print(f"  [{d}] day#{day_count} active={active_n}{chroma_msg}")
             d += timedelta(days=1)
+
+        c_count = await _backfill_consolidated_reports(pg, start, end)
+        logging.info(
+            "seed_dummy_year: consolidated_reports backfill = %d rows", c_count
+        )
 
         print(f"=== TOTAL ({day_count} days) ===")
         for k, v in totals.items():

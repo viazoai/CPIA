@@ -29,6 +29,7 @@ from pipeline.agents.optimizer.retrieve import (
     fetch_recovery_trajectory,
 )
 from pipeline.agents.reporter import ReporterConfig, report
+from pipeline.agents.exporter import consolidated_xlsx_node
 from pipeline.checkpointer import build_checkpointer
 from pipeline.chroma_client import ChromaClient
 from pipeline.db import PGClient, update_site_hours_saved_cum, update_site_last_run
@@ -585,6 +586,7 @@ def build_graph(cfg: GraphConfig):
     graph.add_node("mapper", _mapper)
     graph.add_node("hil_1", _hil_1)
     graph.add_node("atomizer", _atomizer)
+    graph.add_node("exporter", consolidated_xlsx_node)
     graph.add_node("forecaster", _forecaster)
     graph.add_node("hil_2", _hil_2)
     graph.add_node("optimizer", _optimizer)
@@ -594,7 +596,9 @@ def build_graph(cfg: GraphConfig):
     graph.add_edge("parser", "mapper")
     graph.add_edge("mapper", "hil_1")
     graph.add_edge("hil_1", "atomizer")
+    graph.add_edge("atomizer", "exporter")
     graph.add_edge("atomizer", "forecaster")
+    graph.add_edge("exporter", END)
     graph.add_edge("forecaster", "hil_2")
     graph.add_conditional_edges(
         "hil_2",

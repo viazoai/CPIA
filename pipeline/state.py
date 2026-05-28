@@ -264,6 +264,10 @@ class CPIAState(TypedDict):
     message_id: str  # listener invoke 시 박힘. CLI 진입 시 absent
     postgres_url: str  # collector_node 가 collector_inbox UPDATE 용
 
+    # (D-7) exporter_node 산출 meta — bytes 는 박지 않음 (PostgresSaver checkpoint 폭증 방지)
+    consolidated_xlsx_run_id: str  # str(uuid.UUID)
+    consolidated_xlsx_generated_at: str  # ISO 8601 (datetime.utcnow().isoformat()+"Z")
+
 
 class BPSummaryRaw(TypedDict, total=False):
     """시트 1 의 row 단위 1:1 LLM 출력. parser_post.pair_bp_summaries (A.6) 가 페어링."""

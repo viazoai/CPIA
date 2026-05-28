@@ -766,13 +766,32 @@ async def _build_wp_summary(
 ) -> list[dict[str, Any]]:
     """WP 표 — quadrant 와 같은 단위 + baseline + status.
 
+    2026-05-27 Task 14: status = forecasts.risk_level 단일 source 통일 (spec §4.2.6).
+    사용자 의도: 분포도 (왼쪽 wp_summary) 와 진단 (오른쪽 카드) 의 평가 일관성 보장.
+    v2 (_build_productivity_views_v2) 와 동일 lookup 패턴 — 정합성 유지.
+
     baseline / bp_name / progress / dates 는 후속 task 에서 보강.
-    본 task 는 quadrant 기반 status 만.
     """
+    # forecasts.risk_level lookup (v2 와 동일 패턴)
+    fc_rows = await pg.fetch_all(
+        """
+        SELECT f.company, f.l6_main, f.risk_level
+        FROM forecasts f JOIN pipeline_runs pr USING (run_id)
+        WHERE pr.report_date = $1 AND pr.site_id = $2
+        """,
+        today,
+        site_id,
+    )
+    risk_lookup: dict[tuple[str, str], str] = {
+        (fr["company"], fr["l6_main"]): fr["risk_level"]
+        for fr in (fc_rows or [])
+        if fr.get("risk_level")
+    }
+
     out: list[dict[str, Any]] = []
     for q in quadrant_jsonb:
-        cpi = q.get("productivity") or 0
-        status = "normal" if cpi >= 90 else "caution" if cpi >= 80 else "risk"
+        risk_level = risk_lookup.get((q.get("company"), q.get("l6_main")))
+        status = _risk_level_to_status(risk_level)
         out.append(
             {
                 **q,
@@ -1076,14 +1095,24 @@ def _build_optimizer_view(
                 "outcome": f"{rd}일 후 회복" if rd is not None else "미회복",
             })
 
-        # 권고 text 만 추출
+        # 2026-05-28: V10 polymorphic — keyword/action/reason dict 도 그대로 forward.
+        # FE (OptimizerResult.tsx) 가 string vs object 분기 렌더.
         recs_raw = advice.get("recommendations") or []
-        recommendations: list[str] = []
+        recommendations: list = []
         for r in recs_raw:
             if isinstance(r, dict):
-                recommendations.append(r.get("text") or "")
+                if "keyword" in r and "action" in r:
+                    # V10 schema — dict 그대로
+                    recommendations.append(r)
+                elif "text" in r:
+                    # 옛 schema {rank, text} — text 만 string 으로
+                    recommendations.append(r.get("text") or "")
+                else:
+                    recommendations.append(str(r))
             else:
                 recommendations.append(str(r))
+        # 2026-05-28: LLM 우회 (4건 출력) 차단 — wp 당 최대 3건 trim (사용자 의도: 1-2건 default, 복잡 시 3건).
+        recommendations = recommendations[:3]
 
         # 6칸 details
         rp = advice.get("recovery_pattern") or []
@@ -1104,9 +1133,15 @@ def _build_optimizer_view(
             if isinstance(rdist, dict) else ""
         )
 
+        # 2026-05-27: 금일 생산성 추가 (사용자 요청 — 유사 사례 옆 직관 비교).
+        today_prod = matched_f.get("today_productivity")
+        today_prod_text = (
+            f"{float(today_prod):.2f}{unit_suffix}" if today_prod is not None else "—"
+        )
         details = [
             {"label": "위험 평가", "value": matched_f.get("risk_level") or "—"},
             {"label": "진단 대상", "value": f"{advice.get('company') or ''} · {advice.get('l6_main') or ''}"},
+            {"label": "금일 생산성", "value": today_prod_text},
             {"label": "유사 사례 수", "value": f"{len(advice.get('degradation_cases') or [])}건"},
             {"label": "평균 회복 일수", "value": f"{avg_rd:.1f}일" if avg_rd is not None else "—"},
             {"label": "회복 분포", "value": rdist_text or "—"},
@@ -1269,7 +1304,9 @@ def _build_scenarios(advice_rows: list[dict], forecast: list[dict]) -> dict:
         else:
             by_wp[wp_id] = _wp_block_deterministic(advice, wp_no_action)
 
-    # site = by_wp 의 집계 (no_action 은 max ec, 나머지는 median recovery_days)
+    # site = by_wp 의 집계 (no_action 은 max ec, 나머지는 sum recovery_days)
+    # 2026-05-28: median → sum 변경 (사용자 의도: "a공종 2일+b공종 1일+c공종 2일=5일").
+    # 모든 advice 있는 wp 의 recovery_days 단순 합. 사용자가 산출 근거 직접 추적 가능.
     def _site_slot(slot_key: str) -> dict:
         items = [b[slot_key] for b in by_wp.values() if b.get(slot_key)]
         if not items:
@@ -1282,12 +1319,11 @@ def _build_scenarios(advice_rows: list[dict], forecast: list[dict]) -> dict:
         ecs = [_coerce_date(it.get("expected_completion")) for it in items]
         ecs = [e for e in ecs if e is not None]
         max_ec = max(ecs) if ecs else None
-        recoveries = sorted(int(it.get("recovery_days") or 0) for it in items)
-        median_rec = recoveries[len(recoveries) // 2] if recoveries else 0
+        sum_rec = sum(int(it.get("recovery_days") or 0) for it in items)
         return {
             "expected_completion": max_ec.isoformat() if max_ec else None,
-            "recovery_days": median_rec,
-            "delta_days": -median_rec if slot_key != "no_action" else 0,
+            "recovery_days": sum_rec,
+            "delta_days": -sum_rec if slot_key != "no_action" else 0,
             "case_count": len(items),
         }
 
@@ -1415,6 +1451,20 @@ def _status_of(pct: float) -> str:
     return "risk"
 
 
+def _risk_level_to_status(risk_level: Optional[str]) -> str:
+    """2026-05-27: forecaster.risk_level (정상/주의/이상) → FE status (normal/caution/risk).
+
+    wp_summary.status 를 forecaster RAG delta 기반 평가와 일관성 있게 통일.
+    """
+    if risk_level == "이상":
+        return "risk"
+    if risk_level == "주의":
+        return "caution"
+    if risk_level == "정상":
+        return "normal"
+    return "normal"
+
+
 def _quadrant_of(prod: float, impact: float) -> str:
     if prod < 70 and impact >= 50:
         return "risk"
@@ -1491,12 +1541,30 @@ async def _build_productivity_views_v2(
           AND pr.site_id = $2
           AND ma.l7_5_activity IS NOT NULL
           AND m.ps IS NOT NULL AND $1 BETWEEN m.ps AND m.pf
+          AND ma.trade IN ('건축', '토목')  -- 2026-05-27 Task 17: 안전망 (#N17)
         """,
         today,
         site_id,
     )
     if not rows:
         return dict(_VIEWS_V2_EMPTY)
+
+    # 2026-05-27: forecasts.risk_level lookup — wp_summary.status 통일용.
+    # (company, l6_main) → risk_level dict.
+    fc_rows = await pg.fetch_all(
+        """
+        SELECT f.company, f.l6_main, f.risk_level
+        FROM forecasts f JOIN pipeline_runs pr USING (run_id)
+        WHERE pr.report_date = $1 AND pr.site_id = $2
+        """,
+        today,
+        site_id,
+    )
+    risk_lookup: dict[tuple[str, str], str] = {
+        (fr["company"], fr["l6_main"]): fr["risk_level"]
+        for fr in (fc_rows or [])
+        if fr.get("risk_level")
+    }
 
     # row 별 산식
     items: list[dict] = []
@@ -1540,6 +1608,8 @@ async def _build_productivity_views_v2(
                 "master_perperson": master_perperson,
                 "master_daily_qty": daily_qty_master,
                 "master_daily_workers": daily_workers_master,
+                # 2026-05-27: forecaster risk_level 동기 — wp_summary.status 통일.
+                "risk_level": risk_lookup.get((r["company"], r["l6_main"])),
                 "productivity": productivity,
                 "impact_raw": impact_raw,
             }
@@ -1724,7 +1794,8 @@ async def _build_productivity_views_v2(
                 "productivity": round(it["productivity"], 1),
                 "impact": round(it["impact"], 1),
                 "baseline": 100,
-                "status": _status_of(it["productivity"]),
+                # 2026-05-27: forecaster risk_level 기준 — UI 평가/status 일관.
+                "status": _risk_level_to_status(it.get("risk_level")),
                 "perperson": round(it["perperson"], 2),
                 "perperson_unit": f"{it['unit']}/인" if it["unit"] else None,
                 "display_label": _make_display_label(
@@ -1831,44 +1902,15 @@ async def _build_productivity_views_v2(
         advice_rows, forecast_rows, items, wa_lookup,
     )
 
-    # advice 없는 WP → deterministic cold_start. grouped_items 사용 (wp_id 단위 통합).
-    master_lookup = {
-        (it["l7_5_activity"], it["company"]): {
-            "daily_qty": it["master_daily_qty"],
-            "daily_workers": it["master_daily_workers"],
-            "unit": it["unit"],
-        }
-        for it in grouped_items
-    }
-    forecast_by_wp = {
-        (f.get("company"), f.get("l6_main")): f for f in forecast_rows
-    }
-    # T17: by_wp 를 quadrant wp_id 집합으로 trim 후 cold_start fan-out.
-    # 이유: optimizer_view._build_optimizer_view 가 advice_rows (설비 포함) 기반으로
-    # by_wp 를 채우는데, quadrant (건축/토목 trade IN 필터) 와 wp_id 집합이 달라
-    # verify 5번 Jaccard pct 가 11% 에 머묾.
-    # Fix 2단계:
-    #   1) by_wp 를 quadrant wp_id 집합으로 restrict (quadrant 에 없는 설비 advice 제거)
-    #   2) quadrant 의 나머지 wp_id 를 cold_start 로 채워 by_wp = quadrant 1:1 대응
-    # 결과: intersection = union = |quadrant| → Jaccard 100%.
+    # 2026-05-28 Task 16: cold_start 분기 폐기. 사용자 명시 — "콜드케이스는 절대로 없어야돼
+    # 오류가 나면 다시 재시도 하던가 해야되고 조건식에 안걸리면 그 날짜만 따로 취합해서
+    # 재시도 하던가 해야돼". 모든 wp 는 LLM advice 보장 (retry 3-tier + Task 30 failed_wps
+    # batch). advice 적재 실패한 wp 는 by_wp entry X — FE 가 graceful handling.
+    # by_wp = quadrant 1:1 보장은 retry path 가 책임 (cold_start fan-out 폐기).
     quadrant_ids = {q["wp_id"] for q in quadrant}
     optimizer_view["by_wp"] = {
         k: v for k, v in optimizer_view["by_wp"].items() if k in quadrant_ids
     }
-    chroma_cases_lookup = await _fetch_chroma_cases_lookup(quadrant, today)
-    for q in quadrant:
-        if q["wp_id"] in optimizer_view["by_wp"]:
-            continue
-        master = master_lookup.get((q["l7_5_activity"], q["company"]))
-        f = forecast_by_wp.get((q["company"], q["l6_main"]), {})
-        optimizer_view["by_wp"][q["wp_id"]] = _build_deterministic_cold_start(
-            q,
-            master,
-            chroma_cases_lookup.get(q["wp_id"], []),
-            workers=int(q.get("workers") or 1),
-            risk_level=f.get("risk_level"),
-            delay_days=int(f.get("delay_days") or 0),
-        )
     if optimizer_view.get("default_wp_id") is None and optimizer_view["by_wp"]:
         optimizer_view["default_wp_id"] = next(iter(optimizer_view["by_wp"].keys()))
 

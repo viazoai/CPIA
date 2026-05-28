@@ -8,22 +8,28 @@ Spec: §7.1, §7.3, §8.1.
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import uuid
 from datetime import date
 
 import pytest
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
+from openpyxl import load_workbook
 
-from pipeline.agents.exporter import NoDataError, SheetData, fetch_sheet_data
-from pipeline.db import PGClient
+from pipeline.agents.exporter import TEMPLATE_PATH, NoDataError, SheetData, fetch_sheet_data
+from pipeline.db import PGClient, upsert_consolidated_report
+from pipeline.exporter_routes import router as exporter_router
 
 pytestmark = pytest.mark.asyncio
 
 
 @pytest.fixture
 async def pg():
-    pg = PGClient(os.environ["POSTGRES_URL"]); await pg.connect()
+    pg = PGClient(os.environ["POSTGRES_URL"])
+    await pg.connect()
     yield pg
     await pg.close()
 
@@ -41,7 +47,9 @@ async def seeded_run(pg: PGClient):
             INSERT INTO pipeline_runs (run_id, site_id, report_date, status)
             VALUES ($1, $2, $3, 'completed')
             """,
-            run_id, site_id, rdate,
+            run_id,
+            site_id,
+            rdate,
         )
         await con.execute(
             """
@@ -50,7 +58,9 @@ async def seeded_run(pg: PGClient):
                  equipment_allocations, activity_count)
             VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb, $7)
             """,
-            run_id, rdate, "TEST",
+            run_id,
+            rdate,
+            "TEST",
             json.dumps([{"zone": "FAB", "company": "acme", "today_incr_total": 5}]),
             json.dumps([{"disc_abbrev": "TE", "job_type": "BP소장"}]),
             json.dumps([{"equipment_big": "굴삭운반"}]),
@@ -63,12 +73,14 @@ async def seeded_run(pg: PGClient):
                  work_content, plan_total_qty)
             VALUES ($1, $2, 0, '공통가설', 'TE', 'acme', '인', 5, 'M15 환경유지', 100)
             """,
-            run_id, rdate,
+            run_id,
+            rdate,
         )
 
     yield (run_id, site_id, rdate)
 
     async with pg._pool.acquire() as con:
+        await con.execute("DELETE FROM consolidated_reports WHERE run_id=$1", run_id)
         await con.execute("DELETE FROM parser_activities WHERE run_id=$1", run_id)
         await con.execute("DELETE FROM parser_reports WHERE run_id=$1", run_id)
         await con.execute("DELETE FROM pipeline_runs WHERE run_id=$1", run_id)
@@ -98,17 +110,14 @@ async def test_fetch_sheet_data_filters_other_sites(pg: PGClient, seeded_run) ->
 
 # ── /export/run endpoint 통합 ────────────────────────────────────
 
-from httpx import ASGITransport, AsyncClient
-from fastapi import FastAPI
-
-from pipeline.exporter_routes import router as exporter_router
-
 
 @pytest.fixture
-def app() -> FastAPI:
-    app = FastAPI()
-    app.include_router(exporter_router)
-    return app
+async def app(pg: PGClient) -> FastAPI:
+    """미니 app — lifespan 회피 + state.pg 수동 set (E-2 hybrid 가 request.app.state.pg 사용)."""
+    application = FastAPI()
+    application.state.pg = pg
+    application.include_router(exporter_router)
+    return application
 
 
 async def test_export_run_returns_xlsx(app, seeded_run) -> None:
@@ -133,17 +142,78 @@ async def test_export_run_404_unknown_site(app) -> None:
     assert r.status_code == 404
 
 
-async def test_export_run_400_no_data(app) -> None:
+async def test_export_run_400_no_data(app, pg) -> None:
     """site 존재하지만 해당 date 데이터 0 — 400."""
-    pg = PGClient(os.environ["POSTGRES_URL"]); await pg.connect()
-    try:
-        async with pg._pool.acquire() as con:
-            row = await con.fetchrow("SELECT site_id FROM sites WHERE site_id=$1", "m15x-ph3-ibl")
-    finally:
-        await pg.close()
+    async with pg._pool.acquire() as con:
+        row = await con.fetchrow("SELECT site_id FROM sites WHERE site_id=$1", "m15x-ph3-ibl")
     if not row:
         pytest.skip("m15x-ph3-ibl 시드 미적용")
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         r = await client.get("/export/run?site_id=m15x-ph3-ibl&date=1900-01-01")
     assert r.status_code == 400
     assert "데이터 없음" in r.json()["detail"]
+
+
+async def test_export_run_cache_hit(app, pg, seeded_run) -> None:
+    """(E-2) consolidated_reports 에 row 있으면 cache hit 응답."""
+    run_id, site_id, rdate = seeded_run
+
+    async with pg._pool.acquire() as con:
+        await con.execute(
+            "DELETE FROM consolidated_reports WHERE site_id=$1 AND report_date=$2",
+            site_id,
+            rdate,
+        )
+    wb = load_workbook(TEMPLATE_PATH)
+    buf = io.BytesIO()
+    wb.save(buf)
+    cache_bytes = buf.getvalue()
+    await upsert_consolidated_report(
+        pg,
+        site_id=site_id,
+        report_date=rdate,
+        xlsx_bytes=cache_bytes,
+        run_id=run_id,
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.get(f"/export/run?site_id={site_id}&date={rdate.isoformat()}")
+    assert r.status_code == 200
+    assert r.content == cache_bytes
+    assert "통합작업일보" in r.headers["content-disposition"]
+    wb_check = load_workbook(io.BytesIO(r.content))
+    assert "1.출력인원 현황" in wb_check.sheetnames
+
+    # 테스트 정리
+    async with pg._pool.acquire() as con:
+        await con.execute(
+            "DELETE FROM consolidated_reports WHERE site_id=$1 AND report_date=$2",
+            site_id,
+            rdate,
+        )
+
+
+async def test_export_run_cache_miss_fallback(app, pg, seeded_run) -> None:
+    """(E-2) consolidated_reports 에 row 없으면 live render fallback."""
+    run_id, site_id, rdate = seeded_run
+
+    async with pg._pool.acquire() as con:
+        await con.execute(
+            "DELETE FROM consolidated_reports WHERE site_id=$1 AND report_date=$2",
+            site_id,
+            rdate,
+        )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.get(f"/export/run?site_id={site_id}&date={rdate.isoformat()}")
+    assert r.status_code == 200
+    assert "통합작업일보" in r.headers["content-disposition"]
+    assert len(r.content) > 1000
+
+    async with pg._pool.acquire() as con:
+        row = await con.fetchrow(
+            "SELECT 1 FROM consolidated_reports WHERE site_id=$1 AND report_date=$2",
+            site_id,
+            rdate,
+        )
+    assert row is None  # E-2: live render 후 UPSERT 안 함

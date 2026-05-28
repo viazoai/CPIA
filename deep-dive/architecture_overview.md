@@ -1,208 +1,293 @@
 # CPIA Architecture Overview (deep-dive 라이트)
 
-- **Generated**: 2026-05-20 (parser+mapper refactor + view_builder 신설 + FastAPI 12 엔드포인트 완성 + full-cycle 검증 후 갱신)
-- **Git SHA**: `ef7c6cd` (A_Track HEAD, origin sync). 이전 스냅샷 `cf3c143` 대비 80 commits, pipeline LOC 4380→8928.
-- **Branch**: `A_Track` (조형준 main 머지 대기). B_Track 별도.
-- **Range**: pipeline 전체 (agents 7 active + reporter + graph + state + db + api + checkpointer) + Next.js BFF (web/lib/pg.ts + transforms.ts) — `~143k LOC` (.venv 제외 pipeline ~8.9k LOC + tests + web)
-- **Tests**: 392 collected (pipeline/tests, 이전 197건 대비 2배)
-- **Pair**: `./design-intent/INDEX.md` (메인 카탈로그) + `../docs/audit/2026-05-17-cpia-drift-backlog.md` (해소 우선순위) + `../docs/superpowers/specs/2026-05-20-cpia-parser-mapper-refactor-design.md` (직전 cycle spec)
+- **Generated**: 2026-05-26 (Mock 재설계 PR #40 + AWS 마이그 + view_builder MEDIAN + backfill_v2 + ForecastChart catch-up + site_summary LLM cycle 후 갱신)
+- **Git SHA**: `1ba783f` (A_Track HEAD). 이전 스냅샷 `ef7c6cd` 대비 **70+ commits, 204 files, +30,151 / -3,055 LOC, pipeline non-test 8,928 → 11,656 (+31%)**
+- **Branch**: `A_Track` (main 머지 완료: `7e9e1a1` 산식 A + site_summary, `1ba783f` Mock 재설계 sync). 다른 세션이 `view_builder.py` 1 줄 변경 working tree 보유 (`trade IN ('건축','토목')` 필터 제거).
+- **Range**: pipeline 전체 (9 active subsystem + 신규 exporter + collector IDLE worker + scripts 20+) + Next.js BFF (web/lib/pg.ts + transforms.ts + diagnosis.ts catch-up) — `~155k LOC` (.venv 제외)
+- **Tests**: 392 baseline + 본 cycle 9 신규 (exporter_endpoint / exporter_render / filename_parser / forecaster_concurrency / idle_worker / llm_concurrency / optimizer_concurrency / parser_node / db_collector_inbox)
+- **Pair**: `./design-intent/INDEX.md` (T1/T2 카탈로그) + `./deep_dive_<X>.md` 8 개 (각 300~1,100 줄 상세) + `../data-contract/INDEX.md` (FE↔BE 정합)
 
-본 문서는 함수별 깊이 보다는 **시스템 다이어그램 + 서브시스템 요약 + 변경 인터페이스 정리 + 이슈 표** 위주. 함수 단위 깊이는 `./design-intent/design_intent_<X>.md` 참조.
+본 문서는 함수별 깊이 보다는 **시스템 다이어그램 + 서브시스템 요약 + Data layer + 변경 인터페이스 + 이슈 표** 위주. 함수 단위 깊이는 `./deep_dive_<X>.md` 참조.
 
-> **이번 cycle 갱신 요지** (vs 이전 cf3c143 / 2026-05-19):
-> - **Parser 전면 리팩터** (5개 commit): 4 시트 rule-based 추출 + LLM 검증 wrapper (default on, env opt-out). `parser.py` 306→760 LOC. **`parser_llm.py` DEPRECATED 2026-05-20** (코드 보존, env flag 회귀 가능). 신규 `parser_post.py` (201 LOC) — `split_company_and_zone` / `extract_zone` / `pair_bp_summaries` / `transform_bp_summaries`.
-> - **Collector 신설** (`pipeline/agents/collector.py` 70 LOC) — `discover_daily_reports` + `collect_and_parse` (asyncio.Semaphore 4 병렬). 이전 0 byte stub 채움.
-> - **Mapper 7단계 `resolve_wa` + shift-weighted MH** — 이전 5단계 (0+1+2+3+4) → **7단계 (0~6)**. 신규 source 2종: `auto_bp_zone_match` (BP-zone deterministic, fix C) + `auto_llm_rerank` (LLM rerank fallback, 옵션 A). hil_required 58% → 25% 목표. `_weighted_mh_from_shift` + `_prorate_workers_with_mh` 신규 (8h 고정 → 시간대 가중 MH, EVM AC 분모 정합). `build_bp_context` BP 코드별 분리.
-> - **Optimizer + view_builder 신설** (`pipeline/agents/optimizer/view_builder.py` **752 LOC 신규**) — daily_reports 의 8 + 1 view jsonb 산출 (kpi / contractor_bars / trade_bars / quadrant / wp_summary / s_curve / optimizer_view / productivity / **scenarios** 2026-05-19 추가). `_build_scenarios` (percentile 기반 4 시나리오 no_action / optimistic_p25 / base_p50 / pessimistic_p75) + `_build_quadrant` (impact P90 normalize) + `_build_s_curve` (planned/actual/forecast/recovery 4 곡선).
-> - **FastAPI 12 엔드포인트 완성** (`pipeline/api.py` 0 byte → **1050 LOC**) — `/health` + HIL1 resume + 10 GET (sites / runs/{run_id}/optimizer / wp_summary / sites/{site_id}/reports / dashboard/performance / dashboard/impact / agents/status / sites/{site_id}/wbs_tree / tasks). BFF (web/lib/pg.ts) 의 mock route 가 점진적으로 본 엔드포인트로 swap 예정.
-> - **PG 16개 migration + 8개 신규 테이블/컬럼**:
->   - 신규 테이블 6종: `mapped_history`, `parser_activities`, `parser_job_allocations`, `parser_equipment_allocations`, `parser_worker_outputs`, `parser_report_meta`
->   - 신규 컬럼: `forecasts.wa`, `activity_master.wa`/`site_id`, `daily_reports.{site_id, 8 view jsonb, scenarios_jsonb}`, `mapper_activities.{alternatives, cum_workers_today, cum_actual_mh_today}`, `mapped_history.trade`, `sites.hours_saved_cum`
->   - `upsert_daily_report_view_col` (db.py:1034) — UPDATE-first partial write 가드 + 9 컬럼 화이트리스트 (SQL injection 방어)
-> - **Orchestration 3 hotfix**: `cf2a791` (`normalize_company` import 추가, #31 close) + `e163e1a` (정규화 타이밍 — `fetch_bp_candidates` 전 일괄 정규화, ㈜/(주) prefix 로 cand_pool 빈 버그) + `844d4c3` (full cycle 진행 — `CPIA_HIL_AUTO_BYPASS` env + `pipeline_runs` 사전 INSERT + HIL2 auto-select).
-> - **Full cycle 5 검증** (844d4c3 commit msg): `mapper_activities` 146 row / mapping_source `auto_bp_zone_match` 74% + hil 1.4% / `atomized_ids` 64 / `forecasts` 27 / `optimizer_advice` 13 / `daily_reports` 8 jsonb 모두 채워짐 (kpi/wp_summary/quadrant 3 jsonb 미구현 잔존).
-> - **POC 3사 데이터셋 변경**: 남웅건설 (179) + 세보엠이씨 (561) + 창원기전 (319). 에스티엠 (0 row) 제거.
-> - **Backlog (defer)**:
->   - `kpi_jsonb` / `wp_summary_jsonb` / `quadrant_jsonb` view_builder 산출 비어있음 — Phase 2
->   - `Activity.{wbs_activity_id, l7_sub, l7_5_activity, sub_work_area}` Master List 1:N 제약으로 항상 None
->   - Reporter → Exporter rename (파일명/모듈명) 미시행
->   - `parser_warning` PG 영속화 (현재 stderr 로그만)
->   - V3~V5 검증 pending (146 case full simulation, 12개 unit test, 10 업체 POC 전체 cycle)
+> **이번 cycle 갱신 요지 (vs ef7c6cd / 2026-05-20)**:
+>
+> - **graph 진입점 이동 (D-12)**: `mapper` → `collector_node` (`55cad90`) + `parser_node` 분리 (`6b9db7c` state-key drift fix `parsed_reports→parsed`, `report_date→date`). 9-노드 production topology 완성 (collector → parser → mapper → hil_1 → atomizer → forecaster → hil_2 → optimizer → reporter).
+> - **IMAP IDLE Collector 신설** (`pipeline/collector/` 폴더 신규): `filename_parser.py` 64 + `idle_worker.py` 260 + `config.py` 68 + `agents/collector_node.py` 63. Gmail IMAP IDLE 으로 첨부 자동 fetch → graph invoke. `collector_inbox` 테이블 + 4 helper.
+> - **Exporter 신설** (3 신규 파일): `agents/exporter.py` 301 (`render_xlsx` + 4 시트 `_fill_*` + COL dict + timeshift 헬퍼) + `exporter_routes.py` 47 (`/export/run` FastAPI route) + `exporter_templates/consolidated_template.xlsx`. **reporter (graph 마지막 노드) ≠ exporter (FastAPI 라우트)** 분리 시작 — rename backlog (CLAUDE.md 가 약속한 reporter→exporter rename, 파일명은 미시행).
+> - **공정률 산식 (A) WV × MH 가중** (`c0a0641`, view_builder.py:880~1021 `_build_s_curve`): 분모 = `SUM(plan_wv × plan_mh_rev2)`, planned = `SUM(weight × linear_progress)`, actual = `SUM(weight × MIN(1, cum_qty/plan_qty))` ((wa, l6) 매칭, company 무시 — 매칭률 100%). `full_grid` cross join 으로 actual 단조 증가 보장.
+> - **Site 수준 LLM narrative** (`21c10f7`): `optimizer/site_summary.py` 141 LOC 신규 + `daily_reports.site_summary_text` 컬럼 + Azure JSON response_format. backfill_v2 `--with-summary` 플래그로 opt-in. live `optimize()` 미연결 (backlog).
+> - **view_builder.py 752 → 1,882 LOC (+1,130, 2.5×)**: 산식 A + 4 시나리오 percentile + `_build_productivity_views_v2` (`_v2` 별도 함수 — `agent.py` 는 v1, backfill 은 v2 → 같은 컬럼 다른 산식, 잠재 drift) + KPI delay_days `AVG → PERCENTILE_CONT(0.5)` (`e9b66d4` outlier robust, 167,871일 → 11일) + quadrant ↔ by_wp `wp_id` Jaccard 11% → 100% (`2c2ba75`).
+> - **ForecastChart catch-up 시각화** (FE): plan/actual/forecast/AI 시나리오 4선 + `lastActual → plan[today+recoveryDays]` slope 후 plan 동행 + 빨강 dashed 통일 + 마커 분산 (top/bottom). `web/lib/diagnosis.ts` `buildScenarioCurve` 가 catch_up 객체 반환.
+> - **/api/mock/report list/detail 분리 (perf)** (`415c990` + `cc4e689`): 9 컬럼 jsonb 전체 (32MB) → list 는 4 필드만 (50KB, 600× 축소), detail 은 `/api/mock/report/[date]` 분리. Agent Tasks / Export / Reports / Review 진입 지연 제거.
+> - **Concurrency 4× 단축**: `get_llm_semaphore()` + `CPIA_LLM_CONCURRENCY` (default 4) — forecaster `asyncio.gather` (10분→2.5분) + optimizer `to_thread` + atomizer batch_size 16→64.
+> - **Mock 재설계 + AWS 마이그**: `synthetic v2` → `seed_dummy_year.py` 905 LOC (F3 분포 + prod target 90% 역산 + l5_disc trade + l7.5 + degradation_cases) + `scripts/aws_backup_and_migrate.py` 225 (pg_dump → SCP → restore, 절대경로) + `chroma_export/import.py` JSONL snapshot + 7 테이블 `is_mock` 컬럼 backfill (sites/daily_reports/forecasts/optimizer_advice/mapping_corrections/mapper_activities/mapped_history).
+> - **신규 PG migration 4종**: `2026-05-19_collector_inbox.sql` / `2026-05-20_add_is_mock.sql` / `2026-05-21_phase1.sql` / `2026-05-23_mapper_l7_5_columns.sql` (mapper_activities 에 `l5_disc / l7_sub / l7_5_activity / sub_work_area` 4 컬럼). **단, `daily_reports.site_summary_text` 는 migration 파일 없음 — fresh DB rebuild 시 UndefinedColumnError 위험 (이슈 #N13)**.
+> - **Backlog (다음 cycle)**:
+>   - reporter → exporter 파일명 rename (CLAUDE.md 약속) + 13 import + GraphConfig.reporter + `_AGENTS_META[4]`
+>   - site_summary 의 live `optimize()` 연결 (현재 backfill only)
+>   - view_builder v1 ↔ v2 통일 (`_build_productivity_views` ↔ `_build_productivity_views_v2`)
+>   - `mapped_history.trade` SQL 누락 (atomizer commit msg 가 약속했으나 SQL/dict 둘 다 미적용)
+>   - exporter B_Track FE swap (`NEXT_PUBLIC_FASTAPI_BASE` env + `ConsolidatedReportCard.tsx` handleExport)
+>   - 9-22 forecaster outlier root cause (외장판넬공사 동신패널 `plan_main_qty` 폭주 — `6a89848` 부분 해결, 잔존)
 
 ---
 
-## 1. 시스템 다이어그램
+## 1. 시스템 다이어그램 (전체)
 
 ```
-                              ┌──────────────────────────────────────────────────────────┐
-                              │              [B_Track] Next.js Dashboard                   │
-                              │   home / dashboard / tasks / reports / review / export    │
-                              │   Layer 1 (현장 카드 6 site) / Layer 2 (상세 + HIL Modal)  │
-                              └─────────────────────┬────────────────────────────────────┘
-                                                    │ HTTP (BFF)
-                              ┌─────────────────────┴────────────────────────────────────┐
-                              │   Next.js API Routes (real PG SELECT + FastAPI proxy)    │
-                              │   • /api/mock/dashboard / agent-tasks / report / review   │
-                              │   • /api/mock/consolidated  ← 점진적 FastAPI swap 진행중    │
-                              └─────────────────────┬────────────────────────────────────┘
-                                                    │ asyncpg pool + HTTP
-   ┌────────────────────────────────────────────────┴─────────────────────────────────────┐
-   │                                                                                       │
-   │  ┌──────────────────────────────────────────┐    ┌────────────────────────────────┐  │
-   │  │   web/lib/pg.ts + transforms.ts (BFF)    │    │  pipeline/api.py — FastAPI     │  │
-   │  │   G1 deriveYearlySaving / G6 productivity │    │  ✓ 1050 LOC (이전 0 byte)      │  │
-   │  │   /timeseries / G20 deriveSCurve (4 sub) │    │  • POST /api/runs/{id}/hil_1/  │  │
-   │  │   / G22 wbsTreeBuild / G18 deriveImpact  │    │           resume               │  │
-   │  │   (11 transform 함수)                     │    │  • GET /health                  │  │
-   │  └──────────────────────────────────────────┘    │  • GET /api/sites               │  │
-   │                                                  │  • GET /api/runs/{id}/optimizer │  │
-   │                                                  │  • GET /api/runs/{id}/wp_summary│  │
-   │                                                  │  • GET /api/sites/{id}/reports  │  │
-   │                                                  │  • GET /api/dashboard/perf      │  │
-   │                                                  │  • GET /api/dashboard/impact    │  │
-   │                                                  │  • GET /api/agents/status       │  │
-   │                                                  │  • GET /api/sites/{id}/wbs_tree │  │
-   │                                                  │  • GET /api/tasks               │  │
-   │                                                  └────────────────────────────────┘  │
-   └───────────────────────────────────────┬───────────────────────────────────────────────┘
-                                           │ in-process
-   ┌───────────────────────────────────────┴───────────────────────────────────────────────┐
-   │                           LangGraph StateGraph (pipeline/graph.py)                    │
-   │                                                                                       │
-   │   build_graph (production):                                                            │
-   │   ┌──────────┐  ┌────────┐  ┌──────────┐  ┌──────┐  ┌────────────┐  ┌──────────┐     │
-   │   │collector │→│ parser  │→│ mapper   │→│hil_1│→│  atomizer  │→│forecaster│     │
-   │   │ ✓ 70 LOC│ │ ✓ 760  │ │ ✓ 571    │ │ ✓ 76│ │  ✓ 141     │ │ ✓ 893    │     │
-   │   │  NEW     │ │  +parser│ │ resolve_wa│ │ env  │ │  Chroma    │ │ RAG 우선  │     │
-   │   │ semafore │ │  _llm   │ │ 7단계 +  │ │AUTO_ │ │ daily_     │ │ + Plan    │     │
-   │   │ 4 병렬   │ │  658    │ │ shift MH │ │BYPASS│ │ activities │ │ fallback  │     │
-   │   │          │ │ (DEPRE) │ │ + alt    │ │      │ │ INSERT     │ │          │     │
-   │   │          │ │ +parser │ │  top-K   │ │      │ │            │ │          │     │
-   │   │          │ │  _post  │ │          │ │      │ │            │ │          │     │
-   │   │          │ │  201    │ │          │ │      │ │            │ │          │     │
-   │   └──────────┘  └────────┘  └──────────┘  └──┬───┘  └────────────┘  └──┬───────┘     │
-   │       NEW                                     │interrupt                 │             │
-   │                                       Command(resume=                    ▼             │
-   │                                       hil_1_corrections)        ┌────────────┐         │
-   │                                                                 │  hil_2     │         │
-   │                                                                 │ F5/F7      │         │
-   │                                                                 │ 정정 +     │         │
-   │                                                                 │ pre_cases  │         │
-   │                                                                 │ 사전 영속  │         │
-   │                                                                 └──┬─────┬───┘         │
-   │                                                                    │     │             │
-   │                                          hil_2_selection 있음 ▼   ▼ empty 또는 risky 0건│
-   │                                                          ┌────────────────┐             │
-   │                                                          │  optimizer     │             │
-   │                                                          │  ✓ 199 + 752   │             │
-   │                                                          │   (view_builder│             │
-   │                                                          │    NEW 752)    │             │
-   │                                                          │  + 161 retrieve│             │
-   │                                                          │  + 315 prompt  │             │
-   │                                                          │  8 view jsonb  │             │
-   │                                                          └──────┬─────────┘             │
-   │                                                                 ▼                       │
-   │                                                          ┌────────────┐                 │
-   │                                                          │ reporter   │ ✓ 161           │
-   │                                                          │ (종합 1 종) │                 │
-   │                                                          │ + G8 sites.│                 │
-   │                                                          │  last_run_id│                 │
-   │                                                          │ + G2 hours_│                 │
-   │                                                          │  saved_cum │                 │
-   │                                                          └──────┬─────┘                 │
-   │                                                                 ▼ END                    │
-   │   build_demo_graph: forecaster → hil_2 → (optimizer | reporter) → END                    │
-   │                     (mapper/atomizer/hil_1 skip — synthetic_daily_report.py CLI 용)       │
-   └───────────────────────────┬─────────────────────────────────┬───────────────────────────┘
+                              ┌──────────────────────────────────────────────────────────────────┐
+                              │              [B_Track] Next.js Dashboard (web/)                   │
+                              │   home / dashboard / tasks / reports / review / export            │
+                              │   Layer 1 (현장 카드 6 site) / Layer 2 (상세 + HIL Modal)        │
+                              │   ★ ForecastChart 4선 catch-up + site_summary_text narrative     │
+                              └─────────────────────┬────────────────────────────────────────────┘
+                                                    │ HTTP fetch
+                              ┌─────────────────────┴────────────────────────────────────────────┐
+                              │   Next.js API Routes — BFF (web/app/api/mock/* + lib/pg.ts)      │
+                              │   • /api/mock/report      ← list (4 col, 50KB, 600× 축소)         │
+                              │   • /api/mock/report/[d]  ← detail (9 jsonb + site_summary_text)  │
+                              │   • /api/mock/dashboard  /agent-tasks  /agent-tasks/[d]           │
+                              │     /consolidated  /review                                         │
+                              │   • web/lib/transforms.ts (G1/G6/G20/G22/G18 11 transform)        │
+                              │   • web/lib/diagnosis.ts buildScenarioCurve (catch-up + plan 동행) │
+                              └─────────────────────┬────────────────────────────────────────────┘
+                                                    │ asyncpg pool (PG direct SELECT)
+                                                    │ + HTTP (FastAPI proxy, 점진 swap)
+   ┌────────────────────────────────────────────────┴────────────────────────────────────────────┐
+   │                                                                                              │
+   │  ┌────────────────────────────────────┐    ┌────────────────────────────────────────────┐   │
+   │  │   pipeline/api.py — FastAPI 1073   │    │   pipeline/exporter_routes.py — 47 NEW     │   │
+   │  │   • GET /health                    │    │   • POST /export/run                       │   │
+   │  │   • GET /api/sites (LATERAL fc)    │    │     (run_id → fetch_sheet_data → xlsx)     │   │
+   │  │   • GET /api/runs/{id}/optimizer   │    │                                              │   │
+   │  │   • GET /api/runs/{id}/wp_summary  │    │   pipeline/api.py:lifespan                  │   │
+   │  │   • GET /api/sites/{id}/reports    │    │   ★ collector idle_loop task + exporter    │   │
+   │  │   • GET /api/dashboard/performance │    │     router include (4b8a955)                │   │
+   │  │   • GET /api/dashboard/impact      │    └────────────────────────────────────────────┘   │
+   │  │   • GET /api/agents/status         │                                                       │
+   │  │   • GET /api/sites/{id}/wbs_tree   │    ┌────────────────────────────────────────────┐   │
+   │  │   • GET /api/tasks                 │    │   pipeline/collector/ — IMAP IDLE NEW       │   │
+   │  │   • POST /api/runs/{id}/hil_1/...  │    │   • idle_worker.py 260 (asyncio loop)       │   │
+   │  └────────────────────────────────────┘    │   • filename_parser.py 64 (YYYYMMDD_*.xlsx)│   │
+   │                                            │   • config.py 68 (CollectorConfig)           │   │
+   │                                            │   + collector_inbox PG 테이블 + 4 helper      │   │
+   │                                            └─────────────────┬──────────────────────────┘   │
+   └────────────────────────────────────────────────────────────┬─┴──────────────────────────────┘
+                                                                │ Gmail attachment → graph.invoke()
+                                                                │ + Postgres direct SELECT
+   ┌────────────────────────────────────────────────────────────┴──────────────────────────────────┐
+   │                           LangGraph StateGraph (pipeline/graph.py 628)                         │
+   │                                                                                                │
+   │   build_graph (production — 9 node):                                                            │
+   │   ┌──────────┐  ┌──────────┐  ┌────────┐  ┌──────────┐  ┌──────┐  ┌──────────┐  ┌──────────┐  │
+   │   │collector │→│  parser   │→│ mapper  │→│   hil_1  │→│atomize│→│forecaster│→│   hil_2  │  │
+   │   │ NEW      │ │  NEW      │ │ resolve │ │ AUTO_    │ │ Chroma│ │ asyncio  │ │ risky    │  │
+   │   │ node 63  │ │ wrapper 25│ │ _wa 7   │ │ BYPASS   │ │ batch │ │ gather 4 │ │ retrieve │  │
+   │   │ (55cad9) │ │ (6b9db7c) │ │ stages  │ │ env      │ │ 16→64 │ │ (4×)     │ │ cross-co │  │
+   │   └──────────┘  └──────────┘  └─────────┘  └────┬─────┘  └──────┘  └──────────┘  └────┬─────┘  │
+   │       NEW           NEW                          │interrupt                                │       │
+   │                                          Command(resume=                                  │       │
+   │                                          hil_1_corrections)                               ▼       │
+   │                                                                                  ┌────────────┐ │
+   │                                                                                  │ optimizer  │ │
+   │                                                                                  │ ★ 산식 A   │ │
+   │                                                                                  │ view_b 1882│ │
+   │                                                                                  │ site_summary│ │
+   │                                                                                  │ NEW 141    │ │
+   │                                                                                  └─────┬──────┘ │
+   │                                                                                        ▼         │
+   │                                                                                  ┌────────────┐ │
+   │                                                                                  │  reporter  │ │
+   │                                                                                  │ G8 last_run│ │
+   │                                                                                  │ G2 hours_  │ │
+   │                                                                                  │  saved_cum │ │
+   │                                                                                  └─────┬──────┘ │
+   │                                                                                        ▼ END     │
+   │                                                                                                  │
+   │   build_demo_graph        : forecaster → hil_2 → (optimizer | reporter) → END                    │
+   │   build_atomized_demo_graph (NEW ef95e02): atomizer → forecaster → ... → reporter → END           │
+   │                            (15일 backfill 표준, mapper/hil_1 skip, mapped 호출자 hydrate)        │
+   └───────────────────────────┬─────────────────────────────────┬────────────────────────────────────┘
                                │                                 │
                 ┌──────────────┴──────────────┐    ┌─────────────┴──────────────┐
                 │  PostgreSQL (asyncpg pool)  │    │  ChromaDB (HTTP)           │
-                │  pipeline/db.py (1113 LOC)  │    │  pipeline/chroma_client.py │
-                │  ─────────────────────────  │    │  (35 LOC)                  │
-                │  코어:                       │    │  ─────────────────────────  │
-                │  • pipeline_runs            │    │  • wbs_master              │
-                │  • checkpoints              │    │     → Mapper RAG (Chroma   │
-                │    (Async PostgresSaver     │    │       top-K + distances)  │
-                │     lazy init)              │    │  • daily_activities        │
-                │  Parser 정규화 6 테이블:      │    │     → Forecaster RAG +    │
-                │  • parser_reports           │    │       Optimizer retrieve   │
-                │  • parser_activities (23 col)│    │       (degradation +      │
-                │  • parser_job_allocations   │    │        recovery 2-step)   │
-                │  • parser_equipment_alloc   │    └────────────────────────────┘
-                │  • parser_worker_outputs    │
-                │  • parser_report_meta       │
-                │  Mapping 레이어:             │
-                │  • activity_master (22 col +│
-                │     wa / site_id)            │
-                │  • mapper_activities (33 col│
-                │     + alternatives + cum_*) │
-                │  • mapped_history (9 col +  │
-                │     trade)  NEW             │
-                │  • mapping_corrections      │
-                │  Reports + 진단:             │
-                │  • forecasts (30 col + wa)  │
-                │  • optimizer_advice (11 col)│
-                │  • daily_reports (15 col):   │
-                │     report_md + history_csv │
-                │     + 8 view jsonb +        │
-                │     scenarios_jsonb         │
-                │  Site:                       │
-                │  • sites (12 col + hours_   │
-                │     saved_cum / fte_saved / │
-                │     headcount / location)   │
-                └─────────────────────────────┘
+                │  pipeline/db.py (1229)      │    │  pipeline/chroma_client.py │
+                │  ~35 helper + INSERT/SELECT │    │  • daily_activities         │
+                │  + upsert_daily_report_     │    │    (atomizer write,         │
+                │     view_col (9 col 화이트) │    │     forecaster/optimizer    │
+                │  + 4 collector_inbox helper │    │     RAG read)               │
+                │                              │    │  • wbs_master (mapper       │
+                │  17 사용자 테이블 + 3 ckpt   │    │    alternatives)            │
+                │  + collector_inbox (NEW)    │    │                              │
+                │  + 7 테이블 is_mock 컬럼     │    │  43.200.85.209:5533 / 로컬   │
+                │                              │    │  chroma_export/import JSONL │
+                │  43.200.85.209:5532 / 로컬   │    │  snapshot (AWS 마이그)      │
+                └──────────────────────────────┘    └────────────────────────────┘
 ```
 
-**Note**: `parser_llm.py` DEPRECATED (2026-05-20) — 코드 보존, env flag `CPIA_PARSER=llm` 으로 회귀 가능. `collector.py` + `run_one_cycle.py` 의 import 가 `parse_daily_report` (rule-based) 로 교체됨.
-
 ---
 
-## 2. 서브시스템 요약 (8개)
+## 2. 서브시스템 별 요약 (8 개 — 각 deep_dive 링크)
 
-| # | 서브시스템 | 핵심 파일 (LOC) | T1 (≈) | T2 (≈) | 본 cycle 변경 | 미해결 / 다음 |
-|---|---|---|---:|---:|---|---|
-| 1 | **orchestration** | `graph.py` (563) / `state.py` (303) / `checkpointer.py` (94) / `constants.py` (5) | 22 | 16 | `normalize_company` import + 정규화 2회 (fetch_bp_candidates 전) + `CPIA_HIL_AUTO_BYPASS` env + HIL2 auto-select + reporter G8/G2 | `daily_reports.kpi_jsonb` / `wp_summary_jsonb` / `quadrant_jsonb` 미산출 (view_builder gap) |
-| 2 | **persistence** | `db.py` (1113) / `api.py` (1050) / `chroma_client.py` (35) / `checkpointer.py` (94) | 27 (PG 25 + Chroma 2 + Module-level 2) + 12 FastAPI route | 18 | `upsert_daily_report_view_col` 신규 (UPDATE-first + 9 col 화이트리스트) + 16 migration + `api.py` 12 엔드포인트 완성 | `fetch_activity` 미사용 의심, Phase 2 `recovery` BFF 반영 backlog, itemsByDate "Collector" hardcode |
-| 3 | **parser** | `parser.py` (760) / `parser_llm.py` (658, DEPRECATED) / `parser_post.py` (201) / `collector.py` (70) | 20 | 11 | 4 시트 rule-based refactor (5 commits) + `parser_post.py` (split_company_and_zone / extract_zone / pair_bp_summaries / transform_bp_summaries) + 시트1/4 LLM 검증 wrapper (default on, env opt-out) + collector.py 신설 | V3 (146 case full sim) / V4 (12 unit test) / V5 (10 업체 POC + UI 12 정량) 검증 pending. `parser_warning` PG 영속화 미구현. `parser_llm.py` 제거 backlog |
-| 4 | **mapper** | `mapper.py` (571) | 12 | 13 | `resolve_wa` 7단계 (auto_bp_zone_match + auto_llm_rerank 신규) + `_weighted_mh_from_shift` + `_prorate_workers_with_mh` (8h 고정 → 시간대 가중) + `build_bp_context` BP 코드별 분리 + `build_llm_input` activity.bp_code 명시 | hil_required 58% → 25% 목표 검증 pending (V3) |
-| 5 | **atomizer** | `atomizer.py` (141) | 4 | 6 | **코드 변경 없음** (cf3c143 이후) — 안전 처리 hotfix는 이전 cycle 흡수됨 | `embedding_dim` 필드 미사용 의심 |
-| 6 | **forecaster** | `agent.py` (279) + 6 sub-module (`prompt.py` 134 / `classify.py` 114 / `aggregate.py` 119 / `synthetic.py` 189 / `rerank.py` 50 / `constants.py` 8) | 22 | 13 | **코드 변경 없음** (cf3c143 이후) | `classify.py:34` PM 원안 v2 정합 (저하 분류 의도) |
-| 7 | **optimizer** | `agent.py` (199) / `prompt.py` (315) / `retrieve.py` (161) / `synthetic_daily_report.py` (498) / `synthetic_v2.py` (363) / **`view_builder.py` (752, NEW)** | 30+ | 13 | **`view_builder.py` 752 LOC 신규** (8 + 1 view jsonb 산출) + `_build_scenarios` (percentile 4 시나리오) + `_compute_recovery_distribution` 코드단 deterministic (결정 #20) + `optimize()` view orchestration + `_coerce_date` fix | RAG fixture_prod vs synthetic_v2 ±10% mismatch (cycle C 검증 pending), view_builder 함수 밀도 (18 helper + 8 public) |
-| 8 | **reporter** | `reporter.py` (161) | 5 | 7 | **코드 변경 없음** (cf3c143 이후) — 종합 보고서 + G8 sites.last_run_id + G2 hours_saved_cum 흡수 | reporter → exporter rename backlog |
-
-**합계**: T1 ≈ 130+ 함수/클래스 / T2 ≈ 97 이슈 카드 (본 cycle +6 신규 추정)
-
----
-
-## 3. 데이터 레이어
-
-### 3.1 PostgreSQL 테이블 (17개)
-
-| 그룹 | 테이블 | 컬럼 | 멱등성 키 | 비고 |
+| 서브시스템 | 파일 | LOC | 본 cycle 변경 (one-liner) | 핵심 이슈 |
 |---|---|---:|---|---|
-| 코어 | `pipeline_runs` | 9 | (run_id) PK | atomized_count, status: running/waiting_hil_1/waiting_hil_2/completed/failed |
-| 코어 | `checkpoints` 외 3 | — | thread_id | LangGraph AsyncPostgresSaver |
-| Parser | `parser_reports` | 7 | (run_id, report_date) | bp/job/equipment JSONB |
-| Parser | `parser_activities` | 23 | (run_id, idx) | parser 시트4 정규화 |
-| Parser | `parser_job_allocations` | 14 | (run_id, idx) | 시트2, 3 group JSONB |
-| Parser | `parser_equipment_allocations` | 14 | (run_id, idx) | 시트3, 3 group JSONB |
-| Parser | `parser_worker_outputs` | 17 | (run_id, idx, bp_name) | 시트6, 업체별 |
-| Parser | `parser_report_meta` | 10 | (run_id, idx, bp_name) | Cover, 업체별 |
-| Mapping | `activity_master` | 22+ | (wbs_activity_id) | wa + site_id 신규 |
-| Mapping | `mapper_activities` | 33 | (run_id, idx) | + alternatives JSONB + cum_workers_today + cum_actual_mh_today |
-| Mapping | `mapped_history` | 9 | (run_id, wa, l6_main, company) | + trade 신규, atomizer + forecaster 입력 |
-| Mapping | `mapping_corrections` | 6 | (auto pk) | HIL 1 corrections JSONB |
-| Reports | `daily_reports` | 15 | partial unique (run_id, site_id, report_date) WHERE site_id IS NOT NULL | 8 view JSONB + scenarios_jsonb + history_csv_row + report_md |
-| Reports | `forecasts` | 30 | (run_id, company, l6_main) | + wa 신규, JSONB similar_cases / qty_by_unit |
-| Reports | `optimizer_advice` | 11 | (run_id, company, l6_main) | JSONB recommendations / degradation_cases / recovery_distribution |
-| Site | `sites` | 12 | (site_id) PK | + hours_saved_cum / fte_saved / headcount / location 신규 |
+| **[orchestration](./deep_dive_orchestration.md)** | graph.py / state.py / checkpointer.py / constants.py + **collector_node.py + parser_node.py + pipeline/collector/ + _concurrency.py NEW** | 628+310+94+5+63+25+(260+64+68)+~30 | graph 진입 collector 이동 (D-12) + IDLE worker + build_atomized_demo_graph + get_llm_semaphore | C2 (state.parsed 타입 annotation drift), C1 (AUTO_BYPASS prod 가드 부재), HIL2 AUTO_BYPASS 없음 |
+| **[persistence](./deep_dive_persistence.md)** | db.py / api.py / chroma_client.py / checkpointer.py + **exporter_routes.py NEW + api_helpers/** | 1229+1073+35+47 | collector_inbox 테이블 + 4 helper / lifespan collector task + exporter include / mapper_activities +4 col / daily_reports.site_summary_text 컬럼 | **C1 site_summary_text migration 없음** / C2 /export/run 매번 PG 풀 재생성 / C3 mapped_history.trade INSERT 누락 / /api/agents/status N+1 |
+| **[parser](./deep_dive_parser.md)** | parser.py / parser_post.py / parser_llm.py (DEPRECATED) / parser_node.py NEW / agents/collector.py (legacy) / collector/{filename_parser, idle_worker, config} | 760+201+658+25+70+(64+260+68) | parser 자체 변경 0 — 모든 변경이 graph 진입 분리 + IDLE listener | parser_warning PG 영속화 미구현 / parser_llm 회귀 env flag 미구현 / Activity 4 필드 항상 None (PoC) |
+| **[mapper](./deep_dive_mapper.md)** | mapper.py | 604 (이전 571 +33) | mapper_activities 4 컬럼 추가 (l5_disc / l7_sub / l7_5_activity / sub_work_area), 자체 코드 미세 정리 | l7.5 4 컬럼 PoC 항상 None / `user_corrected` 라벨 WAResolution.source Literal 누락 / wa NULL row 가 forecast bucket 에서 누락 |
+| **[atomizer](./deep_dive_atomizer.md)** | atomizer.py | 196 (이전 141 +55) | ChromaClient retry 3 + upsert batch 100 split (HNSW hang 방어) / `_format_document` 신규 / metadata 12→15 필드 / batch_size 16→64 | **M trade 컬럼 누락 (commit msg 약속 vs SQL/dict)** / `_format_document` short form fallback / today_assigned_workers vs assigned_workers 불일치 |
+| **[forecaster](./deep_dive_forecaster.md)** | forecaster/{agent, prompt, classify, rerank, aggregate, synthetic, constants, __init__} | 1044 (339+202+189+134+114+50+8+8) | plan_main_qty atomic distinct SUM (l6 SUM 폭주 fix) / forecast() asyncio.gather + Semaphore 4× / get_llm_semaphore 흡수 | mh 4 컬럼 reference only (UI 미연동, 의도적) / 9-22 outlier 잔존 (`6a89848` 부분 해결) |
+| **[optimizer](./deep_dive_optimizer.md)** | optimizer/{agent, prompt, retrieve, view_builder, **site_summary NEW**, synthetic_v2, synthetic_daily_report} | ~3641 (227+316+206+1882+**141**+363+498+8) | **★ 산식 A (`_build_s_curve`) WV×MH + activity 매칭** / site_summary LLM JSON / 4 시나리오 percentile / MEDIAN fix / quadrant↔by_wp Jaccard / retrieve incident 9종 / `_v2` 분기 (drift) | **#1 working tree 미커밋 (다른 세션)** / `Optional` import 누락 5+2 곳 / site_summary live 미연결 / v1 ↔ v2 같은 컬럼 다른 산식 |
+| **[reporter](./deep_dive_reporter.md)** | reporter.py + **exporter.py NEW + exporter_templates/ NEW** | 161+301+47 | exporter 신규 (render_xlsx + 4 시트 _fill_* + COL dict + timeshift) + `/export/run` route + lifespan include | reporter→exporter rename 미시행 / B_Track FE swap 미실행 / 4 시트 산식 회귀 테스트 누락 / G2 atomized_count=0 silent 누적 |
 
-### 3.2 ChromaDB 컬렉션 (2개)
+**합계**: ~11,656 non-test LOC (pipeline) + ~10,469 LOC (web). T1 ≈ 180+ public 함수/클래스. 본 cycle deep_dive 산출 5,705 줄 / 8 파일.
 
-- **`wbs_master`** — 1 doc = 1 (WA, L6) 그룹. Mapper RAG (`map_activity` step 3, n_results=top_k + cosine distance + include="distances" 로 alternatives 적재).
-- **`daily_activities`** — 1 doc = 1 Activity. Atomizer INSERT, Forecaster + Optimizer retrieve (degradation `productivity < baseline×0.85 AND conditions ∋ {장비대기/자재미입고/돌관}` + recovery `productivity ≥ baseline×0.95 first day`).
+---
 
-### 3.3 PG 16 Migration (2026-05-16 ~ 05-19)
+## 3. Data Layer (사용자 강조 — BE↔FE 연결 명확화)
+
+데이터가 흐르는 layer 를 4 단계로 분리. 각 단계마다 "어떤 스키마 / 어떤 적재처 / 누가 쓰나" 를 표기.
+
+### 3.1 Layer 1 — Raw Source (외부 입력)
+
+| 종류 | 형식 | 적재처 | Schema 정의 | 읽는 컴포넌트 |
+|---|---|---|---|---|
+| 작업일보 xlsx | xlsx (4 시트) | `pipeline/data/` 또는 IMAP attachment | openpyxl row/col + parser COL dict | `agents/parser.py` (line 100+, 시트별 _extract_*) |
+| Master List xlsx | xlsx (1 시트) | `scripts/load_master_list.py` → `activity_master` 테이블 | column position constants (C_PLAN_WV=32 등) | `load_master_list.py` (parse + INSERT) |
+| Gmail IMAP | RFC2822 message | `collector_inbox` 테이블 (dedup) | `(message_id, attachment_filename) UNIQUE` | `collector/idle_worker.py:run` IDLE loop |
+
+### 3.2 Layer 2 — Parsed / Mapped (LangGraph state 중간)
+
+state 키별로 누가 채우고 누가 읽는지 + PG 영속화 여부.
+
+| State 키 | 타입 | 채우는 노드 | 읽는 노드 | 영속화 |
+|---|---|---|---|---|
+| `parsed` (이전 `parsed_reports`) | `ParsedDailyReport` | parser_node | mapper_node | parser_reports / parser_activities (PG) |
+| `mapped` | `list[Activity]` (44 필드) | mapper_node | hil_1, atomizer, forecaster | mapper_activities (37 컬럼) |
+| `hil_1_review_needed` | `list[ReviewItem]` | mapper_node (`_build_review_needed`) | hil_1_node (interrupt) | mapping_corrections (PG) |
+| `hil_1_corrections` | `dict[int, dict]` | hil_1_node (Command resume) | mapper_node (`_apply_corrections`) | mapping_corrections |
+| `atomized_ids` | `list[str]` | atomizer_node | forecaster, optimizer | Chroma daily_activities |
+| `forecasts` | `list[ForecastRow]` (28 컬럼) | forecaster_node | hil_2, optimizer, reporter | forecasts (PG) |
+| `hil_2_selection` | `list[str]` (group_key) | hil_2_node (Command resume) | optimizer_node | (none — graph-only) |
+| `optimizer_advice` | `list[OptimizerAdvice]` | optimizer_node | reporter_node | optimizer_advice (PG) + daily_reports.optimizer_view_jsonb |
+| `daily_report` | dict (종합) | reporter_node | (terminal) | daily_reports (PG) |
+| `site_id` | str | reporter_node fallback (G8) | (multi-node lookup) | sites.last_run_id |
+
+### 3.3 Layer 3 — Persistent Storage
+
+#### PostgreSQL (17 user 테이블 + 3 LangGraph ckpt + collector_inbox)
+
+| 테이블 | 신규 컬럼 (본 cycle) | 채우는 노드/스크립트 | 읽는 FE 페이지 |
+|---|---|---|---|
+| `sites` | (변경 없음) | reporter G8 / G2 + seed_sites.sql | dashboard / reports list |
+| `pipeline_runs` | (변경 없음) | api.py `_run_one_cycle` + reporter (status='completed' fix) | reports list (run filter) |
+| `daily_reports` | **`site_summary_text` text (★ migration 없음, 이슈 #N13)** + 9 jsonb (kpi/contractor_bars/trade_bars/quadrant/wp_summary/s_curve/optimizer_view/productivity/scenarios) + site_id partial unique idx | reporter (전체 row INSERT) + optimizer (`upsert_daily_report_view_col` 9 jsonb) + backfill_v2 `--with-summary` (site_summary) | reports/[date] detail / ForecastChart / WPSummaryTable / ProductivityBarToggle / QuadrantScatter |
+| `forecasts` | (이전 cycle: `wa`) | forecaster_node | wp_summary tab / optimizer view |
+| `optimizer_advice` | (이전 cycle) | optimizer_node | optimizer tab / reports/[date] |
+| `mapping_corrections` | (이전 cycle) | hil_1_node | review page |
+| `activity_master` | (이전 cycle: `wa`, `site_id`) | scripts/load_master_list.py | wbs_tree |
+| `mapped_history` | (이전 cycle: `trade` — **commit 약속 vs 실 SQL 누락 이슈 #A-N3 / #N16**) | atomizer | tasks itemsByDate |
+| `mapper_activities` | **`l5_disc`, `l7_sub`, `l7_5_activity`, `sub_work_area` 4 컬럼 (5-23 migration)** + 이전 alternatives jsonb + cum_workers/mh | mapper_node | review WBSTree alternatives dropdown / tasks |
+| `parser_*` (5 테이블) | (이전 cycle) | parser_node | (없음 — 내부 audit) |
+| **`collector_inbox` NEW** | (message_id, attachment_filename, status, fetched_at) | collector idle_worker | (없음 — 내부 dedup) |
+| **7 테이블 `is_mock` boolean NEW** | sites/daily_reports/forecasts/optimizer_advice/mapping_corrections/mapper_activities/mapped_history | seed_dummy_year.py / backfill_mock_rows.py | `/api/mock/*` route `WHERE is_mock = $1` |
+
+#### ChromaDB (2 컬렉션, HTTP 43.200.85.209:5533)
+
+| 컬렉션 | 의도 | 적재 노드 | 읽는 노드 |
+|---|---|---|---|
+| `daily_activities` | 일별 활동 누적 embedding (RAG 유사 이력) | atomizer (`_format_document` live/backfill 2 모드 + 15 metadata 필드 + 1536d embedding) | forecaster (`fetch_degradation_cases`) + optimizer (`fetch_recovery_trajectory`) |
+| `wbs_master` | WBS 마스터 embedding (mapper alternatives top-K) | scripts/load_master_list.py (1059 row) | mapper (`build_bp_context` → Chroma query) |
+
+#### LangGraph Checkpoints (3 테이블 — AsyncPostgresSaver 자동 관리)
+
+`checkpoints` / `checkpoint_writes` / `checkpoint_blobs` — `thread_id` = `run_id`. interrupt 발생 시 state snapshot 저장, `Command(resume=...)` 로 재개.
+
+### 3.4 Layer 4 — FE Consumer (web/lib/types.ts → page/component)
+
+| FE type (`web/lib/types.ts`) | BE source (PG 컬럼 또는 jsonb path) | derived rule (web/lib/transforms.ts 또는 diagnosis.ts) | 렌더 컴포넌트 |
+|---|---|---|---|
+| `Site` (8 필드) | `sites.*` + LATERAL `forecasts` AVG | api/mock/dashboard → SiteCard | home / dashboard SitesGrid |
+| `ReportDaily` (status/productivity_today/delay_days/recovery_days) | `daily_reports.kpi_jsonb.*` + scenarios.site.base_p50.recovery_days fallback | api/mock/report list (4 필드) | reports left ReportDailyList |
+| `ReportDetail` (9 jsonb + **`site_summary_text` NEW**) | `daily_reports.*_jsonb` 9 + `site_summary_text` | api/mock/report/[date] | reports right (ForecastChart / WPSummary / Quadrant / Optimizer) |
+| `ProductivityDiagnosis` (13 필드) | (no BE — `web/lib/diagnosis-adapter.ts` mock 영구 — D-3 REVISED) | diagnosis.ts diagnose() | ProductivityTrendChart |
+| `ScenarioPoint` (eta_days / recovery_pct / **`catch_up` NEW** / curve) | `daily_reports.scenarios_jsonb` | diagnosis.ts `buildScenarioCurve` (lastActual → plan[today+recoveryDays] slope → plan 동행) | ForecastChart 4선 (검정/빨강 dashed/회색/mint dashed) |
+| `WPSummaryRow` (wp_id + grain) | `daily_reports.wp_summary_jsonb` 또는 `forecasts` triplet | wp_id = `f"{wa}-{slug(l6_main)}-{slug(company)}"` | WPSummaryTable |
+| `OptimizerOutput[]` | `optimizer_advice` rows (배열) | api/runs/{id}/optimizer | OptimizerCard list |
+| `DailyTask / AgentStageProgress / AgentTaskItem` | `mapped_history` (옵션 Y) + LangGraph state 단계 binary | api/mock/agent-tasks / [date] | tasks page |
+| `WBSNode` | `activity_master` (트리 derive) | api/sites/{id}/wbs_tree | review WBSTree |
+
+상세 매핑 = `data-contract/crosswalk.md` 의 3 면 표 (26 type × 190 field). 본 cycle 갱신 대상.
+
+---
+
+## 4. Tool / Helper Inventory
+
+### 4.1 Core helpers
+
+| 파일 | 함수/클래스 | LOC | 역할 |
+|---|---|---:|---|
+| `pipeline/db.py` | PGClient + 35+ helper + `upsert_daily_report_view_col` (9 col 화이트리스트) + 4 collector_inbox helper NEW | 1229 | asyncpg pool 단일 진입점 |
+| `pipeline/api.py` | FastAPI 12 endpoint + lifespan (collector + exporter) | 1073 | BFF |
+| `pipeline/exporter_routes.py` NEW | `/export/run` FastAPI route | 47 | xlsx 4 시트 다운로드 |
+| `pipeline/agents/exporter.py` NEW | `render_xlsx` + `_fill_*` × 4 + COL dict + `_fill_timeshift` 헬퍼 + NoDataError | 301 | openpyxl 4 시트 write |
+| `pipeline/chroma_client.py` | ChromaClient (HTTP) + retry 3 + batch 100 split | 35 | Chroma collection 진입점 |
+| `pipeline/checkpointer.py` | `_LazyAsyncPostgresSaver` + `build_checkpointer` | 94 | InMemorySaver fallback |
+| `pipeline/agents/optimizer/view_builder.py` | 45 함수 7 phase + EVM + KPI + bars + quadrant + scenarios + s_curve | 1882 | 9 jsonb view 산출 |
+| `pipeline/agents/optimizer/site_summary.py` NEW | `build_site_summary_payload` + `generate_site_summary` (JSON mode) | 141 | site 수준 LLM narrative |
+| `pipeline/agents/_concurrency.py` NEW | `get_llm_semaphore()` + `CPIA_LLM_CONCURRENCY` | ~30 | LLM 공용 semaphore (forecaster/optimizer/atomizer) |
+| `pipeline/agents/parser_post.py` | 8 함수 (normalize_company / split_company_and_zone / extract_zone / pair_bp_summaries / filter_marker_rows / transform_*) | 201 | parser 후처리 |
+| `pipeline/agents/collector_node.py` NEW | graph 진입 노드 (Gmail attachment fetch) | 63 | D-12 collector |
+| `pipeline/agents/parser_node.py` NEW | parser wrapper (state-key drift fix) | 25 | D-12 parser split |
+| `pipeline/collector/idle_worker.py` NEW | IMAP IDLE loop + graph.invoke | 260 | Gmail 첨부 자동 처리 |
+| `pipeline/collector/filename_parser.py` NEW | YYYYMMDD_*.xlsx → date/company 추출 | 64 | 파일명 메타 |
+| `pipeline/collector/config.py` NEW | CollectorConfig dataclass | 68 | env 통합 |
+
+### 4.2 FastAPI 12 endpoint
+
+| Method | Path | Helper | FE consumer |
+|---|---|---|---|
+| GET | `/health` | (none) | (ops) |
+| GET | `/api/sites` | sites + LATERAL forecasts | home SiteCard / dashboard |
+| GET | `/api/runs/{run_id}/optimizer` | optimizer_advice | reports OptimizerCard |
+| GET | `/api/runs/{run_id}/wp_summary` | forecasts (triplet) | reports WPSummaryTable |
+| GET | `/api/sites/{site_id}/reports` | daily_reports + pipeline_runs | reports list (point-in-time) |
+| GET | `/api/dashboard/performance` | (custom join) | dashboard Performance tab |
+| GET | `/api/dashboard/impact` | (custom) | dashboard Impact tab |
+| GET | `/api/agents/status` | hard-code meta (D-9) | tasks AgentWorkflow |
+| GET | `/api/sites/{site_id}/wbs_tree` | activity_master | review WBSTree |
+| GET | `/api/tasks` | mapped_history + state | tasks page |
+| POST | `/api/runs/{run_id}/hil_1/resume` | graph.aupdate_state | review HIL Modal |
+| POST | `/export/run` (exporter_routes) | fetch_sheet_data + render_xlsx | export ConsolidatedReportCard |
+
+### 4.3 Scripts (본 cycle 20+ 신규)
+
+| 스크립트 | LOC | 역할 |
+|---|---:|---|
+| `scripts/seed_dummy_year.py` NEW | 905 | F3 분포 + prod target 90% 역산 + l5_disc trade + l7.5 + degradation_cases + today_conditions + chroma metadata |
+| `scripts/backfill_daily_report_views_v2.py` NEW | 196 | view_builder v2 backfill + `--with-summary` (LLM) |
+| `scripts/backfill_optimizer_advice_llm.py` NEW | 429 | optimizer_advice LLM 재산출 (일반화) |
+| `scripts/aws_backup_and_migrate.py` NEW | 225 | pg_dump → SCP → restore orchestrator (절대경로) |
+| `scripts/chroma_export.py` + `chroma_import.py` NEW | 60+60 | Chroma JSONL snapshot (AWS 마이그) |
+| `scripts/poc_mock_redesign.py` NEW | 385 | Mock 재설계 PoC orchestrator |
+| `scripts/poc_optimizer_5day_backfill.py` NEW | 290 | 5일 시연 데이터 backfill |
+| `scripts/normalize_companies.py` NEW | 204 | 회사명 통합 정규화 |
+| `scripts/apply_company_normalize.py` NEW | 148 | 정규화 결과 적용 |
+| `scripts/apply_mapped_history_normalize.py` NEW | 138 | mapped_history 정규화 |
+| `scripts/apply_l7_5_overwrite.py` NEW | 109 | l7.5 backfill |
+| `scripts/resolve_l7_5_prototype.py` NEW | 323 | l7.5 매칭 프로토타입 |
+| `scripts/backfill_chroma_daily_activities.py` NEW | 189 | Chroma 재적재 |
+| `scripts/backfill_mock_rows.py` NEW | 212 | is_mock 컬럼 backfill |
+| `scripts/cleanup_by_companies.py` NEW | 268 | 회사 단위 정리 |
+| `scripts/cleanup_over_plan_qty.py` NEW | 100 | plan_qty 초과 정리 |
+| `scripts/verify_backfill_passing.py` NEW | 351 | 통과 기준 9 SQL 검증 |
+| `scripts/verify_ui_assertions.py` NEW | 206 | UI assertion 8건 자동 검증 |
+| `scripts/local_db_reset.py` NEW | 72 | TRUNCATE all + Chroma delete (CASCADE 가드) |
+| `scripts/audit_phase2_snapshot.py` NEW | 73 | phase2 snapshot |
+
+---
+
+## 5. PG Migration 누적 (timestamp 순)
 
 ```
 2026-05-16_downstream_agents.sql      (44) — forecasts(29) + optimizer_advice(11) 신규
@@ -215,111 +300,179 @@
 2026-05-18_mapped_history.sql         (19) — mapped_history + index
 2026-05-18_forecasts_wa.sql            (6) — forecasts.wa
 2026-05-18_parser_mapper_outputs.sql  (70) — parser/mapper_activities 통합
-2026-05-19_daily_reports_views.sql    (22) — 8 view JSONB + site_id
+2026-05-19_collector_inbox.sql        NEW — IDLE collector dedup
+2026-05-19_daily_reports_views.sql    (22) — 9 view JSONB + site_id
 2026-05-19_mapped_history_trade.sql   (11) — mapped_history.trade
 2026-05-19_mapper_alternatives.sql    (15) — alternatives JSONB + GIN
 2026-05-19_scenarios_jsonb.sql        (10) — daily_reports.scenarios_jsonb
 2026-05-19_sites_hours_saved_cum.sql  (12) — G2 누적 절감 시간
 2026-05-19_parser_full_schema.sql    (141) — parser_* 5 테이블 통합
+2026-05-20_add_is_mock.sql            NEW — 7 테이블 is_mock boolean
+2026-05-21_phase1.sql                 NEW — Mock 재설계 phase 1
+2026-05-23_mapper_l7_5_columns.sql    NEW — mapper_activities + 4 컬럼
+★ (없음)                              — daily_reports.site_summary_text 컬럼 (이슈 #N13)
 ```
 
 ---
 
-## 4. Tool / Helper Inventory (서브시스템 외 핵심)
-
-| 파일 | 함수/클래스 | LOC | 역할 |
-|---|---|---:|---|
-| `pipeline/db.py` (1113) | `PGClient` 25 메서드 + `update_site_last_run` + `update_site_hours_saved_cum` | — | asyncpg pool 단일 진입점. fetch_bp_candidates / fetch_l6_plan_mh_map / fetch_plan_for_group / insert_*_batch × 7 / upsert_daily_report_view_col (UPDATE-first + 9 col 화이트리스트) |
-| `pipeline/api.py` (1050) | FastAPI 12 endpoint | — | BFF용 GET 10 + POST 1 (hil_1/resume) + GET /health |
-| `pipeline/chroma_client.py` (35) | `ChromaClient.get_or_create_wbs_master/daily_activities` | — | HTTP collection 진입점 |
-| `pipeline/checkpointer.py` (94) | `_LazyAsyncPostgresSaver` + `build_checkpointer` | — | InMemorySaver fallback + Async PostgresSaver lazy open |
-| `pipeline/agents/optimizer/view_builder.py` (752) | 8 public + 10 helper | — | EVM 산식 (_compose_evm / _evm_by_group) + KPI / bars / quadrant (P90 impact normalize) / scenarios (percentile 4) / s_curve (4 sub) / optimizer_view |
-| `pipeline/agents/parser_post.py` (201) | 8 함수 | — | normalize_company / split_company_and_zone / extract_zone / pair_bp_summaries / filter_marker_rows / transform_{bp_summaries, job_allocations, equipment_allocations} |
-| `pipeline/agents/collector.py` (70) | discover_daily_reports + collect_and_parse | — | xlsx 디렉토리 발견 + asyncio.Semaphore(4) 병렬 호출 |
-| `pipeline/synthetic/generate_history.py` | (0 byte) | 0 | drift backlog — synthetic v2 데이터 생성 분리 미시행 |
-| `pipeline/main.py` | (0 byte) | 0 | drift backlog D-7 — CLI 진입점 미구현 (현재 `scripts/run_one_cycle.py` 사용) |
-| `scripts/run_one_cycle.py` | 1 round (HIL1+HIL2 auto) | — | demo/검증 CLI. pipeline_runs 사전 INSERT + HIL2 auto-select |
-| `scripts/backfill_daily_report_views.py` | backfill 1 cycle | — | 기존 run 대상 view_builder 재산출 |
-| `scripts/backfill_mapper_cum_workers.py` | backfill cum_workers | — | mapper_activities.cum_workers_today U1.B 회복 |
-| `scripts/load_master_list.py` | 1 시트 → activity_master | — | Master List xlsx 적재 |
-
----
-
-## 5. Issue 표
+## 6. Issue 표 (본 cycle 갱신 — 32 건)
 
 | ID | 영역 | 심각도 | 설명 | 다음 행동 |
 |---|---|---|---|---|
-| #N1 | optimizer | M | RAG fixture_prod vs synthetic_v2 baseline ±10% mismatch (사용자 합의 — 의도된 차이) | cycle C 시 실측 검증, generate_synthetic_v2_group rule 7건 확장 검토 |
-| #N2 | persistence | M | `infra/postgres/migrations` vs `docs/schema/postgres.md` 간 schema 정합 | postgres.md 자동 생성 스크립트 검토 |
-| #N3 | persistence | L | `fetch_activity` (db.py:73) 미사용 의심 (test 만 호출) | 다음 cycle 삭제 또는 mapper rerank 단계 통합 검토 |
-| #N4 | orchestration | M | `daily_reports.kpi_jsonb` / `wp_summary_jsonb` / `quadrant_jsonb` 3개 view 미산출 (view_builder gap) | Phase 2 — activity_master.plan_start/finish 의존성 필요 |
-| #N5 | orchestration | L | `LangGraph Command(resume=dict)` 의 key int → str 변환 룰 명문화 미흡 | spec 문서화 |
-| #N6 | reporter | L | reporter → exporter rename (파일명 + 모듈 import) 미시행 | 다음 cycle, 13개 import 변경 |
-| #N7 | parser | M | `parser_warning` 현재 stderr 로그만 — DB 적재 미구현 | 다음 cycle, `parser_reports.warnings_jsonb` 컬럼 추가 |
-| #N8 | parser | L | `parser_llm.py` (658 LOC) DEPRECATED 코드 제거 미시행 | env flag deprecation 후 다음 cycle 제거 |
-| #N9 | api | L | `/api/tasks` itemsByDate "Collector" key hardcode (current_node 라우팅 미구현) | Phase 2 정밀화 |
-| #N10 | api | L | `/api/sites` (sites LATERAL forecasts) 6 site fixture 규모, 확장 시 성능 검토 | EXPLAIN ANALYZE, 필요 시 view 분리 |
-| #N11 | poc | L | `Activity.{wbs_activity_id, l7_sub, l7_5_activity, sub_work_area}` Master List 1:N 으로 항상 None | PoC 단계 미스코핑 |
-| #N12 | tests | L | atomizer / forecaster / reporter cf3c143 이후 코드 변경 없음 — 본 cycle T2 카드 라벨 stale 가능 | last_checked_at 갱신만, 카드 재작성 불필요 |
-| D-1 | optimizer | M | 병행작업 룰 (드릴 + 콘크리트 등 동시) 진단 미반영 | Phase 2 |
-| D-7 | orchestration | L | `pipeline/main.py` 0 byte stub (CLI 미구현) | scripts/run_one_cycle.py 가 대체 — 정상 |
+| **#N13** | persistence | **C** | `daily_reports.site_summary_text` 컬럼 migration SQL 부재 — fresh DB rebuild 시 UndefinedColumnError | `2026-05-26_daily_reports_site_summary.sql` 작성 |
+| **#N14** | orchestration | **C** | `CPIA_HIL_AUTO_BYPASS` env 가 prod 가드 없이 활성 — 실수로 prod 우회 가능 | env name 에 `_DEMO` suffix + assert env != production |
+| **#N15** | orchestration | **C** | `CPIAState.parsed` 타입 annotation drift — `list[Activity]` 로 잘못 박혀있으나 실제 `ParsedDailyReport` | state.py 타입 수정 |
+| **#N16** | atomizer | M | `mapped_history.trade` SQL 누락 — commit msg (`16f1b88`) 가 약속했으나 atomizer.py:179-189 mh_rows dict + insert_mapped_history_batch SQL 모두 trade 키 미포함 → 항상 NULL | atomizer.py + db.py SQL 동시 수정 |
+| **#N17** | optimizer | M | working tree `view_builder.py:1447` `AND ma.trade IN ('건축', '토목')` 1 줄 제거 (다른 세션 작업 중) — v2 산출 대상이 설비/전기까지 확장됨 | 다른 세션 commit 대기 |
+| **#N18** | optimizer | M | `Optional` 미 import (view_builder 5 곳 + agent.py 2 곳) — `from __future__ import annotations` 덕에 런타임 OK, `typing.get_type_hints()` 호출 시 NameError | import 추가 |
+| **#N19** | optimizer | M | `_build_productivity_views` (v1) ↔ `_build_productivity_views_v2` 병행 — agent.py:187 은 v1, backfill 은 v2. 같은 컬럼 (productivity_jsonb) 다른 산식 | v2 로 일원화 + v1 제거 |
+| **#N20** | optimizer | M | site_summary 가 production graph 미연결 — `backfill_v2 --with-summary` 만 호출, live `optimize()` 미연동 | optimize() 안에 호출 추가 |
+| **#N21** | persistence | M | `/export/run` 매 요청마다 PGClient 신규 풀 — `app.state.pg` 미재사용 | exporter_routes.py 가 lifespan pool 사용 |
+| **#N22** | persistence | M | `insert_mapped_history_batch` ON CONFLICT 가 `trade` 컬럼 누락 → 최초값 고정, 이후 변경 무시 | ON CONFLICT 절에 trade 추가 |
+| **#N23** | reporter | M | reporter → exporter rename 미시행 — 파일명 + 13 import + GraphConfig.reporter + _AGENTS_META[4]. CLAUDE.md 약속 (5-18) vs 실 코드 불일치 | 다음 cycle 일괄 rename |
+| **#N24** | reporter | M | B_Track FE swap 미실행 — A_Track endpoint + 가이드 준비 완료, ConsolidatedReportCard.tsx 는 여전히 정적 sample 다운로드 | NEXT_PUBLIC_FASTAPI_BASE env + handleExport 교체 |
+| **#N25** | parser | M | parser_warning 현재 stderr 로그만 — `parser_reports.warnings_jsonb` 컬럼 적재 미구현 | 다음 cycle |
+| **#N26** | forecaster | M | 9-22 outlier 잔존 (외장판넬공사 동신패널 `plan_main_qty` 폭주) — `6a89848` 부분 해결, expected_completion 2485-07-15 / delay_days 167,935 가능 | classify.py 조건 강화 |
+| **#N27** | mapper | M | `wa NULL` row 가 forecast bucket 에서 누락 — preflight 단계 정리 필요 | 다음 cycle |
+| #N1 | optimizer | M | RAG fixture_prod vs synthetic_v2 baseline ±10% mismatch (사용자 합의) | C 시 실측 |
+| #N4 | orchestration | M | `daily_reports.kpi_jsonb / wp_summary_jsonb / quadrant_jsonb` view 미산출 (일부 채워짐, 일부 빈 dict) | view_builder v2 통일과 함께 |
+| #N28 | persistence | M | `/api/agents/status` N+1 7회 | join + group by 로 단일 query |
+| #N29 | atomizer | L | `_format_document` short form fallback (unit 빈 str 시 backfill 모드 무시) | unit 정규화 추가 |
+| #N30 | mapper | L | l7.5 4 컬럼 PoC 단계 항상 None (Master List 1:N) | Phase 2 확장 시 |
+| #N31 | mapper | L | `user_corrected` 라벨 WAResolution.source Literal 누락 — graph.py 만 생성 | state.py Literal 추가 |
+| #N32 | parser | L | `parser_llm.py` 658 LOC DEPRECATED — env flag 회귀 path 작동 미검증 | 다음 cycle 제거 |
+| #N5 | orchestration | L | Command(resume) key int→str 변환 룰 명문화 미흡 | spec |
+| #N9 | api | L | `/api/tasks` itemsByDate "Collector" key hardcode | Phase 2 |
+| #N10 | api | L | `/api/sites` LATERAL 확장 시 성능 | EXPLAIN ANALYZE |
+| #N11 | poc | L | Activity 4 필드 항상 None | PoC 미스코핑 |
+| #N6 | reporter | L | reporter → exporter rename (#N23 동일) | 다음 cycle |
+| #N7 | parser | L | parser_warning DB 적재 (#N25 동일) | 다음 cycle |
+| #N8 | parser | L | parser_llm 제거 (#N32 동일) | 다음 cycle |
+| #M1 | orchestration | L | `_LazyAsyncPostgresSaver._opened` race + dead_letter race | mutex |
+| #M2 | persistence | L | init.sql ↔ migrations 정합 11 테이블 누락 — fresh init 단독으로는 schema 불완전 | init.sql 동기화 |
+| D-1 | optimizer | M | 병행작업 룰 (드릴+콘크리트) 진단 미반영 | Phase 2 |
 
 ---
 
-## 6. 파일 구조 요약 (annotated)
+## 7. 파일 구조 요약 (annotated, 본 cycle 강조)
 
 ```
 pipeline/
 ├── agents/
-│   ├── atomizer.py             141  Chroma daily_activities INSERT (변경 없음)
-│   ├── collector.py             70  NEW — discover + collect_and_parse (semafore 4)
+│   ├── atomizer.py             196  (+55) retry/batch/format_document/metadata 15
+│   ├── collector.py             70  legacy — discover + collect_and_parse (현재 dead path)
+│   ├── collector_node.py        63  ★ NEW graph 진입 노드 (Gmail attachment)
+│   ├── parser_node.py           25  ★ NEW state-key drift fix wrapper
+│   ├── exporter.py             301  ★ NEW render_xlsx + 4 시트 _fill_* + COL dict + timeshift
+│   ├── exporter_templates/
+│   │   ├── __init__.py           1  ★ NEW
+│   │   └── consolidated_template.xlsx  binary  ★ NEW (4 시트 dummy 헤더)
+│   ├── _concurrency.py          ~30 ★ NEW get_llm_semaphore() + CPIA_LLM_CONCURRENCY
 │   ├── forecaster/
-│   │   ├── agent.py            279  RAG 우선 + Plan fallback (변경 없음)
-│   │   ├── aggregate.py        119
-│   │   ├── classify.py         114
+│   │   ├── agent.py            339  (+60) asyncio.gather + Semaphore 4× + plan_main_qty atomic
+│   │   ├── aggregate.py        202  T18 mh reference only docstring
+│   │   ├── classify.py         114  (PM v2)
 │   │   ├── constants.py          8
 │   │   ├── prompt.py           134
 │   │   ├── rerank.py            50
 │   │   └── synthetic.py        189
-│   ├── mapper.py               571  resolve_wa 7 단계 + shift-weighted MH + build_bp_context BP별
+│   ├── mapper.py               604  (+33) mapper_activities 4 컬럼 (l5_disc/l7_sub/l7_5/sub_work_area)
 │   ├── optimizer/
-│   │   ├── agent.py            199  optimize() + view_builder orchestration
-│   │   ├── prompt.py           315  SYSTEM_PROMPT + FEW_SHOT
-│   │   ├── retrieve.py         161  fetch_degradation_cases + fetch_recovery_trajectory
-│   │   ├── synthetic_daily_report.py  498  demo CLI
-│   │   ├── synthetic_v2.py     363  state machine 7 회복 룰
-│   │   └── view_builder.py     752  NEW — 8 view JSONB + scenarios
-│   ├── parser.py               760  4 시트 rule + LLM 검증 wrapper (default on)
-│   ├── parser_llm.py           658  DEPRECATED 2026-05-20 (env flag 회귀)
-│   ├── parser_post.py          201  NEW — 정규화 + pair + transform
-│   └── reporter.py             161  종합 보고서 + G8/G2 (변경 없음)
-├── api.py                     1050  FastAPI 12 엔드포인트 (이전 0 byte)
-├── checkpointer.py              94  Async PostgresSaver lazy open
+│   │   ├── agent.py            227  (+28) asyncio.gather + to_thread 4×
+│   │   ├── prompt.py           316
+│   │   ├── retrieve.py         206  (+45) incident keyword 9종 보강
+│   │   ├── view_builder.py    1882  ★ (+1130) 산식 A WV×MH + MEDIAN + 4 시나리오 + v2 분기
+│   │   ├── site_summary.py     141  ★ NEW LLM JSON site narrative
+│   │   ├── synthetic_v2.py     363
+│   │   └── synthetic_daily_report.py 498
+│   ├── parser.py               760  (변경 없음)
+│   ├── parser_llm.py           658  DEPRECATED 2026-05-20
+│   ├── parser_post.py          201
+│   └── reporter.py             161  (변경 없음 — rename backlog #N23)
+├── api.py                     1073  (+23) lifespan collector task + exporter router include
+├── api_helpers/                     (__pycache__ only — empty dir, 의심)
+├── checkpointer.py              94
 ├── chroma_client.py             35
+├── collector/
+│   ├── __init__.py
+│   ├── config.py                68  ★ NEW CollectorConfig
+│   ├── filename_parser.py       64  ★ NEW YYYYMMDD_*.xlsx
+│   └── idle_worker.py          260  ★ NEW IMAP IDLE loop
 ├── constants.py                  5
-├── db.py                      1113  PGClient 25 메서드 + 2 module-level update fn
-├── graph.py                    563  build_graph + build_demo_graph + 7 node + 2 helper
-├── main.py                       0  stub (D-7)
-├── state.py                    303  9 TypedDict (CPIAState + Activity 44 필드 + ...)
+├── db.py                      1229  (+116) 4 collector_inbox helper + 4 컬럼 insert_mapper_activities_batch
+├── exporter_routes.py           47  ★ NEW /export/run FastAPI
+├── graph.py                    628  (+65) collector → parser → mapper 진입 변경 + build_atomized_demo_graph
+├── main.py                       0  stub (drift)
+├── state.py                    310  (+7) parsed key 등 (annotation drift 잔존 #N15)
 ├── synthetic/generate_history.py 0  drift
-└── tests/                          45+ 파일, 392 tests
+├── scripts/                         untracked dir
+└── tests/                          ~50+ 파일, 401+ collected (본 cycle 9 신규)
+
+web/                                10,469 LOC (TS/TSX)
+├── lib/
+│   ├── diagnosis.ts            178  (+89) buildScenarioCurve catch-up + plan 동행
+│   ├── diagnosis-adapter.ts      8  (+8) mock 영구 (D-3 REVISED)
+│   ├── fixtures.ts                  (+75) site_summary_text 필드 추가
+│   ├── transforms.ts                (+101) WP/scenario transform
+│   ├── types.ts                     (+27) ScenarioPoint.catch_up + ReportDetail.site_summary_text
+│   ├── bar-filters.ts           12  NEW
+│   ├── persona.ts                4  (+4)
+│   ├── pg.ts                        (변경)
+│   └── __tests__/transforms.test.ts  ~119
+├── app/
+│   ├── (app)/reports/page.tsx       (+97) aiAdvice / aiSummaryText 전달
+│   ├── (app)/tasks/page.tsx        (+113)
+│   ├── (app)/dashboard/page.tsx
+│   ├── (app)/home/page.tsx          (+8)
+│   ├── (app)/review/page.tsx        (+10)
+│   ├── api/mock/report/route.ts     (+59) list-only (4 col)
+│   ├── api/mock/report/[date]/route.ts  +56 ★ NEW detail (9 jsonb + site_summary)
+│   ├── api/mock/agent-tasks/route.ts        (+121) list
+│   ├── api/mock/agent-tasks/[date]/route.ts +85 ★ NEW
+│   ├── api/mock/consolidated/route.ts       (+112)
+│   ├── api/mock/dashboard/route.ts          (+45)
+│   ├── api/mock/review/route.ts             (+63)
+│   └── components/
+│       ├── charts/ForecastChart.tsx        (+371) 4선 catch-up + 마커 분산 + 메타 grid
+│       ├── charts/ProductivityTrendChart.tsx (+89)
+│       ├── charts/QuadrantScatter.tsx
+│       ├── reports/{ProductivityBarToggle, ReportDailyList, WPSummaryTable}
+│       ├── tasks/AgentWorkflowList.tsx     (+33)
+│       ├── review/WBSTree.tsx              (+48)
+│       └── landing/* (CoreAi/Impact/Scalability/Background/FinalCta/AsIsToBe/Footer)
 ```
 
 ---
 
-## 7. 검증 상태 (full cycle 5, 844d4c3)
+## 8. 검증 상태 (본 cycle)
 
 | 항목 | 측정 | 상태 |
 |---|---|---|
-| mapper_activities | 146 row, mapping_source `auto_bp_zone_match` 74% / hil 1.4% | ✅ |
-| atomized_ids | 64 | ✅ |
-| forecasts | 27 | ✅ |
-| optimizer_advice | 13 (risky 12 → 13 keys) | ✅ |
-| daily_reports JSONB — contractor_bars / trade_bars / s_curve / scenarios / optimizer_view / productivity | 모두 채워짐 | ✅ |
-| daily_reports JSONB — kpi / wp_summary / quadrant | 빈 dict {} (view_builder 미구현) | ❌ Phase 2 |
-| Schema validation | bp_code 100% / yesterday_cum_qty 100% / today_cum_qty 100% / plan_mh 100% / cum_actual_mh_today 99% / assigned_workers 95% / zone 16% | partial |
-| Regression | 392 tests collected, 1 xfailed (test_fixture_rag_alignment, drift #N1) | ✅ |
+| Pipeline tests | 392 baseline + 9 신규 = 401+ collected | ✅ 통과 |
+| Mock 재설계 9 SQL 통과 기준 (`verify_backfill_passing.py`) | 9/9 PASS (`15c0bdc`) | ✅ |
+| UI assertion 8 건 자동 (`verify_ui_assertions.py`) | (실행 확인 필요) | ⚠️ |
+| AWS 마이그 (E.6 final) | dashboard / reports / tasks 3 페이지 screenshot 통과 (`de936ba`) | ✅ |
+| 시연 anchor 9-25 site KPI | delay=11일 + LLM narrative (`1315c28`) | ✅ |
+| Phase D Playwright screenshot 6 페이지 (`bcab4ab`) | 통과 | ✅ |
+| AWS PG 마이그 backup/restore (aws_backup_and_migrate.py) | 절대경로 fix 후 통과 (`7d10b6c`) | ✅ |
+| Working tree | view_builder.py 1 줄 (다른 세션) + scripts/ untracked + 1 plan doc untracked | ⚠️ |
 
 ---
 
-*최종 수정: 2026-05-20 (ef7c6cd)*
+## 9. 시연 (PoC 2026-06-05) 흐름
+
+```
+1. 로그인 → 홈 화면 (6 site card)
+2. 9-25 시연 site (m15x-ph3-ibl) 클릭 → reports/[date] detail
+3. 좌측 ReportDailyList → 9-25 선택
+4. 우측: KPI 카드 (delay=11일) + ForecastChart (4선 catch-up) + site_summary_text narrative (LLM)
+5. WPSummaryTable (wp_id triplet) + QuadrantScatter + OptimizerCard list
+6. Export 버튼 → /export/run → xlsx 다운로드 (4 시트)
+7. tasks 페이지 → 단계별 binary progress (mapped_history 기반)
+8. review 페이지 → WBSTree + HIL alternatives
+```
+
+---
+
+*최종 수정: 2026-05-26 (1ba783f) — 70+ commits 흡수 cycle, 9 deep_dive 파일 신규 (총 5,705 줄)*
+*이전 수정: 2026-05-20 (ef7c6cd) — parser+mapper refactor + view_builder 752 LOC + FastAPI 12 endpoint*

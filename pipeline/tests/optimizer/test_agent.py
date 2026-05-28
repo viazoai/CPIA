@@ -169,19 +169,22 @@ async def test_optimize_cold_start_when_cases_less_than_3():
             cfg=_make_cfg(),
         )
 
-    # LLM 호출 발생 확인 (cold_start 이어도)
-    azure_mock.chat.completions.create.assert_called_once()
-
-    # 옵션 B invariant: degradation_cases=[] 가 LLM payload 에 그대로 전달됐는지 검증
-    # messages = [system, *FEW_SHOT_MESSAGES, actual_user_input] — 마지막 user 메시지가 실 입력
-    call_args = azure_mock.chat.completions.create.call_args
-    messages_sent = call_args.kwargs.get("messages") or call_args[1].get("messages")
-    user_msgs = [m for m in messages_sent if m["role"] == "user"]
-    actual_user_msg = user_msgs[-1]  # FEW_SHOT user 메시지 제외, 실 입력은 마지막
-    payload = json.loads(actual_user_msg["content"])
-    assert payload.get("degradation_cases") == [], (
-        f"옵션 B: cases=[] 가 LLM 에 그대로 전달돼야 함, got {payload.get('degradation_cases')!r}"
+    # 2026-05-27 Task 13: V10 2단계 + scenarios 병렬 → cold_start 이어도 LLM 3회 호출
+    # (recs + scenarios + diag). cold case dispatch X — cases<3 도 V10 path 동일 실행.
+    assert azure_mock.chat.completions.create.call_count == 3, (
+        f"V10: recs + scenarios + diag 3회 호출 기대, got {azure_mock.chat.completions.create.call_count}"
     )
+
+    # 옵션 B invariant: V10 recs 호출의 user payload 에 degradation_cases=[] 가 전달됐는지 검증.
+    # recs payload 만 degradation_cases 키 보유 (scenarios·diag 도 동일하게 빈 array 전달).
+    for call in azure_mock.chat.completions.create.call_args_list:
+        messages_sent = call.kwargs.get("messages")
+        user_msgs = [m for m in messages_sent if m["role"] == "user"]
+        actual_user_msg = user_msgs[-1]
+        payload = json.loads(actual_user_msg["content"])
+        assert payload.get("degradation_cases") == [], (
+            f"옵션 B: cases=[] 가 V10 LLM 호출에 그대로 전달돼야 함, got {payload.get('degradation_cases')!r}"
+        )
 
     assert len(advice) == 1
     row = advice[0]

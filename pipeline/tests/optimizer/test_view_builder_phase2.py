@@ -229,15 +229,27 @@ async def test_fetch_chroma_cases_lookup_returns_dict():
 
 @pytest.mark.integration
 async def test_optimizer_view_all_quadrant_filled(pg_client):
-    """C7 — quadrant 모든 WP 가 optimizer_view.by_wp 에 채워짐 (advice or cold_start)."""
+    """C7 (Task 16 update) — by_wp 는 quadrant 의 subset (cold_start fan-out 폐기).
+
+    이전 의도: quadrant 모든 WP 가 by_wp 에 채워짐 (advice or cold_start).
+    Task 16 이후: cold_start fan-out 폐기 — advice 없는 wp 는 by_wp entry X.
+    by_wp = quadrant 1:1 보장은 retry 3-tier + Task 30 failed_wps batch 가 담당.
+    회귀 방지 — by_wp 는 quadrant 의 subset (no extra keys), diagnosis 비어있지 않음.
+    """
     from pipeline.agents.optimizer.view_builder import _build_productivity_views_v2
 
     result = await _build_productivity_views_v2(pg_client, "m15x-ph3-ibl", date(2025, 9, 25))
     q_ids = {q["wp_id"] for q in result["quadrant"]}
     bw_keys = set(result["optimizer_view"]["by_wp"].keys())
-    assert q_ids <= bw_keys, f"누락 WP: {q_ids - bw_keys}"
+    # by_wp 는 quadrant 의 subset — 외부 wp_id 누출 없음
+    assert bw_keys <= q_ids, f"by_wp 에 quadrant 외 wp_id: {bw_keys - q_ids}"
     for k, v in result["optimizer_view"]["by_wp"].items():
         assert v.get("diagnosis"), f"diagnosis 빔: {k}"
+        # cold_start label 발현 없음 (Task 16 사용자 명시)
+        assert v.get("source") not in (
+            "deterministic_cold_start",
+            "deterministic_cold_start_no_master",
+        ), f"cold_start label 잔존: {k} → {v.get('source')}"
 
 
 def test_build_scenarios_schema_with_empty_input():

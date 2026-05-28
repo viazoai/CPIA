@@ -7,6 +7,8 @@ import type {
   ConsolidatedReportSummary,
 } from "@/lib/types";
 
+const SITE_ID = "m15x-ph3-ibl";
+
 export default function ExportPage() {
   const [list, setList] = useState<ConsolidatedReportSummary[]>([]);
   const [selectedDate, setSelectedDate] = useState<string>("");
@@ -59,7 +61,7 @@ export default function ExportPage() {
           {/* 메인: 4 시트 탭 + Export 버튼 */}
           <div className="col-span-12 md:col-span-9 flex flex-col min-h-0">
             {report ? (
-              <ConsolidatedReportCard report={report} />
+              <ConsolidatedReportCard report={report} siteId={SITE_ID} />
             ) : (
               <div className="h-full rounded-card border border-border-soft bg-card shadow-xs flex items-center justify-center text-ink-light">
                 {selectedDate ? "통합 작업일보 불러오는 중…" : "일자를 선택해주세요"}

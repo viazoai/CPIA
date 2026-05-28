@@ -98,6 +98,8 @@ def compute_delay(
             "expected_completion": None,
             "remaining_qty": None,
             "avg_pace_qty": None,
+            # 2026-05-27 Task 6: point_in_time_delay_days — plan 없으면 산출 불가, 0 안전 처리.
+            "point_in_time_delay_days": 0,
         }
 
     plan_start = plan["plan_start"]
@@ -126,18 +128,44 @@ def compute_delay(
         expected_completion = None
         remaining_qty = None
         avg_pace_qty = None
+        # 2026-05-27 Task 6: plan_per_day_qty 정의 불가 → point_in_time = 0 안전 처리.
+        # (NameError 방지 — Self-review 룰 5).
+        point_in_time_delay_days = 0
     else:
         remaining_qty = max(0.0, plan_total_qty_main - actual_cum_qty)
         avg_pace_qty = actual_cum_qty / window_days if window_days > 0 else 0.0
-        pace = avg_pace_qty if avg_pace_qty > 0 else today_qty_main
+        # 2026-05-27 Task 4: plan_per_day_qty 정의 + pace floor — over-pessimistic 방지
+        # (spec §4.2.3). avg_pace_qty=0 인 케이스에서 today_qty_main 만 쓰면 오늘 값이
+        # 비현실적으로 작을 때 pace 가 폭락해 delay 가 300~800일 까지 튐. floor 로
+        # 일평균 계획의 30% 를 minimum 보장.
+        plan_per_day_qty = plan_total_qty_main / total_days if total_days > 0 else 0.0
+        if avg_pace_qty > 0:
+            pace = avg_pace_qty
+        else:
+            pace = max(today_qty_main, plan_per_day_qty * 0.3)
         if pace > 0:
             remaining_days = remaining_qty / pace
             expected_completion = today + timedelta(days=round(remaining_days))
-            delay_days = (expected_completion - plan_finish).days
+            delay_days_raw = (expected_completion - plan_finish).days
+            # 2026-05-27 Task 5: delay cap — total_days × 1.0 (spec §4.2.3, over-pessimistic 차단)
+            # delay 가 wp 자체 기간을 초과하지 못함. 음수 (앞당김) 케이스는 min 으로 보호.
+            delay_days = min(delay_days_raw, round(total_days * 1.0))
         else:
             # 페이스 0 (실 진행 0 + 오늘도 0) — delay 산출 불가
             delay_days = None
             expected_completion = None
+
+        # 2026-05-27 Task 6: point_in_time_delay_days — 그 날짜의 누계 부족분 / 일평균 계획.
+        # forward delay (남은 양 / 페이스) 와는 별개 차원 (spec §4.2.3).
+        # 사용자 입장: "왜 일정영향 N일 산출됐나" 보조 설명용. LLM 진단 (DIAG_PROMPT_V10)
+        # 이 risk_level=이상 일 때 두 차원 모두 인용.
+        today_offset = (today - plan_start).days
+        if plan_per_day_qty > 0 and today_offset > 0:
+            plan_qty_to_date = min(plan_per_day_qty * today_offset, plan_total_qty_main)
+            deficit_qty = max(0.0, plan_qty_to_date - actual_cum_qty)
+            point_in_time_delay_days = round(deficit_qty / plan_per_day_qty)
+        else:
+            point_in_time_delay_days = 0
 
     return {
         "plan_mh_per_day": plan_mh_per_day,
@@ -151,6 +179,8 @@ def compute_delay(
         "expected_completion": expected_completion,
         "remaining_qty": remaining_qty,
         "avg_pace_qty": avg_pace_qty,
+        # 2026-05-27 Task 6: 신규 — db.py insert_forecast $29 placeholder 와 짝.
+        "point_in_time_delay_days": point_in_time_delay_days,
     }
 
 

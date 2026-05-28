@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date as _date
-from typing import Any
+from typing import Any, Optional
 
 import asyncpg
 
@@ -263,6 +263,7 @@ class PGClient:
         Spec §5.6 + optimizer cycle Task 1 (v3.1) — 27 컬럼
         (id/created_at auto, main_unit + today_conditions Task 1 추가).
         Phase 2 — wa 컬럼 추가 (28 컬럼).
+        Phase 3 — point_in_time_delay_days 추가 (29 컬럼).
         row dict 키 = 컬럼명.
         """
         import json as _json
@@ -281,7 +282,8 @@ class PGClient:
                     assessment, reasoning, recovery_likelihood,
                     expected_completion, risk_level,
                     main_unit, today_conditions,
-                    wa
+                    wa,
+                    point_in_time_delay_days
                 ) VALUES (
                     $1, $2, $3,
                     $4::jsonb, $5, $6,
@@ -292,7 +294,8 @@ class PGClient:
                     $21, $22, $23,
                     $24, $25,
                     $26, $27,
-                    $28
+                    $28,
+                    $29
                 )
                 """,
                 row["run_id"],
@@ -327,6 +330,7 @@ class PGClient:
                 row.get("main_unit"),
                 row.get("today_conditions"),
                 row.get("wa"),
+                row.get("point_in_time_delay_days"),
             )
 
     async def insert_optimizer_advice(self, row: dict) -> None:
@@ -465,10 +469,12 @@ class PGClient:
         """mapped_history 테이블 batch INSERT (ON CONFLICT UPDATE 멱등성).
 
         INSERT 대상 = wa + l6_main 둘 다 not None 인 활동 (Phase 3 결정).
-        동일 (run_id, wa, l6_main, company) 재호출 시 today_qty / today_assigned_workers /
-        unit 을 EXCLUDED 값으로 갱신 (마지막 값 채택 — 합계 vs 마지막 은 Phase 0 에서 합의).
+        동일 (run_id, wa, l6_main, company) 재호출 시 trade / today_qty /
+        today_assigned_workers / unit 을 EXCLUDED 값으로 갱신 (마지막 값 채택 —
+        합계 vs 마지막 은 Phase 0 에서 합의).
 
-        rows: [{"wa", "l6_main", "company", "today_qty", "today_assigned_workers", "unit"}, ...]
+        rows: [{"wa", "l6_main", "company", "trade", "today_qty",
+                "today_assigned_workers", "unit"}, ...]
         """
         if not rows:
             return
@@ -478,9 +484,10 @@ class PGClient:
                 """
                 INSERT INTO mapped_history
                     (run_id, report_date, site_id, wa, l6_main, company,
-                     today_qty, today_assigned_workers, unit)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                     trade, today_qty, today_assigned_workers, unit)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                 ON CONFLICT (run_id, wa, l6_main, company) DO UPDATE SET
+                    trade                  = EXCLUDED.trade,
                     today_qty              = EXCLUDED.today_qty,
                     today_assigned_workers = EXCLUDED.today_assigned_workers,
                     unit                   = EXCLUDED.unit
@@ -493,6 +500,7 @@ class PGClient:
                         r["wa"],
                         r["l6_main"],
                         r["company"],
+                        r.get("trade"),
                         r["today_qty"],
                         r["today_assigned_workers"],
                         r["unit"],
@@ -1227,3 +1235,55 @@ async def fetch_site_by_id(pg: PGClient, site_id: str) -> dict | None:
             site_id,
         )
     return dict(row) if row else None
+
+
+async def upsert_consolidated_report(
+    pg: PGClient,
+    *,
+    site_id: str,
+    report_date: _date,
+    xlsx_bytes: bytes,
+    run_id: uuid.UUID,
+) -> None:
+    """consolidated_reports 에 UPSERT.
+
+    ON CONFLICT (site_id, report_date) — last write wins (D-2 / D-4 / D-6 EC).
+    graph 의 consolidated_xlsx_node 가 cycle 마다 호출 + seed mock backfill 도 호출.
+    """
+    assert pg._pool is not None, "connect() 미호출"
+    async with pg._pool.acquire() as con:
+        await con.execute(
+            """
+            INSERT INTO consolidated_reports
+              (site_id, report_date, xlsx_bytes, run_id, generated_at)
+            VALUES ($1, $2, $3, $4, NOW())
+            ON CONFLICT (site_id, report_date) DO UPDATE
+              SET xlsx_bytes   = EXCLUDED.xlsx_bytes,
+                  run_id       = EXCLUDED.run_id,
+                  generated_at = EXCLUDED.generated_at
+            """,
+            site_id,
+            report_date,
+            xlsx_bytes,
+            run_id,
+        )
+
+
+async def fetch_consolidated_report(
+    pg: PGClient,
+    *,
+    site_id: str,
+    report_date: _date,
+) -> Optional[bytes]:
+    """(D-5 E-2) cache hit -> bytes, miss -> None.
+
+    /export/run 핸들러가 호출 — hit 면 즉시 응답, miss 면 live render fallback.
+    """
+    assert pg._pool is not None, "connect() 미호출"
+    async with pg._pool.acquire() as con:
+        row = await con.fetchrow(
+            "SELECT xlsx_bytes FROM consolidated_reports WHERE site_id=$1 AND report_date=$2",
+            site_id,
+            report_date,
+        )
+    return row["xlsx_bytes"] if row else None

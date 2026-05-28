@@ -260,6 +260,8 @@ async def _forecast_one_group(
         "actual_in_window_mh": delay_info["actual_in_window_mh"],
         "mh_gap": delay_info["mh_gap"],
         "delay_days": delay_info["delay_days"],
+        # 2026-05-28 Task 6/7 chain fix — point_in_time forward
+        "point_in_time_delay_days": delay_info.get("point_in_time_delay_days"),
         "rag_n_similar": rag_n,
         "similar_cases": [
             {

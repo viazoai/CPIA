@@ -188,11 +188,22 @@ export interface QuadrantPoint {
   perperson_unit?: string;
 }
 
+// 권고사항 schema — V10 BE 가 string → {keyword, action, reason} 객체로 변경.
+// FE 는 두 schema 모두 렌더 (옛 string 형식 backwards-compat).
+export type OptimizerRecommendation =
+  | string
+  | {
+      rank?: number;
+      keyword: string;
+      action: string;
+      reason: string;
+    };
+
 export interface OptimizerOutput {
   wp_id: string;
   diagnosis: string;                              // 진단 (자연어)
   similar_cases: { date: string; description: string; outcome: string }[];
-  recommendations: string[];                      // 권고사항 (배열)
+  recommendations: OptimizerRecommendation[];     // 권고사항 — string (구) 또는 object (V10 신)
   details: { label: string; value: string }[];   // 상세 현황 (key-value)
 }
 

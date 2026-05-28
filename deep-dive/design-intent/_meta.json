@@ -1,48 +1,74 @@
 {
-  "generated_at": "2026-05-20T00:00:00Z",
-  "updated_at": "2026-05-20T00:00:00Z",
-  "git_sha": "ef7c6cd",
+  "generated_at": "2026-05-26T00:00:00Z",
+  "updated_at": "2026-05-26T00:00:00Z",
+  "git_sha": "1ba783f",
   "git_branch": "A_Track",
-  "previous_snapshot_sha": "cf3c143",
-  "commits_since_previous": 80,
-  "pipeline_loc_previous": 4380,
-  "pipeline_loc_current": 8928,
-  "test_count_previous": 197,
-  "test_count_current": 392,
-  "scope": "pipeline 전체 (agents 7 active + reporter + graph + state + db + api + checkpointer). Web/B_Track 제외.",
-  "cycle_note": "parser+mapper refactor + view_builder 752 LOC 신규 + FastAPI 12 엔드포인트 완성 + full-cycle 5 검증. 80 commits 누적, pipeline LOC 2배 증가.",
+  "previous_snapshot_sha": "ef7c6cd",
+  "commits_since_previous": 70,
+  "files_changed": 204,
+  "lines_inserted": 30151,
+  "lines_deleted": 3055,
+  "pipeline_loc_non_test_previous": 8928,
+  "pipeline_loc_non_test_current": 11656,
+  "test_count_previous": 392,
+  "test_count_current_collected_plus_new": 401,
+  "scope": "pipeline 전체 (9 active subsystem + 신규 exporter + collector IDLE worker + scripts 20+). Web/B_Track 제외.",
+  "cycle_note": "Mock 재설계 PR #40 + AWS 마이그 + view_builder MEDIAN + backfill_v2 --with-summary + ForecastChart catch-up + site_summary LLM cycle. 70+ commits 누적, view_builder 752 → 1,882 LOC (2.5x), site_summary 141 LOC 신규.",
   "subsystems": [
     {
       "name": "orchestration",
       "file": "design_intent_orchestration.md",
-      "files": ["pipeline/graph.py", "pipeline/state.py", "pipeline/checkpointer.py", "pipeline/constants.py"],
-      "loc": 965,
-      "t1_count": 22,
-      "t2_count": 12,
+      "files": [
+        "pipeline/graph.py",
+        "pipeline/state.py",
+        "pipeline/checkpointer.py",
+        "pipeline/constants.py",
+        "pipeline/agents/collector_node.py",
+        "pipeline/agents/parser_node.py",
+        "pipeline/agents/_concurrency.py",
+        "pipeline/collector/idle_worker.py",
+        "pipeline/collector/filename_parser.py",
+        "pipeline/collector/config.py"
+      ],
+      "loc": 1545,
+      "t1_count": 33,
+      "t2_count": 21,
       "t1_coverage_pct": 100,
+      "design_intent_md_loc": 868,
       "code_changed": true,
       "cycle_changes": [
-        "cf2a791: normalize_company import (close #31)",
-        "e163e1a: 정규화 타이밍 — fetch_bp_candidates 전 일괄 정규화 (㈜/(주) prefix cand_pool 빈 버그)",
-        "844d4c3: CPIA_HIL_AUTO_BYPASS env + pipeline_runs 사전 INSERT + HIL2 auto-select",
-        "ef7c6cd: reporter_node site_id PG fallback + G8/G2 적재 강화"
+        "55cad90 + 6b9db7c: collector_node + parser_node 신설 (D-12 graph 진입점 이동 mapper → collector)",
+        "85155eb + c1cba0f + 82604d7 + 7b96b1a: collector IDLE worker (idle_worker.py 260 + filename_parser.py 64 + config.py 68 + collector_inbox 테이블 + 4 helper)",
+        "ef95e02: build_atomized_demo_graph (15일 backfill 표준)",
+        "1e24dc6: get_llm_semaphore() + CPIA_LLM_CONCURRENCY (default 4) — forecaster/optimizer/atomizer 공용",
+        "4b8a955: api.py lifespan 안에 collector task + app.include_router(exporter_router)",
+        "Critical 2: #C1 (CPIA_HIL_AUTO_BYPASS prod 가드 부재), #C2 (CPIAState.parsed annotation drift list[Activity] vs ParsedDailyReport)"
       ]
     },
     {
       "name": "persistence",
       "file": "design_intent_persistence.md",
-      "files": ["pipeline/db.py", "pipeline/api.py", "pipeline/chroma_client.py", "pipeline/checkpointer.py"],
-      "loc": 2292,
-      "t1_count": 39,
-      "t2_count": 16,
+      "files": [
+        "pipeline/db.py",
+        "pipeline/api.py",
+        "pipeline/chroma_client.py",
+        "pipeline/checkpointer.py",
+        "pipeline/exporter_routes.py"
+      ],
+      "loc": 2478,
+      "t1_count": 35,
+      "t2_count": 21,
       "t1_coverage_pct": 100,
+      "design_intent_md_loc": 584,
       "code_changed": true,
       "cycle_changes": [
-        "api.py 0 byte → 1050 LOC (FastAPI 12 endpoint 완성)",
-        "db.py 385 → 1113 LOC (3배, 16 migration + 신규 6 테이블 + 21 컬럼)",
-        "b5404a4: upsert_daily_report_view_col 신규 (UPDATE-first partial write 가드)",
-        "ef7c6cd: scenarios_jsonb 화이트리스트 추가 + site_id partial unique index",
-        "4cd36e3: insert_mapper_activities_batch cum_workers/cum_actual_mh_today 컬럼 적재"
+        "7b96b1a: collector_inbox 테이블 + 4 helper (insert/update/fetch_collector_inbox + fetch_site_by_id)",
+        "4b8a955: api.py lifespan 안에 collector idle_loop task + exporter router include",
+        "a7e2465: /export/run FastAPI endpoint (exporter_routes.py 47 LOC, 한글 파일명 raw_headers UTF-8 패치)",
+        "b3010df: fetch_sheet_data (exporter.py, pipeline_runs JOIN parser_reports/parser_activities)",
+        "d40c84f: insert_mapper_activities_batch 33 → 37 컬럼 (l5_disc / l7_sub / l7_5_activity / sub_work_area)",
+        "21c10f7 + main merge: daily_reports.site_summary_text 컬럼 추가 (★ migration 파일 없음)",
+        "Critical 3: #N13 site_summary_text migration 없음 / #C2 /export/run app.state.pg 미재사용 / #C3 insert_mapped_history_batch trade 컬럼 누락"
       ]
     },
     {
@@ -50,54 +76,63 @@
       "file": "design_intent_parser.md",
       "files": [
         "pipeline/agents/parser.py",
-        "pipeline/agents/parser_llm.py",
         "pipeline/agents/parser_post.py",
-        "pipeline/agents/collector.py"
+        "pipeline/agents/parser_llm.py",
+        "pipeline/agents/parser_node.py",
+        "pipeline/agents/collector.py",
+        "pipeline/collector/filename_parser.py",
+        "pipeline/collector/idle_worker.py",
+        "pipeline/collector/config.py"
       ],
-      "loc": 1689,
-      "t1_count": 20,
-      "t2_count": 11,
+      "loc": 2106,
+      "t1_count": 30,
+      "t2_count": 13,
       "t1_coverage_pct": 100,
-      "code_changed": true,
+      "design_intent_md_loc": 517,
+      "code_changed": false,
       "cycle_changes": [
-        "parser.py 306 → 760 LOC (4 시트 rule-based refactor)",
-        "parser_llm.py 658 LOC DEPRECATED 2026-05-20 (코드 보존, env flag 회귀)",
-        "parser_post.py 201 LOC NEW (normalize / split_company_and_zone / extract_zone / pair_bp_summaries / transform_*)",
-        "collector.py 0 → 70 LOC (discover + asyncio.Semaphore(4) 병렬)",
-        "5 commits: 702ac06/05426ad/ae144a2/83b32f3 (시트1~4 refactor) + d3b1418 (LLM 검증 wrapper) + 15c58bf (split_company_and_zone) + 888e927 (collector → parser 교체) + 999bc05 (deprecation 주석)"
+        "parser.py + parser_post.py + parser_llm.py 자체 변경 0 (이전 cycle 흡수)",
+        "6b9db7c: parser_node.py 25 LOC 신설 — state-key drift fix (parsed_reports → parsed, report_date → date)",
+        "55cad90: collector_node.py 63 LOC 신설 — graph 진입점",
+        "85155eb + c1cba0f: filename_parser.py 64 + idle_worker.py 260 + config.py 68 신설 — IMAP IDLE listener",
+        "이슈 9 → 15: parser_warning PG 영속화 미구현, parser_llm 회귀 env flag 미구현, Activity 4 필드 항상 None, LLM 비용 cap 자동 차단 없음, 시트2 zone 손실, BP work_text 미분리, 다른 사이트 양식 미지원, Mm## hardcoded, Semaphore(2) bottleneck"
       ]
     },
     {
       "name": "mapper",
       "file": "design_intent_mapper.md",
       "files": ["pipeline/agents/mapper.py"],
-      "loc": 571,
-      "t1_count": 12,
-      "t2_count": 11,
+      "loc": 604,
+      "t1_count": 15,
+      "t2_count": 10,
       "t1_coverage_pct": 100,
+      "design_intent_md_loc": 414,
       "code_changed": true,
       "cycle_changes": [
-        "8089e7a: _weighted_mh_from_shift + _prorate_workers_with_mh 신규 (8h 고정 → 시간대 가중 MH)",
-        "dc69f14: build_bp_context BP 별 분리 + resolve_wa auto_bp_zone_match + auto_llm_rerank",
-        "787575b: resolve_wa 7단계 unit test 신설 (10 case)",
-        "4cd36e3: U1.B cum_workers prorate (plan_mh 비율) + uniform fallback"
-      ],
-      "resolve_wa_steps_previous": 5,
-      "resolve_wa_steps_current": 7,
-      "resolve_wa_new_sources": ["auto_bp_zone_match", "auto_llm_rerank"],
-      "hil_required_target_pct": 25
+        "mapper.py LOC 571 → 604 (+33) — 미세 정리",
+        "d40c84f: mapper_activities 4 컬럼 추가 (l5_disc / l7_sub / l7_5_activity / sub_work_area) — db.py SQL + migration 만 변경, mapper.py 자체 코드 변경 미세",
+        "2026-05-23_mapper_l7_5_columns.sql migration 신설",
+        "이슈 8: M-2 (l7.5 4 컬럼 PoC 항상 None, Master List 1:N) + M-7 (user_corrected 라벨 WAResolution.source Literal 누락) + M-8 (wa NULL row 가 forecast bucket 에서 누락)"
+      ]
     },
     {
       "name": "atomizer",
       "file": "design_intent_atomizer.md",
       "files": ["pipeline/agents/atomizer.py"],
-      "loc": 141,
-      "t1_count": 4,
-      "t2_count": 6,
+      "loc": 196,
+      "t1_count": 5,
+      "t2_count": 7,
       "t1_coverage_pct": 100,
-      "code_changed": false,
-      "cycle_changes": [],
-      "note": "cf3c143 이후 코드 변경 0. T1/T2 카드 유효, last_checked 만 stamp. LOC 118→141 은 이전 cycle 흡수된 docstring + None 가드."
+      "design_intent_md_loc": 305,
+      "code_changed": true,
+      "cycle_changes": [
+        "이전 카드 '코드 변경 없음' 라벨 무효화 — 본 cycle 활발히 변경",
+        "atomizer.py LOC 141 → 196 (+55)",
+        "a3db32a: ChromaClient init 3 retry (exponential backoff) + upsert batch 100 split (HNSW hang 방어, 이전 4시간 stuck 사례)",
+        "9252ac7: _format_document 신규 (30 LOC, live/backfill 2 모드) + _build_metadata 12 → 15 필드 (l7_5_activity / perperson / productivity_pct)",
+        "b560dd4: batch_size 16 → 64 (호출 1/4)",
+        "이슈 2 → 11 신규 9건: #A-N3 mapped_history.trade 누락 (16f1b88 commit msg 약속 vs atomizer.py:179-189 mh_rows + insert_mapped_history_batch SQL mismatch) / #A-N4 today_assigned_workers vs assigned_workers / #A-N5 _format_document short form fallback / 외 6건"
+      ]
     },
     {
       "name": "forecaster",
@@ -112,13 +147,21 @@
         "pipeline/agents/forecaster/constants.py",
         "pipeline/agents/forecaster/__init__.py"
       ],
-      "loc": 893,
-      "t1_count": 22,
-      "t2_count": 13,
-      "t1_coverage_pct": 95,
-      "code_changed": false,
-      "cycle_changes": [],
-      "note": "cf3c143 이후 코드 변경 0. classify.py:34 PM 원안 v2 정합 — drift #2 root cause 는 #3 input over-산출, #3 fix 로 자동 해소됨."
+      "loc": 1044,
+      "t1_count": 24,
+      "t2_count": 17,
+      "t1_coverage_pct": 100,
+      "design_intent_md_loc": 301,
+      "code_changed": true,
+      "cycle_changes": [
+        "이전 카드 '코드 변경 없음' 라벨 무효화 — 본 cycle 5 commit",
+        "6a89848: plan_main_qty atomic distinct SUM (l6 SUM 폭주 fix) — 9-22 outlier 부분 해결, 잔존",
+        "6ba0126: forecast() asyncio.gather + Semaphore 4× (10분 → 2.5분)",
+        "9856889: test_forecast_row pg.fetch_all AsyncMock 보강",
+        "bc04c94: T18 mh 컬럼 reference only docstring",
+        "1e24dc6: get_llm_semaphore() 흡수",
+        "이슈 9: #N26 9-22 outlier 잔존 / mh 4 컬럼 reference only (의도적) / Chroma HNSW boundary case / LLM cold start 4 분기 / etc."
+      ]
     },
     {
       "name": "optimizer",
@@ -127,156 +170,130 @@
         "pipeline/agents/optimizer/agent.py",
         "pipeline/agents/optimizer/prompt.py",
         "pipeline/agents/optimizer/retrieve.py",
-        "pipeline/agents/optimizer/synthetic_daily_report.py",
-        "pipeline/agents/optimizer/synthetic_v2.py",
         "pipeline/agents/optimizer/view_builder.py",
-        "pipeline/agents/reporter.py"
+        "pipeline/agents/optimizer/site_summary.py",
+        "pipeline/agents/optimizer/synthetic_v2.py",
+        "pipeline/agents/optimizer/synthetic_daily_report.py"
       ],
-      "loc": 2449,
-      "t1_count": 32,
-      "t2_count": 17,
+      "loc": 3641,
+      "t1_count": 55,
+      "t2_count": 14,
       "t1_coverage_pct": 95,
+      "design_intent_md_loc": 729,
       "code_changed": true,
       "cycle_changes": [
-        "view_builder.py 752 LOC 신규 (8+1 view jsonb 산출)",
-        "2788cfa: _build_productivity_views + _compose_evm (EVM core 초기)",
-        "b20549d: _build_kpi + contractor/trade bars",
-        "48e14cd: _build_quadrant + impact P90 normalize",
-        "42bc99a: _build_s_curve + _merge_curves + _extend_forecast (4 sub 곡선)",
-        "f25d945: _build_optimizer_view 4 섹션",
-        "7fa3dd9: optimize() view jsonb orchestration + daily_reports UPSERT + state.site_id",
-        "e432dc2: _evm_by_group group_key 다형성",
-        "64318f6: scripts/backfill_daily_report_views.py (기존 cycle 재산출)",
-        "82ca0b4/c404086/87d5cbf: _evm_for_group 산식 정정 (mapped CTE 제거)",
-        "3781e5b: _build_scenarios + scenarios_jsonb upsert (percentile 4 시나리오)",
-        "105ee6a: _coerce_date fix + recovery wiring + e2e negative"
+        "view_builder.py 752 → 1,882 LOC (+1,130, 2.5×) — 가장 큰 변경",
+        "c0a0641 (★★): _build_s_curve 산식 (A) WV × MH 가중 + (wa, l6) 매칭 + full_grid cross join 단조 보장 (view_builder.py:880~1021)",
+        "21c10f7 (★★): site_summary.py 141 LOC 신규 — build_site_summary_payload + generate_site_summary + Azure JSON response_format",
+        "e9b66d4: _build_kpi delay_days AVG → PERCENTILE_CONT(0.5) MEDIAN (outlier 167,871일 → 11일)",
+        "3781e5b: _build_scenarios percentile 4 (no_action / p25 / p50 / p75)",
+        "2c2ba75: T17 quadrant ↔ by_wp wp_id 매칭 (Jaccard 11% → 100%)",
+        "690c305: optimize() asyncio.gather + to_thread 4×",
+        "82bb8af: 4섹션 풍부화 + cold_start LLM (placeholder 폐기)",
+        "d79a438: retrieve INCIDENT_KEYWORDS 5 → 9종 보강",
+        "ba505da: _compose_cold_start_row dead code 제거",
+        "Working tree: view_builder.py:1447 'AND ma.trade IN (건축, 토목)' 1 줄 제거 (다른 세션 작업 중, 미커밋)",
+        "이슈 10: #1 working tree / #2 Optional 미 import / #3 site_summary live 미연결 / #5 v1↔v2 같은 컬럼 다른 산식 drift / etc."
       ]
     },
     {
       "name": "reporter",
       "file": "design_intent_reporter.md",
-      "files": ["pipeline/agents/reporter.py"],
-      "loc": 161,
-      "t1_count": 5,
-      "t2_count": 7,
+      "files": [
+        "pipeline/agents/reporter.py",
+        "pipeline/agents/exporter.py",
+        "pipeline/agents/exporter_templates/__init__.py",
+        "pipeline/agents/exporter_templates/consolidated_template.xlsx",
+        "pipeline/exporter_routes.py"
+      ],
+      "loc": 510,
+      "t1_count": 22,
+      "t2_count": 14,
       "t1_coverage_pct": 100,
-      "code_changed": false,
-      "cycle_changes": [],
-      "note": "cf3c143 이후 코드 변경 0. 종합 보고서 1종 + G8/G2 + state.site_id PG fallback 모두 이전 cycle 흡수. reporter → exporter rename backlog 잔존."
+      "design_intent_md_loc": 330,
+      "code_changed": true,
+      "cycle_changes": [
+        "이전 카드 '코드 변경 없음' 라벨 무효화 — reporter 자체는 변경 없으나 exporter 6 commit 신규 흡수",
+        "99ef43b: consolidated_template.xlsx (4 시트 dummy 헤더만 보존)",
+        "b3010df: fetch_sheet_data (exporter.py, pipeline_runs JOIN)",
+        "38399ac: render_xlsx + 4 시트 _fill_* + COL dict × 4 + _fill_timeshift 헬퍼 + NoDataError + asyncpg jsonb codec fallback",
+        "a7e2465: /export/run FastAPI endpoint (한글 파일명 raw_headers UTF-8 패치 포함)",
+        "4b8a955: api.py 의 app.include_router(exporter_router) 1줄 마운팅",
+        "56bcaee: B_Track UI swap 가이드 (NEXT_PUBLIC_FASTAPI_BASE env + handleExport 교체)",
+        "이슈 9: #R-N1 reporter→exporter rename 미시행 (CLAUDE.md 약속 vs 실 코드) / #R-N2 B_Track FE swap 미실행 / 4 시트 산식 회귀 테스트 누락 / G2 atomized=0 silent 누적 / etc."
+      ]
     }
   ],
   "stubs_uncatalogued": [
     {"file": "pipeline/main.py", "loc": 0, "drift_backlog_priority": "D-7", "note": "scripts/run_one_cycle.py 가 대체 — 정상"},
-    {"file": "pipeline/synthetic/generate_history.py", "loc": 0, "drift_backlog_priority": "low", "note": "optimizer/synthetic_v2.py 가 대체"}
+    {"file": "pipeline/synthetic/generate_history.py", "loc": 0, "drift_backlog_priority": "low", "note": "optimizer/synthetic_v2.py 가 대체"},
+    {"file": "pipeline/api_helpers/", "loc": 0, "drift_backlog_priority": "low", "note": "__pycache__ only — empty dir 의심"}
   ],
   "totals": {
-    "t1_count_approx": 156,
-    "t2_count_approx": 93,
-    "loc_approx": 9201
+    "t1_count_approx": 229,
+    "t2_count_approx": 117,
+    "loc_approx": 12124,
+    "design_intent_md_loc_total": 4048
   },
   "audit_drift_backlog_reference": "docs/audit/2026-05-17-cpia-drift-backlog.md",
-  "cycle_pg_migrations": [
-    "2026-05-16_downstream_agents.sql (44 LOC) — forecasts(29) + optimizer_advice(11)",
-    "2026-05-16_forecaster.sql (27)",
-    "2026-05-16_optimizer_hil2.sql (25)",
-    "20260516_add_activity_master.sql (53)",
-    "2026-05-17_activity_master_site_id.sql (55)",
-    "2026-05-17_activity_master_wa.sql (15)",
-    "2026-05-17_db_alignment.sql (11) — sites +4 컬럼",
-    "2026-05-18_mapped_history.sql (19)",
-    "2026-05-18_forecasts_wa.sql (6)",
-    "2026-05-18_parser_mapper_outputs.sql (70) — parser/mapper_activities 통합",
-    "2026-05-19_daily_reports_views.sql (22) — 8 view JSONB + site_id",
-    "2026-05-19_mapped_history_trade.sql (11)",
-    "2026-05-19_mapper_alternatives.sql (15) — alternatives JSONB + GIN",
-    "2026-05-19_scenarios_jsonb.sql (10) — scenarios_jsonb",
-    "2026-05-19_sites_hours_saved_cum.sql (12) — G2 누적 절감",
-    "2026-05-19_parser_full_schema.sql (141) — parser_* 5 테이블 통합"
+  "pair_deep_dive": "deep-dive/architecture_overview.md + deep-dive/deep_dive_*.md × 8 (5705 줄, 2026-05-26)",
+  "pair_data_contract": "data-contract/INDEX.md + 6 파일 (2026-05-22 갱신, 본 cycle 갱신 예정)",
+  "cycle_pg_migrations_new": [
+    "2026-05-19_collector_inbox.sql (NEW) — IDLE collector dedup",
+    "2026-05-20_add_is_mock.sql (NEW) — 7 테이블 is_mock boolean",
+    "2026-05-21_phase1.sql (NEW) — Mock 재설계 phase 1",
+    "2026-05-23_mapper_l7_5_columns.sql (NEW) — mapper_activities + 4 컬럼 (l5_disc / l7_sub / l7_5_activity / sub_work_area)"
   ],
-  "cycle_new_tables": [
-    "mapped_history",
-    "parser_activities",
-    "parser_job_allocations",
-    "parser_equipment_allocations",
-    "parser_worker_outputs",
-    "parser_report_meta"
+  "cycle_pg_migrations_missing": [
+    "daily_reports.site_summary_text 컬럼 (commit 21c10f7 가 추가했으나 migration SQL 없음, fresh rebuild UndefinedColumnError 위험 — 이슈 #N13)"
   ],
-  "cycle_new_columns": [
-    "activity_master.wa",
-    "activity_master.site_id",
-    "forecasts.wa",
-    "daily_reports.site_id (partial unique idx)",
-    "daily_reports.kpi_jsonb",
-    "daily_reports.contractor_bars_jsonb",
-    "daily_reports.trade_bars_jsonb",
-    "daily_reports.quadrant_jsonb",
-    "daily_reports.wp_summary_jsonb",
-    "daily_reports.s_curve_jsonb",
-    "daily_reports.optimizer_view_jsonb",
-    "daily_reports.productivity_jsonb",
-    "daily_reports.scenarios_jsonb",
-    "mapper_activities.alternatives (jsonb + GIN)",
-    "mapper_activities.cum_workers_today",
-    "mapper_activities.cum_actual_mh_today",
-    "mapped_history.trade",
-    "sites.location",
-    "sites.headcount",
-    "sites.hours_saved",
-    "sites.fte_saved",
-    "sites.hours_saved_cum"
+  "cycle_new_files_pipeline": [
+    "pipeline/agents/collector_node.py (63)",
+    "pipeline/agents/parser_node.py (25)",
+    "pipeline/agents/exporter.py (301)",
+    "pipeline/agents/exporter_templates/__init__.py (1)",
+    "pipeline/agents/exporter_templates/consolidated_template.xlsx (binary)",
+    "pipeline/agents/_concurrency.py (~30)",
+    "pipeline/agents/optimizer/site_summary.py (141)",
+    "pipeline/collector/__init__.py",
+    "pipeline/collector/config.py (68)",
+    "pipeline/collector/filename_parser.py (64)",
+    "pipeline/collector/idle_worker.py (260)",
+    "pipeline/exporter_routes.py (47)"
   ],
+  "cycle_new_scripts": 20,
   "cycle_full_cycle_5_verification": {
-    "commit": "844d4c3",
-    "mapper_activities_rows": 146,
-    "mapping_source_auto_bp_zone_match_pct": 74,
-    "mapping_source_hil_pct": 1.4,
-    "atomized_ids": 64,
-    "forecasts": 27,
-    "optimizer_advice": 13,
-    "daily_reports_jsonb_filled": ["contractor_bars", "trade_bars", "s_curve", "scenarios", "optimizer_view", "productivity"],
-    "daily_reports_jsonb_empty": ["kpi", "wp_summary", "quadrant"],
-    "schema_validation_pct": {
-      "bp_code": 100,
-      "yesterday_cum_qty": 100,
-      "today_cum_qty": 100,
-      "plan_mh": 100,
-      "cum_actual_mh_today": 99,
-      "assigned_workers": 95,
-      "zone": 16
-    }
+    "commit": "844d4c3 (baseline)",
+    "post_cycle_verifications": [
+      "15c0bdc: Mock 재설계 9 SQL 통과 기준 9/9 PASS",
+      "1315c28: T20 final UI screenshot — 9/25 site KPI delay=11일 + LLM narrative",
+      "de936ba: E.6 AWS final UI screenshot 3 페이지 (dashboard / reports / tasks)",
+      "bcab4ab: Phase D Playwright screenshot 6 페이지",
+      "f977853: E.4 AWS baseline screenshot (dashboard / reports)",
+      "fd8829e: T15 D2 9/25 회귀 통과 기준 log",
+      "73f4f06: T14 D1 15일 backfill 통과 기준 log"
+    ]
   },
-  "poc_dataset_change": {
-    "before": ["남웅건설", "세보엠이씨", "창원기전", "에스티엠"],
-    "after": ["남웅건설", "세보엠이씨", "창원기전"],
-    "reason": "에스티엠 activity_master 0 row 불안정 → 제거 (e163e1a)",
-    "activity_master_rows_per_company": {
-      "남웅건설": 179,
-      "세보엠이씨": 561,
-      "창원기전": 319
-    }
-  },
-  "regression_baseline": "197 passed (cf3c143 시점)",
-  "regression_current": "392 collected (이전 197 대비 2배). full cycle 5 통과. 1 xfailed (test_fixture_rag_alignment, drift #N1).",
-  "open_issues": [
-    {"id": "#N1", "severity": "M", "area": "optimizer", "desc": "RAG fixture_prod vs synthetic_v2 baseline ±10% mismatch (사용자 합의)"},
-    {"id": "#N2", "severity": "M", "area": "persistence", "desc": "infra/postgres/migrations vs docs/schema/postgres.md 정합 자동화 미흡"},
-    {"id": "#N3", "severity": "L", "area": "persistence", "desc": "fetch_activity (db.py:73) 미사용 의심"},
-    {"id": "#N4", "severity": "M", "area": "orchestration", "desc": "daily_reports.kpi_jsonb / wp_summary_jsonb / quadrant_jsonb 3개 view 미산출 — view_builder gap, activity_master.plan_start/finish 의존성"},
-    {"id": "#N5", "severity": "L", "area": "orchestration", "desc": "LangGraph Command(resume=dict) key int → str 변환 룰 명문화 미흡"},
-    {"id": "#N6", "severity": "L", "area": "reporter", "desc": "reporter → exporter rename (파일명 + 13 import 변경) 미시행"},
-    {"id": "#N7", "severity": "M", "area": "parser", "desc": "parser_warning 현재 stderr 로그만 — parser_reports.warnings_jsonb 컬럼 적재 미구현"},
-    {"id": "#N8", "severity": "L", "area": "parser", "desc": "parser_llm.py 658 LOC DEPRECATED 코드 제거 — env flag deprecation 후 다음 cycle"},
-    {"id": "#N9", "severity": "L", "area": "api", "desc": "/api/tasks itemsByDate 'Collector' key hardcode (current_node 라우팅 미구현)"},
-    {"id": "#N10", "severity": "L", "area": "api", "desc": "/api/sites LATERAL forecasts — 6 site fixture 규모, 확장 시 EXPLAIN ANALYZE 검토"},
-    {"id": "#N11", "severity": "L", "area": "poc", "desc": "Activity.wbs_activity_id / l7_sub / l7_5_activity / sub_work_area Master List 1:N 으로 항상 None"},
-    {"id": "#N12", "severity": "L", "area": "tests", "desc": "atomizer / forecaster / reporter cf3c143 이후 코드 변경 없음 — T2 카드 라벨 stale 가능성"},
-    {"id": "D-1", "severity": "M", "area": "optimizer", "desc": "병행작업 룰 (드릴 + 콘크리트 등 동시) 진단 미반영"},
-    {"id": "D-7", "severity": "L", "area": "orchestration", "desc": "pipeline/main.py 0 byte stub — scripts/run_one_cycle.py 대체 정상"}
+  "regression_baseline": "392 collected (ef7c6cd 시점)",
+  "regression_current_approx": "401+ collected (본 cycle 9 신규 tests: exporter_endpoint / exporter_render / filename_parser / forecaster_concurrency / idle_worker / llm_concurrency / optimizer_concurrency / parser_node / db_collector_inbox)",
+  "open_issues_critical": [
+    {"id": "#C1", "area": "orchestration", "desc": "CPIA_HIL_AUTO_BYPASS env prod 가드 부재"},
+    {"id": "#C2 (orchestration)", "area": "orchestration", "desc": "CPIAState.parsed annotation drift list[Activity] vs ParsedDailyReport"},
+    {"id": "#N13", "area": "persistence", "desc": "daily_reports.site_summary_text migration SQL 부재"},
+    {"id": "#C2 (persistence)", "area": "persistence", "desc": "/export/run 매 요청 PGClient 신규 풀"},
+    {"id": "#C3", "area": "persistence/atomizer", "desc": "mapped_history.trade 항상 NULL"}
   ],
   "claude_md_rule_added": true,
-  "claude_md_rule_location": "CLAUDE.md '## 작업 규칙' 섹션 (파일 끝, '*최종 수정*' 라인 직전)",
+  "claude_md_rule_location": "CPIA/CLAUDE.md:364 (## 작업 규칙 섹션, 기존)",
   "index_path": "deep-dive/design-intent/INDEX.md",
-  "last_checked_at": "2026-05-20T00:00:00Z",
+  "last_checked_at": "2026-05-26T00:00:00Z",
   "skill_used": ["deep-dive", "design-intent"],
-  "demo_deadline": "2026-06-05"
+  "demo_deadline": "2026-06-05",
+  "working_tree_status": {
+    "modified": ["pipeline/agents/optimizer/view_builder.py (1 줄, 다른 세션)"],
+    "untracked": [
+      "docs/superpowers/plans/2026-05-21-cpia-collector-env-bootstrap.md",
+      "pipeline/scripts/"
+    ]
+  }
 }

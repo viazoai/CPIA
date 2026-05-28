@@ -238,14 +238,17 @@ async def test_optimize_namwong_e2e(cfg: OptimizerConfig, chroma_data, run_row):
     assert isinstance(row["diagnosis"], str)
     assert row["diagnosis"] != "cold_start", "LLM path 인데 cold_start sentinel — agent 분기 오류"
     assert len(row["diagnosis"]) > 0
-    # recommendations: list of {rank, text}
+    # 2026-05-27 Task 13: V10 recommendations schema = {rank, keyword, action, reason}.
+    # 기존 {rank, text} 단일 필드는 V10 으로 폐기 (RECS_PROMPT_V10 schema).
     assert isinstance(row["recommendations"], list)
     assert len(row["recommendations"]) >= 1
     for rec in row["recommendations"]:
         assert isinstance(rec, dict)
-        assert "rank" in rec and "text" in rec
+        assert "rank" in rec and "keyword" in rec and "action" in rec and "reason" in rec
         assert isinstance(rec["rank"], int)
-        assert isinstance(rec["text"], str) and len(rec["text"]) > 0
+        assert isinstance(rec["keyword"], str) and len(rec["keyword"]) > 0
+        assert isinstance(rec["action"], str) and len(rec["action"]) > 0
+        assert isinstance(rec["reason"], str) and len(rec["reason"]) > 0
     # recovery_distribution: 코드단 산출 deterministic dict
     assert isinstance(row["recovery_distribution"], dict)
     assert sum(row["recovery_distribution"].values()) == len(deg_cases)

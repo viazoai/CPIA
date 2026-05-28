@@ -413,9 +413,9 @@ export function ForecastChart({
                         </ul>
                       )}
                     </div>
-                    {typeof wp.recovery_days === "number" && wp.recovery_days > 0 && (
+                    {typeof wp.recovery_days === "number" && (
                       <span className="shrink-0 text-[16px] font-bold text-mint-text">
-                        −{wp.recovery_days}일 만회
+                        {wp.recovery_days > 0 ? `−${wp.recovery_days}일 만회` : "0일 만회"}
                       </span>
                     )}
                   </div>

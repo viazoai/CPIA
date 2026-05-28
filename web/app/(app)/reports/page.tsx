@@ -276,10 +276,11 @@ export default function ReportPage() {
                 aiAdvice={(() => {
                   // wp_summary impact desc top 3 → optimizer.by_wp[wp_id] 의 diagnosis + recommendations 추출.
                   // 룰베이스 fallback (cold_start) 인 wp 는 제외 — LLM 산출 텍스트만.
+                  // 2026-05-28: top 3 제한 제거 — advice 있는 모든 wp 표시.
+                  // 사용자 의도: site=sum(wp recoveries) 의 산출 근거 추적 가능.
                   const top = [...(detail.wp_summary ?? [])]
                     .filter((w) => (w.impact ?? 0) > 0)
-                    .sort((a, b) => (b.impact ?? 0) - (a.impact ?? 0))
-                    .slice(0, 3);
+                    .sort((a, b) => (b.impact ?? 0) - (a.impact ?? 0));
                   const by_wp = detail.optimizer?.by_wp ?? {};
                   const wpScenarios = (detail.scenarios as any)?.by_wp ?? {};
                   return top

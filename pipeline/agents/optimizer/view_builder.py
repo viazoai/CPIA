@@ -1095,12 +1095,20 @@ def _build_optimizer_view(
                 "outcome": f"{rd}일 후 회복" if rd is not None else "미회복",
             })
 
-        # 권고 text 만 추출
+        # 2026-05-28: V10 polymorphic — keyword/action/reason dict 도 그대로 forward.
+        # FE (OptimizerResult.tsx) 가 string vs object 분기 렌더.
         recs_raw = advice.get("recommendations") or []
-        recommendations: list[str] = []
+        recommendations: list = []
         for r in recs_raw:
             if isinstance(r, dict):
-                recommendations.append(r.get("text") or "")
+                if "keyword" in r and "action" in r:
+                    # V10 schema — dict 그대로
+                    recommendations.append(r)
+                elif "text" in r:
+                    # 옛 schema {rank, text} — text 만 string 으로
+                    recommendations.append(r.get("text") or "")
+                else:
+                    recommendations.append(str(r))
             else:
                 recommendations.append(str(r))
 

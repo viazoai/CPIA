@@ -77,7 +77,8 @@ services:
       - "0.0.0.0:${WEB_PORT:-5535}:5535"
     volumes:
       # fixtures.ts: path.join(process.cwd(), "..", "data") → /app/data
-      - ../data:/app/data:ro
+      # 업로드 (data/upload) 쓰기를 위해 rw 모드로 마운트.
+      - ../data:/app/data
     depends_on:
       postgres:
         condition: service_healthy

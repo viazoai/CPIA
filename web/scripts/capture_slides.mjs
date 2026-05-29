@@ -11,14 +11,17 @@ const OUT_DIR = path.resolve(__dirname, "../../docs/landing-reference/slides");
 const VIEWPORT = { width: 1440, height: 900 };
 const SLIDE_NAMES = [
   "01-hero",
-  "02-background",
-  "03-as-is-to-be",
-  "04-core-ai-mapper",
-  "05-core-ai-forecaster",
-  "06-core-ai-optimizer",
-  "07-impact",
-  "08-scalability",
-  "09-final-cta",
+  "02-background-intro",
+  "03-background-construction",
+  "04-as-is-to-be",
+  "05-core-ai-mapper",
+  "06-core-ai-forecaster",
+  "07-core-ai-optimizer",
+  "08-impact-kpi",
+  "09-impact-workload",
+  "10-impact-redeploy",
+  "11-scalability",
+  "12-final-cta",
 ];
 
 async function main() {

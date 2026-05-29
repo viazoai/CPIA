@@ -136,13 +136,15 @@ const LAYERS: OfficeLayer[] = [
   },
 ];
 
+/* Background 슬라이드 — 1/2 (Intro + Construction 3-Layer)
+ * Header (eyebrow + h2 + description) → Construction Site 3-Layer + Flow bar. */
 export function BackgroundSection() {
   return (
     <section
       id="background"
       className="border-t border-border-soft bg-surface-soft/50 py-24 md:py-32"
     >
-      <div className="mx-auto max-w-wrap px-6 md:px-10">
+      <div className="mx-auto w-full max-w-wrap px-6 md:px-10">
         {/* ── Header ── */}
         <div className="max-w-3xl">
           <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-brand-text">
@@ -158,24 +160,23 @@ export function BackgroundSection() {
             <span className="font-semibold text-ink">
               AI로 대체 가능한 Middle Office 레이어를 제거
             </span>
-            하고, 
+            하고,
             <br />
             그 인력을{" "}
             <span className="font-semibold text-ink">
               Front Office 본연의 역할(공정 판단 · 발주처 협상 · 리스크 실행)
             </span>
-            로 재배치함으로써 <br />
-            조직의 일하는 방식을 구조적으로 전환합니다.
+            로 재배치함으로써 조직의 일하는 방식을 구조적으로 전환합니다.
           </p>
         </div>
 
         {/* ── 3-Layer Diagram ── */}
-        <div className="mt-14 rounded-card-lg border border-border bg-card p-6 md:p-8">
-          <div className="mb-6 text-[11px] font-medium uppercase tracking-[0.12em] text-ink-light">
+        <div className="mt-10">
+          <div className="mb-4 text-[11px] font-medium uppercase tracking-[0.12em] text-ink-light">
             Construction Site — 3-Layer Structure
           </div>
 
-          <div className="grid gap-4 md:grid-cols-3" data-stagger>
+          <div className="grid gap-6 md:grid-cols-3" data-stagger>
             {LAYERS.map((l) => {
               const Icon = l.icon;
               return (
@@ -232,7 +233,7 @@ export function BackgroundSection() {
           </div>
 
           {/* ── Flow bar ── */}
-          <div className="mt-6 grid grid-cols-[1fr_auto_1.2fr_auto_1fr] items-center gap-3 rounded-card border border-border-soft bg-surface-soft/60 p-4">
+          <div className="mt-6 grid grid-cols-[1fr_auto_1.2fr_auto_1fr] items-center gap-3 rounded-card-lg border border-border bg-card p-4 md:p-5">
             <div className="text-center">
               <div className="font-display text-body-sm font-semibold text-ink">협력사 / 현장관리자</div>
               <div className="mt-0.5 text-xs text-ink-mid">Middle Office 인력 재배치</div>
@@ -251,9 +252,22 @@ export function BackgroundSection() {
             </div>
           </div>
         </div>
+      </div>
+    </section>
+  );
+}
 
+/* Background 슬라이드 — 2/2 (Reframing + Pain Points)
+ * Reframing takeaway 카드 → Pain Points 4-card grid. */
+export function BackgroundConstructionSection() {
+  return (
+    <section
+      id="background-construction"
+      className="border-t border-border-soft bg-surface-soft/50 py-24 md:py-32"
+    >
+      <div className="mx-auto max-w-wrap px-6 md:px-10">
         {/* ── Reframing takeaway ── */}
-        <div className="mt-6 rounded-card-lg border border-brand/40 bg-gradient-to-br from-brand-light/70 to-mint-light/30 p-6 md:p-8">
+        <div className="rounded-card-lg border border-brand/40 bg-gradient-to-br from-brand-light/70 to-mint-light/30 p-6 md:p-8">
           <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-brand-text">
             Reframing — 왜 &quot;없애는 것&quot;이 아닌 &quot;재정립&quot;인가
           </div>
@@ -269,7 +283,7 @@ export function BackgroundSection() {
         </div>
 
         {/* ── Pain Points (Activity 실측) ── */}
-        <div className="mt-14">
+        <div className="mt-10">
           <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink-light">
             Pain Points — 현장 Activity 전수 조사 데이터 기반
           </div>

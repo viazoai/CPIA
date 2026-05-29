@@ -16,20 +16,24 @@ export function QuadrantScatter({ points, selectedWpId, onSelect, filter = "all"
 
   return (
     <div className="w-full h-72">
+      {/* 우측 margin > 좌측 margin → 플롯 영역을 카드 중앙보다 살짝 왼쪽으로 이동
+          (Y axis tick·라벨 시각 무게 보정).
+          X domain [40,100] reversed → reference x=70 이 플롯 중앙. */}
       <ResponsiveContainer width="100%" height="100%">
-        <ScatterChart margin={{ top: 12, right: 20, bottom: 40, left: 50 }}>
+        <ScatterChart margin={{ top: 12, right: 60, bottom: 40, left: 30 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#eef0f4" />
-          <ReferenceArea x1={0}  x2={70} y1={70} y2={100} fill="#ef4444" fillOpacity={0.05} />
+          <ReferenceArea x1={40} x2={70}  y1={70} y2={100} fill="#ef4444" fillOpacity={0.05} />
           <ReferenceArea x1={70} x2={100} y1={70} y2={100} fill="#d97706" fillOpacity={0.05} />
-          <ReferenceArea x1={0}  x2={70} y1={0}  y2={70}  fill="#7a8494" fillOpacity={0.03} />
+          <ReferenceArea x1={40} x2={70}  y1={0}  y2={70}  fill="#7a8494" fillOpacity={0.03} />
           <ReferenceArea x1={70} x2={100} y1={0}  y2={70}  fill="#0ea76a" fillOpacity={0.05} />
           <ReferenceLine x={70} stroke="#cbd5e1" strokeDasharray="4 4" />
           <ReferenceLine y={70} stroke="#cbd5e1" strokeDasharray="4 4" />
-          <XAxis type="number" dataKey="productivity" domain={[0, 100]} name="Productivity" reversed
-            label={{ value: "← Productivity (저하 →)", position: "bottom", offset: 0, style: { fontSize: 11, fill: "#7a8494" } }}
+          <XAxis type="number" dataKey="productivity" domain={[40, 100]} name="Productivity" reversed
+            ticks={[40, 55, 70, 85, 100]}
+            label={{ value: "Productivity", position: "bottom", offset: 0, style: { fontSize: 11, fill: "#7a8494" } }}
             tick={{ fontSize: 10, fill: "#7a8494" }} tickFormatter={(v) => `${v}%`} />
           <YAxis type="number" dataKey="impact" domain={[0, 100]} name="Impact"
-            label={{ value: "Impact ↑", angle: -90, position: "left", offset: 0, style: { fontSize: 11, fill: "#7a8494" } }}
+            label={{ value: "Impact", angle: -90, position: "insideLeft", offset: 10, style: { fontSize: 11, fill: "#7a8494", textAnchor: "middle" } }}
             tick={{ fontSize: 10, fill: "#7a8494" }} tickFormatter={(v) => `${v}%`} />
           <ZAxis type="number" dataKey="size" range={[60, 300]} />
           <Tooltip

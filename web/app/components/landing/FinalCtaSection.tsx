@@ -4,7 +4,7 @@ import { ArrowRight, Sparkles } from "lucide-react";
 export function FinalCtaSection() {
   return (
     <section className="px-6 py-24 md:px-10 md:py-32">
-      <div className="mx-auto max-w-wrap">
+      <div className="mx-auto w-full max-w-wrap">
         <div className="relative overflow-hidden rounded-card-xl bg-gradient-to-br from-brand-text via-brand to-sky-text px-8 py-20 text-center md:px-16 md:py-28">
           {/* Decorative halos */}
           <div className="pointer-events-none absolute -right-32 -top-32 h-96 w-96 rounded-full bg-white/20 blur-3xl" />

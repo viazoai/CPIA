@@ -72,13 +72,14 @@ const PATHS = [
   },
 ];
 
+/* Impact 슬라이드 — 1/3 (Header + KPI grid + 공기 단축 4 경로) */
 export function ImpactSection() {
   return (
     <section
       id="impact"
       className="border-t border-border-soft bg-surface-soft/50 py-24 md:py-32"
     >
-      <div className="mx-auto max-w-wrap px-6 md:px-10">
+      <div className="mx-auto w-full max-w-wrap px-6 md:px-10">
         <div className="max-w-3xl">
           <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-brand-text">
             / 03 — Impact
@@ -92,7 +93,7 @@ export function ImpactSection() {
         </div>
 
         {/* KPI grid */}
-        <div className="mt-14 grid gap-4 md:grid-cols-2 xl:grid-cols-4" data-stagger>
+        <div className="mt-10 grid gap-4 md:grid-cols-2 xl:grid-cols-4" data-stagger>
           {KPIS.map((k) => {
             const Icon = k.icon;
             return (
@@ -119,7 +120,7 @@ export function ImpactSection() {
         </div>
 
         {/* 공기 단축 4 경로 — KPI 바로 아래 */}
-        <div className="mt-16">
+        <div className="mt-10">
           <h3 className="font-display text-h5 text-ink">
             공기 단축으로 이어지는 4가지
           </h3>
@@ -140,107 +141,145 @@ export function ImpactSection() {
             ))}
           </div>
         </div>
+      </div>
+    </section>
+  );
+}
 
-        {/* 팀별 업무 현황 및 대체 추정 */}
-        <div className="mt-16">
-          <h3 className="font-display text-h5 text-ink">
+/* Impact 슬라이드 — 2/3 (업무 절감 시간 및 AI 대체율 — TEAM_USAGE table) */
+export function ImpactWorkloadSection() {
+  return (
+    <section
+      id="impact-workload"
+      className="border-t border-border-soft bg-surface-soft/50 py-24 md:py-32"
+    >
+      <div className="mx-auto w-full max-w-wrap px-6 md:px-10">
+        <div className="max-w-3xl">
+          <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-brand-text">
+            / 03 — Impact
+          </span>
+          <h2 className="mt-3 font-display text-h3 text-ink">
             업무 절감 시간 및 AI 대체율
-          </h3>
-          <div className="mt-6 overflow-x-auto rounded-card-lg border border-border bg-card">
-            <table className="w-full text-body-sm">
-              <thead>
-                <tr className="border-b border-border bg-surface-soft/60 text-left">
-                  <th className="px-4 py-3 font-semibold text-ink-mid">현장 / 팀</th>
-                  <th className="px-4 py-3 font-semibold text-ink-mid">주요 Pain 업무</th>
-                  <th className="px-4 py-3 text-right font-semibold text-ink-mid whitespace-nowrap">현재 월간</th>
-                  <th className="px-4 py-3 text-right font-semibold text-ink-mid whitespace-nowrap">AI 전환 후</th>
-                  <th className="px-4 py-3 font-semibold text-ink-mid whitespace-nowrap">대체율</th>
-                  <th className="px-4 py-3 font-semibold text-ink-mid whitespace-nowrap">잔여 업무</th>
-                </tr>
-              </thead>
-              <tbody>
-                {TEAM_USAGE.map((row) => (
-                  <tr key={row.team} className="border-b border-border-soft last:border-0">
-                    <td className="whitespace-nowrap px-4 py-3 font-semibold text-ink">{row.team}</td>
-                    <td className="whitespace-nowrap px-4 py-3 text-xs text-ink-mid">{row.pain}</td>
-                    <td className="whitespace-nowrap px-4 py-3 text-right font-mono tabular-nums text-rose-text">{row.current.toLocaleString()}h</td>
-                    <td className="whitespace-nowrap px-4 py-3 text-right font-mono tabular-nums text-mint-text">~{row.after}h</td>
-                    <td className="whitespace-nowrap px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <span className="w-9 font-mono font-semibold text-brand-text">{row.rate}%</span>
-                        <div className="h-1.5 w-20 rounded-full bg-surface-soft">
-                          <div className="h-full rounded-full bg-brand" style={{ width: `${row.rate}%` }} />
-                        </div>
-                      </div>
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-xs text-ink-light">{row.residual}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="border-t-2 border-border bg-brand-light/40 font-semibold text-ink">
-                  <td colSpan={2} className="px-4 py-3">합계</td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right font-mono tabular-nums">2,506h/월</td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right font-mono tabular-nums">~351h/월</td>
-                  <td className="whitespace-nowrap px-4 py-3 font-mono text-brand-text">86%</td>
-                  <td className="whitespace-nowrap px-4 py-3">절감 2,155h/월</td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
+          </h2>
+          <p className="mt-6 text-body text-ink-mid">
+            6개 Hi-tech 현장 Activity 전수 조사 기준, 월간{" "}
+            <span className="font-semibold text-ink">2,506h → 351h</span> ·
+            평균 대체율 <span className="font-semibold text-ink">86%</span>.
+          </p>
         </div>
 
-        {/* 인력 재배치 효과 (핵심 임팩트) */}
-        <div className="mt-12">
-          <h3 className="flex items-center gap-2.5 font-display text-h5 text-ink">
+        <div className="mt-10 overflow-x-auto rounded-card-lg border border-border bg-card">
+          <table className="w-full text-body-sm">
+            <thead>
+              <tr className="border-b border-border bg-surface-soft/60 text-left">
+                <th className="px-4 py-3 font-semibold text-ink-mid">현장 / 팀</th>
+                <th className="px-4 py-3 font-semibold text-ink-mid">주요 Pain 업무</th>
+                <th className="px-4 py-3 text-right font-semibold text-ink-mid whitespace-nowrap">현재 월간</th>
+                <th className="px-4 py-3 text-right font-semibold text-ink-mid whitespace-nowrap">AI 전환 후</th>
+                <th className="px-4 py-3 font-semibold text-ink-mid whitespace-nowrap">대체율</th>
+                <th className="px-4 py-3 font-semibold text-ink-mid whitespace-nowrap">잔여 업무</th>
+              </tr>
+            </thead>
+            <tbody>
+              {TEAM_USAGE.map((row) => (
+                <tr key={row.team} className="border-b border-border-soft last:border-0">
+                  <td className="whitespace-nowrap px-4 py-3 font-semibold text-ink">{row.team}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-xs text-ink-mid">{row.pain}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right font-mono tabular-nums text-rose-text">{row.current.toLocaleString()}h</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right font-mono tabular-nums text-mint-text">~{row.after}h</td>
+                  <td className="whitespace-nowrap px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <span className="w-9 font-mono font-semibold text-brand-text">{row.rate}%</span>
+                      <div className="h-1.5 w-20 rounded-full bg-surface-soft">
+                        <div className="h-full rounded-full bg-brand" style={{ width: `${row.rate}%` }} />
+                      </div>
+                    </div>
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-xs text-ink-light">{row.residual}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t-2 border-border bg-brand-light/40 font-semibold text-ink">
+                <td colSpan={2} className="px-4 py-3">합계</td>
+                <td className="whitespace-nowrap px-4 py-3 text-right font-mono tabular-nums">2,506h/월</td>
+                <td className="whitespace-nowrap px-4 py-3 text-right font-mono tabular-nums">~351h/월</td>
+                <td className="whitespace-nowrap px-4 py-3 font-mono text-brand-text">86%</td>
+                <td className="whitespace-nowrap px-4 py-3">절감 2,155h/월</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* Impact 슬라이드 — 3/3 (인력 재배치 효과 — REDEPLOY table + 예산 절감 + FTE 각주) */
+export function ImpactRedeploySection() {
+  return (
+    <section
+      id="impact-redeploy"
+      className="border-t border-border-soft bg-surface-soft/50 py-24 md:py-32"
+    >
+      <div className="mx-auto w-full max-w-wrap px-6 md:px-10">
+        <div className="max-w-3xl">
+          <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-brand-text">
+            / 03 — Impact
+          </span>
+          <h2 className="mt-3 flex items-center gap-2.5 font-display text-h3 text-ink">
             인력 재배치 효과
             <span className="inline-flex items-center rounded-full bg-brand-light px-3 py-1 text-sm font-semibold uppercase tracking-[0.12em] text-brand-text">
               핵심 임팩트
             </span>
-          </h3>
-          <div className="mt-6 overflow-x-auto rounded-card-lg border border-border bg-card">
-            <table className="w-full text-body-sm">
-              <thead>
-                <tr className="border-b border-border bg-surface-soft/60 text-left">
-                  <th className="px-4 py-3 font-semibold text-ink-mid">현장</th>
-                  <th className="px-4 py-3 text-right font-semibold text-ink-mid whitespace-nowrap">절감 FTE</th>
-                  <th className="px-4 py-3 font-semibold text-ink-mid">재배치 활용 방향</th>
-                </tr>
-              </thead>
-              <tbody>
-                {REDEPLOY.map((row) => (
-                  <tr key={row.site} className="border-b border-border-soft last:border-0">
-                    <td className="whitespace-nowrap px-4 py-3 font-semibold text-ink">{row.site}</td>
-                    <td className="whitespace-nowrap px-4 py-3 text-right font-mono tabular-nums text-ink">{row.fte}명</td>
-                    <td className="px-4 py-3 text-ink-mid">{row.use}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="border-t-2 border-border bg-brand-light/40 font-semibold text-ink">
-                  <td className="whitespace-nowrap px-4 py-3">합계</td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right font-mono tabular-nums">FTE 15.4명</td>
-                  <td className="px-4 py-3">신규 충원 없이 Front Office 배치 인원 확보</td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-
-          {/* 신규 채용 예산 절감 요약 */}
-          <div className="mt-4 rounded-card border border-brand/30 bg-brand-light/30 p-5">
-            <div className="text-body-sm text-ink">
-              <span className="font-semibold">연간 신규 채용 예산 절감 — </span>
-              재배치 가능 인원 15.4 명 × 인당 채용 비용 1.5 억 원 (평균 연봉 + 채용·교육·복리후생 등 부대 비용) ={" "}
-              <strong className="text-brand-text">약 23 억 원 / 연간</strong>
-            </div>
-          </div>
-
-          {/* FTE 개념 각주 */}
-          <p className="mt-3 text-xs text-ink-light">
-            ※ FTE (Full-Time Equivalent, 전일제 환산 인원) — 절감된 업무 시간을 1인 월 표준 근무 140h 로 나눠 환산한 인력 규모
+          </h2>
+          <p className="mt-6 text-body text-ink-mid">
+            절감된 업무 시간을{" "}
+            <span className="font-semibold text-ink">FTE 15.4명</span> 으로 환산 — 신규 충원 없이 Front Office 인력 확보.
           </p>
         </div>
 
+        <div className="mt-10 overflow-x-auto rounded-card-lg border border-border bg-card">
+          <table className="w-full text-body-sm">
+            <thead>
+              <tr className="border-b border-border bg-surface-soft/60 text-left">
+                <th className="px-4 py-3 font-semibold text-ink-mid">현장</th>
+                <th className="px-4 py-3 text-right font-semibold text-ink-mid whitespace-nowrap">절감 FTE</th>
+                <th className="px-4 py-3 font-semibold text-ink-mid">재배치 활용 방향</th>
+              </tr>
+            </thead>
+            <tbody>
+              {REDEPLOY.map((row) => (
+                <tr key={row.site} className="border-b border-border-soft last:border-0">
+                  <td className="whitespace-nowrap px-4 py-3 font-semibold text-ink">{row.site}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right font-mono tabular-nums text-ink">{row.fte}명</td>
+                  <td className="px-4 py-3 text-ink-mid">{row.use}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t-2 border-border bg-brand-light/40 font-semibold text-ink">
+                <td className="whitespace-nowrap px-4 py-3">합계</td>
+                <td className="whitespace-nowrap px-4 py-3 text-right font-mono tabular-nums">FTE 15.4명</td>
+                <td className="px-4 py-3">신규 충원 없이 Front Office 배치 인원 확보</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        {/* 신규 채용 예산 절감 요약 */}
+        <div className="mt-4 rounded-card border border-brand/30 bg-brand-light/30 p-5">
+          <div className="text-body-sm text-ink">
+            <span className="font-semibold">연간 신규 채용 예산 절감 — </span>
+            재배치 가능 인원 15.4 명 × 인당 채용 비용 1.5 억 원 (평균 연봉 + 채용·교육·복리후생 등 부대 비용) ={" "}
+            <strong className="text-brand-text">약 23 억 원 / 연간</strong>
+          </div>
+        </div>
+
+        {/* FTE 개념 각주 */}
+        <p className="mt-3 text-xs text-ink-light">
+          ※ FTE (Full-Time Equivalent, 전일제 환산 인원) — 절감된 업무 시간을 1인 월 표준 근무 140h 로 나눠 환산한 인력 규모
+        </p>
       </div>
     </section>
   );

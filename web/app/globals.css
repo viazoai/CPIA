@@ -210,9 +210,11 @@ body::after {
 }
 
 /* 슬라이드 콘텐츠 vertical centering — 섹션이 슬라이드 풀높이를 채워야 배경(gradient · bg-*) 도 가득 찬다.
- * - .slide > 섹션 을 min-h-full + grid 로 만들고 place-content: safe center 로 콘텐츠 중앙.
+ * - .slide > 섹션 을 flex column 으로 만들고 justify-content: safe center 로 세로 중앙.
+ * - align-items 기본값 (stretch) 이라 child 는 가로로 풀 너비. → max-w-wrap 등이 정상 동작.
  * - safe 키워드: 콘텐츠 > 슬라이드 일 때 top-align 으로 fallback → overflow 가 위쪽으로 안 잘림.
- * - Hero 의 absolute inset-0 backdrop 이 section 전체를 덮으므로 그라데이션이 풀화면. */
+ * - 이전엔 grid + place-content: safe center 였는데, justify-content: center 가 단일 컬럼 트랙을
+ *   content 너비로 축소시켜 자식의 w-full / max-w-wrap 이 좁아지는 부작용이 있어 flex 로 전환. */
 .slide {
   display: flex;
   flex-direction: column;
@@ -223,8 +225,9 @@ body::after {
   flex: 1 0 auto;
   min-height: 100%;
   width: 100%;
-  display: grid;
-  place-content: safe center;
+  display: flex;
+  flex-direction: column;
+  justify-content: safe center;
 }
 
 /* 슬라이드 안쪽 섹션의 큰 패딩만 축소 — Slide.tsx 의 .slide 래퍼 자체엔 적용 안 함

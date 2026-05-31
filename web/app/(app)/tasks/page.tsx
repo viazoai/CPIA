@@ -20,6 +20,17 @@ interface DetailData {
   items: Record<string, AgentTaskItem[]>;
 }
 
+interface ProgressData {
+  ok: true;
+  run_id: string;
+  date: string;
+  status: string;
+  current_node: string | null;
+  started_at: string;
+  completed_at: string | null;
+  stages: AgentStageProgress[];
+}
+
 function pickCurrentAgent(stages: AgentStageProgress[]): string | null {
   const current =
     stages.find((s) => s.waiting_hil) ??
@@ -36,6 +47,10 @@ export default function AgentTasksPage() {
   const [uploadOpen, setUploadOpen] = useState(false);
   // 한번 fetch 한 date 는 메모리 캐시 → 좌측 목록에서 다른 날짜 갔다 돌아와도 즉답.
   const detailCacheRef = useRef<Map<string, DetailData>>(new Map());
+
+  // 실시간 progress (Step 4) — DB 의 pipeline_runs.current_node 를 2초마다 polling.
+  // 있으면 sim/detail 보다 최우선 사용.
+  const [progress, setProgress] = useState<ProgressData | null>(null);
 
   // H1 — 시뮬레이션 상태. useSimTick 이 250ms 마다 re-render + phase 자동 전환.
   const sim = useSimStore();
@@ -79,6 +94,42 @@ export default function AgentTasksPage() {
       cancelled = true;
     };
   }, [selectedDate, sim.simDate, sim.phase]);
+
+  // 3) progress polling — selectedDate 가 바뀔 때마다 2초 간격으로 /api/runs/progress.
+  //    sim 보다 우선 사용. status='completed' 또는 4xx 응답이면 polling 중단.
+  useEffect(() => {
+    if (!selectedDate) return;
+    let cancelled = false;
+    let timerId: ReturnType<typeof setTimeout> | null = null;
+
+    const tick = async () => {
+      if (cancelled) return;
+      try {
+        const res = await fetch(`/api/runs/progress?date=${selectedDate}`);
+        if (cancelled) return;
+        if (res.status === 404) {
+          // 해당 date 에 실 run 없음 — sim fallback 그대로.
+          setProgress(null);
+          return; // polling 중단
+        }
+        if (!res.ok) return;
+        const data = (await res.json()) as ProgressData;
+        if (cancelled) return;
+        setProgress(data);
+        if (data.status === "completed" || data.status === "failed") {
+          return; // polling 중단
+        }
+      } catch {
+        // network error 무시
+      }
+      timerId = setTimeout(tick, 2000);
+    };
+    tick();
+    return () => {
+      cancelled = true;
+      if (timerId) clearTimeout(timerId);
+    };
+  }, [selectedDate]);
 
   // --- H1: 아래 useMemo / useEffect 들은 모두 early-return *위* 에 위치해야 함.
   //         조기 반환 후 hook 호출 → "Rendered more hooks than during the previous render" 위반.
@@ -124,14 +175,26 @@ export default function AgentTasksPage() {
     prevSimPhaseRef.current = sim.phase;
   }, [sim.phase, sim.simDate]);
 
+  // 진짜 DB progress 가 selectedDate 에 있으면 그것 우선 — sim 무시.
+  const hasProgress = !!(progress && progress.date === selectedDate);
+
   // sim 활성 중에는 current agent 도 sim stages 기준으로 자동 갱신.
-  const isSimSelected = !!(sim.simDate && selectedDate === sim.simDate && simStages);
+  const isSimSelected = !hasProgress && !!(sim.simDate && selectedDate === sim.simDate && simStages);
   useEffect(() => {
-    if (isSimSelected && simStages) {
+    if (hasProgress && progress) {
+      setSelectedAgent(pickCurrentAgent(progress.stages));
+    } else if (isSimSelected && simStages) {
       setSelectedAgent(pickCurrentAgent(simStages));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isSimSelected, sim.phase, simStages?.map((s) => s.percent).join(",")]);
+  }, [
+    hasProgress,
+    progress?.current_node,
+    progress?.status,
+    isSimSelected,
+    sim.phase,
+    simStages?.map((s) => s.percent).join(","),
+  ]);
 
   // ========== 이후부터는 render 분기 (hook 호출 없음) ==========
 
@@ -143,8 +206,12 @@ export default function AgentTasksPage() {
     );
   }
 
-  // 화면용 stages: sim 카드 선택 중이면 sim 으로 override.
-  const stages = isSimSelected ? (simStages as AgentStageProgress[]) : detail?.stages ?? [];
+  // 화면용 stages 결정 우선순위: DB progress > sim > mock detail.
+  const stages: AgentStageProgress[] = hasProgress
+    ? (progress as ProgressData).stages
+    : isSimSelected
+    ? (simStages as AgentStageProgress[])
+    : detail?.stages ?? [];
   const itemsForDate = detail?.items ?? {};
   const itemsForAgent = selectedAgent ? itemsForDate[selectedAgent] || [] : [];
   const selectedStage = selectedAgent ? stages.find((s) => s.agent === selectedAgent) ?? null : null;
@@ -198,7 +265,7 @@ export default function AgentTasksPage() {
           </div>
           {/* 중앙: Agent Workflow */}
           <div className="col-span-12 md:col-span-4 rounded-card border border-border-soft bg-card shadow-xs overflow-hidden flex flex-col min-h-0">
-            {detail || isSimSelected ? (
+            {detail || isSimSelected || hasProgress ? (
               <AgentWorkflowList
                 stages={stages}
                 selectedAgent={selectedAgent}
@@ -212,7 +279,7 @@ export default function AgentTasksPage() {
           </div>
           {/* 우측: 단계별 건 목록 */}
           <div className="col-span-12 md:col-span-5 rounded-card border border-border-soft bg-card shadow-xs overflow-hidden flex flex-col min-h-0">
-            {detail || isSimSelected ? (
+            {detail || isSimSelected || hasProgress ? (
               <AgentTaskItemList
                 selectedAgent={selectedAgent}
                 stage={selectedStage}

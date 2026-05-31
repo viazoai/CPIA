@@ -65,6 +65,8 @@ def _build_metadata(a: Activity, date: str, run_id: str) -> dict[str, Any]:
         "worker_source": a["worker_source"],
         "mapping_conf": float(a["mapping_conf"] or 0.0),
         "conditions": ",".join(a.get("conditions") or []),
+        # 2026-05-29: 저하/회복 narrative. retrieve 가 similar_cases 저하/회복 분리에 사용.
+        "work_content": a.get("work_content") or "",
     }
 
 

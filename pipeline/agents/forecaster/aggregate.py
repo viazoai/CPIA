@@ -40,6 +40,46 @@ async def fetch_pg_actual_cum_qty(
     return float(rows[0]["s"]) if rows else 0.0
 
 
+async def fetch_pg_planned_qty_to_date(
+    pg,
+    company: str,
+    l6_main: str,
+    today: date,
+    unit: Optional[str],
+) -> Optional[float]:
+    """activity_master 의 (company, l6_main, unit) activity 단위 가중 계획 누적 qty @ today.
+
+    2026-05-30 결정 A: forecaster delay 기준을 site s_curve(view_builder)와 통일.
+    각 activity 가 자기 plan_start..plan_finish 에 linear progress(cap 1) →
+    plan_total_qty × fraction 의 합. s_curve planned 곡선과 동일 공식이라 site/WP delay 정합.
+    (이전 group-envelope MIN(start)~MAX(finish) linear 는 9/24 에 계획%를 과소평가 → WP delay 0.)
+    unit 없거나 activity 없으면 None (compute_delay 가 linear fallback).
+    """
+    if not unit:
+        return None
+    rows = await pg.fetch_all(
+        """
+        SELECT COALESCE(SUM(
+            plan_total_qty * LEAST(1.0, GREATEST(0.0,
+                ($4::date - plan_start + 1)::float
+                / NULLIF((plan_finish - plan_start + 1)::float, 0)
+            ))
+        ), 0)::float AS s
+        FROM activity_master
+        WHERE company = $1 AND l6_main = $2 AND unit = $3
+          AND plan_start IS NOT NULL AND plan_finish IS NOT NULL
+          AND plan_total_qty IS NOT NULL
+        """,
+        company,
+        l6_main,
+        unit,
+        today,
+    )
+    if not rows or rows[0]["s"] is None:
+        return None
+    return float(rows[0]["s"])
+
+
 def aggregate_today_by_unit(activities: list[dict]) -> dict[str, float]:
     """같은 (company, l6_main) 그룹 안의 Activity 들의 today_qty 를 unit 별 Σ."""
     by_unit: dict[str, float] = {}
@@ -58,6 +98,7 @@ def compute_delay(
     actual_cum_qty: float = 0.0,
     plan_total_qty_main: Optional[float] = None,
     today_qty_main: float = 0.0,
+    planned_qty_to_date_main: Optional[float] = None,
 ) -> dict[str, Any]:
     """qty 기반 delay 산식 (2026-05-22 fix).
 
@@ -95,11 +136,14 @@ def compute_delay(
             "actual_in_window_mh": actual_cum_mh,
             "mh_gap": None,
             "delay_days": None,
+            "forward_delay_days": None,
             "expected_completion": None,
             "remaining_qty": None,
             "avg_pace_qty": None,
             # 2026-05-27 Task 6: point_in_time_delay_days — plan 없으면 산출 불가, 0 안전 처리.
             "point_in_time_delay_days": 0,
+            # 2026-05-29 SSOT: 산출근거 문자열 (plan 없으면 빈 값).
+            "delay_basis": "",
         }
 
     plan_start = plan["plan_start"]
@@ -121,51 +165,71 @@ def compute_delay(
     expected_in_w = window_days * plan_mh_per_day
     mh_gap = expected_in_w - actual_cum_mh  # reference only
 
-    # qty 기반 delay 산식
+    # 2026-05-29 prod fix: delay = point-in-time(누계 부족분/일평균) 을 主 산식으로.
+    # 이전 forward 외삽(잔여/페이스 → expected_completion − plan_finish)은 actual_cum 이
+    # distinct plan_total 을 초과(Σ vs distinct 불일치)하면 잔여 0 → expected=today →
+    # delay = today − plan_finish = -37 같은 비현실 "앞섬" 을 냈다. point-in-time 은
+    # window 독립 + 부족분만 보므로 그 왜곡이 없다. forward 는 forward_delay_days 로 참고 보존.
+    delay_basis = ""
     if plan_total_qty_main is None or plan_total_qty_main <= 0:
         # plan qty 없으면 delay 산출 불가 — None
         delay_days = None
+        forward_delay_days = None
         expected_completion = None
         remaining_qty = None
         avg_pace_qty = None
-        # 2026-05-27 Task 6: plan_per_day_qty 정의 불가 → point_in_time = 0 안전 처리.
-        # (NameError 방지 — Self-review 룰 5).
         point_in_time_delay_days = 0
     else:
-        remaining_qty = max(0.0, plan_total_qty_main - actual_cum_qty)
-        avg_pace_qty = actual_cum_qty / window_days if window_days > 0 else 0.0
-        # 2026-05-27 Task 4: plan_per_day_qty 정의 + pace floor — over-pessimistic 방지
-        # (spec §4.2.3). avg_pace_qty=0 인 케이스에서 today_qty_main 만 쓰면 오늘 값이
-        # 비현실적으로 작을 때 pace 가 폭락해 delay 가 300~800일 까지 튐. floor 로
-        # 일평균 계획의 30% 를 minimum 보장.
         plan_per_day_qty = plan_total_qty_main / total_days if total_days > 0 else 0.0
+        remaining_qty = max(0.0, plan_total_qty_main - actual_cum_qty)
+
+        # --- 主: point-in-time 누계 부족분 ÷ 실제 누적평균일생산 (2026-05-29 reseed v2) ---
+        # 분모를 일평균계획(plan_rate)에서 실제 누적평균일생산(actual_rate)으로 교체.
+        # 지각 WP 는 느린 실제 페이스로 부족분을 만회하므로 delay 가 더 현실적으로 커진다.
+        today_offset = (today - plan_start).days  # days_elapsed (결정 §9-3, exclusive)
+        # actual_rate = 누적실적 / 경과일. 0(실적 없음/경과 0)이면 plan_per_day fallback (결정 §9-6).
+        actual_rate = (actual_cum_qty / today_offset) if today_offset > 0 and actual_cum_qty > 0 else 0.0
+        rate_denom = actual_rate if actual_rate > 0 else plan_per_day_qty
+        if rate_denom > 0 and today_offset > 0:
+            # 결정 A (2026-05-30): activity 단위 가중 계획-to-date 우선(site s_curve 정합).
+            # 미전달(None) 시 group-envelope linear fallback (기존 호출/테스트 호환).
+            if planned_qty_to_date_main is not None:
+                plan_qty_to_date = min(planned_qty_to_date_main, plan_total_qty_main)
+            else:
+                plan_qty_to_date = min(plan_per_day_qty * today_offset, plan_total_qty_main)
+            deficit_qty = max(0.0, plan_qty_to_date - actual_cum_qty)
+            raw_delay = round(deficit_qty / rate_denom)
+            # 캡: actual_rate≈0 일 때 delay 폭주(구 26,517일 류) 방지 (결정 §9-6).
+            delay_days = max(-total_days, min(total_days, raw_delay))
+            # 산출근거 — 카드 "일정 영향" 옆 노출 (사용자 요청).
+            if deficit_qty > 0:
+                delay_basis = (
+                    f"계획누적 {plan_qty_to_date:,.0f} − 실제 {actual_cum_qty:,.0f} "
+                    f"= {deficit_qty:,.0f} 부족 ÷ 실제페이스 {rate_denom:,.1f}/일 "
+                    f"→ {delay_days}일 지연"
+                )
+            else:
+                delay_basis = (
+                    f"계획누적 {plan_qty_to_date:,.0f} 대비 실제 {actual_cum_qty:,.0f} "
+                    f"— 부족 없음 (일정 충족)"
+                )
+        else:
+            delay_days = 0
+        point_in_time_delay_days = delay_days  # 호환 유지 (동일 값)
+        # expected_completion = plan_finish + 지연 (부족 N일 → N일 늦게 완공).
+        expected_completion = plan_finish + timedelta(days=delay_days)
+
+        # --- 참고: forward 외삽 (옛 산식, forward_delay_days 로 보존) ---
+        avg_pace_qty = actual_cum_qty / window_days if window_days > 0 else 0.0
         if avg_pace_qty > 0:
             pace = avg_pace_qty
         else:
             pace = max(today_qty_main, plan_per_day_qty * 0.3)
         if pace > 0:
-            remaining_days = remaining_qty / pace
-            expected_completion = today + timedelta(days=round(remaining_days))
-            delay_days_raw = (expected_completion - plan_finish).days
-            # 2026-05-27 Task 5: delay cap — total_days × 1.0 (spec §4.2.3, over-pessimistic 차단)
-            # delay 가 wp 자체 기간을 초과하지 못함. 음수 (앞당김) 케이스는 min 으로 보호.
-            delay_days = min(delay_days_raw, round(total_days * 1.0))
+            fwd_ec = today + timedelta(days=round(remaining_qty / pace))
+            forward_delay_days = min((fwd_ec - plan_finish).days, round(total_days * 1.0))
         else:
-            # 페이스 0 (실 진행 0 + 오늘도 0) — delay 산출 불가
-            delay_days = None
-            expected_completion = None
-
-        # 2026-05-27 Task 6: point_in_time_delay_days — 그 날짜의 누계 부족분 / 일평균 계획.
-        # forward delay (남은 양 / 페이스) 와는 별개 차원 (spec §4.2.3).
-        # 사용자 입장: "왜 일정영향 N일 산출됐나" 보조 설명용. LLM 진단 (DIAG_PROMPT_V10)
-        # 이 risk_level=이상 일 때 두 차원 모두 인용.
-        today_offset = (today - plan_start).days
-        if plan_per_day_qty > 0 and today_offset > 0:
-            plan_qty_to_date = min(plan_per_day_qty * today_offset, plan_total_qty_main)
-            deficit_qty = max(0.0, plan_qty_to_date - actual_cum_qty)
-            point_in_time_delay_days = round(deficit_qty / plan_per_day_qty)
-        else:
-            point_in_time_delay_days = 0
+            forward_delay_days = None
 
     return {
         "plan_mh_per_day": plan_mh_per_day,
@@ -176,11 +240,15 @@ def compute_delay(
         "actual_in_window_mh": actual_cum_mh,
         "mh_gap": mh_gap,
         "delay_days": delay_days,
+        # 2026-05-29: forward 외삽(옛 산식) — 참고 보존. delay_days 主 산식은 point-in-time.
+        "forward_delay_days": forward_delay_days,
         "expected_completion": expected_completion,
         "remaining_qty": remaining_qty,
         "avg_pace_qty": avg_pace_qty,
         # 2026-05-27 Task 6: 신규 — db.py insert_forecast $29 placeholder 와 짝.
         "point_in_time_delay_days": point_in_time_delay_days,
+        # 2026-05-29 SSOT: point-in-time delay 산출근거 (UI 카드 노출용).
+        "delay_basis": delay_basis,
     }
 
 

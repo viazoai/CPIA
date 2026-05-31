@@ -116,10 +116,11 @@ def test_diag_prompt_delay_two_dimensions():
     assert "두 차원" in DIAG_PROMPT_V10
 
 
-def test_diag_prompt_mh_gap_inclusion():
-    """mh_gap 자연 인용 가이드."""
-    assert "mh_gap" in DIAG_PROMPT_V10
-    assert "oversupply" in DIAG_PROMPT_V10 or "undersupply" in DIAG_PROMPT_V10
+def test_diag_prompt_recovery_pattern():
+    """2026-05-29: 개조식 진단 — 회복 패턴 판단 + 분기점 (수치 prefix 는 view_builder 가 붙임)."""
+    assert "개조식" in DIAG_PROMPT_V10
+    assert "회복 패턴" in DIAG_PROMPT_V10
+    assert "분기점" in DIAG_PROMPT_V10
 
 
 def test_diag_prompt_g8_trade_frame():
@@ -158,17 +159,11 @@ def test_recs_prompt_g6_guard():
     assert "G6" in RECS_PROMPT_V10
 
 
-def test_recs_prompt_action_categories():
-    """G2 액션 6 카테고리 명시 (자원 투입 / 일정 조정 / 사전 점검 / 연쇄 알림 / 품질 검증 / 기록 강화)."""
-    for cat in [
-        "자원 투입",
-        "일정·공정 조정",
-        "사전 점검·조사",
-        "연쇄 알림·협의",
-        "품질·안전 검증",
-        "기록·신호 강화",
-    ]:
-        assert cat in RECS_PROMPT_V10, f"{cat} 카테고리 누락"
+def test_recs_prompt_keyword_guide():
+    """2026-05-29: keyword 명사구 가이드 + 대괄호 금지 + 권고 2~3건 (사용자 요청)."""
+    assert "대괄호" in RECS_PROMPT_V10  # keyword 에 [] 넣지마 (UI 가 감쌈)
+    assert "2~3건" in RECS_PROMPT_V10  # Action Plan 건수
+    assert "조치 요약" in RECS_PROMPT_V10
 
 
 def test_recs_prompt_weak_verbs_forbidden():

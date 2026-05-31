@@ -45,7 +45,7 @@ load_dotenv(ROOT / ".env.local")
 
 from pipeline.api import _build_prod_graph_config  # noqa: E402
 from pipeline.db import PGClient  # noqa: E402
-from pipeline.graph import build_atomized_demo_graph  # noqa: E402
+from pipeline.graph import build_demo_graph  # noqa: E402  # atomizer 없는 실 그래프(Chroma/임베딩 회피) — Task 6.1
 from pipeline.state import Activity  # noqa: E402
 
 DEFAULT_SITE_ID = "m15x-ph3-ibl"
@@ -213,16 +213,19 @@ async def _run_one_date(
     if not mapped:
         return {"date": d.isoformat(), "status": "skipped_no_mapped"}
 
-    run_id = uuid.uuid4()
+    run_id = _dummy_seed_run_id(
+        d
+    )  # seed _date_run_id 와 동일 — _WP_SUMMARY_SQL join 정합
     await pg._pool.execute(  # type: ignore[union-attr]
         "INSERT INTO pipeline_runs (run_id, site_id, report_date, status) "
-        "VALUES ($1, $2, $3, 'running')",
+        "VALUES ($1, $2, $3, 'running') "
+        "ON CONFLICT (run_id) DO UPDATE SET status='running'",
         run_id,
         site_id,
         d,
     )
 
-    graph = build_atomized_demo_graph(cfg)
+    graph = build_demo_graph(cfg)
     thread_id = f"backfill-{run_id}"
     g_cfg = {"configurable": {"thread_id": thread_id}}
     state = _initial_state(run_id, d, mapped, site_id)

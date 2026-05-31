@@ -58,20 +58,22 @@ def test_pace_floor_when_actual_zero():
         today_qty_main=0.001,
     )
 
-    assert out["delay_days"] is not None, "pace floor 적용 시 delay_days 산출 가능해야 함"
+    # 2026-05-29: delay_days 主 산식이 point-in-time 으로 전환됨. pace floor 는 forward 외삽
+    # (forward_delay_days, 참고용) 에 남아있으므로 forward_delay_days 로 검증.
+    assert out["forward_delay_days"] is not None, "pace floor 적용 시 forward_delay_days 산출 가능해야 함"
 
     # today_qty_main(0.001) 만 사용 시 baseline:
     #   pace = 0.001
     #   remaining_days = 1.0 / 0.001 = 1000일
     #   today→plan_finish = 183일
     #   delay_baseline = 1000 - 183 = 817일
-    # pace floor 적용 후 delay 는 baseline 보다 명확히 작아야 함 (over-pessimistic 차단).
+    # pace floor 적용 후 forward delay 는 baseline 보다 명확히 작아야 함 (over-pessimistic 차단).
     baseline_pace = 0.001
     baseline_remaining_days = 1.0 / baseline_pace
     baseline_today_to_finish = (plan["plan_finish"] - today).days
     baseline_delay = round(baseline_remaining_days) - baseline_today_to_finish
-    assert out["delay_days"] < baseline_delay, (
-        f"pace floor 가 작동하지 않음: delay_days={out['delay_days']} "
+    assert out["forward_delay_days"] < baseline_delay, (
+        f"pace floor 가 작동하지 않음: forward_delay_days={out['forward_delay_days']} "
         f"baseline (today_qty_main only)={baseline_delay}"
     )
 
@@ -101,9 +103,10 @@ def test_pace_floor_when_today_qty_normal():
         plan_total_qty_main=1.0,
         today_qty_main=0.01,
     )
-    assert out["delay_days"] is not None
-    assert out["delay_days"] <= 0, (
-        f"today_qty 가 floor 보다 클 땐 앞당김(<=0) 이어야 함: delay_days={out['delay_days']}"
+    # forward 외삽 검증 (delay_days 主 산식은 point-in-time 으로 이동).
+    assert out["forward_delay_days"] is not None
+    assert out["forward_delay_days"] <= 0, (
+        f"today_qty 가 floor 보다 클 땐 앞당김(<=0) 이어야 함: forward_delay_days={out['forward_delay_days']}"
     )
 
 
@@ -139,10 +142,11 @@ def test_delay_cap_total_days():
         plan_total_qty_main=1.0,
         today_qty_main=0.0001,  # 매우 작음
     )
-    # total_days = 21, cap = 21 × 1.0 = 21
-    # pace floor 적용 후도 delay_raw 큼 → cap 적용
-    assert out["delay_days"] is not None
-    assert out["delay_days"] <= 21, f"delay cap 미적용: delay_days={out['delay_days']} > 21 (total_days)"
+    # total_days = 21, cap = 21 × 1.0 = 21 (forward 외삽 cap 검증).
+    assert out["forward_delay_days"] is not None
+    assert out["forward_delay_days"] <= 21, (
+        f"delay cap 미적용: forward_delay_days={out['forward_delay_days']} > 21 (total_days)"
+    )
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -156,7 +160,7 @@ def test_delay_cap_total_days():
 
 
 def test_point_in_time_deficit_normal():
-    """30일 30루베 plan, 15일째 실 7루베 → deficit 7 = 7일."""
+    """30일 30루베 plan, 15일째 실 7루베 → deficit 7 ÷ actual_rate 0.5 = 14일."""
     plan = {
         "plan_start": date(2025, 6, 1),
         "plan_finish": date(2025, 6, 30),  # total_days = 30
@@ -175,8 +179,9 @@ def test_point_in_time_deficit_normal():
     # today_offset = (2025-06-15 - 2025-06-01).days = 14
     # plan_qty_to_date = min(1.0 × 14, 30.0) = 14
     # deficit = max(0, 14 - 7) = 7
-    # point_in_time = round(7 / 1.0) = 7
-    assert out["point_in_time_delay_days"] == 7
+    # 2026-05-29 reseed v2: 분모 plan_rate→actual_rate. actual_rate = 7 / 14 = 0.5/일.
+    # point_in_time = round(7 / 0.5) = 14 (느린 실제 페이스로 부족 만회 → 더 현실적).
+    assert out["point_in_time_delay_days"] == 14
 
 
 def test_point_in_time_before_plan_start():
@@ -255,3 +260,69 @@ def test_point_in_time_no_plan_returns_zero():
     )
     assert "point_in_time_delay_days" in out
     assert out["point_in_time_delay_days"] == 0
+
+
+# ============================================================
+# delay_basis — 산출근거 문자열 (2026-05-29 SSOT, 사용자 요청)
+# ============================================================
+
+
+def test_delay_basis_deficit_has_numbers():
+    """point-in-time 지연 시 산출근거 문자열에 계획누적·실제·부족 수치 포함."""
+    plan = {
+        "plan_start": date(2025, 6, 1),
+        "plan_finish": date(2025, 6, 30),  # total_days = 30
+        "plan_mh_sum": 100.0,
+    }
+    out = compute_delay(
+        plan=plan,
+        today=date(2025, 6, 15),
+        actual_window_start=date(2025, 6, 1),
+        actual_cum_mh=50.0,
+        actual_cum_qty=7.0,
+        plan_total_qty_main=30.0,
+        today_qty_main=0.5,
+    )
+    # plan_qty_to_date=14, actual=7, deficit=7, actual_rate=7/14=0.5 → round(7/0.5)=14
+    assert out["point_in_time_delay_days"] == 14
+    basis = out.get("delay_basis")
+    assert isinstance(basis, str) and basis, "delay_basis 문자열이 있어야 함"
+    assert "14" in basis, f"계획누적 14 누락: {basis}"
+    assert "7" in basis, f"부족 7 누락: {basis}"
+    assert "지연" in basis or "부족" in basis
+
+
+def test_delay_basis_no_deficit():
+    """실제 >= 계획누적 → 부족 없음 근거."""
+    plan = {
+        "plan_start": date(2025, 6, 1),
+        "plan_finish": date(2025, 6, 30),
+        "plan_mh_sum": 100.0,
+    }
+    out = compute_delay(
+        plan=plan,
+        today=date(2025, 6, 15),
+        actual_window_start=date(2025, 6, 1),
+        actual_cum_mh=50.0,
+        actual_cum_qty=20.0,  # plan_qty_to_date=14 보다 큼 → deficit 0
+        plan_total_qty_main=30.0,
+        today_qty_main=0.5,
+    )
+    assert out["point_in_time_delay_days"] == 0
+    basis = out.get("delay_basis")
+    assert isinstance(basis, str) and basis
+    assert "부족 없음" in basis or "충족" in basis, f"부족 없음 근거 누락: {basis}"
+
+
+def test_delay_basis_present_when_no_plan():
+    """plan None 이어도 delay_basis 키 존재 (KeyError 방지)."""
+    out = compute_delay(
+        plan=None,
+        today=date(2025, 6, 15),
+        actual_window_start=None,
+        actual_cum_mh=0.0,
+        actual_cum_qty=0.0,
+        plan_total_qty_main=None,
+        today_qty_main=0.0,
+    )
+    assert "delay_basis" in out

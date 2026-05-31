@@ -9,23 +9,37 @@ export function OptimizerResult({ output }: { output: OptimizerOutput }) {
   return (
     <div className="h-full overflow-hidden rounded-card border border-border-soft bg-card shadow-xs">
       <Row icon={<Brain className="h-4 w-4" />} tone="brand" title="진단">
-        <p className="text-sm text-ink-mid leading-relaxed">
+        <p className="text-sm text-ink-mid leading-relaxed whitespace-pre-line">
           {output.diagnosis || "진단 데이터 없음 (Optimizer 미실행 또는 cold_start)"}
         </p>
       </Row>
       <Row icon={<History className="h-4 w-4" />} tone="brand" title="유사 과거 사례" topBorder>
         {output.similar_cases?.length ? (
-          <ul className="space-y-1.5">
-            {output.similar_cases.slice(0, 3).map((c, i) => (
-              <li key={i} className="text-sm text-ink-mid leading-relaxed">
-                <span className="font-semibold text-ink">{c.date}</span>{" "}
-                · {c.description}
-                <div className="mt-0.5 ml-1 text-sm text-mint-text leading-relaxed">
-                  → {c.outcome}
-                </div>
-              </li>
-            ))}
-          </ul>
+          <>
+            {/* 2026-05-29 (2차): 회복 요약을 헤더 바로 밑(목록 위)으로 + 표시되는 3건 기준 + 평균회복 편입. */}
+            {output.recovery_distribution_text ? (
+              <div className="mb-2 rounded bg-surface-soft px-2 py-1 text-[12.5px] font-medium text-ink-mid">
+                {output.recovery_distribution_text}
+              </div>
+            ) : null}
+            <ul className="space-y-2">
+              {output.similar_cases.slice(0, 3).map((c, i) => (
+                <li key={i} className="text-sm text-ink-mid leading-relaxed">
+                  <span className="font-semibold text-ink">{c.date}</span>
+                  {c.condition ? `  [${c.condition}]` : ""}
+                  {c.degraded ? (
+                    <div className="mt-0.5 ml-1">저하: {c.degraded}</div>
+                  ) : c.description ? (
+                    <div className="mt-0.5 ml-1">{c.description}</div>
+                  ) : null}
+                  {c.recovered ? <div className="ml-1">회복: {c.recovered}</div> : null}
+                  <div className="mt-0.5 ml-1 text-mint-text leading-relaxed">
+                    → {c.recovery_days ? `${c.recovery_days}일 후 회복` : (c.outcome || "미회복")}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </>
         ) : (
           <p className="text-sm text-ink-light leading-relaxed">유사 사례 없음 — 데이터 누적 후 갱신</p>
         )}
@@ -38,16 +52,18 @@ export function OptimizerResult({ output }: { output: OptimizerOutput }) {
                 return <li key={i} className="text-sm text-ink-mid leading-relaxed">{r}</li>;
               }
               return (
-                <li key={i} className="mb-3 text-sm text-ink-mid leading-relaxed">
-                  <div className="inline-flex items-baseline gap-2 align-baseline">
-                    <span className="rounded bg-mint-soft px-1.5 py-0.5 text-[12px] font-semibold text-mint-text">
-                      {r.keyword}
-                    </span>
-                    <span className="text-ink">{r.action}</span>
+                // 2026-05-29 (2차) 개조식 — sample optimizer-output-design.md 준용.
+                // [키워드] 괄호 보이게(bold mint) + action 자연 줄바꿈(inline text) + 이유는 ← 흐린 텍스트.
+                <li key={i} className="mb-2.5 text-sm leading-relaxed">
+                  <div className="text-ink">
+                    <span className="font-semibold text-mint-text">[{r.keyword}]</span>{" "}
+                    <span>{r.action}</span>
                   </div>
-                  <div className="ml-2 mt-1 text-[12.5px] text-ink-mid">
-                    <span className="font-semibold">이유:</span> {r.reason}
-                  </div>
+                  {r.reason ? (
+                    <div className="mt-0.5 ml-3 text-[12.5px] leading-relaxed text-ink-light">
+                      ← {r.reason}
+                    </div>
+                  ) : null}
                 </li>
               );
             })}

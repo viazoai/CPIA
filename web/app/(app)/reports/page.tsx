@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ReportDailyList } from "@/app/components/reports/ReportDailyList";
 import { OptimizerResult } from "@/app/components/reports/OptimizerResult";
 import { QuadrantCountKpi } from "@/app/components/reports/QuadrantCountKpi";
-import { WPSummaryTable, STATUS_DOT, STATUS_LABEL, recoveryDays } from "@/app/components/reports/WPSummaryTable";
+import { WPSummaryTable, STATUS_DOT, STATUS_LABEL } from "@/app/components/reports/WPSummaryTable";
 import { ForecastChart } from "@/app/components/charts/ForecastChart";
 import { ProductivityBarToggle } from "@/app/components/reports/ProductivityBarToggle";
 import { ProductivityTrendChart } from "@/app/components/charts/ProductivityTrendChart";
@@ -61,9 +61,9 @@ export default function ReportPage() {
     }
     let cancelled = false;
     fetch(`/api/mock/report/${selectedDate}`, { cache: "no-store" })
-      .then((r) => r.json())
-      .then((d: ReportDetail) => {
-        if (cancelled) return;
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: ReportDetail | null) => {
+        if (cancelled || !d) return; // 404(해당 일자 daily_report 없음) → 저장 안 함 → !detail empty 상태
         detailCacheRef.current.set(selectedDate, d);
         setDetails((prev) => ({ ...prev, [selectedDate]: d }));
       });
@@ -190,7 +190,7 @@ export default function ReportPage() {
               <div className="grid grid-cols-12 items-stretch gap-4">
                 {/* 좌측: 산점도 + 테이블 (세로 stack, 마지막 자식 flex-1 로 컬럼 끝까지) */}
                 <div className="col-span-12 flex h-full flex-col gap-3 md:col-span-6">
-                  <QuadrantCountKpi points={detail.quadrant} filter={filter} onFilterChange={setFilter} />
+                  <QuadrantCountKpi wpSummary={filteredWpRowsBase} filter={filter} onFilterChange={setFilter} />
                   <div className="rounded-card border border-border-soft bg-card p-4 shadow-xs">
                     <div className="mb-2 font-display text-h6 text-ink">Impact × Productivity 분포도</div>
                     <QuadrantScatter
@@ -221,7 +221,7 @@ export default function ReportPage() {
                           </div>
                         );
                       }
-                      const days = recoveryDays(wpRow.productivity, wpRow.baseline, wpRow.impact);
+                      const days = wpRow.recovery_days ?? 0;
                       return (
                         <div className="flex items-center justify-between gap-4">
                           <div className="font-display text-h6">
@@ -295,11 +295,12 @@ export default function ReportPage() {
                       if (!o) return null;
                       // 2026-05-27 Task 22 후속: V10 schema (keyword/action/reason) 인식.
                       // 옛 string + 옛 {text} + V10 {keyword, action, reason} 셋 다 합성.
+                      // 2026-05-29 (2차): 개조식 — [키워드] 조치 한 줄 (이유는 §02 상세 카드에서, 여기선 간결).
                       const recs = (o.recommendations ?? []).map((r: any) => {
                         if (typeof r === "string") return r;
                         if (r.text) return r.text;
                         if (r.keyword && r.action) {
-                          return `[${r.keyword}] ${r.action}${r.reason ? ` (이유: ${r.reason})` : ""}`;
+                          return `[${r.keyword}] ${r.action}`;
                         }
                         return "";
                       }).filter(Boolean);

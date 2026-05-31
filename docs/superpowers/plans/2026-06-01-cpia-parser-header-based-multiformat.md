@@ -191,6 +191,8 @@ def test_resolve_sheet4_columns_integrated(sample_tong_path):
     assert cols["work_content"] == 8   # 통합: 작업내용 col8
     assert cols["unit"] == 9
     assert cols["today_qty"] == 12      # 금일실적[C]
+    assert cols["today_cum"] == 13      # 금일누적[D]
+    assert cols["progress"] == 14       # F% (row4 둘째 헤더) — 회귀 필수
     assert "company_col" in cols        # 업체명 컬럼 있음
 ```
 
@@ -201,22 +203,27 @@ Expected: FAIL (`_resolve_sheet4_columns` 미정의 → ImportError/AttributeErr
 
 - [ ] **Step 3: 헤더 해석기 구현**
 
-`parser.py` 에 추가 (헤더 row3 기준, `금일실적`→today_qty / `금일누적`→today_cum 구분이 핵심):
+`parser.py` 에 추가. **헤더는 2-row 스택**(row3 주 라벨 + row4 의 `[A][B][C][D]`·`F%` 마커)이므로
+두 행을 함께 읽어야 한다 — 검증 결과 `progress_percent`(F%)가 row4 에만 있어 row3 단독으로는
+회귀가 깨진다(통합 progress 누락). `금일실적`→today_qty / `금일누적`→today_cum 구분이 핵심:
 
 ```python
 def _norm_header(v: object) -> str:
     return re.sub(r"\s+", "", str(v)) if v is not None else ""
 
 
-def _resolve_sheet4_columns(ws, header_row: int = 3) -> dict[str, int]:
+def _resolve_sheet4_columns(ws, header_rows: tuple[int, int] = (3, 4)) -> dict[str, int]:
     """시트4 헤더 텍스트 → {필드: 컬럼인덱스} 매핑. 통합/업체 자동 흡수.
 
+    헤더 2-row 스택(row3 주 라벨 + row4 [A][B][C][D]·F% 마커)을 함께 읽는다.
     '업체명' 헤더가 있으면 통합포맷(company_col 별도), 없으면 업체포맷
     (company 는 BP사 컬럼의 코드/회사명 교대행에서 추출).
     """
     cols: dict[str, int] = {}
     for c in range(1, ws.max_column + 1):
-        h = _norm_header(ws.cell(header_row, c).value)
+        h3 = _norm_header(ws.cell(header_rows[0], c).value)
+        h4 = _norm_header(ws.cell(header_rows[1], c).value)
+        h = h3 or h4
         if not h:
             continue
         if h == "공종":
@@ -239,6 +246,8 @@ def _resolve_sheet4_columns(ws, header_row: int = 3) -> dict[str, int]:
             cols.setdefault("today_qty", c)
         elif "금일누적" in h:
             cols.setdefault("today_cum", c)
+        elif "F%" in h3 or "F%" in h4:   # progress_percent — row4 위치 (회귀 필수)
+            cols.setdefault("progress", c)
         elif "잔여" in h:
             cols.setdefault("remaining", c)
     required = ("trade", "bp", "work_content", "unit", "today_qty")
@@ -247,6 +256,8 @@ def _resolve_sheet4_columns(ws, header_row: int = 3) -> dict[str, int]:
         raise ParseError(f"시트4 헤더 매핑 실패: {missing}")
     return cols
 ```
+
+검증 실측(통합): 매핑 = `{trade:4, bp:5, company_col:6, scope:7, work_content:8, unit:9, plan_total:10, yesterday_cum:11, today_qty:12, today_cum:13, progress:14}`. 업체: company_col 없음, work_content:7 / unit:8 / today_qty:11.
 
 - [ ] **Step 4: 헤더 해석기 통과 확인**
 
@@ -264,7 +275,7 @@ def _parse_sheet4_activities(ws) -> list[Activity]:
     has_company_col = "company_col" in cols
     activities: list[Activity] = []
     if has_company_col:
-        # 통합포맷: trade/bp/company ffill, work_content 있는 행만 activity
+        # 통합포맷: trade ffill + company 는 BP행에 종속(독립 ffill 아님 — 검증으로 확정)
         cur_trade = cur_bp = cur_company_raw = None
         for r in range(5, ws.max_row + 1):
             tv = ws.cell(r, cols["trade"]).value
@@ -273,9 +284,10 @@ def _parse_sheet4_activities(ws) -> list[Activity]:
             bv = ws.cell(r, cols["bp"]).value
             if bv is not None:
                 cur_bp = str(bv).strip()
-            cv = ws.cell(r, cols["company_col"]).value
-            if cv is not None:
-                cur_company_raw = str(cv)
+                # company 는 BP행 종속: col6 없으면 비움 (기존 parser.py:370-371 동작).
+                # 독립 ffill 하면 직전 업체명이 새어나와 통합 31건 회귀 (검증 실측).
+                cv = ws.cell(r, cols["company_col"]).value
+                cur_company_raw = str(cv) if cv is not None else None
             wv = ws.cell(r, cols["work_content"]).value
             if wv is None:
                 continue
@@ -305,12 +317,17 @@ def _parse_sheet4_activities(ws) -> list[Activity]:
     return activities
 ```
 
-`_build_activity(ws, r, cols, trade, bp_code, company_raw)` 헬퍼는 기존 L388-424 의 Activity dict 구성을 그대로 옮기되 값 읽기를 `cols` 인덱스로:
+`_build_activity(ws, r, cols, trade, bp_code, company_raw)` 헬퍼는 기존 L388-424 의 Activity dict 구성을 그대로 옮기되 값 읽기를 `cols` 인덱스로. **수량 필드 6개 모두 매핑 인덱스로 읽어야 회귀 0** (검증 실측):
 - `work_content = str(ws.cell(r, cols["work_content"]).value).strip()`
 - `unit = _normalize_unit(str(ws.cell(r, cols["unit"]).value or "").strip())`
-- `today_qty = c12 if c12 is not None else 0.0` 에서 `c12 = _safe_num(ws.cell(r, cols["today_qty"]).value)`
+- `plan_total_qty = _safe_num(ws.cell(r, cols["plan_total"]).value)`
+- `yesterday_cum_qty = _safe_num(ws.cell(r, cols["yesterday_cum"]).value)`
+- `today_qty = c if c is not None else 0.0` (`c = _safe_num(ws.cell(r, cols["today_qty"]).value)`)
+- `today_cum_qty = _safe_num(ws.cell(r, cols["today_cum"]).value)`
+- `progress_percent = _safe_num(ws.cell(r, cols["progress"]).value) if "progress" in cols else None` ← row4 헤더, 누락 시 통합 회귀
+- `scope = str(c7) if c7 is not None else None` (`c7 = ws.cell(r, cols["scope"]).value`), `zone = extract_zone(c7)`
 - `company = normalize_company(split_company_and_zone(company_raw))`
-- `trade`/`l5_disc = trade or ""`, `zone = extract_zone(scope)`, 나머지 필드 기존 기본값 유지
+- `trade`/`l5_disc = trade or ""`, 나머지 필드(remaining_*/wbs_*/wa/mapping_*/conditions/assigned_workers 등) 기존 기본값 그대로
 
 - [ ] **Step 6: 통합 회귀 — 기존 시트4 테스트 통과 확인**
 
@@ -340,39 +357,23 @@ git commit -m "feat(parser): 시트4 헤더 기반 컬럼 해석 — column shif
 
 ---
 
-## Task 4: 시트1 코드/회사명 분리 (BP 다중패턴 효과 + 업체 group 검출 확인)
+## Task 4: 시트1 코드/회사명 분리 (BP 다중패턴 효과 검증 — 코드 변경 불요 확정)
 
 **Files:**
-- Modify: `pipeline/agents/parser.py` (`_parse_sheet1_bp_summaries` L127 — 필요 시 group 검출 보강)
-- Test: `pipeline/tests/test_parser.py`
+- Test 만: `pipeline/tests/test_parser.py` (회귀 가드 추가). **`parser.py` 수정 없음.**
 
-Task 2 의 `_is_bp_code` 다중패턴으로 업체 BP코드(`M15X_PH4_041`)가 코드로 인식돼 코드/회사명 분리가 된다. **리스크**: 시트1 group 검출이 col30 병합셀 의존(L142-148)인데, 업체파일에 col30 병합이 없으면 group 0건이 될 수 있음 — 이 task 에서 실측 확인하고 필요 시 보강.
+**검증으로 확정**: Task 2 의 `_is_bp_code` 다중패턴만 적용하면, 기존
+`_parse_sheet1_bp_summaries`(col30 병합 group + skip 로직) 가 **그대로** 통합 99 / 업체 1 을
+정확히 낸다. 업체파일 시트1 에도 col30 병합 group 이 있어 group 검출이 작동하며(실측),
+bp/company 분리도 정확(통합 `PH_X-002`/`에스티엠`, 업체 `M15X_PH4_041`/`중원엔지니어링`).
+→ **이 task 는 group fallback 같은 코드 변경이 불필요**하다. 회귀 가드 테스트만 추가한다.
+(`sample_subcon_path` fixture 는 Task 6 Step 1 에서 conftest 에 추가 — Task 4 를 먼저 실행하면 여기서 추가.)
 
-- [ ] **Step 1: 업체 시트1 col30 구조 진단**
-
-Run:
-```bash
-uv run --project pipeline python -c "
-import openpyxl
-wb=openpyxl.load_workbook('data/demo_inputs/20250925/업체작업일보_M15X_PH3_㈜신성이엔지_골조공사_20250925.xlsx', data_only=True)
-ws=wb['1.출력인원 현황']
-print('max_row=%d max_col=%d'%(ws.max_row, ws.max_column))
-merges=[(m.min_row,m.max_row) for m in ws.merged_cells.ranges if m.min_col==30 and m.max_col==30 and ws.cell(m.min_row,30).value is not None]
-print('col30 병합 group:', merges)
-for r in range(5, min(ws.max_row+1, 12)):
-    print('row %d: col5=%r col30=%r col37=%r'%(r, ws.cell(r,5).value, ws.cell(r,30).value, ws.cell(r,37).value))
-wb.close()
-"
-```
-관찰: col30 병합 group 이 있으면 기존 로직 그대로, 없으면 Step 3 의 BP코드 기반 group 보강 필요.
-
-- [ ] **Step 2: 업체 시트1 bp_summaries 실패 테스트 작성**
-
-(`sample_subcon_path` fixture 는 Task 6 Step 1 에서 conftest 에 추가 — 이 task 를 먼저 하면 여기서 추가)
+- [ ] **Step 1: 업체 시트1 분리 가드 테스트 작성**
 
 ```python
 def test_parse_sheet1_subcon_bp_company_split(sample_subcon_path):
-    """업체포맷 시트1: BP코드와 회사명이 정확히 분리돼야 한다."""
+    """업체포맷 시트1: BP코드와 회사명이 정확히 분리 (Task 2 다중패턴 효과)."""
     import openpyxl
     from pipeline.agents.parser import _parse_sheet1_bp_summaries
     wb = openpyxl.load_workbook(sample_subcon_path, data_only=True)
@@ -384,22 +385,23 @@ def test_parse_sheet1_subcon_bp_company_split(sample_subcon_path):
     assert "중원엔지니어링" in s["company"]   # 회사명이 company (코드 누출 X)
 ```
 
-- [ ] **Step 3: 실패 확인 후 분기**
+- [ ] **Step 2: 통과 확인 (Task 2 적용 후이므로 코드 변경 없이 PASS 기대)**
 
 Run: `uv run --project pipeline python -m pytest pipeline/tests/test_parser.py::test_parse_sheet1_subcon_bp_company_split -v`
-- PASS 면: Task 2 다중패턴만으로 충분 → Step 4 로 (구현 불요).
-- FAIL (group 0건 / 분리 실패) 면: `_parse_sheet1_bp_summaries` 의 group 검출에 fallback 추가 — col30 병합/solo row 가 없으면 `_is_bp_code` 코드행을 group 시작으로, 다음 코드행 전까지를 group 으로. 회사명 = group 내 첫 non-bp col5. 기존 통합 경로(col30 병합)는 그대로 두고 **fallback 만 추가**.
+Expected: PASS (검증 실측 — 기존 함수가 업체 col30 group 으로 bp=1 정확 추출).
+만약 FAIL 이면(예상 외) `_parse_sheet1_bp_summaries` group 검출에 BP코드 기반 fallback 추가:
+col30 병합/solo 가 없을 때 `_is_bp_code` 코드행을 group 시작으로, 회사명=group 내 첫 non-bp col5.
 
-- [ ] **Step 4: 통합 시트1 회귀 확인**
+- [ ] **Step 3: 통합 시트1 회귀 확인**
 
 Run: `uv run --project pipeline python -m pytest pipeline/tests/test_parser.py -k sheet1 -v`
 Expected: 기존 `test_parse_sheet1_*` (bp_summaries_count 99 등) 전부 PASS.
 
-- [ ] **Step 5: 커밋**
+- [ ] **Step 4: 커밋**
 
 ```bash
-git add pipeline/agents/parser.py pipeline/tests/test_parser.py pipeline/tests/conftest.py
-git commit -m "feat(parser): 시트1 업체포맷 BP코드/회사명 분리 (group fallback)"
+git add pipeline/tests/test_parser.py
+git commit -m "test(parser): 시트1 업체포맷 BP/회사명 분리 가드 (다중패턴 효과 검증)"
 ```
 
 ---

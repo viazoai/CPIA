@@ -22,6 +22,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncIterator
 
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parent / ".env")
+
 from fastapi import FastAPI, HTTPException
 from langgraph.errors import EmptyChannelError, InvalidUpdateError
 from langgraph.types import Command

@@ -1,0 +1,648 @@
+# CPIA Parser 헤더 기반 다포맷 정규화 — Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** CPIA 파서를 통합작업일보 전용에서 통합+업체 두 포맷 결정론 처리로 확장 — `data/demo_inputs/20250925/` 업체작업일보 10개(.xlsx 7 / .xlsm 3)를 정확히 파싱하면서 통합포맷 회귀 0.
+
+**Architecture:** 시트4(컬럼 시프트 발생 시트)는 컬럼 인덱스 하드코딩 → 헤더 텍스트 해석으로 전환. 시트1/2/3(통합·업체 레이아웃 동일)은 기존 함수 보존 + 최소 패치(`_is_bp_code` 다중패턴 + final_flag 조건부 완화). 날짜 regex 일반화. LLM 없음.
+
+**Tech Stack:** Python 3.11(pipeline/.venv, uv), openpyxl, pytest. 출력 스키마 `ParsedDailyReport`(`pipeline/state.py`) 불변.
+
+**Spec:** `docs/superpowers/specs/2026-06-01-cpia-parser-header-based-multiformat-design.md`
+
+**실행 환경 주의:**
+- 테스트 실행: `cd "/Users/kyungseoplee/Project Agent/CPIA" && uv run --project pipeline python -m pytest <경로> -v`
+- 파서 단독 실행: `CPIA_PARSER_VERIFY_LLM=off uv run --project pipeline python -c "..."` (LLM 검증 off)
+- 모든 .py 상단 `from __future__ import annotations` 필수
+- 한자 금지
+
+**회귀 골든 (기존 파서 baseline 실측, 절대 사수):**
+통합작업일보 → `activities=1193 / bp_summaries=99 / job_allocations=975 / equipment_allocations=1111`
+
+**업체포맷 기대 (시뮬레이션 실측):**
+demo_inputs 각 파일 → `activities=33 / bp_summaries=1 / job_allocations=76 / equipment=68`,
+activity[0] = `work_content='PCW 20 배관 공사' / unit='m' / today_qty=30.0 / company(정규화)='중원엔지니어링' / bp_code='M15X_PH4_041' / trade='UT'`
+
+---
+
+## File Structure
+
+- **Modify** `pipeline/agents/parser.py` — 모든 변경의 중심:
+  - `_DATE_PATTERN`(L503) 일반화
+  - `_BP_RE`/`_is_bp_code`(L100-106) 다중 패턴
+  - `_resolve_sheet4_columns`(신규) + `_parse_sheet4_activities`(L346) 헤더 기반 전환
+  - `_parse_sheet2/3`(L255/428) final_flag 조건부 완화
+  - `parse_daily_report`(L539) LLM 검증 호출(L567-570) 제거
+  - `_extract_meta`(L506) project prefix 에 `업체작업일보_` 추가
+- **Create** `pipeline/tests/test_parser_subcon.py` — 업체포맷 골든 테스트 (신규)
+- **Modify** `pipeline/tests/conftest.py` — `sample_subcon_path` fixture 추가
+- **Modify** `pipeline/tests/test_parser.py` — 통합 회귀 골든 건수 갱신/확인 (필요 시)
+- 출력 스키마·다운스트림(mapper/exporter/atomizer/forecaster)·`parser_node.py`·`parser_llm.py`: **무수정**
+
+---
+
+## Task 1: 날짜 regex 일반화 (.xlsm + 8자리 즉사 해소)
+
+**Files:**
+- Modify: `pipeline/agents/parser.py:503` (`_DATE_PATTERN`)
+- Test: `pipeline/tests/test_filename_parser.py` (또는 test_parser.py 에 추가)
+
+현 `_(\d{4})(\d{2})(\d{2})\.xlsx$|_(\d{6})\.xlsm?$` 는 8자리를 .xlsx 만, 6자리를 .xlsm 만 허용 → `_20250925.xlsm`(8자리+xlsm) 즉사.
+
+- [ ] **Step 1: 실패 테스트 작성**
+
+`pipeline/tests/test_filename_parser.py` 에 추가 (없으면 test_parser.py 에):
+
+```python
+import re
+from pipeline.agents.parser import _DATE_PATTERN
+
+def test_date_pattern_xlsm_8digit():
+    """8자리 날짜 + .xlsm 조합도 추출돼야 한다 (업체작업일보)."""
+    m = _DATE_PATTERN.search("업체작업일보_M15X_PH3_남웅건설_단열공사_20250925.xlsm")
+    assert m is not None
+    assert (m.group(1), m.group(2), m.group(3)) == ("2025", "09", "25")
+
+def test_date_pattern_xlsx_8digit_still_works():
+    """기존 통합포맷(.xlsx 8자리) 회귀 없음."""
+    m = _DATE_PATTERN.search("통합작업일보_..._20250925.xlsx")
+    assert m is not None and m.group(1) == "2025"
+```
+
+- [ ] **Step 2: 실패 확인**
+
+Run: `cd "/Users/kyungseoplee/Project Agent/CPIA" && uv run --project pipeline python -m pytest pipeline/tests/test_filename_parser.py::test_date_pattern_xlsm_8digit -v`
+Expected: FAIL (현 패턴이 8자리+xlsm 미매칭, `m is None`)
+
+- [ ] **Step 3: 최소 구현**
+
+`parser.py:503` 교체:
+
+```python
+_DATE_PATTERN = re.compile(r"_(\d{4})(\d{2})(\d{2})\.xls[mx]?$|_(\d{6})\.xls[mx]?$")
+```
+
+- [ ] **Step 4: 통과 확인**
+
+Run: `uv run --project pipeline python -m pytest pipeline/tests/test_filename_parser.py -v`
+Expected: PASS (두 테스트 모두)
+
+- [ ] **Step 5: 커밋**
+
+```bash
+git add pipeline/agents/parser.py pipeline/tests/test_filename_parser.py
+git commit -m "fix(parser): _DATE_PATTERN 이 8자리 날짜+.xlsm 조합 수용 (업체작업일보)"
+```
+
+---
+
+## Task 2: BP코드 다중 패턴
+
+**Files:**
+- Modify: `pipeline/agents/parser.py:100-106` (`_BP_RE`, `_is_bp_code`)
+- Test: `pipeline/tests/test_parser.py`
+
+현 `_BP_RE = ^PH[_\- ]?X[_\- ]?\d+$` 는 `M15X_PH4_041`(업체) 미매칭. 통합 `PH_X-088` 은 유지하면서 업체 패턴 추가.
+
+- [ ] **Step 1: 실패 테스트 작성**
+
+`test_parser.py` 에 추가:
+
+```python
+from pipeline.agents.parser import _is_bp_code
+
+def test_is_bp_code_multiformat():
+    # 통합포맷 (회귀)
+    assert _is_bp_code("PH_X-088") is True
+    assert _is_bp_code("PH_X-002") is True
+    # 업체포맷 (신규)
+    assert _is_bp_code("M15X_PH4_041") is True
+    # 회사명은 코드 아님
+    assert _is_bp_code("중원엔지니어링FAB") is False
+    assert _is_bp_code("㈜해광FAB") is False
+    assert _is_bp_code(None) is False
+```
+
+- [ ] **Step 2: 실패 확인**
+
+Run: `uv run --project pipeline python -m pytest pipeline/tests/test_parser.py::test_is_bp_code_multiformat -v`
+Expected: FAIL (`M15X_PH4_041` 가 False)
+
+- [ ] **Step 3: 최소 구현**
+
+`parser.py:100-106` 교체:
+
+```python
+_BP_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"^PH[_\- ]?X[_\- ]?\d+$", re.IGNORECASE),   # 통합: PH_X-088
+    re.compile(r"^[A-Za-z0-9]+_PH\d+_\d+$", re.IGNORECASE),  # 업체: M15X_PH4_041
+)
+
+
+def _is_bp_code(v: object) -> bool:
+    if v is None:
+        return False
+    s = str(v).strip()
+    return any(p.match(s) for p in _BP_PATTERNS)
+```
+
+(`_BP_RE` 를 직접 참조하는 곳이 있으면 `_is_bp_code` 호출로 교체. grep: `grep -n _BP_RE pipeline/agents/parser.py`)
+
+- [ ] **Step 4: 통과 확인**
+
+Run: `uv run --project pipeline python -m pytest pipeline/tests/test_parser.py::test_is_bp_code_multiformat -v`
+Expected: PASS
+
+- [ ] **Step 5: 회귀 확인 (전체 parser 테스트)**
+
+Run: `uv run --project pipeline python -m pytest pipeline/tests/test_parser.py -v`
+Expected: 기존 테스트 전부 PASS (통합 BP 매칭 회귀 없음)
+
+- [ ] **Step 6: 커밋**
+
+```bash
+git add pipeline/agents/parser.py pipeline/tests/test_parser.py
+git commit -m "feat(parser): BP코드 다중 패턴 (PH_X-NNN + M15X_PHn_NNN)"
+```
+
+---
+
+## Task 3: 시트4 헤더 기반 컬럼 해석 (column shift 본체)
+
+**Files:**
+- Modify: `pipeline/agents/parser.py` (`_parse_sheet4_activities` L346, `_resolve_sheet4_columns` 신규)
+- Test: `pipeline/tests/test_parser.py` (통합 회귀) + `test_parser_subcon.py` (업체, Task 6 에서 통합)
+
+업체포맷은 '업체명' 컬럼 부재로 col7+ 가 1칸 좌측 시프트. 헤더 텍스트로 컬럼을 찾으면 통합('업체명' 있음)·업체(없음) 자동 흡수. today_qty 는 `금일실적[C]` (누적 D 아님).
+
+- [ ] **Step 1: 헤더 해석기 실패 테스트 작성**
+
+`test_parser.py` 에 추가:
+
+```python
+import openpyxl
+from pipeline.agents.parser import _resolve_sheet4_columns
+
+def test_resolve_sheet4_columns_integrated(sample_tong_path):
+    """통합포맷: 업체명 컬럼 존재 → company_col 매핑."""
+    wb = openpyxl.load_workbook(sample_tong_path, data_only=True)
+    cols = _resolve_sheet4_columns(wb["4.물량"])
+    wb.close()
+    assert cols["work_content"] == 8   # 통합: 작업내용 col8
+    assert cols["unit"] == 9
+    assert cols["today_qty"] == 12      # 금일실적[C]
+    assert "company_col" in cols        # 업체명 컬럼 있음
+```
+
+- [ ] **Step 2: 실패 확인**
+
+Run: `uv run --project pipeline python -m pytest pipeline/tests/test_parser.py::test_resolve_sheet4_columns_integrated -v`
+Expected: FAIL (`_resolve_sheet4_columns` 미정의 → ImportError/AttributeError)
+
+- [ ] **Step 3: 헤더 해석기 구현**
+
+`parser.py` 에 추가 (헤더 row3 기준, `금일실적`→today_qty / `금일누적`→today_cum 구분이 핵심):
+
+```python
+def _norm_header(v: object) -> str:
+    return re.sub(r"\s+", "", str(v)) if v is not None else ""
+
+
+def _resolve_sheet4_columns(ws, header_row: int = 3) -> dict[str, int]:
+    """시트4 헤더 텍스트 → {필드: 컬럼인덱스} 매핑. 통합/업체 자동 흡수.
+
+    '업체명' 헤더가 있으면 통합포맷(company_col 별도), 없으면 업체포맷
+    (company 는 BP사 컬럼의 코드/회사명 교대행에서 추출).
+    """
+    cols: dict[str, int] = {}
+    for c in range(1, ws.max_column + 1):
+        h = _norm_header(ws.cell(header_row, c).value)
+        if not h:
+            continue
+        if h == "공종":
+            cols.setdefault("trade", c)
+        elif h == "BP사":
+            cols.setdefault("bp", c)
+        elif h == "업체명":
+            cols.setdefault("company_col", c)
+        elif h.lower().startswith("scope"):
+            cols.setdefault("scope", c)
+        elif "대표물량" in h or "작업내용" in h:
+            cols.setdefault("work_content", c)
+        elif h == "단위":
+            cols.setdefault("unit", c)
+        elif "총물량" in h:
+            cols.setdefault("plan_total", c)
+        elif "전일누적" in h:
+            cols.setdefault("yesterday_cum", c)
+        elif "금일실적" in h:        # today_qty = 실적[C], 누적[D] 아님
+            cols.setdefault("today_qty", c)
+        elif "금일누적" in h:
+            cols.setdefault("today_cum", c)
+        elif "잔여" in h:
+            cols.setdefault("remaining", c)
+    required = ("trade", "bp", "work_content", "unit", "today_qty")
+    missing = [f for f in required if f not in cols]
+    if missing:
+        raise ParseError(f"시트4 헤더 매핑 실패: {missing}")
+    return cols
+```
+
+- [ ] **Step 4: 헤더 해석기 통과 확인**
+
+Run: `uv run --project pipeline python -m pytest pipeline/tests/test_parser.py::test_resolve_sheet4_columns_integrated -v`
+Expected: PASS
+
+- [ ] **Step 5: `_parse_sheet4_activities` 헤더 기반 전환**
+
+`parser.py:346` `_parse_sheet4_activities(ws)` 를 매핑 기반으로 재작성. 통합포맷(company_col 있음)은 행별 ffill, 업체포맷(없음)은 BP사 컬럼 코드/회사명 교대행 group 처리. **모든 필드는 `cols` 매핑 인덱스로 읽고**, today_qty 는 `cols["today_qty"]`(금일실적). 출력 `Activity` dict 필드/기본값은 기존(L388-424) 그대로 유지.
+
+핵심 로직:
+```python
+def _parse_sheet4_activities(ws) -> list[Activity]:
+    cols = _resolve_sheet4_columns(ws)
+    has_company_col = "company_col" in cols
+    activities: list[Activity] = []
+    if has_company_col:
+        # 통합포맷: trade/bp/company ffill, work_content 있는 행만 activity
+        cur_trade = cur_bp = cur_company_raw = None
+        for r in range(5, ws.max_row + 1):
+            tv = ws.cell(r, cols["trade"]).value
+            if tv is not None:
+                cur_trade = str(tv)
+            bv = ws.cell(r, cols["bp"]).value
+            if bv is not None:
+                cur_bp = str(bv).strip()
+            cv = ws.cell(r, cols["company_col"]).value
+            if cv is not None:
+                cur_company_raw = str(cv)
+            wv = ws.cell(r, cols["work_content"]).value
+            if wv is None:
+                continue
+            activities.append(_build_activity(ws, r, cols, cur_trade, cur_bp, cur_company_raw))
+    else:
+        # 업체포맷: BP사 컬럼 코드행~다음코드행 group, 회사명=group 내 첫 non-bp 값
+        bpc = cols["bp"]
+        code_rows = [r for r in range(5, ws.max_row + 1) if _is_bp_code(ws.cell(r, bpc).value)]
+        for gi, start in enumerate(code_rows):
+            end = (code_rows[gi + 1] - 1) if gi + 1 < len(code_rows) else ws.max_row
+            bp_code = str(ws.cell(start, bpc).value).strip()
+            company_raw = None
+            for r in range(start, end + 1):
+                v = ws.cell(r, bpc).value
+                if v is not None and not _is_bp_code(v):
+                    company_raw = str(v)
+                    break
+            cur_trade = None
+            for r in range(5, start + 1):
+                tv = ws.cell(r, cols["trade"]).value
+                if tv is not None:
+                    cur_trade = str(tv)
+            for r in range(start, end + 1):
+                if ws.cell(r, cols["work_content"]).value is None:
+                    continue
+                activities.append(_build_activity(ws, r, cols, cur_trade, bp_code, company_raw))
+    return activities
+```
+
+`_build_activity(ws, r, cols, trade, bp_code, company_raw)` 헬퍼는 기존 L388-424 의 Activity dict 구성을 그대로 옮기되 값 읽기를 `cols` 인덱스로:
+- `work_content = str(ws.cell(r, cols["work_content"]).value).strip()`
+- `unit = _normalize_unit(str(ws.cell(r, cols["unit"]).value or "").strip())`
+- `today_qty = c12 if c12 is not None else 0.0` 에서 `c12 = _safe_num(ws.cell(r, cols["today_qty"]).value)`
+- `company = normalize_company(split_company_and_zone(company_raw))`
+- `trade`/`l5_disc = trade or ""`, `zone = extract_zone(scope)`, 나머지 필드 기존 기본값 유지
+
+- [ ] **Step 6: 통합 회귀 — 기존 시트4 테스트 통과 확인**
+
+Run: `uv run --project pipeline python -m pytest pipeline/tests/test_parser.py -k sheet4 -v`
+Expected: 기존 `test_parse_sheet4_*` 전부 PASS (통합 activities 건수·필드 회귀 없음). 실패 시 헤더 매핑/ffill 로직 수정.
+
+- [ ] **Step 7: 통합 activities 건수 회귀 직접 확인**
+
+Run:
+```bash
+CPIA_PARSER_VERIFY_LLM=off uv run --project pipeline python -c "
+from pipeline.agents.parser import parse_daily_report
+r=parse_daily_report('docs/sample/통합작업일보_M15X Ph-3 IBL PJT 작업일보_20250925.xlsx')
+print('act=%d'%len(r['activities']))
+assert len(r['activities'])==1193, r['activities'].__len__()
+print('OK 통합 act=1193 회귀 통과')
+"
+```
+Expected: `OK 통합 act=1193 회귀 통과`
+
+- [ ] **Step 8: 커밋**
+
+```bash
+git add pipeline/agents/parser.py pipeline/tests/test_parser.py
+git commit -m "feat(parser): 시트4 헤더 기반 컬럼 해석 — column shift 해소 (통합+업체)"
+```
+
+---
+
+## Task 4: 시트1 코드/회사명 분리 (BP 다중패턴 효과 + 업체 group 검출 확인)
+
+**Files:**
+- Modify: `pipeline/agents/parser.py` (`_parse_sheet1_bp_summaries` L127 — 필요 시 group 검출 보강)
+- Test: `pipeline/tests/test_parser.py`
+
+Task 2 의 `_is_bp_code` 다중패턴으로 업체 BP코드(`M15X_PH4_041`)가 코드로 인식돼 코드/회사명 분리가 된다. **리스크**: 시트1 group 검출이 col30 병합셀 의존(L142-148)인데, 업체파일에 col30 병합이 없으면 group 0건이 될 수 있음 — 이 task 에서 실측 확인하고 필요 시 보강.
+
+- [ ] **Step 1: 업체 시트1 col30 구조 진단**
+
+Run:
+```bash
+uv run --project pipeline python -c "
+import openpyxl
+wb=openpyxl.load_workbook('data/demo_inputs/20250925/업체작업일보_M15X_PH3_㈜신성이엔지_골조공사_20250925.xlsx', data_only=True)
+ws=wb['1.출력인원 현황']
+print('max_row=%d max_col=%d'%(ws.max_row, ws.max_column))
+merges=[(m.min_row,m.max_row) for m in ws.merged_cells.ranges if m.min_col==30 and m.max_col==30 and ws.cell(m.min_row,30).value is not None]
+print('col30 병합 group:', merges)
+for r in range(5, min(ws.max_row+1, 12)):
+    print('row %d: col5=%r col30=%r col37=%r'%(r, ws.cell(r,5).value, ws.cell(r,30).value, ws.cell(r,37).value))
+wb.close()
+"
+```
+관찰: col30 병합 group 이 있으면 기존 로직 그대로, 없으면 Step 3 의 BP코드 기반 group 보강 필요.
+
+- [ ] **Step 2: 업체 시트1 bp_summaries 실패 테스트 작성**
+
+(`sample_subcon_path` fixture 는 Task 6 Step 1 에서 conftest 에 추가 — 이 task 를 먼저 하면 여기서 추가)
+
+```python
+def test_parse_sheet1_subcon_bp_company_split(sample_subcon_path):
+    """업체포맷 시트1: BP코드와 회사명이 정확히 분리돼야 한다."""
+    import openpyxl
+    from pipeline.agents.parser import _parse_sheet1_bp_summaries
+    wb = openpyxl.load_workbook(sample_subcon_path, data_only=True)
+    summaries = _parse_sheet1_bp_summaries(wb["1.출력인원 현황"])
+    wb.close()
+    assert len(summaries) == 1
+    s = summaries[0]
+    assert s["bp_code"] == "M15X_PH4_041"
+    assert "중원엔지니어링" in s["company"]   # 회사명이 company (코드 누출 X)
+```
+
+- [ ] **Step 3: 실패 확인 후 분기**
+
+Run: `uv run --project pipeline python -m pytest pipeline/tests/test_parser.py::test_parse_sheet1_subcon_bp_company_split -v`
+- PASS 면: Task 2 다중패턴만으로 충분 → Step 4 로 (구현 불요).
+- FAIL (group 0건 / 분리 실패) 면: `_parse_sheet1_bp_summaries` 의 group 검출에 fallback 추가 — col30 병합/solo row 가 없으면 `_is_bp_code` 코드행을 group 시작으로, 다음 코드행 전까지를 group 으로. 회사명 = group 내 첫 non-bp col5. 기존 통합 경로(col30 병합)는 그대로 두고 **fallback 만 추가**.
+
+- [ ] **Step 4: 통합 시트1 회귀 확인**
+
+Run: `uv run --project pipeline python -m pytest pipeline/tests/test_parser.py -k sheet1 -v`
+Expected: 기존 `test_parse_sheet1_*` (bp_summaries_count 99 등) 전부 PASS.
+
+- [ ] **Step 5: 커밋**
+
+```bash
+git add pipeline/agents/parser.py pipeline/tests/test_parser.py pipeline/tests/conftest.py
+git commit -m "feat(parser): 시트1 업체포맷 BP코드/회사명 분리 (group fallback)"
+```
+
+---
+
+## Task 5: 시트2/3 final_flag 조건부 완화
+
+**Files:**
+- Modify: `pipeline/agents/parser.py` (`_parse_sheet2_job_allocations` L255, `_parse_sheet3_equipment_allocations` L428)
+- Test: `pipeline/tests/test_parser.py`
+
+업체파일은 `col25` final_flag('O') 전무 → job/equip 0건. **무조건 완화는 통합 폭증(job 975→11836)** 이므로 조건부: 'O' 마커가 있으면(통합) 유지, 없으면(업체) 직종코드/장비대분류 존재로 판정.
+
+- [ ] **Step 1: 시트2 final_flag 유무 판정 헬퍼 + 실패 테스트**
+
+```python
+def test_sheet2_job_subcon_nonzero(sample_subcon_path):
+    """업체포맷: final_flag 없어도 job_allocations > 0."""
+    import openpyxl
+    from pipeline.agents.parser import _parse_sheet2_job_allocations
+    wb = openpyxl.load_workbook(sample_subcon_path, data_only=True)
+    jobs = _parse_sheet2_job_allocations(wb["2.직종별 인원현황"])
+    wb.close()
+    assert len(jobs) > 0   # 현재는 0 (col25=='O' 게이트)
+```
+
+- [ ] **Step 2: 실패 확인**
+
+Run: `uv run --project pipeline python -m pytest pipeline/tests/test_parser.py::test_sheet2_job_subcon_nonzero -v`
+Expected: FAIL (`len(jobs) == 0`)
+
+- [ ] **Step 3: 조건부 완화 구현**
+
+`_parse_sheet2_job_allocations`(L255) 와 `_parse_sheet3_equipment_allocations`(L428) 에서:
+- 함수 시작 시 `col25` 전체 스캔해 'O' 값 존재 여부 판정: `has_final_flag = any(ws.cell(r,25).value == "O" for r in range(...))`.
+- group 시작 조건의 `c25 == "O"` 와 row 판정의 `c25 != "O"` 를 **`has_final_flag` 일 때만** 적용. `has_final_flag` 가 False 면 'O' 조건 생략하고 나머지 조건(시트2: col4 직종코드 존재 + col6 직종명 + not admin / 시트3: col4 장비대분류 존재)으로 판정.
+
+예 (시트2 row 판정):
+```python
+for r in range(start, end + 1):
+    c4 = ws.cell(r, 4).value
+    if c4 is None:
+        continue
+    if has_final_flag and ws.cell(r, 25).value != "O":
+        continue
+    job_type = str(ws.cell(r, 6).value or "").strip()
+    if not job_type or _is_admin_job(job_type):
+        continue
+    ...
+```
+group 시작 식별(L269-280)의 `c25 != "O"` 도 동일하게 `has_final_flag` 가드.
+
+- [ ] **Step 4: 업체 job/equip 통과 확인**
+
+Run: `uv run --project pipeline python -m pytest pipeline/tests/test_parser.py::test_sheet2_job_subcon_nonzero -v`
+Expected: PASS
+
+- [ ] **Step 5: 통합 회귀 (job=975 / eq=1111 절대 사수)**
+
+Run:
+```bash
+CPIA_PARSER_VERIFY_LLM=off uv run --project pipeline python -c "
+from pipeline.agents.parser import parse_daily_report
+r=parse_daily_report('docs/sample/통합작업일보_M15X Ph-3 IBL PJT 작업일보_20250925.xlsx')
+j,e=len(r['job_allocations']),len(r['equipment_allocations'])
+print('job=%d eq=%d'%(j,e))
+assert j==975 and e==1111, (j,e)
+print('OK 통합 job=975 eq=1111 회귀 통과')
+"
+```
+Expected: `OK 통합 job=975 eq=1111 회귀 통과` (폭증 없음 — has_final_flag 가드 검증)
+
+- [ ] **Step 6: 커밋**
+
+```bash
+git add pipeline/agents/parser.py pipeline/tests/test_parser.py
+git commit -m "feat(parser): 시트2/3 final_flag 조건부 완화 ('O' 없는 업체포맷만)"
+```
+
+---
+
+## Task 6: parse_daily_report 통합 + LLM 검증 제거 + 업체포맷 E2E 골든
+
+**Files:**
+- Modify: `pipeline/agents/parser.py` (`parse_daily_report` L539 — LLM 검증 호출 L567-570 제거, `_extract_meta` L532 project prefix)
+- Create: `pipeline/tests/test_parser_subcon.py`
+- Modify: `pipeline/tests/conftest.py` (`sample_subcon_path` fixture)
+
+- [ ] **Step 1: conftest 에 업체 fixture 추가**
+
+`pipeline/tests/conftest.py` 에:
+```python
+@pytest.fixture(scope="session")
+def sample_subcon_path(cpia_root) -> Path:
+    return cpia_root / "data/demo_inputs/20250925/업체작업일보_M15X_PH3_㈜신성이엔지_골조공사_20250925.xlsx"
+
+@pytest.fixture(scope="session")
+def demo_inputs_dir(cpia_root) -> Path:
+    return cpia_root / "data/demo_inputs/20250925"
+```
+
+- [ ] **Step 2: 업체포맷 E2E 골든 테스트 작성**
+
+`pipeline/tests/test_parser_subcon.py` 생성:
+```python
+from __future__ import annotations
+
+import glob
+
+import pytest
+
+from pipeline.agents.parser import parse_daily_report
+
+
+def test_subcon_e2e_golden(sample_subcon_path):
+    """업체작업일보 1개 E2E — 시뮬레이션 실측 골든."""
+    r = parse_daily_report(sample_subcon_path)
+    assert len(r["activities"]) == 33
+    assert len(r["bp_summaries"]) == 1
+    assert len(r["job_allocations"]) == 76
+    assert len(r["equipment_allocations"]) == 68
+    a = r["activities"][0]
+    assert a["work_content"] == "PCW 20 배관 공사"   # 'M' 아님
+    assert a["unit"] == "m"                          # 총물량 아님
+    assert a["today_qty"] == 30.0                    # 금일실적[C], 누적 120 아님
+    assert "중원엔지니어링" in a["company"]            # 'F02 5F' 아님
+    assert a["bp_code"] == "M15X_PH4_041"
+    assert a["trade"] == "UT"
+
+
+def test_subcon_all_demo_inputs_parse(demo_inputs_dir):
+    """demo_inputs 10개 전부 ParseError 없이 33 activities (.xlsm 포함)."""
+    files = sorted(glob.glob(str(demo_inputs_dir / "*")))
+    assert len(files) == 10
+    for f in files:
+        r = parse_daily_report(f)
+        assert len(r["activities"]) == 33, f
+        assert len(r["bp_summaries"]) == 1, f
+
+
+def test_subcon_determinism(sample_subcon_path):
+    """동일 입력 2회 → 동일 출력 (결정성)."""
+    r1 = parse_daily_report(sample_subcon_path)
+    r2 = parse_daily_report(sample_subcon_path)
+    assert r1["activities"] == r2["activities"]
+```
+
+- [ ] **Step 3: 실패 확인**
+
+Run: `CPIA_PARSER_VERIFY_LLM=off uv run --project pipeline python -m pytest pipeline/tests/test_parser_subcon.py -v`
+Expected: 일부 FAIL 가능 — 특히 `test_subcon_e2e_golden` 의 `_extract_meta` project 추출(`업체작업일보_` prefix) 또는 LLM 검증 호출이 Azure 크레덴셜 요구로 걸릴 수 있음.
+
+- [ ] **Step 4: LLM 검증 제거 (함수 + 의존 테스트 동시) + project prefix 보강**
+
+LLM 검증은 무력(spec §3.4)하고 결정론 헤더 추출이 대신하므로 완전 제거. 참조처는
+parse_daily_report 호출과 test_parser.py 3개뿐 — 다른 prod 참조 0 (grep 확인 완료).
+함수만 지우고 의존 테스트를 안 지우면 `test_should_verify_llm_env_parsing` 이
+import 단계에서 collection error → 모듈 전체 abort → Task 7 회귀 게이트 실패한다.
+**반드시 함수와 테스트를 같은 커밋에서 제거:**
+
+1. `parser.py` parse_daily_report 의 LLM 검증 호출 블록 제거 (L567-570):
+   `if _should_verify_llm(): _verify_sheet1_via_llm(...); _verify_sheet4_via_llm(...)`.
+2. `parser.py` 함수 정의 3개 제거: `_should_verify_llm`, `_verify_sheet1_via_llm`,
+   `_verify_sheet4_via_llm` (파일 하단 "LLM 검증 wrapper" 섹션 전체).
+3. 미사용이 된 import 정리: `grep -n "json\.\|sys\." pipeline/agents/parser.py` 로
+   확인 후 LLM 검증에서만 쓰였으면 `import json`/`import sys` 제거 (다른 곳에서 쓰면 유지).
+4. `test_parser.py` 에서 죽은 검증 테스트 3개 제거 (기능이 사라져 vacuous 통과가 됨):
+   `test_parse_daily_report_llm_verify_off_skip`(L520),
+   `test_parse_daily_report_llm_verify_graceful_on_error`(L528),
+   `test_should_verify_llm_env_parsing`(L540). 이 셋만 쓰던 import
+   (`from unittest.mock import patch`)가 다른 테스트에서 안 쓰이면 같이 제거.
+
+`_extract_meta`(L532) project fallback: `stem.replace("통합작업일보_", "")` →
+`stem.replace("통합작업일보_", "").replace("업체작업일보_", "")`.
+
+**주의 (건드리지 말 것):** `state.py:55-56` 의 today_qty/today_cum 주석("col 11"/"col 12")은
+업체포맷 컬럼 번호라 통합 코드(col 12/13)와 달라 보이지만 pre-existing·동작 무관 —
+주석 고치다가 작동하는 통합 코드를 건드리지 말 것.
+
+- [ ] **Step 5: 통과 확인**
+
+Run: `CPIA_PARSER_VERIFY_LLM=off uv run --project pipeline python -m pytest pipeline/tests/test_parser_subcon.py -v`
+Expected: 3개 테스트 전부 PASS
+
+- [ ] **Step 6: 커밋**
+
+```bash
+git add pipeline/agents/parser.py pipeline/tests/test_parser_subcon.py pipeline/tests/conftest.py pipeline/tests/test_parser.py
+git commit -m "feat(parser): 업체포맷 E2E 통합 + 무력 LLM 검증 제거 (demo_inputs 10개 골든)"
+```
+
+---
+
+## Task 7: 전체 회귀 + 통합 E2E 골든 못박기
+
+**Files:**
+- Modify: `pipeline/tests/test_parser.py` (통합 E2E 골든 건수 명시 테스트 추가)
+
+- [ ] **Step 1: 통합 E2E 골든 테스트 추가**
+
+`test_parser.py` 에:
+```python
+def test_integrated_e2e_golden_counts(sample_tong_path):
+    """통합포맷 회귀 골든 — baseline 실측 4건수 못박기."""
+    r = parse_daily_report(sample_tong_path)
+    assert len(r["activities"]) == 1193
+    assert len(r["bp_summaries"]) == 99
+    assert len(r["job_allocations"]) == 975
+    assert len(r["equipment_allocations"]) == 1111
+```
+
+- [ ] **Step 2: 통과 확인**
+
+Run: `CPIA_PARSER_VERIFY_LLM=off uv run --project pipeline python -m pytest pipeline/tests/test_parser.py::test_integrated_e2e_golden_counts -v`
+Expected: PASS (1193/99/975/1111)
+
+- [ ] **Step 3: parser 전체 테스트 스위트 회귀**
+
+Run: `CPIA_PARSER_VERIFY_LLM=off uv run --project pipeline python -m pytest pipeline/tests/test_parser.py pipeline/tests/test_parser_subcon.py pipeline/tests/test_filename_parser.py pipeline/tests/test_parser_node.py pipeline/tests/test_parser_post.py -v`
+Expected: 전부 PASS (통합 회귀 0 + 업체 신규 통과)
+
+- [ ] **Step 4: 다운스트림 인접 테스트 회귀 (무수정 확인)**
+
+Run: `CPIA_PARSER_VERIFY_LLM=off uv run --project pipeline python -m pytest pipeline/tests/test_parser_job_equipment_insert.py -v`
+Expected: PASS (parser 출력 스키마 불변 → DB insert 회귀 없음). 실패 시 스키마 변경이 새어나간 것 — 조사.
+
+- [ ] **Step 5: 커밋**
+
+```bash
+git add pipeline/tests/test_parser.py
+git commit -m "test(parser): 통합 E2E 골든 1193/99/975/1111 못박기 + 전체 회귀"
+```
+
+---
+
+## 완료 기준 (Definition of Done)
+
+1. `data/demo_inputs/20250925/` 10개(.xlsm 3 포함) 전부 ParseError 없이 33 activities, work_content/unit/today_qty/company/bp_code 정상 (issue #52 해소).
+2. 통합포맷 회귀 골든 1193/99/975/1111 유지.
+3. parser 관련 전체 테스트 스위트 green.
+4. 출력 스키마(`ParsedDailyReport`) 불변 — 다운스트림 무수정.
+
+## 미해결 / 다음 (이번 비목표)
+
+- N종 제각각 양식 LLM 2-pass 인식 레이어 (다음 브레인스토밍)
+- 업체 시트6(출력일보) 작업자별 WBS → mapper 매핑 보강
+- 파일명 vs 내부 작업일자 불일치 경고 로그 (선택 — 본 plan 에 미포함, 필요 시 Task 추가)

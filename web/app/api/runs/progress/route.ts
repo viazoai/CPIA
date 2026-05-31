@@ -84,31 +84,45 @@ export async function GET(req: Request) {
   const isCompleted = run.status === "completed";
   const isWaitingHil = run.status === "waiting_hil_1";
 
-  // 입력 파일 수 추정: parser_activities 의 distinct (company) — 정확히 매핑되진 않지만 시각화용.
-  // 보다 정확히는 collector_inbox 의 file count 가 적합하나 시연용 단순화.
+  // 단계별 실제 카운트 조회.
+  // Collector = 파일 수 (parser_report_meta 의 (run_id, bp_name) 고유 행 수)
+  // Parser    = parser_activities 행 수
+  // Mapper    = mapper_activities 행 수
+  // Atomizer  = pipeline_runs.atomized_count
   const countRows = (await (sql as any)`
     SELECT
-      (SELECT COUNT(*)::int FROM parser_activities WHERE run_id = ${run.run_id}) AS parser_rows,
-      (SELECT COUNT(*)::int FROM mapper_activities WHERE run_id = ${run.run_id}) AS mapper_rows
-  `) as Array<{ parser_rows: number; mapper_rows: number }>;
-  const parserRows = countRows[0]?.parser_rows ?? 0;
-  const mapperRows = countRows[0]?.mapper_rows ?? 0;
+      (SELECT COUNT(*)::int FROM parser_report_meta WHERE run_id = ${run.run_id})  AS file_count,
+      (SELECT COUNT(*)::int FROM parser_activities   WHERE run_id = ${run.run_id}) AS parser_rows,
+      (SELECT COUNT(*)::int FROM mapper_activities   WHERE run_id = ${run.run_id}) AS mapper_rows
+  `) as Array<{ file_count: number; parser_rows: number; mapper_rows: number }>;
+  const fileCount  = Math.max(countRows[0]?.file_count  ?? 0, 1);
+  const parserRows = Math.max(countRows[0]?.parser_rows ?? 0, 1);
+  const mapperRows = Math.max(countRows[0]?.mapper_rows ?? 0, 1);
+  const atomizedCount = Math.max(run.atomized_count ?? 0, 1);
+
+  // 단계별 "total received" 기준 — 각 단계가 처리하는 단위 수.
+  // Exporter/Forecaster/Optimizer 는 mapper_rows 를 입력 단위로 간주.
+  const STAGE_TOTAL: Record<string, number> = {
+    Collector:      fileCount,
+    Parser:         parserRows,
+    Mapper:         mapperRows,
+    "Human Review": mapperRows,
+    Atomizer:       atomizedCount,
+    Exporter:       mapperRows,
+    Forecaster:     mapperRows,
+    Optimizer:      mapperRows,
+  };
 
   // 단계 진행 위치 결정.
   // null (시작 직후) 이면 collector 진행중으로 간주.
-  // hil_2/reporter 같은 후속 단계는 optimizer 까지 모두 done 으로 표시.
   const cn = run.current_node ?? "collector";
   let activeIdx = STAGE_ORDER.findIndex((s) => s.currentNode === cn);
   if (activeIdx < 0) {
-    // hil_2, reporter, 또는 unknown → atomizer 이후로 간주
     activeIdx = POST_HIL1_NODES.has(cn) ? STAGE_ORDER.length - 1 : 0;
   }
 
-  // 단계별 received 추정 — Parser 이후 단계는 parser 행 수 기준, 이전은 단순 10건 가정.
-  // 시연용 단순화: 모든 stage 의 received = 처리량 추정 (parser_rows 가 가장 신뢰성 있음).
-  const totalUnits = Math.max(parserRows, 10);
-
   const stages: AgentStageProgress[] = STAGE_ORDER.map((def, i) => {
+    const total = STAGE_TOTAL[def.agent] ?? parserRows;
     let percent: number;
     let received: number;
     let processed: number;
@@ -116,24 +130,24 @@ export async function GET(req: Request) {
 
     if (isCompleted) {
       percent = 100;
-      received = totalUnits;
-      processed = totalUnits;
+      received = total;
+      processed = total;
     } else if (i < activeIdx) {
       percent = 100;
-      received = totalUnits;
-      processed = totalUnits;
+      received = total;
+      processed = total;
     } else if (i === activeIdx) {
-      // 현재 진행중. HIL 정지 케이스면 waiting_hil=true, percent=0 (대기).
       if (def.is_hil && isWaitingHil) {
         percent = 0;
-        received = mapperRows || totalUnits;
+        received = total;
         processed = 0;
         waiting_hil = true;
       } else {
-        // 진행중 — 단계 진입했지만 미완료. 시각적으로 50% 표시.
-        percent = 50;
-        received = totalUnits;
-        processed = Math.floor(totalUnits * 0.5);
+        // "진행 중" — percent 는 클라이언트 타이머가 애니메이션으로 채움.
+        // API 는 -1 을 sentinel 로 반환 → 클라이언트가 로컬 elapsed 기반 0→90% 계산.
+        percent = -1;
+        received = total;
+        processed = 0;
       }
     } else {
       percent = 0;

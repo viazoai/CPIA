@@ -18,7 +18,7 @@ import { NextResponse } from "next/server";
 import sql from "@/lib/pg";
 import type { AgentTaskItem } from "@/lib/types";
 
-const DATA_DIR = path.join(process.cwd(), "..", "data");
+const DATA_DIR = process.env.DATA_DIR ?? path.join(process.cwd(), "data");
 
 const STATUS_SORT: Record<AgentTaskItem["status"], number> = {
   processing:  0,

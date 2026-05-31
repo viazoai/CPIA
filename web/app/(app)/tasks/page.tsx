@@ -32,11 +32,13 @@ interface ProgressData {
 }
 
 function pickCurrentAgent(stages: AgentStageProgress[]): string | null {
+  // percent=-1: DB "진행중" sentinel (received=0 이어도 선택)
   const current =
     stages.find((s) => s.waiting_hil) ??
-    stages.find((s) => s.received > 0 && s.percent < 100) ??
-    stages[stages.length - 1];
-  return current ? current.agent : null;
+    stages.find((s) => s.percent === -1) ??
+    stages.find((s) => s.received > 0 && s.percent > 0 && s.percent < 100) ??
+    stages.filter((s) => s.percent === 100).at(-1);
+  return current?.agent ?? null;
 }
 
 export default function AgentTasksPage() {
@@ -57,9 +59,10 @@ export default function AgentTasksPage() {
   const stageActiveAtRef = useRef<Map<string, number>>(new Map());
   const [animTick, setAnimTick] = useState(0);
 
-  // selectedDate 변경 시 stage 타이머 초기화.
+  // selectedDate 변경 시 stage 타이머 + items 초기화.
   useEffect(() => {
     stageActiveAtRef.current.clear();
+    setDbItems([]);
   }, [selectedDate]);
 
   // progress 가 running 상태일 때만 250ms 틱.
@@ -86,7 +89,6 @@ export default function AgentTasksPage() {
 
   // DB items — hasProgress 시 선택된 agent 의 실제 아이템 조회.
   const [dbItems, setDbItems] = useState<AgentTaskItem[]>([]);
-  const dbItemsKeyRef = useRef<string>("");  // 중복 fetch 방지
 
   // 2) selectedDate 변경 시에만 detail fetch.
   //    실 progress(hasProgress) 또는 sim 활성 시 mock detail 건너뜀.
@@ -162,41 +164,43 @@ export default function AgentTasksPage() {
     };
   }, [selectedDate]);
 
-  // 4) DB items fetch — hasProgress 이고 agent 가 선택됐을 때 /api/runs/items 호출.
-  //    progress.run_id + selectedAgent 조합이 바뀔 때만 재요청.
+  // 4) DB items 실시간 폴링 — hasProgress + agent 선택 시 2초마다 재조회.
+  //    current_node 바뀌면 즉시 재시작 (stage 전환 시 아이템 목록 즉시 갱신).
   useEffect(() => {
     if (!progress?.run_id || !selectedAgent) {
       setDbItems([]);
       return;
     }
-    const key = `${progress.run_id}:${selectedAgent}`;
-    if (dbItemsKeyRef.current === key) return; // 이미 fetch 중/완료
-    dbItemsKeyRef.current = key;
+    const runId = progress.run_id;
+    const isDone = progress.status === "completed" || progress.status === "failed";
     let cancelled = false;
-    fetch(`/api/runs/items?run_id=${progress.run_id}&agent=${encodeURIComponent(selectedAgent)}`)
-      .then((r) => r.json())
-      .then((d: { ok: boolean; items?: AgentTaskItem[] }) => {
-        if (cancelled || !d.ok) return;
-        setDbItems(d.items ?? []);
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [progress?.run_id, selectedAgent]);
+    let timerId: ReturnType<typeof setTimeout> | null = null;
 
-  // progress 가 polling 될 때마다 items 재조회 (run_id 동일해도 stage 진행으로 items 변동).
-  useEffect(() => {
-    if (!progress?.run_id || !selectedAgent) return;
-    let cancelled = false;
-    fetch(`/api/runs/items?run_id=${progress.run_id}&agent=${encodeURIComponent(selectedAgent)}`)
-      .then((r) => r.json())
-      .then((d: { ok: boolean; items?: AgentTaskItem[] }) => {
+    const fetchItems = async () => {
+      if (cancelled) return;
+      try {
+        const res = await fetch(
+          `/api/runs/items?run_id=${runId}&agent=${encodeURIComponent(selectedAgent)}`,
+        );
+        if (cancelled || !res.ok) return;
+        const d = (await res.json()) as { ok: boolean; items?: AgentTaskItem[] };
         if (cancelled || !d.ok) return;
         setDbItems(d.items ?? []);
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [progress?.current_node, progress?.status]);
+      } catch {
+        // 네트워크 오류 무시
+      }
+      // 완료 전까지 2초마다 재조회
+      if (!cancelled && !isDone) {
+        timerId = setTimeout(fetchItems, 2000);
+      }
+    };
+
+    fetchItems();
+    return () => {
+      cancelled = true;
+      if (timerId) clearTimeout(timerId);
+    };
+  }, [progress?.run_id, progress?.current_node, progress?.status, selectedAgent]);
 
   // --- H1: 아래 useMemo / useEffect 들은 모두 early-return *위* 에 위치해야 함.
   //         조기 반환 후 hook 호출 → "Rendered more hooks than during the previous render" 위반.

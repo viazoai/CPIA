@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Upload } from "lucide-react";
 import { DailyTaskList } from "@/app/components/tasks/DailyTaskList";
 import { AgentWorkflowList } from "@/app/components/tasks/AgentWorkflowList";
@@ -7,6 +7,13 @@ import { AgentTaskItemList } from "@/app/components/tasks/AgentTaskItemList";
 import { UploadDailyReportDialog } from "@/app/components/tasks/UploadDailyReportDialog";
 import { Button } from "@/components/ui/button";
 import type { DailyTask, AgentStageProgress, AgentTaskItem } from "@/lib/types";
+import {
+  useSimStore,
+  useSimTick,
+  computeSimStages,
+  computeOverallPercent,
+  parseSimDateFromFiles,
+} from "@/lib/sim-store";
 
 interface DetailData {
   stages: AgentStageProgress[];
@@ -30,6 +37,10 @@ export default function AgentTasksPage() {
   // 한번 fetch 한 date 는 메모리 캐시 → 좌측 목록에서 다른 날짜 갔다 돌아와도 즉답.
   const detailCacheRef = useRef<Map<string, DetailData>>(new Map());
 
+  // H1 — 시뮬레이션 상태. useSimTick 이 250ms 마다 re-render + phase 자동 전환.
+  const sim = useSimStore();
+  useSimTick();
+
   // 1) 진입 즉시 list (1년치 dates) — 단일 쿼리, < 200ms.
   useEffect(() => {
     fetch("/api/mock/agent-tasks")
@@ -41,8 +52,13 @@ export default function AgentTasksPage() {
   }, []);
 
   // 2) selectedDate 변경 시에만 detail fetch.
+  //    sim 활성 + sim date 선택 중이면 fetch 건너뛰기 (sim store 가 stages 제공).
   useEffect(() => {
     if (!selectedDate) return;
+    if (sim.simDate && selectedDate === sim.simDate && sim.phase !== "idle") {
+      // sim 우선 — fetch 안 함. detail 은 null 로 둬도 isSimSelected 분기에서 sim stages 사용.
+      return;
+    }
     const cached = detailCacheRef.current.get(selectedDate);
     if (cached) {
       setDetail(cached);
@@ -62,7 +78,62 @@ export default function AgentTasksPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedDate]);
+  }, [selectedDate, sim.simDate, sim.phase]);
+
+  // --- H1: 아래 useMemo / useEffect 들은 모두 early-return *위* 에 위치해야 함.
+  //         조기 반환 후 hook 호출 → "Rendered more hooks than during the previous render" 위반.
+
+  // sim 카드 stages 계산.
+  const simStages = useMemo(() => {
+    if (sim.phase === "idle" || !sim.simDate) return null;
+    return computeSimStages(sim, Date.now());
+    // sim 의 phase / startedAt 이 바뀔 때 + useSimTick 의 250ms tick 이 re-render 트리거.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sim.phase, sim.simDate, sim.phase1StartedAt, sim.phase2StartedAt, sim.files.length]);
+
+  // sim 카드 합성 — sim 활성 시 좌측 list 최상단에 prepend.
+  // 이미 같은 date 가 list 에 있으면(드물게 DB 와 충돌) sim 카드로 교체.
+  const augmentedTasks: DailyTask[] = useMemo(() => {
+    if (!tasks) return [];
+    if (!sim.simDate || !simStages) return tasks;
+    const simCard: DailyTask = {
+      date: sim.simDate,
+      total_count: sim.files.length,
+      progress_percent: computeOverallPercent(simStages),
+      status:
+        sim.phase === "completed"
+          ? "completed"
+          : sim.phase === "hil_paused"
+          ? "review_pending"
+          : "running",
+      has_anomaly: sim.phase === "hil_paused",
+    };
+    const existingIdx = tasks.findIndex((t) => t.date === sim.simDate);
+    if (existingIdx >= 0) {
+      return tasks.map((t, i) => (i === existingIdx ? simCard : t));
+    }
+    return [simCard, ...tasks];
+  }, [tasks, sim.simDate, sim.phase, sim.files.length, simStages]);
+
+  // sim 시작 (idle → phase1) 전이 시점에만 sim 카드 자동 선택.
+  const prevSimPhaseRef = useRef<string>("idle");
+  useEffect(() => {
+    if (prevSimPhaseRef.current === "idle" && sim.phase === "phase1" && sim.simDate) {
+      setSelectedDate(sim.simDate);
+    }
+    prevSimPhaseRef.current = sim.phase;
+  }, [sim.phase, sim.simDate]);
+
+  // sim 활성 중에는 current agent 도 sim stages 기준으로 자동 갱신.
+  const isSimSelected = !!(sim.simDate && selectedDate === sim.simDate && simStages);
+  useEffect(() => {
+    if (isSimSelected && simStages) {
+      setSelectedAgent(pickCurrentAgent(simStages));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSimSelected, sim.phase, simStages?.map((s) => s.percent).join(",")]);
+
+  // ========== 이후부터는 render 분기 (hook 호출 없음) ==========
 
   if (!tasks) {
     return (
@@ -72,7 +143,8 @@ export default function AgentTasksPage() {
     );
   }
 
-  const stages = detail?.stages ?? [];
+  // 화면용 stages: sim 카드 선택 중이면 sim 으로 override.
+  const stages = isSimSelected ? (simStages as AgentStageProgress[]) : detail?.stages ?? [];
   const itemsForDate = detail?.items ?? {};
   const itemsForAgent = selectedAgent ? itemsForDate[selectedAgent] || [] : [];
   const selectedStage = selectedAgent ? stages.find((s) => s.agent === selectedAgent) ?? null : null;
@@ -107,6 +179,11 @@ export default function AgentTasksPage() {
       <UploadDailyReportDialog
         open={uploadOpen}
         onOpenChange={setUploadOpen}
+        onUploaded={({ folder, files }) => {
+          // 파일명에서 _YYYYMMDD 추출 → 시뮬 카드의 "오늘" 일자.
+          const date = parseSimDateFromFiles(files);
+          sim.startSimulation({ date, folder, files });
+        }}
       />
 
       <section className="mx-auto w-full max-w-screen-2xl px-6 pt-4 pb-8 md:px-10 flex-1 min-h-0">
@@ -114,14 +191,14 @@ export default function AgentTasksPage() {
           {/* 좌측: Daily Tasks */}
           <div className="col-span-12 md:col-span-3 rounded-card border border-border-soft bg-card shadow-xs overflow-hidden flex flex-col min-h-0">
             <DailyTaskList
-              tasks={tasks}
+              tasks={augmentedTasks}
               selectedDate={selectedDate}
               onSelect={setSelectedDate}
             />
           </div>
           {/* 중앙: Agent Workflow */}
           <div className="col-span-12 md:col-span-4 rounded-card border border-border-soft bg-card shadow-xs overflow-hidden flex flex-col min-h-0">
-            {detail ? (
+            {detail || isSimSelected ? (
               <AgentWorkflowList
                 stages={stages}
                 selectedAgent={selectedAgent}
@@ -135,7 +212,7 @@ export default function AgentTasksPage() {
           </div>
           {/* 우측: 단계별 건 목록 */}
           <div className="col-span-12 md:col-span-5 rounded-card border border-border-soft bg-card shadow-xs overflow-hidden flex flex-col min-h-0">
-            {detail ? (
+            {detail || isSimSelected ? (
               <AgentTaskItemList
                 selectedAgent={selectedAgent}
                 stage={selectedStage}

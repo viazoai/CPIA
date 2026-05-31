@@ -32,7 +32,7 @@ const MOCK_NOTIFS: NotifItem[] = [
     id: "n3",
     tone: "info",
     title: "Daily 보고서 생성 완료",
-    body: "2026-05-17 통합 진단 보고서가 준비되었습니다.",
+    body: "2025-09-27 통합 진단 보고서가 준비되었습니다.",
     time: "1시간 전",
   },
 ];

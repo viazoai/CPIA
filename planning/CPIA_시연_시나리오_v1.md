@@ -219,7 +219,7 @@
 | H1 | P0 | **2-페이즈 진행 시뮬 엔진 (압축 cycle)** — 업로드 제출(A-4) 시점에 해당 일자의 stages 진행도를 클라이언트 상태로 override. **Phase 1**: Collector(2s)→Parser(2.5s)→Mapper(3s) 까지 채운 뒤 **HIL Review 에서 정지** (`waiting_hil:true`) — 총 7.5s. **Phase 2**: `/review` 확정 후 `/tasks` 복귀하면 Atomizer(2s)→Exporter(2.5s)→Forecaster(2s)→Optimizer(2s) 진행 재개 → 완료 — 총 8.5s. **두 phase 합 16초** 가 1분 압축 storyboard 의 핵심 예산. | A-4 ~ A-6, A-10 ~ A-11 | B | localStorage 또는 zustand. `/api/mock/agent-tasks/{date}` 응답을 시뮬 상태로 덮어쓰기. cycle time 을 const 로 빼서 리허설 중 조정 용이하게 |
 | H2 | P0 | **Workflow 블록 클릭 → `/review` 라우팅** + **확정 후 1.0초 Modal → `/tasks` 자동 복귀** — (a) `AgentWorkflowList` 의 HIL Review 블록 클릭 시 `router.push("/review?from=tasks&date=...")` (b) `/review` "모두 AI 추천대로 확정" 클릭 시 **1.0초** "매핑이 완료되었습니다" Modal/Toast → 자동 `router.push("/tasks")` (c) 복귀 시 H1 시뮬 Phase 2 자동 트리거 | A-7, A-9, A-10 | B | 기존 컴포넌트 재활용. 라우팅·토스트만 추가. Modal 표시 시간 1.0초로 압축 |
 | H3 | P0 | **Excel 정적 다운로드 라우트** — `/api/export/download?date=...` → `docs/sample/통합작업일보_M15X Ph-3 IBL PJT 작업일보_20250925.xlsx` 그대로 서빙 (Content-Disposition attachment) | A-13 | B | Node runtime, fs.readFile |
-| H4 | P0 | **시연용 샘플 작업일보 10개 폴더 준비** — `docs/sample/업체작업일보_*.xlsm/xlsx` 를 업체명·날짜만 셔플해 N장. 데모용 디렉토리는 `planning/demo_inputs/YYYYMMDD/` | A-3 | B | 시연 당일 데스크탑에서 즉시 드래그 가능한 위치에 복사 |
+| H4 | P0 ✅ | **시연용 샘플 작업일보 10개 준비** — `data/demo_inputs/20250925/` (총 5.4MB). 업체명은 `docs/sample/통합작업일보_*xlsx` 실제 등장 업체에서 발췌, **토목 3 + 건축 7 한정**. 토목: ㈜장평건설(토목공사) / ㈜제일공사(토공사) / 윤성이엔지(외부공사). 건축: (유)성우이엔씨(건축공사) / ㈜두제산업개발(할석) / ㈜신성이엔지(골조) / ㈜에스비테크(마감) / ㈜엔아이스틸(철골) / 남웅건설(단열) / 까뮤이앤씨(외장). xlsx 7 + xlsm 3 혼합. 일자는 시연 "오늘" = 2025-09-25 기준. | A-3 | B | 시연 당일 데스크탑에 복사. 시연 후 H12 로 일괄 초기화 |
 | H5 | P0 | **Demo B `/reports` 데이터 일관성 점검** — § 01 진단(저생산성 공종) ↔ § 02 4분면 빨간 분면 WP ↔ Optimizer 권고의 정량 숫자(공기 9일 회복) ↔ § 03 곡선의 회복일이 모두 같은 현장(M15X Ph-3 IBL)·같은 수치를 가리키는지 검증 | B-2 ~ B-6 | B | mock_report.json·mock_sites.json·mock_simulation.json 정합성. 코드 수정 가능성 낮음, 데이터만 |
 | H6 | P0 | **§ 03 공기단축 시나리오 컴포넌트** 데이터·렌더링 확인. 미존재 시 mock_simulation.json + 회복/미회복 라인 차트 추가 | B-6 | B | 현 reports/page.tsx 에 § 03 섹션 유무 확인부터 |
 | H10 | P0 | **`/reports` 진입 시 M15X Ph-3 IBL 자동 선택** — 사이트 selector 가 있다면 default, 없다면 query param `?site=m15x-ph3-ibl` 으로 진입하도록 발표 매뉴얼화 | B-1 | B | 현 page.tsx 가 어떻게 사이트를 선택하는지 확인 후 결정 |
@@ -227,10 +227,13 @@
 | H7 | P1 | `?demo=replay` query 토글 — 실 API 실패 시 즉시 fixture 강제 | (전체) | B | 발표자 비상 스위치 |
 | H8 | P1 | **백업 영상 사전 녹화** (Demo A 2분 + Demo B 1분) | (전체) | B | D-Day 3일 전 |
 | H9 | P1 | 리허설 4회 (D-7, D-3, D-1, D-Day 아침) | (전체) | A+B | 매 회차 시나리오·멘트 폴리시 |
+| H12 | P0 | **시연 데이터 초기화 버튼** — `UserMenu` 드롭다운(우상단 아바타) 안에 "시연 데이터 초기화" 메뉴 항목 추가. 클릭 시 confirm dialog → `DELETE /api/upload/reset` → `data/upload/*` 전체 삭제 → 성공 토스트. **`NEXT_PUBLIC_DEMO_RESET=1` 환경변수 가 있을 때만 노출** (일반 사용자에게는 메뉴 자체가 숨김). 반복 시연으로 인한 중복 데이터 적재 방지. | (시연 전후) | B | 추후 H1 시뮬 상태(localStorage) 도 함께 reset 하도록 확장 가능 |
 
 ---
 
-*최종 수정: 2026-05-31 — Demo A·B 각 ≤ 60초로 압축. Section 0 시간 배분 재할당(시연 2분 + 슬라이드 13분), Demo A 시퀀스 시각 표기·stage cycle 2~3초로 단축, Demo B § 01~§ 03 7~12초씩·Dashboard 2탭만, H1 cycle time 16초 총량·H2 Modal 1.0초로 동기화*
+*최종 수정: 2026-05-31 — 시연 "오늘" 을 2025-09-25 (통합작업일보 출처일) 로 정렬 (옵션 B). mock_agent_tasks·mock_report·mock_dashboard·mock_chat_sequence -232일 shift, NotificationBell 알림 일자 동기화, H4 폴더·파일명 `_20250925` 로 변경. mock_sites expected_completion 은 미래 완공일로 유지.*
+*이전 수정: 2026-05-31 — H12(시연 데이터 초기화 버튼) 추가, H4 경로 `data/demo_inputs/YYYYMMDD/` 로 갱신*
+*이전 수정: 2026-05-31 — Demo A·B 각 ≤ 60초로 압축. Section 0 시간 배분 재할당(시연 2분 + 슬라이드 13분), Demo A 시퀀스 시각 표기·stage cycle 2~3초로 단축, Demo B § 01~§ 03 7~12초씩·Dashboard 2탭만, H1 cycle time 16초 총량·H2 Modal 1.0초로 동기화*
 *이전 수정: 2026-05-31 — Demo A·B 스토리보드를 사용자 묘사대로 재작성 (HIL 블록 클릭→`/review`→확정→복귀 시퀀스 / `/reports` 3섹션→관리자 `/dashboard` 클로저). 워크 아이템 H1~H2 정의 정밀화, H10·H11 추가*
 *이전 수정: 2026-05-31 — Hybrid 확정 + 워크 아이템 H1~H9 추가*
 *이전 수정: 2026-05-31 — v1 초안 (B_Track 작성)*

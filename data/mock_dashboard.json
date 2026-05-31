@@ -18,11 +18,11 @@
       { "site_id": "m15x-ph3-ibl","site_name": "M15X Ph-3 IBL",   "hours_saved": 221, "fte_saved": 1.6 }
     ],
     "monthly_trend": [
-      { "month": "2026-01", "cumulative_fte": 3.2 },
-      { "month": "2026-02", "cumulative_fte": 7.8 },
-      { "month": "2026-03", "cumulative_fte": 11.5 },
-      { "month": "2026-04", "cumulative_fte": 14.1 },
-      { "month": "2026-05", "cumulative_fte": 15.4 }
+      { "month": "2025-05", "cumulative_fte": 3.2 },
+      { "month": "2025-06", "cumulative_fte": 7.8 },
+      { "month": "2025-07", "cumulative_fte": 11.5 },
+      { "month": "2025-08", "cumulative_fte": 14.1 },
+      { "month": "2025-09", "cumulative_fte": 15.4 }
     ],
     "per_site_automation": {
       "m15x-ph3-ibl": [

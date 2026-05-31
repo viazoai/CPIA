@@ -19,7 +19,11 @@ import { cn } from "@/lib/utils";
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onUploaded?: (result: { count: number; folder: string }) => void;
+  onUploaded?: (result: {
+    count: number;
+    folder: string;
+    files: { name: string; size: number }[];
+  }) => void;
 }
 
 function formatBytes(n: number): string {
@@ -95,7 +99,11 @@ export function UploadDailyReportDialog({ open, onOpenChange, onUploaded }: Prop
       if (!res.ok || !data.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
       setStatus("done");
       setResult({ count: data.count, folder: data.folder });
-      onUploaded?.({ count: data.count, folder: data.folder });
+      onUploaded?.({
+        count: data.count,
+        folder: data.folder,
+        files: data.files ?? files.map((f) => ({ name: f.name, size: f.size })),
+      });
     } catch (e: any) {
       setStatus("error");
       setError(e?.message ?? "업로드 실패");

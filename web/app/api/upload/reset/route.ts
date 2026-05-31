@@ -1,7 +1,8 @@
-// 시연 데이터 초기화 — 3 영역 정리:
+// 시연 데이터 초기화 — 4 영역 정리:
 //   1. data/upload/ 하위 batch 폴더 (uid 권한별 부분 실패 허용)
 //   2. data/input/{DEMO_DATE}/ 의 파일 (파이프라인 collector 가 보는 위치)
 //   3. pipeline_runs + 관련 sub-tables (report_date = DEMO_DATE)
+//   4. ChromaDB daily_activities — 해당 run_id 문서 삭제 (wbs_master 는 보존)
 //
 // UserMenu 의 "시연 데이터 초기화" 버튼에서 호출 (NEXT_PUBLIC_DEMO_RESET=1 게이트).
 // per-entry try/catch — 한 영역 실패해도 나머지 진행.
@@ -19,6 +20,34 @@ const INPUT_DIR = path.join(DATA_DIR, "input");
 
 // 시연 date — 현재 데모 시나리오 "오늘". 다른 date 도 정리하려면 ?date= 로 override.
 const DEFAULT_DEMO_DATE = "2025-09-25";
+
+const CHROMA_BASE = `http://${process.env.CHROMA_HOST ?? "localhost"}:${process.env.CHROMA_PORT ?? "8000"}/api/v1`;
+
+async function clearChromaForRunIds(runIds: string[]): Promise<{ deleted: number; error?: string }> {
+  if (runIds.length === 0) return { deleted: 0 };
+  try {
+    // 컬렉션 ID 조회 (이름 → uuid)
+    const listRes = await fetch(`${CHROMA_BASE}/collections`, { signal: AbortSignal.timeout(5000) });
+    if (!listRes.ok) throw new Error(`chroma list failed: ${listRes.status}`);
+    const collections = (await listRes.json()) as Array<{ id: string; name: string }>;
+    const col = collections.find((c) => c.name === "daily_activities");
+    if (!col) return { deleted: 0 }; // 컬렉션 없으면 패스
+
+    // run_id 기준 삭제 — wbs_master 는 건드리지 않음
+    const delRes = await fetch(`${CHROMA_BASE}/collections/${col.id}/delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ where: { run_id: { $in: runIds } } }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!delRes.ok) throw new Error(`chroma delete failed: ${delRes.status}`);
+    const result = (await delRes.json()) as string[] | { deleted?: number };
+    const deleted = Array.isArray(result) ? result.length : (result.deleted ?? 0);
+    return { deleted };
+  } catch (e: any) {
+    return { deleted: 0, error: e?.message ?? "chroma cleanup failed" };
+  }
+}
 
 async function clearDir(root: string): Promise<{ folders: number; files: number; failed: { path: string; error: string }[] }> {
   const entries = await fs.readdir(root, { withFileTypes: true }).catch(() => []);
@@ -99,7 +128,15 @@ export async function DELETE(req: Request) {
   const input = await clearDir(inputDir);
 
   // 3. DB (해당 date 의 pipeline_runs + 관련 sub-tables)
-  const db = await clearDbForDate(date);
+  //    run_id 목록을 먼저 조회해 4번 ChromaDB 삭제에도 사용.
+  const runIds = (await (sql as any)`
+    SELECT run_id::text FROM pipeline_runs WHERE report_date = ${date}
+  `).map((r: { run_id: string }) => r.run_id) as string[];
+
+  const [db, chroma] = await Promise.all([
+    clearDbForDate(date),
+    clearChromaForRunIds(runIds),
+  ]);
 
   return NextResponse.json({
     ok: true,
@@ -107,8 +144,10 @@ export async function DELETE(req: Request) {
     deletedFiles: upload.files + input.files,
     deletedRuns: db.deletedRuns,
     deletedActivities: db.deletedActivities,
+    deletedVectors: chroma.deleted,
     failed: [...upload.failed, ...input.failed.map((f) => ({ ...f, path: `input/${date}/${f.path}` }))],
     dbError: db.error,
+    chromaError: chroma.error,
     date,
   });
 }

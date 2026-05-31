@@ -1287,3 +1287,53 @@ async def fetch_consolidated_report(
             report_date,
         )
     return row["xlsx_bytes"] if row else None
+
+
+# ---------------------------------------------------------------------------
+# 시연 progress tracking — graph.py 의 node wrapper 가 진입 시 호출.
+# 각 호출은 단발성 connection (lifecycle 짧음). 노드별 PG pool 분리 구조라
+# module-level helper 가 호출자 부담 가장 적음.
+# ---------------------------------------------------------------------------
+
+
+async def set_current_node(postgres_url: str, run_id: str | uuid.UUID, node: str) -> None:
+    """pipeline_runs.current_node 한 줄 UPDATE.
+
+    Web UI (B_Track tasks/page) 가 polling 으로 이 값을 읽어 현재 단계 게이지 표시.
+    실패 시 silent — pipeline 본 동작 막지 않음 (progress 표시는 secondary).
+    """
+    rid = uuid.UUID(run_id) if isinstance(run_id, str) else run_id
+    try:
+        conn = await asyncpg.connect(postgres_url)
+        try:
+            await conn.execute(
+                "UPDATE pipeline_runs SET current_node = $1 WHERE run_id = $2",
+                node,
+                rid,
+            )
+        finally:
+            await conn.close()
+    except Exception:
+        # progress write 실패는 본 동작 영향 X.
+        pass
+
+
+async def set_run_status(postgres_url: str, run_id: str | uuid.UUID, status: str) -> None:
+    """pipeline_runs.status 한 줄 UPDATE.
+
+    HIL 진입 시 'waiting_hil_1' / 'waiting_hil_2' 표시 등. 최종 'completed' 는
+    graph.py 후미에서 이미 처리 (변경 X).
+    """
+    rid = uuid.UUID(run_id) if isinstance(run_id, str) else run_id
+    try:
+        conn = await asyncpg.connect(postgres_url)
+        try:
+            await conn.execute(
+                "UPDATE pipeline_runs SET status = $1 WHERE run_id = $2",
+                status,
+                rid,
+            )
+        finally:
+            await conn.close()
+    except Exception:
+        pass

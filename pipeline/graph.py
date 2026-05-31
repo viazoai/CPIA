@@ -32,7 +32,13 @@ from pipeline.agents.reporter import ReporterConfig, report
 from pipeline.agents.exporter import consolidated_xlsx_node
 from pipeline.checkpointer import build_checkpointer
 from pipeline.chroma_client import ChromaClient
-from pipeline.db import PGClient, update_site_hours_saved_cum, update_site_last_run
+from pipeline.db import (
+    PGClient,
+    set_current_node,
+    set_run_status,
+    update_site_hours_saved_cum,
+    update_site_last_run,
+)
 from pipeline.state import Activity, CPIAState, ParsedDailyReport
 
 # Mapper LLM rerank 병렬도 — Azure rate-limit 고려해 기본 4. env 로 조정.
@@ -560,33 +566,59 @@ def build_graph(cfg: GraphConfig):
     """
     graph = StateGraph(CPIAState)
 
+    # 시연 progress tracking — 각 node 진입 시 pipeline_runs.current_node UPDATE.
+    # B_Track tasks/page 의 polling 이 이 값을 읽어 게이지 단계 표시.
+    pg_url = cfg.atomizer.postgres_url
+
+    async def _collector_p(state: CPIAState) -> dict:
+        await set_current_node(pg_url, state["run_id"], "collector")
+        return await _collector(state)
+
+    async def _parser_p(state: CPIAState) -> dict:
+        await set_current_node(pg_url, state["run_id"], "parser")
+        # parser_node 는 sync — await 사용 X.
+        return _parser(state)
+
     async def _mapper(state: CPIAState) -> dict:
+        await set_current_node(pg_url, state["run_id"], "mapper")
         return await mapper_node(state, cfg)
 
     async def _hil_1(state: CPIAState) -> dict:
+        await set_current_node(pg_url, state["run_id"], "hil_1")
+        await set_run_status(pg_url, state["run_id"], "waiting_hil_1")
         return await hil_1_node(state, cfg)
 
     async def _atomizer(state: CPIAState) -> dict:
+        await set_current_node(pg_url, state["run_id"], "atomizer")
+        await set_run_status(pg_url, state["run_id"], "running")
         return await atomizer_node(state, cfg)
 
+    async def _exporter(state: CPIAState) -> dict:
+        await set_current_node(pg_url, state["run_id"], "exporter")
+        return await consolidated_xlsx_node(state)
+
     async def _forecaster(state: CPIAState) -> dict:
+        await set_current_node(pg_url, state["run_id"], "forecaster")
         return await forecaster_node(state, cfg)
 
     async def _hil_2(state: CPIAState) -> dict:
+        await set_current_node(pg_url, state["run_id"], "hil_2")
         return await hil_2_node(state, cfg)
 
     async def _optimizer(state: CPIAState) -> dict:
+        await set_current_node(pg_url, state["run_id"], "optimizer")
         return await optimizer_node(state, cfg)
 
     async def _reporter(state: CPIAState) -> dict:
+        await set_current_node(pg_url, state["run_id"], "reporter")
         return await reporter_node(state, cfg)
 
-    graph.add_node("collector", _collector)
-    graph.add_node("parser", _parser)
+    graph.add_node("collector", _collector_p)
+    graph.add_node("parser", _parser_p)
     graph.add_node("mapper", _mapper)
     graph.add_node("hil_1", _hil_1)
     graph.add_node("atomizer", _atomizer)
-    graph.add_node("exporter", consolidated_xlsx_node)
+    graph.add_node("exporter", _exporter)
     graph.add_node("forecaster", _forecaster)
     graph.add_node("hil_2", _hil_2)
     graph.add_node("optimizer", _optimizer)

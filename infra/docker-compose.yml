@@ -110,6 +110,7 @@ services:
       CHROMA_HOST: cpia-chroma
       CHROMA_PORT: "8000"
       FASTAPI_URL: http://cpia-pipeline:8000
+      DATA_DIR: /app/data
     ports:
       - "0.0.0.0:${WEB_PORT:-5535}:5535"
     volumes:

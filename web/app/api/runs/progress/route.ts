@@ -26,7 +26,7 @@ import { NextResponse } from "next/server";
 import sql from "@/lib/pg";
 import type { AgentStageProgress } from "@/lib/types";
 
-const DATA_DIR = path.join(process.cwd(), "..", "data");
+const DATA_DIR = process.env.DATA_DIR ?? path.join(process.cwd(), "data");
 
 async function countInputFiles(dateCompact: string): Promise<number> {
   try {

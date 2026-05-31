@@ -12,7 +12,7 @@ import { NextRequest, NextResponse } from "next/server";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-const DATA_DIR = path.join(process.cwd(), "..", "data");
+const DATA_DIR = process.env.DATA_DIR ?? path.join(process.cwd(), "data");
 const UPLOAD_DIR = path.join(DATA_DIR, "upload");
 const INPUT_DIR = path.join(DATA_DIR, "input");
 const FASTAPI_URL = process.env.FASTAPI_URL ?? "http://localhost:8000";

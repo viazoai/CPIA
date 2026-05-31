@@ -1,10 +1,10 @@
 # Next.js dev 서버(HMR) + 전체 스택 한 번에 기동하는 오버라이드 파일.
 #
-# 사용법:
-#   cd infra
-#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+# 직접 사용 시:
+#   DEV_PORT=5536 DEV_CMD=dev:docker  docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#   DEV_PORT=5537 DEV_CMD=dev2:docker docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 #
-# 포트: postgres 5532 / chroma 5533 / adminer 5534 / pipeline 5538 / web-dev 5537
+# 권장: 루트의 Makefile 사용 → make dev / make dev2
 #
 # 첫 실행 시 npm install 이 약간 걸림 (이후 node_modules 는 named volume 에 캐시).
 # 소스 변경 → HMR 즉시 반영 (재빌드 불필요).
@@ -26,10 +26,10 @@ services:
       CHROMA_PORT: "8000"
       FASTAPI_URL: http://cpia-pipeline:8000
       NEXT_PUBLIC_DEMO_RESET: "1"
-      WATCHPACK_POLLING: "true"   # 컨테이너 내 파일 감시 안정성
+      WATCHPACK_POLLING: "true"
     ports:
-      - "0.0.0.0:5537:5537"
-    command: sh -c "npm install --prefer-offline && npm run dev2:docker"
+      - "0.0.0.0:${DEV_PORT:-5537}:${DEV_PORT:-5537}"
+    command: sh -c "npm install --prefer-offline && npm run ${DEV_CMD:-dev2:docker}"
     depends_on:
       postgres:
         condition: service_healthy

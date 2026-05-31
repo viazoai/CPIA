@@ -1,8 +1,12 @@
-.PHONY: dev prod build build-pipeline down logs
+.PHONY: dev dev2 prod build build-pipeline down logs
 
-# 개발 (HMR, 포트 5537) — 이미지 없으면 자동 빌드
+# 개발 (HMR, 포트 5536)
 dev:
-	docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml up -d
+	DEV_PORT=5536 DEV_CMD=dev:docker docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml up -d
+
+# 개발 2 (HMR, 포트 5537)
+dev2:
+	DEV_PORT=5537 DEV_CMD=dev2:docker docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml up -d
 
 # 시연/프로덕션 (포트 5535) — 이미지 없으면 자동 빌드
 prod:

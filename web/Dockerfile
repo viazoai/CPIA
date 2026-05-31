@@ -12,6 +12,9 @@ RUN npm ci --no-audit --no-fund
 FROM node:24-alpine AS builder
 WORKDIR /app/web
 ENV NEXT_TELEMETRY_DISABLED=1
+# NEXT_PUBLIC_* 은 build time 에 client bundle 로 inline → 반드시 build 단계 ENV 로 노출.
+ARG NEXT_PUBLIC_DEMO_RESET=0
+ENV NEXT_PUBLIC_DEMO_RESET=$NEXT_PUBLIC_DEMO_RESET
 COPY --from=deps /app/web/node_modules ./node_modules
 COPY web/ ./
 RUN npm run build

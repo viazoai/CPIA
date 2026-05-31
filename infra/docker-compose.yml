@@ -60,10 +60,46 @@ services:
     networks:
       - cpia_net
 
+  pipeline:
+    build:
+      context: ..
+      dockerfile: pipeline/Dockerfile
+    image: cpia/pipeline:latest
+    container_name: cpia-pipeline
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Seoul
+      POSTGRES_URL: postgresql://${POSTGRES_USER:-cpia}:${POSTGRES_PASSWORD:-cpia}@cpia-postgres:5432/${POSTGRES_DB:-cpia}
+      CHROMA_HOST: cpia-chroma
+      CHROMA_PORT: "8000"
+      CHROMA_SSL: "false"
+      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT}
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY}
+      AZURE_OPENAI_API_VERSION: ${AZURE_OPENAI_API_VERSION:-2024-12-01-preview}
+      LLM_MODEL: ${LLM_MODEL:-gpt-5.1-chat-ai-board-test}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small-ai-board-test}
+      EMBEDDING_DIM: ${EMBEDDING_DIM:-1536}
+      COLLECTOR_ENABLED: "false"
+    ports:
+      - "0.0.0.0:${PIPELINE_PORT:-5538}:8000"
+    volumes:
+      - ../data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      chroma:
+        condition: service_healthy
+    networks:
+      - cpia_net
+
   web:
     build:
       context: ..
       dockerfile: web/Dockerfile
+      args:
+        # 시연 데이터 초기화 버튼 (UserMenu) 노출 — Compose 빌드 시 1 로 inline.
+        # 일반 배포에서 숨기려면 0 으로 변경 후 재빌드.
+        NEXT_PUBLIC_DEMO_RESET: "1"
     image: cpia/web:latest
     container_name: cpia-web
     restart: unless-stopped
@@ -73,16 +109,20 @@ services:
       POSTGRES_URL: postgresql://${POSTGRES_USER:-cpia}:${POSTGRES_PASSWORD:-cpia}@cpia-postgres:5432/${POSTGRES_DB:-cpia}
       CHROMA_HOST: cpia-chroma
       CHROMA_PORT: "8000"
+      FASTAPI_URL: http://cpia-pipeline:8000
     ports:
       - "0.0.0.0:${WEB_PORT:-5535}:5535"
     volumes:
       # fixtures.ts: path.join(process.cwd(), "..", "data") → /app/data
-      - ../data:/app/data:ro
+      # 업로드 (data/upload) 쓰기를 위해 rw 모드로 마운트.
+      - ../data:/app/data
     depends_on:
       postgres:
         condition: service_healthy
       chroma:
         condition: service_healthy
+      pipeline:
+        condition: service_started
     networks:
       - cpia_net
       - npm

@@ -1,9 +1,6 @@
 "use client";
 import { useState } from "react";
-import { FileSpreadsheet, Loader2 } from "lucide-react";
-import { toast } from "sonner";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { cn } from "@/lib/utils";
 import type { ConsolidatedReport, SheetTab } from "@/lib/types";
 import {
   SheetTable,
@@ -15,7 +12,6 @@ import {
 
 interface Props {
   report: ConsolidatedReport;
-  siteId: string;  // PoC 단일 site — page.tsx 가 전달
 }
 
 const TAB_LABELS: Record<SheetTab, string> = {
@@ -25,69 +21,20 @@ const TAB_LABELS: Record<SheetTab, string> = {
   quantity:            "4. 물량",
 };
 
-export function ConsolidatedReportCard({ report, siteId }: Props) {
+export function ConsolidatedReportCard({ report }: Props) {
   const [tab, setTab] = useState<SheetTab>("output_manpower");
-  const [busy, setBusy] = useState(false);
 
   const counts = report.sheet_row_counts;
 
-  async function handleExport() {
-    if (busy || !report?.date || !siteId) return;
-    setBusy(true);
-    try {
-      const base = process.env.NEXT_PUBLIC_FASTAPI_BASE || "http://localhost:8000";
-      const url = `${base}/export/run?site_id=${encodeURIComponent(siteId)}&date=${report.date}`;
-      const res = await fetch(url);
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`Export 실패 (${res.status}): ${text}`);
-      }
-      const blob = await res.blob();
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = `통합작업일보_${report.date}.xlsx`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(a.href);
-    } catch (err) {
-      console.error("Export 실패:", err);
-      toast.error(`다운로드 실패: ${err instanceof Error ? err.message : "알 수 없는 오류"}`);
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
     <div className="rounded-card border border-border-soft bg-card shadow-xs flex flex-col h-full overflow-hidden">
-      <header className="flex items-start justify-between gap-4 px-5 py-4 border-b border-border-soft shrink-0">
-        <div className="min-w-0">
-          <div className="font-display text-h5 font-bold text-ink truncate">
-            {report.date} 통합 작업일보
-          </div>
-          <div className="mt-0.5 text-xs text-ink-mid">
-            {report.pjt} · 업체별 작업일보 {counts.output_manpower}건을 4 시트로 통합
-          </div>
+      <header className="px-5 py-4 border-b border-border-soft shrink-0">
+        <div className="font-display text-h5 font-bold text-ink truncate">
+          {report.date} 통합 작업일보
         </div>
-
-        <button
-          type="button"
-          onClick={handleExport}
-          disabled={busy || report.status !== "ready"}
-          title={report.status !== "ready" ? "아직 처리 중인 작업일보입니다" : "엑셀 다운로드"}
-          className={cn(
-            "shrink-0 inline-flex items-center gap-2 rounded-md bg-brand px-4 py-2 text-xs font-semibold text-white shadow-sm transition-colors",
-            "hover:bg-brand-dark focus:outline-none focus-visible:ring-2 focus-visible:ring-brand",
-            "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-brand"
-          )}
-        >
-          {busy ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <FileSpreadsheet className="h-4 w-4" />
-          )}
-          Export 엑셀
-        </button>
+        <div className="mt-0.5 text-xs text-ink-mid">
+          {report.pjt} · 업체별 작업일보 {counts.output_manpower}건을 4 시트로 통합
+        </div>
       </header>
 
       <Tabs

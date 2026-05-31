@@ -7,7 +7,7 @@ import type { OptimizerOutput } from "@/lib/types";
  */
 export function OptimizerResult({ output }: { output: OptimizerOutput }) {
   return (
-    <div className="h-full overflow-hidden rounded-card border border-border-soft bg-card shadow-xs">
+    <div className="h-full overflow-y-auto rounded-card border border-border-soft bg-card shadow-xs">
       <Row icon={<Brain className="h-4 w-4" />} tone="brand" title="진단">
         <p className="text-sm text-ink-mid leading-relaxed whitespace-pre-line">
           {output.diagnosis || "진단 데이터 없음 (Optimizer 미실행 또는 cold_start)"}

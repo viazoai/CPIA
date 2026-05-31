@@ -154,30 +154,11 @@ export function PresentationShell({ children }: Props) {
         })}
       </div>
 
-      {/* 우측 dot 네비 */}
+      {/* 우측 슬라이드 컨트롤 — prev / dots / next 한 컬럼 (w-9 고정: 가장 큰 prev/next 버튼 너비 기준). */}
       <nav
         aria-label="Slide navigation"
-        className="absolute right-5 top-1/2 z-30 flex -translate-y-1/2 flex-col items-center gap-3"
+        className="absolute right-5 top-1/2 z-30 flex w-9 -translate-y-1/2 flex-col items-center gap-3"
       >
-        {slides.map((_, i) => (
-          <button
-            key={i}
-            type="button"
-            onClick={() => go(i)}
-            aria-label={`Slide ${i + 1}`}
-            aria-current={i === index}
-            className={cn(
-              "group h-2 rounded-full transition-all duration-300",
-              i === index
-                ? "w-7 bg-brand"
-                : "w-2 bg-ink-light/30 hover:bg-ink-light/60",
-            )}
-          />
-        ))}
-      </nav>
-
-      {/* 좌하단 prev / next */}
-      <div className="absolute bottom-5 left-5 z-30 flex flex-col gap-2">
         <button
           type="button"
           onClick={() => go(index - 1)}
@@ -187,6 +168,25 @@ export function PresentationShell({ children }: Props) {
         >
           <ChevronUp className="h-4 w-4" />
         </button>
+
+        <div className="flex flex-col items-center gap-3 py-1">
+          {slides.map((_, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => go(i)}
+              aria-label={`Slide ${i + 1}`}
+              aria-current={i === index}
+              className={cn(
+                "group h-2 rounded-full transition-all duration-300",
+                i === index
+                  ? "w-7 bg-brand"
+                  : "w-2 bg-slate-300 hover:bg-slate-400",
+              )}
+            />
+          ))}
+        </div>
+
         <button
           type="button"
           onClick={() => go(index + 1)}
@@ -196,13 +196,7 @@ export function PresentationShell({ children }: Props) {
         >
           <ChevronDown className="h-4 w-4" />
         </button>
-      </div>
-
-      {/* 우하단 카운터 */}
-      <div className="pointer-events-none absolute bottom-5 right-5 z-30 font-mono text-[11px] uppercase tracking-[0.12em] text-ink-light">
-        <span className="text-ink">{String(index + 1).padStart(2, "0")}</span>
-        <span> / {String(total).padStart(2, "0")}</span>
-      </div>
+      </nav>
     </div>
   );
 }

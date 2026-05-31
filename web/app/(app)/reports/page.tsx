@@ -187,9 +187,13 @@ export default function ReportPage() {
             </Section>
 
             <Section eyebrow="/ 02 — 4분면 산점도" title="리스크 및 대안 검토">
-              <div className="grid grid-cols-12 items-stretch gap-4">
-                {/* 좌측: 산점도 + 테이블 (세로 stack, 마지막 자식 flex-1 로 컬럼 끝까지) */}
-                <div className="col-span-12 flex h-full flex-col gap-3 md:col-span-6">
+              {/* 행 높이를 좌측 자연 높이(KPI ~70 + Scatter card ~346 + WP 352 + gaps 24 ≈ 792) 에 맞춰 고정.
+                  → 우측 OptimizerResult 가 길어도 컬럼이 늘어나지 않고 내부 스크롤로 처리,
+                     좌·우 박스 높이가 일치, 아래 § 03 섹션과 겹치지 않음. (main 데모 레이아웃 보존) */}
+              <div className="grid grid-cols-12 items-stretch gap-4 lg:h-[800px]">
+                {/* 좌측: 산점도 + 테이블 (세로 stack, WP 테이블은 약 5개 행이 보이도록 고정) */}
+                <div className="col-span-12 flex h-full min-h-0 flex-col gap-3 md:col-span-6">
+                  {/* QuadrantCountKpi 는 wpSummary prop (병합본 컴포넌트 시그니처) — 필터된 WP 상태 카운트 */}
                   <QuadrantCountKpi wpSummary={filteredWpRowsBase} filter={filter} onFilterChange={setFilter} />
                   <div className="rounded-card border border-border-soft bg-card p-4 shadow-xs">
                     <div className="mb-2 font-display text-h6 text-ink">Impact × Productivity 분포도</div>
@@ -200,7 +204,8 @@ export default function ReportPage() {
                       filter={filter}
                     />
                   </div>
-                  <div className="mt-auto h-[345px]">
+                  {/* WP 목록 — 약 8개 행 (header 48 + thead 30 + 8 × ~26 ≈ 286, 여유 포함 352) */}
+                  <div className="h-[352px] shrink-0">
                     <WPSummaryTable
                       rows={filteredWpRows}
                       selectedWpId={selectedWpId}
@@ -209,8 +214,8 @@ export default function ReportPage() {
                   </div>
                 </div>
 
-                {/* 우측: 진단 결과 (단일 박스, 항목별 구분선) */}
-                <div className="col-span-12 flex h-full flex-col gap-3 md:col-span-6">
+                {/* 우측: 진단 결과 (단일 박스, 항목별 구분선). OptimizerResult 가 길어지면 내부 스크롤. */}
+                <div className="col-span-12 flex h-full min-h-0 flex-col gap-3 md:col-span-6">
                   <div className="rounded-card border border-border-soft bg-card px-5 py-4 shadow-xs">
                     {(() => {
                       const wpRow = detail.wp_summary.find((w) => w.wp_id === selectedWpId);
@@ -248,7 +253,7 @@ export default function ReportPage() {
                       );
                     })()}
                   </div>
-                  <div className="flex-1">
+                  <div className="flex-1 min-h-0">
                     <OptimizerResult
                       output={
                         detail.optimizer?.by_wp?.[selectedWpId ?? ""]

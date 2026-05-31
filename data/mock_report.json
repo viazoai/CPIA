@@ -1,35 +1,35 @@
 {
   "daily": [
     {
-      "date": "2026-05-15",
+      "date": "2025-09-25",
       "status": "risk",
       "productivity_today": 88,
       "delay_days": 14,
       "recovery_days": 9
     },
     {
-      "date": "2026-05-14",
+      "date": "2025-09-24",
       "status": "normal",
       "productivity_today": 94,
       "delay_days": 6,
       "recovery_days": 4
     },
     {
-      "date": "2026-05-13",
+      "date": "2025-09-23",
       "status": "normal",
       "productivity_today": 96,
       "delay_days": 3,
       "recovery_days": 2
     },
     {
-      "date": "2026-05-12",
+      "date": "2025-09-22",
       "status": "caution",
       "productivity_today": 87,
       "delay_days": 9,
       "recovery_days": 6
     },
     {
-      "date": "2026-05-11",
+      "date": "2025-09-21",
       "status": "normal",
       "productivity_today": 95,
       "delay_days": 4,
@@ -37,76 +37,76 @@
     }
   ],
   "details": {
-    "2026-05-15": {
+    "2025-09-25": {
       "kpi": {
         "productivity_today": 85,
         "productivity_history_diff": -10,
         "delay_days": 14,
-        "expected_completion": "2026-08-12",
+        "expected_completion": "2025-12-23",
         "recoverable_productivity": 9,
         "target_productivity": 97,
         "recovery_days": 9,
-        "recovered_completion": "2026-08-03"
+        "recovered_completion": "2025-12-14"
       },
       "s_curve": [
         {
-          "date": "2026-04-01",
+          "date": "2025-08-12",
           "planned": 10,
           "actual": 10
         },
         {
-          "date": "2026-04-15",
+          "date": "2025-08-26",
           "planned": 18,
           "actual": 17
         },
         {
-          "date": "2026-05-01",
+          "date": "2025-09-11",
           "planned": 28,
           "actual": 26
         },
         {
-          "date": "2026-05-15",
+          "date": "2025-09-25",
           "planned": 38.5,
           "actual": 34.2
         },
         {
-          "date": "2026-06-01",
+          "date": "2025-10-12",
           "planned": 50,
           "forecast": 43,
           "recovery": 47
         },
         {
-          "date": "2026-06-15",
+          "date": "2025-10-26",
           "planned": 62,
           "forecast": 53,
           "recovery": 60
         },
         {
-          "date": "2026-07-01",
+          "date": "2025-11-11",
           "planned": 74,
           "forecast": 63,
           "recovery": 72
         },
         {
-          "date": "2026-07-15",
+          "date": "2025-11-25",
           "planned": 86,
           "forecast": 74,
           "recovery": 86
         },
         {
-          "date": "2026-08-01",
+          "date": "2025-12-12",
           "planned": 96,
           "forecast": 85,
           "recovery": 97
         },
         {
-          "date": "2026-08-03",
+          "date": "2025-12-14",
           "planned": 100,
           "forecast": 87,
           "recovery": 100
         },
         {
-          "date": "2026-08-12",
+          "date": "2025-12-23",
           "planned": 100,
           "forecast": 100,
           "recovery": 100
@@ -387,17 +387,17 @@
         "diagnosis": "철근 공종의 오늘 생산성이 이력 평균 대비 -28%. 작업내용에 '타워크레인 대기'가 기재되어 장비 스케줄 충돌로 인한 인원 분산이 원인으로 추정됩니다.",
         "similar_cases": [
           {
-            "date": "2026-04-22",
+            "date": "2025-09-02",
             "description": "타워크레인 대기로 오전 작업 지연",
             "outcome": "다음날 정상 복귀, 만회 없음"
           },
           {
-            "date": "2026-04-10",
+            "date": "2025-08-21",
             "description": "장비 스케줄 충돌 (2호기 점검)",
             "outcome": "당일 인원 재집중으로 만회"
           },
           {
-            "date": "2026-03-28",
+            "date": "2025-08-08",
             "description": "크레인 대기 → 야간 연장 투입",
             "outcome": "2일 후 정상 복귀"
           }
@@ -427,7 +427,7 @@
           },
           {
             "label": "계획 완료일",
-            "value": "2026-08-12"
+            "value": "2025-12-23"
           }
         ]
       },
@@ -516,8 +516,8 @@
           "wp_name": "WP-3-3 철근",
           "trade": "골조",
           "bp_name": "B건설",
-          "start_date": "2026-05-04",
-          "end_date": "2026-05-28",
+          "start_date": "2025-09-14",
+          "end_date": "2025-10-08",
           "progress_pct": 54,
           "productivity": 54,
           "status": "risk",
@@ -529,8 +529,8 @@
           "wp_name": "WP-3-2 거푸집",
           "trade": "골조",
           "bp_name": "A건설",
-          "start_date": "2026-05-08",
-          "end_date": "2026-05-22",
+          "start_date": "2025-09-18",
+          "end_date": "2025-10-02",
           "progress_pct": 68,
           "productivity": 68,
           "status": "risk",
@@ -542,8 +542,8 @@
           "wp_name": "WP-5-1 방수",
           "trade": "마감",
           "bp_name": "C건설",
-          "start_date": "2026-05-10",
-          "end_date": "2026-06-05",
+          "start_date": "2025-09-20",
+          "end_date": "2025-10-16",
           "progress_pct": 41,
           "productivity": 82,
           "status": "caution",
@@ -555,8 +555,8 @@
           "wp_name": "WP-3-4 콘크리트",
           "trade": "골조",
           "bp_name": "F건설",
-          "start_date": "2026-05-05",
-          "end_date": "2026-05-15",
+          "start_date": "2025-09-15",
+          "end_date": "2025-09-25",
           "progress_pct": 92,
           "productivity": 96,
           "status": "caution",
@@ -568,8 +568,8 @@
           "wp_name": "WP-7-1 전기",
           "trade": "MEP",
           "bp_name": "D건설",
-          "start_date": "2026-05-12",
-          "end_date": "2026-06-20",
+          "start_date": "2025-09-22",
+          "end_date": "2025-10-31",
           "progress_pct": 22,
           "productivity": 95,
           "status": "normal",
@@ -581,8 +581,8 @@
           "wp_name": "WP-1-1 터파기",
           "trade": "토공사",
           "bp_name": "E건설",
-          "start_date": "2026-04-20",
-          "end_date": "2026-05-18",
+          "start_date": "2025-08-31",
+          "end_date": "2025-09-28",
           "progress_pct": 88,
           "productivity": 92,
           "status": "normal",

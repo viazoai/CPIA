@@ -23,11 +23,15 @@ export function QuadrantScatter({ points, selectedWpId, onSelect, filter = "all"
 
   return (
     <div className="w-full h-72">
+      {/* 우측 margin > 좌측 margin → 플롯 영역을 카드 중앙보다 살짝 왼쪽으로 이동
+          (Y axis tick·라벨 시각 무게 보정).
+          X domain [40,100] reversed → reference x=70 이 플롯 중앙. */}
       <ResponsiveContainer width="100%" height="100%">
-        <ScatterChart margin={{ top: 12, right: 20, bottom: 40, left: 50 }}>
+        <ScatterChart margin={{ top: 12, right: 60, bottom: 40, left: 30 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#eef0f4" />
           {/* 2026-05-29 (2차): 배경 4구역 = 점 색과 1:1. 임계 생산성70 / 임팩트50 (_quadrant_of 와 동일).
-              위험(저생산·고임팩 빨강) / 주의(저생산 주황) / 관찰(고임팩 회색) / 정상(고생산·저임팩 초록). */}
+              위험(저생산·고임팩 빨강) / 주의(저생산 주황) / 관찰(고임팩 회색) / 정상(고생산·저임팩 초록).
+              domain[0,100] — 재적재 v2 저생산 점(productivity<40, 9/24 3/13건) 클리핑 방지(main domain[40,100] 미채택). */}
           <ReferenceArea x1={0}  x2={70}  y1={50} y2={100} fill="#ef4444" fillOpacity={0.06} />
           <ReferenceArea x1={0}  x2={70}  y1={0}  y2={50}  fill="#d97706" fillOpacity={0.06} />
           <ReferenceArea x1={70} x2={100} y1={50} y2={100} fill="#7a8494" fillOpacity={0.05} />
@@ -38,7 +42,7 @@ export function QuadrantScatter({ points, selectedWpId, onSelect, filter = "all"
             label={{ value: "← Productivity (저하 →)", position: "bottom", offset: 0, style: { fontSize: 11, fill: "#7a8494" } }}
             tick={{ fontSize: 10, fill: "#7a8494" }} tickFormatter={(v) => `${v}%`} />
           <YAxis type="number" dataKey="impact" domain={[0, 100]} name="Impact"
-            label={{ value: "Impact ↑", angle: -90, position: "left", offset: 0, style: { fontSize: 11, fill: "#7a8494" } }}
+            label={{ value: "Impact", angle: -90, position: "insideLeft", offset: 10, style: { fontSize: 11, fill: "#7a8494", textAnchor: "middle" } }}
             tick={{ fontSize: 10, fill: "#7a8494" }} tickFormatter={(v) => `${v}%`} />
           <ZAxis type="number" dataKey="size" range={[60, 300]} />
           <Tooltip

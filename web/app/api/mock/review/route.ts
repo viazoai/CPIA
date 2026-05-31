@@ -37,8 +37,6 @@ export async function GET() {
     WHERE pr.site_id = ${siteId}
       AND ma.requires_review = TRUE
       AND ma.is_mock = ${useMock}
-      AND ma.trade IN ('건축', '토목')
-      AND ma.today_qty > 0
     ORDER BY ma.mapping_conf ASC NULLS FIRST
     LIMIT 300
   `,

@@ -1,0 +1,2525 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CPIA · 현장 Bottleneck을 AI Agent로 재설계하다</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg-base: #0a1628;
+    --bg-deep: #060e1d;
+    --bg-card: #15233a;
+    --bg-card-2: #1c2d47;
+    --border-soft: rgba(255, 255, 255, 0.06);
+    --border-mid: rgba(255, 255, 255, 0.12);
+    --text-primary: #ffffff;
+    --text-secondary: #a8b5c7;
+    --text-muted: #6b7a8f;
+    --accent-mint: #5cc4d9;
+    --accent-mint-soft: rgba(92, 196, 217, 0.16);
+    --accent-mint-glow: rgba(92, 196, 217, 0.4);
+    --accent-warm: #f5a623;
+    --accent-red: #ef5365;
+    --accent-green: #4ade80;
+    --grad-hero: radial-gradient(120% 80% at 50% 0%, #16294a 0%, #0a1628 55%, #060e1d 100%);
+    --grad-card: linear-gradient(180deg, rgba(28, 45, 71, 0.6) 0%, rgba(21, 35, 58, 0.85) 100%);
+    --font-sans: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+  }
+
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background: var(--bg-base);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-weight: 400;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  /* ───── wave dot pattern (PDF 모티프 차용) ───── */
+  .wave-dots {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 220px;
+    pointer-events: none;
+    opacity: 0.35;
+    background-image: radial-gradient(circle at 1px 1px, rgba(92, 196, 217, 0.6) 1px, transparent 0);
+    background-size: 12px 12px;
+    mask-image: linear-gradient(180deg,
+      transparent 0%,
+      rgba(0, 0, 0, 0.4) 30%,
+      rgba(0, 0, 0, 0.9) 70%,
+      rgba(0, 0, 0, 0.5) 100%),
+      radial-gradient(ellipse 80% 100% at 50% 100%, black 0%, transparent 70%);
+    mask-composite: intersect;
+    -webkit-mask-composite: source-in;
+  }
+
+  /* ───── grain texture overlay ───── */
+  .grain {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 1000;
+    opacity: 0.025;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' /%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' /%3E%3C/svg%3E");
+    mix-blend-mode: overlay;
+  }
+
+  /* ───── section nav (좌상단 번호 + 라벨) ───── */
+  .sec-tag {
+    position: absolute;
+    top: 48px;
+    left: 64px;
+    display: inline-flex;
+    align-items: center;
+    gap: 16px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    z-index: 5;
+  }
+  .sec-tag .num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-mid);
+    color: var(--accent-mint);
+    font-weight: 700;
+    font-size: 13px;
+  }
+
+  /* ───── section common ───── */
+  section {
+    position: relative;
+    min-height: 100vh;
+    padding: 112px 64px 96px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    overflow: hidden;
+  }
+
+  .container {
+    width: 100%;
+    max-width: 1280px;
+    margin: 0 auto;
+    position: relative;
+    z-index: 2;
+  }
+
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent-mint);
+    margin-bottom: 20px;
+  }
+
+  /* ─────────────────────────────────────────────
+     SECTION 01 · HERO 표지
+     ───────────────────────────────────────────── */
+  .hero {
+    background: var(--grad-hero);
+    min-height: 100vh;
+    text-align: center;
+  }
+
+  .hero .top-meta {
+    position: absolute;
+    top: 48px;
+    left: 64px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    color: var(--text-muted);
+  }
+
+  .hero .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    background: rgba(92, 196, 217, 0.08);
+    border: 1px solid var(--accent-mint-soft);
+    border-radius: 999px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    color: var(--accent-mint);
+    margin-bottom: 36px;
+  }
+  .hero .badge .pulse {
+    width: 6px;
+    height: 6px;
+    background: var(--accent-mint);
+    border-radius: 50%;
+    box-shadow: 0 0 12px var(--accent-mint-glow);
+    animation: pulse 2.4s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.8); }
+  }
+
+  .hero h1 {
+    font-size: clamp(40px, 6vw, 84px);
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    line-height: 1.1;
+    margin-bottom: 28px;
+  }
+  .hero h1 .accent {
+    background: linear-gradient(135deg, var(--accent-mint) 0%, #87e0eb 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .hero .subtitle {
+    font-size: clamp(16px, 1.5vw, 20px);
+    color: var(--text-secondary);
+    font-weight: 400;
+    margin-bottom: 72px;
+    max-width: 720px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .kpi-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+
+  .kpi-card {
+    position: relative;
+    padding: 40px 32px;
+    background: var(--grad-card);
+    border: 1px solid var(--border-soft);
+    backdrop-filter: blur(12px);
+    text-align: left;
+    transition: all 0.4s ease;
+  }
+  .kpi-card::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-top: 2px solid transparent;
+    background: linear-gradient(90deg, var(--accent-mint), transparent) border-box;
+    -webkit-mask: linear-gradient(black, black) padding-box, linear-gradient(black, black);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    opacity: 0.7;
+    pointer-events: none;
+  }
+  .kpi-card:hover {
+    transform: translateY(-4px);
+    border-color: var(--accent-mint-soft);
+  }
+  .kpi-card .label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 16px;
+  }
+  .kpi-card .value {
+    font-size: clamp(40px, 4.5vw, 64px);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    color: var(--accent-mint);
+    line-height: 1;
+    margin-bottom: 8px;
+    font-feature-settings: "tnum";
+  }
+  .kpi-card .value .unit {
+    font-size: 0.45em;
+    color: var(--text-secondary);
+    font-weight: 500;
+    margin-left: 6px;
+    letter-spacing: -0.02em;
+  }
+  .kpi-card .caption {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-top: 20px;
+    line-height: 1.6;
+  }
+  .kpi-card .delta {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 12px;
+  }
+  .kpi-card .delta::before {
+    content: "→";
+    color: var(--accent-mint);
+  }
+
+  .hero .signature {
+    position: absolute;
+    bottom: 48px;
+    left: 0;
+    right: 0;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-muted);
+    letter-spacing: 0.08em;
+  }
+  .hero .signature .org {
+    color: var(--text-secondary);
+    margin-right: 12px;
+  }
+
+  /* ─────────────────────────────────────────────
+     SECTION 02 · APPROACH (Bottleneck)
+     ───────────────────────────────────────────── */
+  .approach {
+    background: var(--bg-base);
+    padding-top: 140px;
+  }
+
+  .approach h2 {
+    font-size: clamp(32px, 4vw, 56px);
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    line-height: 1.15;
+    margin-bottom: 24px;
+  }
+  .approach h2 .hl {
+    color: var(--accent-mint);
+  }
+
+  .approach .lead {
+    font-size: 18px;
+    color: var(--text-secondary);
+    max-width: 800px;
+    margin-bottom: 64px;
+    line-height: 1.7;
+  }
+
+  .approach-grid {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr;
+    gap: 56px;
+    align-items: stretch;
+  }
+
+  /* TM quote 박스 */
+  .tm-quote {
+    padding: 36px 36px 36px 56px;
+    background: linear-gradient(135deg, rgba(28, 45, 71, 0.4) 0%, rgba(21, 35, 58, 0.2) 100%);
+    border-left: 2px solid var(--accent-mint);
+    position: relative;
+  }
+  .tm-quote::before {
+    content: "";
+    position: absolute;
+    left: -2px;
+    top: 0;
+    width: 2px;
+    height: 40%;
+    background: var(--accent-mint);
+    box-shadow: 0 0 16px var(--accent-mint-glow);
+  }
+  .tm-quote .qm {
+    font-family: 'JetBrains Mono', serif;
+    font-size: 56px;
+    color: var(--accent-mint);
+    line-height: 0.6;
+    margin-bottom: -8px;
+    display: block;
+    opacity: 0.6;
+  }
+  .tm-quote .text {
+    font-size: 19px;
+    font-weight: 500;
+    color: var(--text-primary);
+    line-height: 1.65;
+    margin-bottom: 20px;
+  }
+  .tm-quote .text strong {
+    color: var(--accent-mint);
+    font-weight: 700;
+  }
+  .tm-quote .attribution {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    color: var(--text-muted);
+    text-transform: uppercase;
+  }
+
+  /* 측정 결과 패널 */
+  .measurement {
+    padding: 36px;
+    background: var(--grad-card);
+    border: 1px solid var(--border-soft);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .measurement .m-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 16px;
+  }
+  .measurement .m-title {
+    font-size: 22px;
+    font-weight: 700;
+    margin-bottom: 28px;
+    line-height: 1.4;
+  }
+  .measurement .m-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    padding: 24px 0;
+    border-top: 1px solid var(--border-soft);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .measurement .m-stat .n {
+    font-size: 36px;
+    font-weight: 800;
+    color: var(--accent-mint);
+    letter-spacing: -0.03em;
+    line-height: 1;
+    font-feature-settings: "tnum";
+  }
+  .measurement .m-stat .u {
+    font-size: 14px;
+    color: var(--text-secondary);
+    margin-top: 6px;
+  }
+  .measurement .conclusion {
+    margin-top: 24px;
+    font-size: 14px;
+    color: var(--text-secondary);
+    line-height: 1.7;
+  }
+  .measurement .conclusion strong {
+    color: var(--accent-mint);
+    font-weight: 700;
+  }
+
+  /* Pain Points 행 */
+  .pain-section {
+    margin-top: 96px;
+  }
+  .pain-section .section-head {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    margin-bottom: 36px;
+    border-bottom: 1px solid var(--border-soft);
+    padding-bottom: 20px;
+  }
+  .pain-section .section-head h3 {
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  .pain-section .section-head .meta {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    margin-left: auto;
+  }
+
+  .pain-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+  }
+  .pain-card {
+    padding: 28px 24px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-soft);
+    border-top: 2px solid var(--border-mid);
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+  }
+  .pain-card::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    background: var(--accent-mint);
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform 0.4s ease;
+  }
+  .pain-card:hover {
+    background: var(--bg-card-2);
+    transform: translateY(-2px);
+  }
+  .pain-card:hover::after {
+    transform: scaleX(1);
+  }
+  .pain-card .pn {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    color: var(--accent-mint);
+    margin-bottom: 10px;
+  }
+  .pain-card .pt {
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 14px;
+    line-height: 1.3;
+  }
+  .pain-card .pd {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.55;
+    margin-bottom: 20px;
+    min-height: 78px;
+  }
+  .pain-card .pm {
+    display: inline-block;
+    padding: 6px 10px;
+    background: rgba(92, 196, 217, 0.08);
+    border: 1px solid var(--accent-mint-soft);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--accent-mint);
+    letter-spacing: 0.02em;
+  }
+
+  /* ─────────────────────────────────────────────
+     SECTION 03 · IMPACT (4 KPI)
+     ───────────────────────────────────────────── */
+  .impact {
+    background: linear-gradient(180deg, var(--bg-base) 0%, var(--bg-deep) 100%);
+    padding-top: 140px;
+  }
+
+  .impact .impact-head {
+    text-align: center;
+    margin-bottom: 72px;
+  }
+  .impact h2 {
+    font-size: clamp(28px, 3.6vw, 48px);
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    line-height: 1.25;
+    margin-bottom: 16px;
+  }
+  .impact h2 .chain {
+    color: var(--accent-mint);
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 0.9em;
+    letter-spacing: 0;
+    margin: 0 4px;
+  }
+  .impact .h-sub {
+    color: var(--text-secondary);
+    font-size: 16px;
+  }
+
+  .impact-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+    margin-bottom: 96px;
+  }
+  .impact-card {
+    position: relative;
+    padding: 36px 28px 32px;
+    background: var(--grad-card);
+    border: 1px solid var(--border-soft);
+    overflow: hidden;
+  }
+  .impact-card .icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    background: rgba(92, 196, 217, 0.1);
+    border: 1px solid var(--accent-mint-soft);
+    color: var(--accent-mint);
+    margin-bottom: 24px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .impact-card .ic-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 16px;
+  }
+  .impact-card .ic-value {
+    font-size: clamp(38px, 4vw, 52px);
+    font-weight: 800;
+    color: var(--text-primary);
+    letter-spacing: -0.03em;
+    line-height: 1;
+    margin-bottom: 8px;
+    font-feature-settings: "tnum";
+  }
+  .impact-card .ic-value .unit {
+    font-size: 0.4em;
+    color: var(--accent-mint);
+    font-weight: 600;
+    margin-left: 4px;
+    letter-spacing: -0.02em;
+  }
+  .impact-card .ic-desc {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.65;
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-soft);
+  }
+  .impact-card .ic-desc strong {
+    color: var(--text-primary);
+    font-weight: 600;
+  }
+
+  /* 6개 현장 실측 테이블 */
+  .sites-table-wrap {
+    margin-top: 56px;
+  }
+  .sites-table-wrap .st-head {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+  .sites-table-wrap h3 {
+    font-size: 22px;
+    font-weight: 700;
+  }
+  .sites-table-wrap .st-meta {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-left: auto;
+  }
+
+  .sites-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+  .sites-table thead th {
+    text-align: left;
+    padding: 14px 16px;
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border-mid);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    font-weight: 500;
+  }
+  .sites-table thead th:nth-child(2),
+  .sites-table thead th:nth-child(3),
+  .sites-table thead th:nth-child(4) {
+    text-align: right;
+  }
+  .sites-table tbody td {
+    padding: 16px;
+    border-bottom: 1px solid var(--border-soft);
+    color: var(--text-primary);
+  }
+  .sites-table tbody td:nth-child(2),
+  .sites-table tbody td:nth-child(3),
+  .sites-table tbody td:nth-child(4) {
+    text-align: right;
+    font-family: var(--font-mono);
+    font-feature-settings: "tnum";
+    font-weight: 500;
+  }
+  .sites-table tbody tr:hover {
+    background: rgba(92, 196, 217, 0.03);
+  }
+  .sites-table tbody tr.sum td {
+    background: rgba(92, 196, 217, 0.06);
+    border-top: 1px solid var(--accent-mint-soft);
+    border-bottom: 1px solid var(--accent-mint-soft);
+    color: var(--accent-mint);
+    font-weight: 700;
+  }
+  .sites-table .ratio-bar {
+    display: inline-block;
+    width: 64px;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.06);
+    margin-right: 10px;
+    vertical-align: middle;
+    overflow: hidden;
+  }
+  .sites-table .ratio-bar span {
+    display: block;
+    height: 100%;
+    background: var(--accent-mint);
+    transform-origin: left;
+    transform: scaleX(0);
+    transition: transform 1.2s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .sites-table tr.in-view .ratio-bar span {
+    transform: scaleX(var(--r, 1));
+  }
+  .sites-table .pct {
+    color: var(--accent-mint);
+    font-weight: 700;
+  }
+
+  /* footnote */
+  .reframe-strip {
+    margin-top: 80px;
+    padding: 36px 40px;
+    background: linear-gradient(90deg, rgba(92, 196, 217, 0.08) 0%, rgba(92, 196, 217, 0.02) 100%);
+    border: 1px solid var(--accent-mint-soft);
+    border-left: 3px solid var(--accent-mint);
+    display: flex;
+    align-items: center;
+    gap: 36px;
+  }
+  .reframe-strip .rs-tag {
+    flex-shrink: 0;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    color: var(--accent-mint);
+    text-transform: uppercase;
+  }
+  .reframe-strip .rs-msg {
+    font-size: 17px;
+    font-weight: 500;
+    line-height: 1.6;
+    color: var(--text-primary);
+  }
+  .reframe-strip .rs-msg strong {
+    color: var(--accent-mint);
+    font-weight: 700;
+  }
+  .reframe-strip .rs-budget {
+    margin-left: auto;
+    flex-shrink: 0;
+    text-align: right;
+  }
+  .reframe-strip .rs-budget .v {
+    font-size: 32px;
+    font-weight: 800;
+    color: var(--accent-mint);
+    letter-spacing: -0.02em;
+    line-height: 1;
+    font-feature-settings: "tnum";
+  }
+  .reframe-strip .rs-budget .l {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    letter-spacing: 0.1em;
+    margin-top: 6px;
+    text-transform: uppercase;
+  }
+
+  /* progress indicator (좌측 fixed) */
+  .progress-rail {
+    position: fixed;
+    left: 32px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    z-index: 50;
+  }
+  .progress-rail .pr-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    text-decoration: none;
+    color: var(--text-muted);
+    transition: color 0.3s ease;
+  }
+  .progress-rail .dot {
+    width: 8px;
+    height: 8px;
+    background: var(--text-muted);
+    border-radius: 50%;
+    transition: all 0.3s ease;
+  }
+  .progress-rail .pl {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    opacity: 0;
+    transform: translateX(-6px);
+    transition: all 0.3s ease;
+  }
+  .progress-rail .pr-item:hover .pl,
+  .progress-rail .pr-item.active .pl {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  .progress-rail .pr-item.active .dot {
+    background: var(--accent-mint);
+    box-shadow: 0 0 16px var(--accent-mint-glow);
+  }
+  .progress-rail .pr-item.active {
+    color: var(--accent-mint);
+  }
+
+  /* ───── reveal-on-scroll ───── */
+  .reveal {
+    opacity: 0;
+    transform: translateY(24px);
+    transition: opacity 0.8s ease, transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .reveal.in-view {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  .reveal.d1 { transition-delay: 0.1s; }
+  .reveal.d2 { transition-delay: 0.2s; }
+  .reveal.d3 { transition-delay: 0.3s; }
+  .reveal.d4 { transition-delay: 0.4s; }
+  .reveal.d5 { transition-delay: 0.5s; }
+  .reveal.d6 { transition-delay: 0.6s; }
+
+  /* ─────────────────────────────────────────────
+     SECTION · CONTEXT (전략적 배경)
+     ───────────────────────────────────────────── */
+  .context { background: var(--bg-base); padding-top: 140px; }
+  .context h2 {
+    font-size: clamp(28px, 3.8vw, 48px);
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    line-height: 1.2;
+    margin-bottom: 56px;
+    max-width: 1000px;
+  }
+  .context h2 .hl { color: var(--accent-mint); }
+  .flow-3 {
+    display: grid;
+    grid-template-columns: 1fr auto 1.1fr auto 1fr;
+    gap: 0;
+    align-items: stretch;
+    margin-top: 32px;
+  }
+  .flow-3 .arrow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 18px;
+    color: var(--accent-mint);
+    font-size: 24px;
+    opacity: 0.7;
+  }
+  .flow-card {
+    padding: 32px 28px;
+    background: var(--grad-card);
+    border: 1px solid var(--border-soft);
+    display: flex;
+    flex-direction: column;
+  }
+  .flow-card.center {
+    background: linear-gradient(180deg, rgba(92, 196, 217, 0.12) 0%, rgba(92, 196, 217, 0.04) 100%);
+    border: 1px solid var(--accent-mint-soft);
+    text-align: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .flow-card.center::after {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    background: radial-gradient(circle at 50% 30%, var(--accent-mint-glow), transparent 70%);
+    opacity: 0.4;
+    pointer-events: none;
+  }
+  .flow-card .fc-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 16px;
+  }
+  .flow-card.center .fc-label { color: var(--accent-mint); }
+  .flow-card .fc-title {
+    font-size: 17px;
+    font-weight: 700;
+    margin-bottom: 16px;
+    line-height: 1.4;
+  }
+  .flow-card.center .fc-title {
+    font-size: 32px;
+    font-weight: 800;
+    color: var(--accent-mint);
+    letter-spacing: -0.02em;
+    margin: 12px 0 16px;
+  }
+  .flow-card .fc-sub {
+    font-size: 14px;
+    color: var(--text-secondary);
+    line-height: 1.65;
+  }
+  .flow-card.center .fc-sub {
+    color: var(--text-primary);
+    font-size: 13px;
+    font-family: var(--font-mono);
+    letter-spacing: 0.04em;
+  }
+  .flow-card .req-item {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-soft);
+  }
+  .flow-card .req-item:first-of-type { border-top: none; padding-top: 0; }
+  .flow-card .req-item .rt {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--accent-mint);
+    margin-bottom: 6px;
+  }
+  .flow-card .req-item .rd {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.55;
+  }
+
+  /* ─────────────────────────────────────────────
+     SECTION · REFRAMING (Operational Shift)
+     ───────────────────────────────────────────── */
+  .reframing { background: var(--bg-base); padding-top: 140px; }
+  .reframing h2 {
+    font-size: clamp(28px, 3.8vw, 52px);
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    line-height: 1.2;
+    margin-bottom: 16px;
+  }
+  .reframing h2 .hl { color: var(--accent-mint); }
+  .reframing .lead {
+    font-size: 17px;
+    color: var(--text-secondary);
+    max-width: 900px;
+    margin-bottom: 64px;
+    line-height: 1.7;
+  }
+  .office-row {
+    display: grid;
+    grid-template-columns: 1fr 1.15fr 1fr;
+    gap: 24px;
+    margin-bottom: 16px;
+  }
+  .office-card {
+    position: relative;
+    padding: 32px 28px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-soft);
+    min-height: 320px;
+  }
+  .office-card.target {
+    background: linear-gradient(180deg, rgba(92, 196, 217, 0.10) 0%, rgba(92, 196, 217, 0.02) 100%);
+    border: 1px solid var(--accent-mint-soft);
+    box-shadow: 0 0 48px rgba(92, 196, 217, 0.08);
+  }
+  .office-card .oc-tag {
+    display: inline-block;
+    padding: 4px 10px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid var(--border-mid);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    margin-bottom: 16px;
+  }
+  .office-card.target .oc-tag {
+    background: var(--accent-mint);
+    color: var(--bg-base);
+    border-color: var(--accent-mint);
+    font-weight: 700;
+  }
+  .office-card .oc-name {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    margin-bottom: 6px;
+  }
+  .office-card .oc-role {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-bottom: 24px;
+    font-family: var(--font-mono);
+    letter-spacing: 0.02em;
+  }
+  .office-card .oc-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  .office-card .oc-list li {
+    padding: 8px 0 8px 18px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.55;
+    position: relative;
+  }
+  .office-card .oc-list li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 16px;
+    width: 8px;
+    height: 1px;
+    background: var(--text-muted);
+  }
+  .office-card.target .oc-list li::before { background: var(--accent-mint); }
+  .office-card .oc-foot {
+    margin-top: 24px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-soft);
+    font-size: 12px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    letter-spacing: 0.04em;
+  }
+  .office-card.target .oc-foot {
+    color: var(--accent-mint);
+    border-top-color: var(--accent-mint-soft);
+  }
+
+  .realloc-flow {
+    margin-top: 48px;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 0;
+    align-items: center;
+    padding: 32px;
+    background: linear-gradient(90deg, rgba(92, 196, 217, 0.04) 0%, rgba(92, 196, 217, 0.10) 50%, rgba(92, 196, 217, 0.04) 100%);
+    border: 1px dashed var(--accent-mint-soft);
+  }
+  .realloc-flow .rf-left, .realloc-flow .rf-right {
+    text-align: center;
+  }
+  .realloc-flow .rf-arrow {
+    padding: 0 36px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+  .realloc-flow .rf-arrow .arr {
+    font-size: 32px;
+    color: var(--accent-mint);
+    line-height: 1;
+  }
+  .realloc-flow .rf-arrow .rl {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    color: var(--accent-mint);
+    text-transform: uppercase;
+  }
+  .realloc-flow .rf-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+    text-transform: uppercase;
+  }
+  .realloc-flow .rf-amount {
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--text-primary);
+    letter-spacing: -0.02em;
+  }
+  .realloc-flow .rf-amount .em { color: var(--accent-mint); }
+
+  /* ─────────────────────────────────────────────
+     SECTION · PROCESS (As-is / To-be)
+     ───────────────────────────────────────────── */
+  .process-sec { background: linear-gradient(180deg, var(--bg-base) 0%, var(--bg-deep) 100%); padding-top: 140px; }
+  .process-sec .process-head {
+    text-align: center;
+    margin-bottom: 56px;
+  }
+  .process-sec h2 {
+    font-size: clamp(28px, 3.8vw, 48px);
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    line-height: 1.2;
+    margin-bottom: 12px;
+  }
+  .process-sec .ph-sub { color: var(--text-secondary); font-size: 15px; }
+  .process-grid {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 0;
+    align-items: stretch;
+  }
+  .process-grid .pg-divider {
+    position: relative;
+    width: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .process-grid .pg-divider .arr {
+    font-size: 28px;
+    color: var(--accent-mint);
+    background: var(--bg-base);
+    padding: 12px 0;
+    z-index: 2;
+  }
+  .process-grid .pg-divider::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: var(--border-mid);
+  }
+  .proc-col {
+    padding: 32px 28px 28px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-soft);
+  }
+  .proc-col.tobe {
+    background: linear-gradient(180deg, rgba(92, 196, 217, 0.08) 0%, rgba(21, 35, 58, 0.6) 100%);
+    border: 1px solid var(--accent-mint-soft);
+  }
+  .proc-col .pc-head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border-soft);
+    margin-bottom: 20px;
+  }
+  .proc-col .pc-tag {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--border-mid);
+    color: var(--text-muted);
+  }
+  .proc-col.tobe .pc-tag {
+    background: var(--accent-mint);
+    color: var(--bg-base);
+    border-color: var(--accent-mint);
+    font-weight: 700;
+  }
+  .proc-col .pc-title {
+    font-size: 17px;
+    font-weight: 700;
+  }
+  .proc-col .pc-steps {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    counter-reset: step;
+  }
+  .proc-col .pc-steps li {
+    counter-increment: step;
+    display: grid;
+    grid-template-columns: 24px 1fr auto;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px dashed var(--border-soft);
+    align-items: center;
+    font-size: 13px;
+  }
+  .proc-col .pc-steps li:last-child { border-bottom: none; }
+  .proc-col .pc-steps li::before {
+    content: counter(step, decimal-leading-zero);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 0.04em;
+  }
+  .proc-col.tobe .pc-steps li::before { color: var(--accent-mint); }
+  .proc-col .pc-steps .nm {
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+  .proc-col .pc-steps .core-star {
+    display: inline-block;
+    margin-left: 6px;
+    color: var(--accent-mint);
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .proc-col .pc-steps .dur {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 0.04em;
+  }
+  .proc-col.tobe .pc-steps .dur { color: var(--accent-mint); }
+  .proc-col .pc-foot {
+    margin-top: 24px;
+    padding: 16px 18px;
+    background: rgba(0,0,0,0.2);
+    border-left: 2px solid var(--text-muted);
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+  }
+  .proc-col.tobe .pc-foot { border-left-color: var(--accent-mint); }
+  .proc-col .pc-foot .pcf-item {
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+  .proc-col .pc-foot .pcf-item strong {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--text-primary);
+    margin-top: 2px;
+    letter-spacing: -0.01em;
+  }
+  .proc-col.tobe .pc-foot .pcf-item strong { color: var(--accent-mint); }
+
+  /* ─────────────────────────────────────────────
+     SECTION · CORE AI (Mapper / Forecaster·Optimizer)
+     ───────────────────────────────────────────── */
+  .core-ai { background: var(--bg-deep); padding-top: 140px; }
+  .core-ai h2 {
+    font-size: clamp(28px, 3.6vw, 44px);
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    line-height: 1.2;
+    margin-bottom: 16px;
+  }
+  .core-ai .lead {
+    font-size: 16px;
+    color: var(--text-secondary);
+    margin-bottom: 56px;
+    max-width: 800px;
+    line-height: 1.7;
+  }
+  .core-row {
+    display: grid;
+    grid-template-columns: 1.1fr 1.4fr;
+    gap: 28px;
+    background: var(--grad-card);
+    border: 1px solid var(--border-soft);
+    margin-bottom: 24px;
+    overflow: hidden;
+  }
+  .core-row .cr-left { padding: 36px 32px; }
+  .core-row .cr-right {
+    background: rgba(0, 0, 0, 0.25);
+    border-left: 1px solid var(--border-soft);
+    padding: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .core-row .cr-tag {
+    display: inline-block;
+    padding: 4px 10px;
+    background: var(--accent-mint);
+    color: var(--bg-base);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    font-weight: 700;
+    margin-bottom: 16px;
+    text-transform: uppercase;
+  }
+  .core-row .cr-name {
+    font-size: 24px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    margin-bottom: 12px;
+  }
+  .core-row .cr-name .en {
+    color: var(--accent-mint);
+    font-family: var(--font-mono);
+    font-size: 0.7em;
+    font-weight: 700;
+    margin-left: 8px;
+    letter-spacing: 0.02em;
+  }
+  .core-row .cr-desc {
+    font-size: 14px;
+    color: var(--text-secondary);
+    line-height: 1.7;
+    margin-bottom: 24px;
+  }
+  .core-row .cr-ba {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 14px;
+    padding: 16px;
+    background: rgba(0,0,0,0.2);
+    align-items: center;
+    margin-top: auto;
+  }
+  .core-row .cr-ba .ba-cell .l {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .core-row .cr-ba .ba-cell .v {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: -0.01em;
+  }
+  .core-row .cr-ba .ba-cell.after .v { color: var(--accent-mint); }
+  .core-row .cr-ba .ba-arr { color: var(--accent-mint); font-size: 18px; }
+
+  /* Mapper viz */
+  .mapper-viz { width: 100%; max-width: 480px; }
+  .mapper-viz .mv-head {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    margin-bottom: 18px;
+  }
+  .mapper-viz .mv-bar {
+    display: flex;
+    height: 56px;
+    border: 1px solid var(--border-mid);
+    margin-bottom: 24px;
+    position: relative;
+  }
+  .mapper-viz .mv-bar .auto {
+    flex: 0 0 92%;
+    background: linear-gradient(90deg, var(--accent-mint) 0%, #87e0eb 100%);
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    color: var(--bg-base);
+    font-weight: 800;
+    font-size: 13px;
+    letter-spacing: 0.04em;
+    box-shadow: 0 0 24px var(--accent-mint-glow);
+  }
+  .mapper-viz .mv-bar .review {
+    flex: 0 0 8%;
+    background: rgba(255,255,255,0.08);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-primary);
+    font-weight: 700;
+    font-size: 11px;
+    border-left: 1px solid var(--border-mid);
+  }
+  .mapper-viz .mv-examples {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .mapper-viz .mv-ex {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    gap: 12px;
+    align-items: center;
+    padding: 10px 14px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border-soft);
+    font-size: 12px;
+  }
+  .mapper-viz .mv-ex .name { color: var(--text-primary); }
+  .mapper-viz .mv-ex .wbs { font-family: var(--font-mono); color: var(--text-muted); font-size: 11px; letter-spacing: 0.04em; }
+  .mapper-viz .mv-ex .conf {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent-mint);
+    padding: 2px 8px;
+    border: 1px solid var(--accent-mint-soft);
+  }
+  .mapper-viz .mv-ex.low .conf { color: var(--accent-warm); border-color: rgba(245, 166, 35, 0.4); }
+  .mapper-viz .mv-ex.low .wbs { color: var(--accent-warm); }
+
+  /* Forecaster quadrant viz */
+  .quad-viz { width: 100%; max-width: 460px; }
+  .quad-viz .qv-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    aspect-ratio: 1.2 / 1;
+    margin-bottom: 20px;
+  }
+  .quad-viz .q-cell {
+    position: relative;
+    padding: 16px 14px;
+    border: 1px solid var(--border-soft);
+    background: rgba(255,255,255,0.02);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .quad-viz .q-cell.normal { border-color: rgba(74, 222, 128, 0.25); background: rgba(74, 222, 128, 0.05); }
+  .quad-viz .q-cell.warn   { border-color: rgba(245, 166, 35, 0.25); background: rgba(245, 166, 35, 0.05); }
+  .quad-viz .q-cell.risk   { border-color: rgba(239, 83, 101, 0.3); background: rgba(239, 83, 101, 0.06); }
+  .quad-viz .q-cell .ql {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: var(--text-muted);
+    text-transform: uppercase;
+  }
+  .quad-viz .q-cell .qn {
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+  .quad-viz .q-cell.normal .qn { color: var(--accent-green); }
+  .quad-viz .q-cell.warn .qn   { color: var(--accent-warm); }
+  .quad-viz .q-cell.risk .qn   { color: var(--accent-red); }
+  .quad-viz .q-cell.risk::after {
+    content: "→ Optimizer";
+    position: absolute;
+    bottom: -10px;
+    right: 8px;
+    background: var(--bg-deep);
+    padding: 2px 8px;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--accent-mint);
+    letter-spacing: 0.08em;
+    border: 1px solid var(--accent-mint-soft);
+  }
+  .quad-viz .qv-legend {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-top: 8px;
+  }
+  .quad-viz .qv-legend .lg {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .quad-viz .qv-legend .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+
+  /* Optimizer scenario cards */
+  .opt-viz { width: 100%; max-width: 460px; }
+  .opt-viz .ov-head {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    margin-bottom: 16px;
+  }
+  .opt-viz .ov-scen {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .opt-viz .scen {
+    display: grid;
+    grid-template-columns: 24px 1fr auto;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border-soft);
+  }
+  .opt-viz .scen.rec {
+    border-color: var(--accent-mint-soft);
+    background: rgba(92, 196, 217, 0.06);
+  }
+  .opt-viz .scen .num {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    text-align: center;
+  }
+  .opt-viz .scen.rec .num { color: var(--accent-mint); }
+  .opt-viz .scen .desc { font-size: 12px; color: var(--text-primary); line-height: 1.4; }
+  .opt-viz .scen .impact {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--accent-mint);
+  }
+  .opt-viz .scen .rec-tag {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 1px 6px;
+    background: var(--accent-mint);
+    color: var(--bg-base);
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    vertical-align: middle;
+  }
+
+  /* ─────────────────────────────────────────────
+     SECTION · SCALABILITY (3-AXIS)
+     ───────────────────────────────────────────── */
+  .scalability { background: linear-gradient(180deg, var(--bg-deep) 0%, var(--bg-base) 100%); padding-top: 140px; }
+  .scalability h2 {
+    font-size: clamp(28px, 3.6vw, 48px);
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    line-height: 1.2;
+    margin-bottom: 16px;
+    text-align: center;
+  }
+  .scalability .lead {
+    font-size: 16px;
+    color: var(--text-secondary);
+    text-align: center;
+    max-width: 900px;
+    margin: 0 auto 64px;
+    line-height: 1.7;
+  }
+  .axis-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+  }
+  .axis-card {
+    position: relative;
+    padding: 36px 28px 28px;
+    background: var(--grad-card);
+    border: 1px solid var(--border-soft);
+    overflow: hidden;
+    transition: all 0.4s ease;
+  }
+  .axis-card::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 2px;
+    background: linear-gradient(90deg, var(--accent-mint), transparent);
+  }
+  .axis-card:hover {
+    transform: translateY(-4px);
+    border-color: var(--accent-mint-soft);
+  }
+  .axis-card .ax-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    background: rgba(92, 196, 217, 0.1);
+    border: 1px solid var(--accent-mint-soft);
+    color: var(--accent-mint);
+    margin-bottom: 20px;
+    font-family: var(--font-mono);
+    font-size: 18px;
+    font-weight: 700;
+  }
+  .axis-card .ax-num {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    color: var(--accent-mint);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .axis-card .ax-cat {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    margin-bottom: 16px;
+  }
+  .axis-card .ax-title {
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    line-height: 1.35;
+    margin-bottom: 16px;
+    min-height: 56px;
+  }
+  .axis-card .ax-desc {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.65;
+    margin-bottom: 24px;
+    min-height: 100px;
+  }
+  .axis-card .ax-impact {
+    padding-top: 20px;
+    border-top: 1px solid var(--border-soft);
+  }
+  .axis-card .ax-impact .il {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .axis-card .ax-impact .iv {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--accent-mint);
+    line-height: 1.35;
+  }
+
+  /* ─────────────────────────────────────────────
+     SECTION · CLOSING
+     ───────────────────────────────────────────── */
+  .closing {
+    background: var(--grad-hero);
+    padding-top: 160px;
+    text-align: center;
+  }
+  .closing .cl-eyebrow {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.18em;
+    color: var(--accent-mint);
+    text-transform: uppercase;
+    margin-bottom: 24px;
+  }
+  .closing .cl-tagline {
+    font-size: clamp(36px, 5.5vw, 72px);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 1.15;
+    margin-bottom: 24px;
+    max-width: 1100px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .closing .cl-tagline .hl {
+    background: linear-gradient(135deg, var(--accent-mint) 0%, #87e0eb 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .closing .cl-sub {
+    font-size: 17px;
+    color: var(--text-secondary);
+    margin-bottom: 80px;
+    max-width: 720px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .recap-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+    max-width: 1100px;
+    margin: 0 auto 80px;
+  }
+  .recap-card {
+    padding: 32px 24px;
+    background: rgba(21, 35, 58, 0.5);
+    border: 1px solid var(--border-soft);
+    backdrop-filter: blur(8px);
+    text-align: left;
+    position: relative;
+  }
+  .recap-card .rc-num {
+    position: absolute;
+    top: 24px;
+    right: 24px;
+    font-family: var(--font-mono);
+    font-size: 48px;
+    font-weight: 800;
+    color: rgba(92, 196, 217, 0.18);
+    line-height: 1;
+    letter-spacing: -0.04em;
+  }
+  .recap-card .rc-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    color: var(--accent-mint);
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+  .recap-card .rc-title {
+    font-size: 19px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    margin-bottom: 14px;
+    line-height: 1.35;
+  }
+  .recap-card .rc-desc {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.7;
+  }
+  .closing .cl-final {
+    max-width: 880px;
+    margin: 0 auto 48px;
+    padding: 36px 40px;
+    background: rgba(92, 196, 217, 0.06);
+    border: 1px solid var(--accent-mint-soft);
+    border-left: 3px solid var(--accent-mint);
+    text-align: left;
+  }
+  .closing .cl-final .qm {
+    font-family: 'JetBrains Mono', serif;
+    font-size: 40px;
+    color: var(--accent-mint);
+    line-height: 0.6;
+    opacity: 0.5;
+  }
+  .closing .cl-final .q {
+    font-size: 19px;
+    font-weight: 500;
+    line-height: 1.6;
+    color: var(--text-primary);
+    margin-top: 8px;
+  }
+  .closing .cl-final .q strong {
+    color: var(--accent-mint);
+    font-weight: 700;
+  }
+  .closing .cl-sig {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-muted);
+    letter-spacing: 0.08em;
+  }
+  .closing .cl-sig .org { color: var(--text-secondary); margin-right: 12px; }
+
+  /* ───── responsive ───── */
+  @media (max-width: 1100px) {
+    .approach-grid { grid-template-columns: 1fr; }
+    .impact-kpi-grid { grid-template-columns: repeat(2, 1fr); }
+    .pain-grid { grid-template-columns: repeat(2, 1fr); }
+    .progress-rail { display: none; }
+    .flow-3 { grid-template-columns: 1fr; gap: 16px; }
+    .flow-3 .arrow { transform: rotate(90deg); padding: 8px; }
+    .office-row { grid-template-columns: 1fr; }
+    .process-grid { grid-template-columns: 1fr; }
+    .process-grid .pg-divider { width: 100%; height: 56px; }
+    .process-grid .pg-divider::before { left: 0; right: 0; top: 50%; bottom: auto; width: 100%; height: 1px; }
+    .process-grid .pg-divider .arr { transform: rotate(90deg); background: var(--bg-base); padding: 0 12px; }
+    .core-row { grid-template-columns: 1fr; }
+    .core-row .cr-right { border-left: none; border-top: 1px solid var(--border-soft); }
+    .axis-grid { grid-template-columns: 1fr; }
+    .recap-grid { grid-template-columns: 1fr; }
+    .realloc-flow { grid-template-columns: 1fr; gap: 16px; }
+    .realloc-flow .rf-arrow { transform: rotate(90deg); padding: 8px; }
+  }
+  @media (max-width: 720px) {
+    section { padding: 80px 24px 64px; }
+    .sec-tag, .hero .top-meta { left: 24px; }
+    .kpi-row { grid-template-columns: 1fr; }
+    .impact-kpi-grid { grid-template-columns: 1fr; }
+    .pain-grid { grid-template-columns: 1fr; }
+    .reframe-strip { flex-direction: column; align-items: flex-start; gap: 20px; }
+    .reframe-strip .rs-budget { margin-left: 0; text-align: left; }
+  }
+</style>
+</head>
+<body>
+<div class="grain"></div>
+
+<!-- 좌측 progress rail -->
+<nav class="progress-rail" aria-label="Section navigation">
+  <a href="#hero" class="pr-item" data-target="hero"><span class="dot"></span><span class="pl">표지</span></a>
+  <a href="#context" class="pr-item" data-target="context"><span class="dot"></span><span class="pl">Context</span></a>
+  <a href="#approach" class="pr-item" data-target="approach"><span class="dot"></span><span class="pl">Approach</span></a>
+  <a href="#reframing" class="pr-item" data-target="reframing"><span class="dot"></span><span class="pl">Reframing</span></a>
+  <a href="#process" class="pr-item" data-target="process"><span class="dot"></span><span class="pl">Process</span></a>
+  <a href="#core-ai" class="pr-item" data-target="core-ai"><span class="dot"></span><span class="pl">Core AI</span></a>
+  <a href="#impact" class="pr-item" data-target="impact"><span class="dot"></span><span class="pl">Impact</span></a>
+  <a href="#scalability" class="pr-item" data-target="scalability"><span class="dot"></span><span class="pl">Scalability</span></a>
+  <a href="#closing" class="pr-item" data-target="closing"><span class="dot"></span><span class="pl">Closing</span></a>
+</nav>
+
+<!-- ═══════════════════════ SECTION 01 · HERO 표지 ═══════════════════════ -->
+<section id="hero" class="hero">
+  <div class="top-meta">'26년 FLP 과정 Module 2 — AX Design Project</div>
+
+  <div class="container">
+    <div class="badge reveal"><span class="pulse"></span>CPIA · CONSTRUCTION PRODUCTIVITY INTELLIGENCE AGENT</div>
+
+    <h1 class="reveal d1">
+      현장 <span class="accent">Bottleneck</span>을<br />
+      AI Agent로 재설계하다
+    </h1>
+
+    <p class="subtitle reveal d2">
+      현장 운영 구조 전환을 위한, 생산성 최적화 AI Agent<br />
+      <span style="color: var(--text-muted); font-size: 0.9em;">CPIA — 2,506h 수작업을 351h AI 자동화로</span>
+    </p>
+
+    <div class="kpi-row">
+      <div class="kpi-card reveal d3">
+        <div class="label">Monthly Saving</div>
+        <div class="value" data-count="2155" data-suffix="h"><span class="num">0</span><span class="unit">h / 월</span></div>
+        <div class="caption">2,506h 수작업 → 351h AI 자동화</div>
+        <div class="delta">대체율 86%</div>
+      </div>
+      <div class="kpi-card reveal d4">
+        <div class="label">FTE Reallocation</div>
+        <div class="value" data-count="15.4"><span class="num">0</span><span class="unit">명</span></div>
+        <div class="caption">Middle Office → Front Office 재배치</div>
+        <div class="delta">신규 채용 없이 확보</div>
+      </div>
+      <div class="kpi-card reveal d5">
+        <div class="label">Schedule Acceleration</div>
+        <div class="value"><span class="num">3</span><span style="font-size: 0.6em; color: var(--text-secondary); margin: 0 4px;">~</span><span class="num">7</span><span class="unit">일 / 현장</span></div>
+        <div class="caption">보고 가속 + D-14 선제 탐지</div>
+        <div class="delta">Faster Time to Yield</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="wave-dots"></div>
+
+  <div class="signature">
+    <span class="org">SK에코플랜트</span>조형준 프로 · `26.06
+  </div>
+</section>
+
+<!-- ═══════════════════════ SECTION · CONTEXT (전략적 배경) ═══════════════════════ -->
+<section id="context" class="context">
+  <div class="sec-tag"><span class="num">00</span>Strategic Context</div>
+
+  <div class="container">
+    <div class="eyebrow reveal">전략적 배경</div>
+    <h2 class="reveal d1">
+      단순 건설사를 넘어 <span class="hl">'AI Infra Solution Provider'</span>로의<br />
+      근본적 체질 개선을 추진 中
+    </h2>
+
+    <div class="flow-3">
+      <div class="flow-card reveal d2">
+        <div class="fc-label">Customer Needs · 핵심 고객 요구 변화</div>
+        <div class="req-item">
+          <div class="rt">Scale-up</div>
+          <div class="rd">FAB 대형화, Hyperscale Data Center 구축 — 투자 규모 확대로 공기 리스크 극대화</div>
+        </div>
+        <div class="req-item">
+          <div class="rt">Fast Track</div>
+          <div class="rd">NVIDIA GPU 메모리 양산 압박, 40MW AI DC 21개월 내 구축 요구</div>
+        </div>
+      </div>
+
+      <div class="arrow reveal d3">→</div>
+
+      <div class="flow-card center reveal d3">
+        <div class="fc-label">현 시점 본원 경쟁력</div>
+        <div class="fc-title">T2Y<br />Faster</div>
+        <div class="fc-sub">Faster Time to Yield<br />고객의 T2Y 단축</div>
+      </div>
+
+      <div class="arrow reveal d4">→</div>
+
+      <div class="flow-card reveal d4">
+        <div class="fc-label">Value Delivery · 목표</div>
+        <div class="fc-title">고객에게<br />Value 제공</div>
+        <div class="fc-sub" style="color: var(--text-secondary); font-family: var(--font-sans); margin-top: 12px;">공기 1일이 <strong style="color: var(--accent-mint);">수억 원의 가치</strong>를 만들어내는 시대 — T2Y 단축이 곧 고객 Value</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="wave-dots"></div>
+</section>
+
+<!-- ═══════════════════════ SECTION 02 · APPROACH ═══════════════════════ -->
+<section id="approach" class="approach">
+  <div class="sec-tag"><span class="num">01</span>Approach</div>
+
+  <div class="container">
+    <div class="eyebrow reveal">Bottleneck 명제 · 전수조사 결과</div>
+    <h2 class="reveal d1">
+      추정하지 않고 <span class="hl">측정</span>했습니다.<br />
+      Hi-tech 사업의 Bottleneck은 어디인가?
+    </h2>
+    <p class="lead reveal d2">
+      TM께서 강조하신 핵심 명제 — <em style="color: var(--accent-mint); font-style: normal;">"Bottleneck을 장악하는 자가 시장을 지배한다."</em>
+      SKEP은 AI Infra Solution Provider로 전환 중이고, 본원 경쟁력은 <strong style="color: var(--text-primary);">Faster Time to Yield</strong>입니다.
+      그렇다면 우리 사업의 진짜 Bottleneck은 어디인지, 6개 현장 321개 Activity 전수조사로 찾았습니다.
+    </p>
+
+    <div class="approach-grid">
+      <!-- TM Quote -->
+      <div class="tm-quote reveal d3">
+        <span class="qm">"</span>
+        <p class="text">
+          AI 적용의 출발점은 <strong>AI 적용 대상을 찾는 게 아닙니다</strong>.
+          <strong>Bottleneck을 찾는 것</strong>입니다.<br /><br />
+          공기 1일이 수억 원의 차이를 만들어내는 시대 — FAB 대형화와
+          40MW AI DC 21개월 압박 속에서, 보고가 2일 늦으면 의사결정도
+          2일 늦고, 곧 <strong>T2Y가 2일 늦어집니다</strong>.
+        </p>
+        <div class="attribution">— TM 메시지 (`26 ELP/FLP Module 1)</div>
+      </div>
+
+      <!-- Measurement -->
+      <div class="measurement reveal d4">
+        <div class="m-label">Hi-tech 6개 현장 전수조사 결과</div>
+        <div class="m-title">한 달에 2,506시간이<br />보고를 위한 보고에만 투입되고 있었습니다.</div>
+        <div class="m-grid">
+          <div class="m-stat">
+            <div class="n" data-count="2506" data-suffix="h">0<span style="font-size:0.55em;color:var(--text-secondary);margin-left:4px;">h / 월</span></div>
+            <div class="u">반복적 데이터 집계·보고</div>
+          </div>
+          <div class="m-stat">
+            <div class="n" data-count="17">0<span style="font-size:0.55em;color:var(--text-secondary);margin-left:4px;">명</span></div>
+            <div class="u">풀타임 인력 환산</div>
+          </div>
+          <div class="m-stat">
+            <div class="n" data-count="321">0<span style="font-size:0.55em;color:var(--text-secondary);margin-left:4px;">개</span></div>
+            <div class="u">전수조사 Activity</div>
+          </div>
+          <div class="m-stat">
+            <div class="n" data-count="6">0<span style="font-size:0.55em;color:var(--text-secondary);margin-left:4px;">개 현장</span></div>
+            <div class="u">동일 구조 반복 확인</div>
+          </div>
+        </div>
+        <p class="conclusion">
+          이 2,506시간은 단순한 비효율이 아닙니다.
+          <strong>T2Y를 저해하는 보이지 않는 변수</strong> — 곧 수억 원의 손실로 직결됩니다.
+        </p>
+      </div>
+    </div>
+
+    <!-- 4 Pain Points -->
+    <div class="pain-section">
+      <div class="section-head reveal">
+        <h3>4가지 Pain Point</h3>
+        <span style="color: var(--text-muted); font-size: 14px;">현장 Activity 전수조사 데이터 기반 · 추측이 아닌 실측</span>
+        <span class="meta">PAIN 01—04</span>
+      </div>
+
+      <div class="pain-grid">
+        <div class="pain-card reveal d1">
+          <div class="pn">PAIN 01</div>
+          <div class="pt">작업일보 수작업 취합</div>
+          <div class="pd">BP 100개사 이메일·카카오톡·SNS로 분산 수신. 수기 복붙·집계에 담당자 1~3명 전일 투입.</div>
+          <div class="pm">용인 Cluster 1기 OBL 400h / 월</div>
+        </div>
+        <div class="pain-card reveal d2">
+          <div class="pn">PAIN 02</div>
+          <div class="pt">보고서 작성 반복 소모</div>
+          <div class="pd">Daily·Weekly·Monthly Report, S-Curve 등 동일 데이터를 매번 PPT·Excel에 수기 기입.</div>
+          <div class="pm">Hi-tech 6개 현장 ~1,144h / 월</div>
+        </div>
+        <div class="pain-card reveal d3">
+          <div class="pn">PAIN 03</div>
+          <div class="pt">공기 지연 사후 인지</div>
+          <div class="pd">PM 경험칙으로 판단. 주간 회의 후 이상 인지 시 이미 만회 불가 구간 진입.</div>
+          <div class="pm">지연 발생 후 대응</div>
+        </div>
+        <div class="pain-card reveal d4">
+          <div class="pn">PAIN 04</div>
+          <div class="pt">전현장 동일 구조 중복</div>
+          <div class="pd">6개 현장 동일 Middle Office 프로세스 반복. 구조적 해결 없이 개인 노력으로만 대응.</div>
+          <div class="pm">복제 미실현 손실</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="wave-dots"></div>
+</section>
+
+<!-- ═══════════════════════ SECTION · REFRAMING (Operational Shift) ═══════════════════════ -->
+<section id="reframing" class="reframing">
+  <div class="sec-tag"><span class="num">02</span>Reframing</div>
+
+  <div class="container">
+    <div class="eyebrow reveal">Operational Shift · Front / Middle / Back Office</div>
+    <h2 class="reveal d1">
+      운영 구조 재설계로<br /><span class="hl">Input SUPEX</span>의 구체적 실현
+    </h2>
+    <p class="lead reveal d2">
+      건설업의 시각에서 확장하여 고객에게 Value를 제공하는 관점에서 <strong style="color: var(--text-primary);">금융·서비스업의 Operating Model</strong>로 재정의 —
+      Middle Office의 데이터·보고 업무는 AI Agent의 sweet spot, Front Office는 사람만 가능한 본질 영역으로 분리합니다.
+    </p>
+
+    <div class="office-row">
+      <div class="office-card reveal d3">
+        <div class="oc-tag">Front Office</div>
+        <div class="oc-name">현장 관리 · 커뮤니케이션</div>
+        <div class="oc-role">사람만 가능한 본질적 역할</div>
+        <ul class="oc-list">
+          <li>발주처 협의 · 의사결정</li>
+          <li>공정 문제 해결 · 현장 조치</li>
+          <li>리스크 판단 · Catch-up 실행</li>
+          <li>협력사(BP) 관계 관리</li>
+        </ul>
+        <div class="oc-foot">AI 대체 불가 · 인력 확충 필요</div>
+      </div>
+
+      <div class="office-card target reveal d4">
+        <div class="oc-tag">CPIA Target · Middle Office</div>
+        <div class="oc-name">데이터 집계 · 검증 · 보고</div>
+        <div class="oc-role">AI Agent의 sweet spot</div>
+        <ul class="oc-list">
+          <li>작업일보 취합 · 정합성 검증</li>
+          <li>공정률 · 생산성 보고서 작성</li>
+          <li>공기 지연 리스크 집계 · 모니터링</li>
+          <li>회의 자료 데이터 가공 · 포매팅</li>
+        </ul>
+        <div class="oc-foot">Hi-tech 2,506h / 월 소비 → AI Agent로 완전 대체</div>
+      </div>
+
+      <div class="office-card reveal d5">
+        <div class="oc-tag">Back Office</div>
+        <div class="oc-name">검토 · 정산 · 시스템</div>
+        <div class="oc-role">기존 운영 유지 영역</div>
+        <ul class="oc-list">
+          <li>기성 정산 · 회계 처리</li>
+          <li>퇴직공제 신고 · 기록</li>
+          <li>ERP · PMIS 시스템 관리</li>
+          <li>계약 문서 보관 · 관리</li>
+        </ul>
+        <div class="oc-foot">현행 유지 · 부분 자동화 가능</div>
+      </div>
+    </div>
+
+    <div class="realloc-flow reveal d6">
+      <div class="rf-left">
+        <div class="rf-label">Middle Office</div>
+        <div class="rf-amount"><span class="em">15.4</span>명 FTE</div>
+        <div style="font-size:12px; color: var(--text-muted); margin-top:6px;">AI Agent로 완전 대체</div>
+      </div>
+      <div class="rf-arrow">
+        <span class="arr">→</span>
+        <span class="rl">재배치 · Reallocation</span>
+      </div>
+      <div class="rf-right">
+        <div class="rf-label">Front Office</div>
+        <div class="rf-amount"><span class="em">실행력 강화</span></div>
+        <div style="font-size:12px; color: var(--text-muted); margin-top:6px;">의사결정 · 발주처 협의 · 해외 현장 보강</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="wave-dots"></div>
+</section>
+
+<!-- ═══════════════════════ SECTION · PROCESS (As-is / To-be) ═══════════════════════ -->
+<section id="process" class="process-sec">
+  <div class="sec-tag"><span class="num">03</span>Process</div>
+
+  <div class="container">
+    <div class="process-head reveal">
+      <div class="eyebrow">CPIA, 어떻게 사람을 대신하는가</div>
+      <h2>수작업 7단계 → <span style="color:var(--accent-mint);">7-Agent LangGraph 자동화</span></h2>
+      <p class="ph-sub">담당자의 역할이 "보고서 작성자" 에서 "의사결정자" 로 전환됩니다</p>
+    </div>
+
+    <div class="process-grid">
+      <div class="proc-col reveal d1">
+        <div class="pc-head">
+          <span class="pc-tag">As-is</span>
+          <span class="pc-title">수작업 7단계 사이클</span>
+        </div>
+        <ol class="pc-steps">
+          <li><span class="nm">BP 이메일·카톡 수동 열람</span><span class="dur">1~2 h/일</span></li>
+          <li><span class="nm">엑셀 복붙 · 집계 수작업</span><span class="dur">2~3 h/일</span></li>
+          <li><span class="nm">공정표 항목 수작업 매핑</span><span class="dur">1 h/일</span></li>
+          <li><span class="nm">현장 이력 축적 없이 매번 재취합</span><span class="dur">1 h/일</span></li>
+          <li><span class="nm">PPT · 엑셀 보고서 수기 작성</span><span class="dur">2 h/일</span></li>
+          <li><span class="nm">PM 경험칙으로 공정 이상 판단</span><span class="dur">D+2~3일</span></li>
+          <li><span class="nm">공기 만회 대책 사후 임시 수립</span><span class="dur">사후 대응</span></li>
+        </ol>
+        <div class="pc-foot">
+          <div class="pcf-item">투입<strong>담당자 2명 전일</strong></div>
+          <div class="pcf-item">보고<strong>D+2.5일</strong></div>
+          <div class="pcf-item">대응<strong>지연 사후 인지</strong></div>
+        </div>
+      </div>
+
+      <div class="pg-divider"><span class="arr">→</span></div>
+
+      <div class="proc-col tobe reveal d2">
+        <div class="pc-head">
+          <span class="pc-tag">To-be</span>
+          <span class="pc-title">7-Agent · LangGraph Pipeline</span>
+        </div>
+        <ol class="pc-steps">
+          <li><span class="nm">Collector <span style="color:var(--text-muted); font-family:var(--font-mono); font-size:11px; margin-left:4px;">이메일·카톡 자동 수집·파싱</span></span><span class="dur">0 분</span></li>
+          <li><span class="nm">Parser <span style="color:var(--text-muted); font-family:var(--font-mono); font-size:11px; margin-left:4px;">비정형 → WBS 구조화</span></span><span class="dur">0 분</span></li>
+          <li><span class="nm">Mapper <span class="core-star">★ Core AI</span></span><span class="dur">검토 10 분</span></li>
+          <li><span class="nm">Atomizer <span style="color:var(--text-muted); font-family:var(--font-mono); font-size:11px; margin-left:4px;">현장 지식 DB 적재</span></span><span class="dur">0 분</span></li>
+          <li><span class="nm">Exporter <span style="color:var(--text-muted); font-family:var(--font-mono); font-size:11px; margin-left:4px;">통합 작업일보 자동 생성</span></span><span class="dur">검토 10 분</span></li>
+          <li><span class="nm">Forecaster <span class="core-star">★ Core AI</span></span><span class="dur">D+0 진단</span></li>
+          <li><span class="nm">Optimizer <span class="core-star">★ Core AI</span></span><span class="dur">자동 시나리오</span></li>
+        </ol>
+        <div class="pc-foot">
+          <div class="pcf-item">투입<strong>담당자 30분/일</strong></div>
+          <div class="pcf-item">보고<strong>D+0 (당일)</strong></div>
+          <div class="pcf-item">대응<strong>공기 위험 D-14 선제</strong></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="wave-dots"></div>
+</section>
+
+<!-- ═══════════════════════ SECTION · CORE AI ═══════════════════════ -->
+<section id="core-ai" class="core-ai">
+  <div class="sec-tag"><span class="num">03</span>Process — Core AI</div>
+
+  <div class="container">
+    <div class="eyebrow reveal">CPIA · 3 Core AI Agents</div>
+    <h2 class="reveal d1">
+      시스템으론 대체 불가능한,<br /><span style="color:var(--accent-mint);">사람의 판단·해석 영역</span>을 세 가지 Core AI가 직접 수행
+    </h2>
+    <p class="lead reveal d2">
+      Mapper는 작업일보의 의미를 파악해 WBS에 자동 연결하고, Forecaster는 오늘의 생산성 Risk를 4분면으로 진단하며,
+      Optimizer는 과거 만회 사례 12건을 분석해 시나리오 3개를 자동 제시합니다.
+    </p>
+
+    <!-- Mapper -->
+    <div class="core-row reveal d3">
+      <div class="cr-left">
+        <div class="cr-tag">Core AI · 01</div>
+        <div class="cr-name">Mapper<span class="en">WBS Auto-Mapping</span></div>
+        <p class="cr-desc">
+          협력사가 작성한 작업 내용의 <strong style="color:var(--text-primary);">문맥을 파악</strong>하여 의미 기반으로 WBS에 자동 연결합니다.
+          AI가 신규 발생 작업에 대해 <strong style="color:var(--accent-mint);">평균 정확도 약 92%</strong>로 매핑하면,
+          사람은 확신도 낮은 <strong style="color:var(--accent-warm);">8%의 작업 건만 검토</strong>하면 됩니다 — 100% AI가 아닌, 92% AI + 8% Human 의 신뢰성 설계.
+        </p>
+        <div class="cr-ba">
+          <div class="ba-cell before"><div class="l">Before</div><div class="v">1~3 h / 일</div></div>
+          <div class="ba-arr">→</div>
+          <div class="ba-cell after"><div class="l">After</div><div class="v">AI 10 분 / 일</div></div>
+        </div>
+      </div>
+      <div class="cr-right">
+        <div class="mapper-viz">
+          <div class="mv-head">Mapping Confidence · 100 건 / 일</div>
+          <div class="mv-bar">
+            <div class="auto">92% 자동 매핑</div>
+            <div class="review">8% 검토</div>
+          </div>
+          <div class="mv-examples">
+            <div class="mv-ex"><span class="name">거푸집 해체 완료</span><span class="wbs">IBL-CIV-FW-12</span><span class="conf">88%</span></div>
+            <div class="mv-ex"><span class="name">콘크리트 타설 60m³</span><span class="wbs">IBL-CIV-CC-07</span><span class="conf">92%</span></div>
+            <div class="mv-ex low"><span class="name">현장 정리 및 자재 이송</span><span class="wbs">매핑 불가 → Human</span><span class="conf">41%</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Forecaster -->
+    <div class="core-row reveal d4">
+      <div class="cr-left">
+        <div class="cr-tag">Core AI · 02</div>
+        <div class="cr-name">Forecaster<span class="en">Productivity Risk Diagnosis</span></div>
+        <p class="cr-desc">
+          현장의 금일 Productivity와 Impact를 기준으로 <strong style="color:var(--text-primary);">4분면(정상·주의·위험)</strong>으로 진단합니다.
+          현장관리자는 별도 분석 작업 없이 위험 항목에 빠르게 조치할 수 있습니다.
+          한 가지 디테일 — <strong style="color:var(--accent-mint);">"위험 신호 없음(No Danger)"과 "데이터 미입력(No Data)"</strong>을 엄격히 구분 설계했습니다.
+        </p>
+        <div class="cr-ba">
+          <div class="ba-cell before"><div class="l">Before</div><div class="v">D+2~3일 사후</div></div>
+          <div class="ba-arr">→</div>
+          <div class="ba-cell after"><div class="l">After</div><div class="v">D+0 당일 진단</div></div>
+        </div>
+      </div>
+      <div class="cr-right">
+        <div class="quad-viz">
+          <div class="mv-head" style="font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.16em; color: var(--text-muted); text-transform: uppercase; margin-bottom: 18px;">Today's Diagnosis · 14 공종</div>
+          <div class="qv-grid">
+            <div class="q-cell warn"><div class="ql">주의</div><div class="qn">3</div></div>
+            <div class="q-cell risk"><div class="ql">위험</div><div class="qn">2</div></div>
+            <div class="q-cell normal"><div class="ql">정상</div><div class="qn">9</div></div>
+            <div class="q-cell"><div class="ql">No Data</div><div class="qn" style="color:var(--text-muted);">0</div></div>
+          </div>
+          <div class="qv-legend">
+            <span class="lg"><span class="dot" style="background:var(--accent-green);"></span>정상 (Productivity ≥ 기준)</span>
+            <span class="lg"><span class="dot" style="background:var(--accent-warm);"></span>주의 (관찰 필요)</span>
+            <span class="lg"><span class="dot" style="background:var(--accent-red);"></span>위험 (Optimizer 라우팅)</span>
+            <span class="lg"><span class="dot" style="background:var(--text-muted);"></span>No Data ≠ No Danger</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Optimizer -->
+    <div class="core-row reveal d5">
+      <div class="cr-left">
+        <div class="cr-tag">Core AI · 03</div>
+        <div class="cr-name">Optimizer<span class="en">Catch-up Scenario</span></div>
+        <p class="cr-desc">
+          위험 분면의 공종에 대해 <strong style="color:var(--text-primary);">과거 12건의 유사 만회 사례</strong>를 분석해 시나리오 3개를 자동 제시합니다.
+          평가 관점은 <strong style="color:var(--accent-mint);">비용 · 공기 · 품질 · BP 관계 · 안전</strong> 5축 —
+          SKEP 현장 PM이 수십 년 쌓아온 암묵 노하우를 구조화한 도메인 지식의 결정체입니다.
+        </p>
+        <div class="cr-ba">
+          <div class="ba-cell before"><div class="l">Before</div><div class="v">사후 대책 수립</div></div>
+          <div class="ba-arr">→</div>
+          <div class="ba-cell after"><div class="l">After</div><div class="v">조기 대응 · 방안 제시</div></div>
+        </div>
+      </div>
+      <div class="cr-right">
+        <div class="opt-viz">
+          <div class="ov-head">RC 공종 · D-14 만회 가능 구간 · 유사 사례 12건</div>
+          <div class="ov-scen">
+            <div class="scen rec">
+              <span class="num">01</span>
+              <span class="desc">야간 작업 + 인력 +6명 (RC 4공구 집중)<span class="rec-tag">권장</span></span>
+              <span class="impact">−3 일</span>
+            </div>
+            <div class="scen">
+              <span class="num">02</span>
+              <span class="desc">선행공정 순서 재배치 (FW → CC 병행)</span>
+              <span class="impact">−2 일</span>
+            </div>
+            <div class="scen">
+              <span class="num">03</span>
+              <span class="desc">외주 BP사 추가 계약 (기성 BP-12 검토)</span>
+              <span class="impact">−1 일</span>
+            </div>
+          </div>
+          <div style="margin-top: 14px; font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); letter-spacing: 0.04em;">평가 5축 · 비용 · 공기 · 품질 · BP관계 · 안전</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="wave-dots"></div>
+</section>
+
+<!-- ═══════════════════════ SECTION 03 · IMPACT ═══════════════════════ -->
+<section id="impact" class="impact">
+  <div class="sec-tag"><span class="num">04</span>Impact</div>
+
+  <div class="container">
+    <div class="impact-head reveal">
+      <div class="eyebrow">Hi-tech 현장을 최적화 하다</div>
+      <h2>
+        Middle Office 자동화 <span class="chain">→</span>
+        가용 시간 확보 <span class="chain">→</span>
+        Front Office 실행력 강화 <span class="chain">→</span>
+        공기 지연 예방
+      </h2>
+      <p class="h-sub">강력한 성과 선순환 구조의 창출</p>
+    </div>
+
+    <!-- 4 KPI Cards -->
+    <div class="impact-kpi-grid">
+      <div class="impact-card reveal d1">
+        <div class="icon">01</div>
+        <div class="ic-label">검토 시간 최소화</div>
+        <div class="ic-value">D<span class="unit">+0</span></div>
+        <div class="ic-desc"><strong>당일 보고 체계</strong><br />D+2~3일 후 보고 → 당일 보고로 전환</div>
+      </div>
+      <div class="impact-card reveal d2">
+        <div class="icon">02</div>
+        <div class="ic-label">공기 단축</div>
+        <div class="ic-value"><span class="num" data-count="3">0</span>~<span class="num" data-count="7">0</span><span class="unit">일 / 현장</span></div>
+        <div class="ic-desc"><strong>보고 가속 + D-14 탐지 + 만회 조기 착수</strong><br />선제 대응으로 만회 가능 구간 확보</div>
+      </div>
+      <div class="impact-card reveal d3">
+        <div class="icon">03</div>
+        <div class="ic-label">업무 투입시간 절감</div>
+        <div class="ic-value"><span class="num" data-count="2155">0</span><span class="unit">h / 월</span></div>
+        <div class="ic-desc"><strong>2,506h → 351h · 대체율 86%</strong><br />Hi-tech 6개 현장 실측 기준</div>
+      </div>
+      <div class="impact-card reveal d4">
+        <div class="icon">04</div>
+        <div class="ic-label">재배치 인력 확보</div>
+        <div class="ic-value"><span class="num" data-count="15.4">0</span><span class="unit">명</span></div>
+        <div class="ic-desc"><strong>FTE Reallocation</strong><br />2,155h ÷ 140h/명 기준 · Front Office로 이동</div>
+      </div>
+    </div>
+
+    <!-- 6개 현장 실측 테이블 -->
+    <div class="sites-table-wrap reveal">
+      <div class="st-head">
+        <h3>6개 현장 실측 — 업무 절감 시간 및 AI 대체율</h3>
+        <span class="st-meta">FY26 Q1 · 6 Sites</span>
+      </div>
+      <table class="sites-table">
+        <thead>
+          <tr>
+            <th>현장</th>
+            <th>현재 월간</th>
+            <th>AI 전환 후</th>
+            <th>대체율</th>
+            <th style="text-align:left;">재배치 활용 방향</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="--r:0.90;"><td>Y-1 Ph-1 OBL</td><td>967 h</td><td>~97 h</td><td><span class="ratio-bar"><span></span></span><span class="pct">90%</span></td><td style="text-align:left; color:var(--text-secondary);">Front Office 강화 (공정 판단·발주처 협의)</td></tr>
+          <tr style="--r:0.80;"><td>Indiana Fab HAC</td><td>410 h</td><td>~82 h</td><td><span class="ratio-bar"><span></span></span><span class="pct">80%</span></td><td style="text-align:left; color:var(--text-secondary);"><span style="color:var(--accent-mint);">해외 현장 Front 역량 보강</span></td></tr>
+          <tr style="--r:0.85;"><td>P&amp;T 3 증축</td><td>296 h</td><td>~41 h</td><td><span class="ratio-bar"><span></span></span><span class="pct">85%</span></td><td style="text-align:left; color:var(--text-secondary);">Hi-tech 신규 현장 투입</td></tr>
+          <tr style="--r:0.85;"><td>M15X OBL &amp; PT7</td><td>286 h</td><td>~40 h</td><td><span class="ratio-bar"><span></span></span><span class="pct">85%</span></td><td style="text-align:left; color:var(--text-secondary);">Hi-tech 신규 현장 투입</td></tr>
+          <tr style="--r:0.85;"><td>Y-1 Ph-1 IBL</td><td>288 h</td><td>~40 h</td><td><span class="ratio-bar"><span></span></span><span class="pct">85%</span></td><td style="text-align:left; color:var(--text-secondary);">Hi-tech 신규 현장 투입</td></tr>
+          <tr style="--r:0.80;"><td>청주 M15X IBL</td><td>259 h</td><td>~36 h</td><td><span class="ratio-bar"><span></span></span><span class="pct">80%</span></td><td style="text-align:left; color:var(--text-secondary);">Hi-tech 신규 현장 투입</td></tr>
+          <tr class="sum" style="--r:0.86;"><td>합계 (6 sites)</td><td>2,506 h / 월</td><td>~351 h / 월</td><td><span class="ratio-bar"><span></span></span><span class="pct">86%</span></td><td style="text-align:left;">신규 충원 없이 Front Office 배치 인원 확보</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Reframe strip -->
+    <div class="reframe-strip reveal">
+      <div class="rs-tag">Reframing</div>
+      <div class="rs-msg">
+        이 15.4명은 <strong>사라지지 않습니다</strong>. Front Office로 재배치됩니다.<br />
+        그중 <strong>2.5명은 Indiana Fab HAC — 해외 현장 Front 역량 보강</strong>에 투입됩니다.
+      </div>
+      <div class="rs-budget">
+        <div class="v">≈ 23<span style="font-size:0.55em;margin-left:4px;">억원 / 연</span></div>
+        <div class="l">신규 채용 예산 절감</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="wave-dots"></div>
+</section>
+
+<!-- ═══════════════════════ SECTION · SCALABILITY (3-AXIS) ═══════════════════════ -->
+<section id="scalability" class="scalability">
+  <div class="sec-tag"><span class="num">05</span>Scalability</div>
+
+  <div class="container">
+    <div class="eyebrow reveal" style="text-align:center;">3-AXIS Scalability</div>
+    <h2 class="reveal d1">조직의 변화로 이어지는 <span style="color:var(--accent-mint);">확장 가능성</span></h2>
+    <p class="lead reveal d2">
+      현장별 양식엔 노드 교체로 즉시 대응. 동일 Agent는 모든 사업 프로덕트에 그대로 적용.
+      시공의 학습은 설계·구매 영역까지 확장되어 EPC value chain 전반의 공기 단축으로 이어집니다.
+    </p>
+
+    <div class="axis-grid">
+      <div class="axis-card reveal d3">
+        <div class="ax-icon">◇</div>
+        <div class="ax-num">Axis · 01</div>
+        <div class="ax-cat">Modular Adaptation</div>
+        <div class="ax-title">현장별 양식이 달라도,<br />노드 교체로 즉시 적용</div>
+        <div class="ax-desc">
+          유지보수가 간편한 LangGraph 기술로 설계.
+          Parser · Exporter 같은 일부 노드만 교체하면 그 현장에 맞춰 즉시 동작.
+        </div>
+        <div class="ax-impact">
+          <div class="il">Impact</div>
+          <div class="iv">2~3일 내 신속한 커스터마이징 가능</div>
+        </div>
+      </div>
+
+      <div class="axis-card reveal d4">
+        <div class="ax-icon">◎</div>
+        <div class="ax-num">Axis · 02</div>
+        <div class="ax-cat">Cross-Product Reach</div>
+        <div class="ax-title">Hi-tech → AI DC ·<br />인프라 · 주택까지</div>
+        <div class="ax-desc">
+          작업일보와 생산성 분석은 현장 종류와 무관한 공통 업무.
+          Hi-tech에서 검증한 동일 Agent를 모든 사업 프로덕트에 그대로 적용.
+        </div>
+        <div class="ax-impact">
+          <div class="il">Impact</div>
+          <div class="iv">전 EPC 사업 프로덕트 공통 적용</div>
+        </div>
+      </div>
+
+      <div class="axis-card reveal d5">
+        <div class="ax-icon">⬡</div>
+        <div class="ax-num">Axis · 03</div>
+        <div class="ax-cat">Value Chain Expansion</div>
+        <div class="ax-title">MPRS 관점에서의<br />확장 가능성</div>
+        <div class="ax-desc">
+          시공(P) 단계의 누적 데이터·패턴을 설계(R)과 구매·조달(S) 단계로 확장.
+          예측 가능성을 높이고 전체 EPC value chain의 공기 단축 레버 확보.
+        </div>
+        <div class="ax-impact">
+          <div class="il">Impact</div>
+          <div class="iv">PRS 영역의 예상공기 검토시간 50% 절감</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="wave-dots"></div>
+</section>
+
+<!-- ═══════════════════════ SECTION · CLOSING ═══════════════════════ -->
+<section id="closing" class="closing">
+  <div class="sec-tag"><span class="num">06</span>Closing</div>
+
+  <div class="container">
+    <div class="cl-eyebrow reveal">Final Tagline</div>
+    <h2 class="cl-tagline reveal d1">
+      단순 AI 도구 적용이 아닌,<br /><span class="hl">현장 운영 구조의 전환</span>입니다.
+    </h2>
+    <p class="cl-sub reveal d2">
+      세 가지 변화가 합쳐지면 SKEP의 본원 경쟁력 — <strong style="color:var(--accent-mint);">Faster Time to Yield</strong> — 가 강화됩니다.
+    </p>
+
+    <div class="recap-grid">
+      <div class="recap-card reveal d3">
+        <div class="rc-num">01</div>
+        <div class="rc-label">First</div>
+        <div class="rc-title">실증적 Bottleneck<br />식별</div>
+        <p class="rc-desc">추정이 아닌 측정으로 Middle Office의 비효율을 명확히 규명. 6개 현장 321개 Activity 전수조사 기반.</p>
+      </div>
+      <div class="recap-card reveal d4">
+        <div class="rc-num">02</div>
+        <div class="rc-label">Second</div>
+        <div class="rc-title">Operational Shift<br />운영 구조 재설계</div>
+        <p class="rc-desc">AI로 확보한 <strong style="color:var(--accent-mint);">15.4명의 FTE</strong>를 Front Office로 재배치하여 현장 실행력을 혁신.</p>
+      </div>
+      <div class="recap-card reveal d5">
+        <div class="rc-num">03</div>
+        <div class="rc-label">Third</div>
+        <div class="rc-title">지식 자산의<br />누적</div>
+        <p class="rc-desc">외부 솔루션이 넘볼 수 없는 SKEP 고유의 지능형 플랫폼 구축 — 시간이 흐를수록 독보적 진입 장벽.</p>
+      </div>
+    </div>
+
+    <div class="cl-final reveal d6">
+      <span class="qm">"</span>
+      <p class="q">
+        우리가 우리 현장에서 먼저 증명해야 <strong>고객의 AI DC에서도 성공</strong>할 수 있습니다.<br />
+        CPIA는 SKEP AX의 성공적인 <strong>첫 번째 실증</strong>이고,
+        검증된 이 혁신 모델은 향후 <strong>AI Infra 시장에서 고객에게 제시할 가장 강력한 레퍼런스</strong>가 될 것입니다.
+      </p>
+    </div>
+
+    <div class="cl-sig">
+      <span class="org">SK에코플랜트</span>조형준 프로 · `26.06 — '26년 FLP 과정 Module 2 · AX Design Project
+    </div>
+  </div>
+
+  <div class="wave-dots"></div>
+</section>
+
+<script>
+  // ───── reveal on scroll ─────
+  const revealObserver = new IntersectionObserver((entries) => {
+    entries.forEach((e) => {
+      if (e.isIntersecting) {
+        e.target.classList.add('in-view');
+        revealObserver.unobserve(e.target);
+      }
+    });
+  }, { threshold: 0.15 });
+  document.querySelectorAll('.reveal').forEach((el) => revealObserver.observe(el));
+
+  // ───── table row ratio bar reveal ─────
+  const rowObserver = new IntersectionObserver((entries) => {
+    entries.forEach((e) => {
+      if (e.isIntersecting) {
+        e.target.classList.add('in-view');
+        rowObserver.unobserve(e.target);
+      }
+    });
+  }, { threshold: 0.3 });
+  document.querySelectorAll('.sites-table tbody tr').forEach((row) => rowObserver.observe(row));
+
+  // ───── count-up numbers ─────
+  function countUp(el, target, duration = 1600) {
+    const isFloat = !Number.isInteger(target);
+    const start = performance.now();
+    const inner = el.querySelector('.num') || el;
+    const initialHTML = inner.innerHTML;
+    function frame(now) {
+      const t = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - t, 3);
+      const v = target * eased;
+      inner.textContent = isFloat ? v.toFixed(1) : Math.round(v).toLocaleString();
+      if (t < 1) requestAnimationFrame(frame);
+      else inner.textContent = isFloat ? target.toFixed(1) : Math.round(target).toLocaleString();
+    }
+    requestAnimationFrame(frame);
+  }
+
+  const countObserver = new IntersectionObserver((entries) => {
+    entries.forEach((e) => {
+      if (e.isIntersecting) {
+        const target = parseFloat(e.target.dataset.count);
+        countUp(e.target, target);
+        countObserver.unobserve(e.target);
+      }
+    });
+  }, { threshold: 0.4 });
+  document.querySelectorAll('[data-count]').forEach((el) => countObserver.observe(el));
+
+  // ───── progress rail active state ─────
+  const sections = document.querySelectorAll('section[id]');
+  const railItems = document.querySelectorAll('.progress-rail .pr-item');
+  const sectionObserver = new IntersectionObserver((entries) => {
+    entries.forEach((e) => {
+      if (e.isIntersecting) {
+        const id = e.target.id;
+        railItems.forEach((it) => {
+          it.classList.toggle('active', it.dataset.target === id);
+        });
+      }
+    });
+  }, { threshold: 0.45 });
+  sections.forEach((s) => sectionObserver.observe(s));
+</script>
+</body>
+</html>

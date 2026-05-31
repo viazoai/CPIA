@@ -3,10 +3,20 @@
 # 개발 (HMR, 포트 5536)
 dev:
 	DEV_PORT=5536 DEV_CMD=dev:docker docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml up -d
+	@echo ""
+	@echo "  CPIA Dev Server"
+	@echo ""
+	@echo "  ➜  Local:   http://localhost:5536"
+	@echo ""
 
 # 개발 2 (HMR, 포트 5537)
 dev2:
 	DEV_PORT=5537 DEV_CMD=dev2:docker docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml up -d
+	@echo ""
+	@echo "  CPIA Dev Server"
+	@echo ""
+	@echo "  ➜  Local:   http://localhost:5537"
+	@echo ""
 
 # 시연/프로덕션 (포트 5535) — 이미지 없으면 자동 빌드
 prod:

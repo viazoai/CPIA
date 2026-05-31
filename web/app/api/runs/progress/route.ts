@@ -18,10 +18,25 @@
 // percent 산출: current_node 위치 기준 직전 stages=100%, current=50%, 이후=0%.
 // status='completed' 면 모든 stages=100%.
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
+import fs from "node:fs/promises";
+import path from "node:path";
 import { NextResponse } from "next/server";
 import sql from "@/lib/pg";
 import type { AgentStageProgress } from "@/lib/types";
+
+const DATA_DIR = path.join(process.cwd(), "..", "data");
+
+async function countInputFiles(dateCompact: string): Promise<number> {
+  try {
+    const dir = path.join(DATA_DIR, "input", dateCompact);
+    const files = await fs.readdir(dir);
+    return files.filter((f) => /\.(xlsx|xlsm)$/i.test(f)).length;
+  } catch {
+    return 0;
+  }
+}
 
 const STAGE_ORDER: Array<{
   step: number;
@@ -60,8 +75,8 @@ export async function GET(req: Request) {
   }
 
   const rows = (await (sql as any)`
-    SELECT run_id, report_date, status, current_node, started_at, completed_at,
-           atomized_count
+    SELECT run_id, TO_CHAR(report_date, 'YYYYMMDD') AS report_date,
+           status, current_node, started_at, completed_at, atomized_count
     FROM pipeline_runs
     WHERE report_date = ${date}
     ORDER BY started_at DESC
@@ -85,17 +100,19 @@ export async function GET(req: Request) {
   const isWaitingHil = run.status === "waiting_hil_1";
 
   // 단계별 실제 카운트 조회.
-  // Collector = 파일 수 (parser_report_meta 의 (run_id, bp_name) 고유 행 수)
+  // Collector = data/input/YYYYMMDD/ 파일 수 (DB 보다 먼저 존재)
   // Parser    = parser_activities 행 수
   // Mapper    = mapper_activities 행 수
   // Atomizer  = pipeline_runs.atomized_count
-  const countRows = (await (sql as any)`
-    SELECT
-      (SELECT COUNT(*)::int FROM parser_report_meta WHERE run_id = ${run.run_id})  AS file_count,
-      (SELECT COUNT(*)::int FROM parser_activities   WHERE run_id = ${run.run_id}) AS parser_rows,
-      (SELECT COUNT(*)::int FROM mapper_activities   WHERE run_id = ${run.run_id}) AS mapper_rows
-  `) as Array<{ file_count: number; parser_rows: number; mapper_rows: number }>;
-  const fileCount     = countRows[0]?.file_count  ?? 0;
+  const dateCompact = String(run.report_date ?? "").replace(/-/g, "").slice(0, 8);
+  const [fileCount, countRows] = await Promise.all([
+    countInputFiles(dateCompact),
+    (sql as any)`
+      SELECT
+        (SELECT COUNT(*)::int FROM parser_activities WHERE run_id = ${run.run_id}) AS parser_rows,
+        (SELECT COUNT(*)::int FROM mapper_activities WHERE run_id = ${run.run_id}) AS mapper_rows
+    ` as Promise<Array<{ parser_rows: number; mapper_rows: number }>>,
+  ]);
   const parserRows    = countRows[0]?.parser_rows ?? 0;
   const mapperRows    = countRows[0]?.mapper_rows ?? 0;
   const atomizedCount = run.atomized_count ?? 0;

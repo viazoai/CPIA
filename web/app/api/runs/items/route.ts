@@ -1,20 +1,24 @@
 // GET /api/runs/items?run_id=X&agent=Mapper
 //
-// 단계별 실제 DB 아이템 반환. 현재 지원 단계:
-//   Collector   — parser_report_meta 에서 bp_name(업체) 목록
-//   Parser      — parser_activities 행 (처리완료된 것들)
+// 단계별 실제 아이템 반환.
+//   Collector   — data/input/YYYYMMDD/ 파일 목록 (파이프라인 실행 전부터 존재)
+//   Parser      — parser_activities (파싱 완료된 activity 행)
 //   Mapper      — parser_activities 전체 vs mapper_activities 교차:
-//                  mapper_activities 있음 → done / 없음 → received
-//                  이를 통해 "아직 매핑 안 된 항목"을 실시간으로 표시 가능
-//   Human Review — mapper_activities 중 requires_review=true
-//   Atomizer/Exporter/Forecaster/Optimizer — mapper_activities 를 기반으로 done 표시
+//                  mapped=done / unmapped=received → 실시간 매핑 진행 확인 가능
+//   Human Review — mapper_activities.requires_review
+//   나머지       — mapper_activities 기반 done
 //
-// 정렬: received/processing → hil_pending → done 순 (미처리 먼저).
+// 정렬: received/processing → hil_pending → done (미처리 먼저).
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
+import fs from "node:fs/promises";
+import path from "node:path";
 import { NextResponse } from "next/server";
 import sql from "@/lib/pg";
 import type { AgentTaskItem } from "@/lib/types";
+
+const DATA_DIR = path.join(process.cwd(), "..", "data");
 
 const STATUS_SORT: Record<AgentTaskItem["status"], number> = {
   processing:  0,
@@ -25,9 +29,7 @@ const STATUS_SORT: Record<AgentTaskItem["status"], number> = {
 };
 
 function sortItems(items: AgentTaskItem[]): AgentTaskItem[] {
-  return [...items].sort(
-    (a, b) => STATUS_SORT[a.status] - STATUS_SORT[b.status],
-  );
+  return [...items].sort((a, b) => STATUS_SORT[a.status] - STATUS_SORT[b.status]);
 }
 
 export async function GET(req: Request) {
@@ -36,86 +38,96 @@ export async function GET(req: Request) {
   const agent = url.searchParams.get("agent");
 
   if (!runId || !agent) {
-    return NextResponse.json(
-      { ok: false, error: "run_id, agent 파라미터 필요" },
-      { status: 400 },
-    );
+    return NextResponse.json({ ok: false, error: "run_id, agent 파라미터 필요" }, { status: 400 });
   }
 
   try {
     let items: AgentTaskItem[] = [];
 
     if (agent === "Collector") {
-      // parser_report_meta 의 bp_name 목록 → 업체(파일) 단위 표시
-      const rows = (await (sql as any)`
-        SELECT bp_name
-        FROM parser_report_meta
-        WHERE run_id = ${runId}
-        ORDER BY bp_name
-      `) as Array<{ bp_name: string }>;
+      // pipeline_runs 에서 report_date 조회 → data/input/YYYYMMDD/ 파일 목록
+      const runRows = (await (sql as any)`
+        SELECT TO_CHAR(report_date, 'YYYYMMDD') AS date_compact
+        FROM pipeline_runs WHERE run_id = ${runId} LIMIT 1
+      `) as Array<{ date_compact: string }>;
 
-      items = rows.map((r, i) => ({
-        id: String(i + 1).padStart(3, "0"),
-        trade:      "—",
-        contractor: r.bp_name,
-        status:     "done" as const,
-      }));
+      const dateCompact = runRows[0]?.date_compact ?? "";
+      if (dateCompact) {
+        const inputDir = path.join(DATA_DIR, "input", dateCompact);
+        const all = await fs.readdir(inputDir).catch(() => [] as string[]);
+        const xlsxFiles = all.filter((f) => /\.(xlsx|xlsm)$/i.test(f));
+        items = xlsxFiles.map((f, i) => ({
+          id:         String(i + 1).padStart(3, "0"),
+          trade:      "파일",
+          contractor: f,
+          status:     "done" as const,
+        }));
+      }
     }
 
     else if (agent === "Parser") {
       const rows = (await (sql as any)`
-        SELECT idx, trade, company
+        SELECT idx, l5_disc, trade, company, work_content
         FROM parser_activities
         WHERE run_id = ${runId}
         ORDER BY idx
-      `) as Array<{ idx: number; trade: string | null; company: string }>;
+      `) as Array<{
+        idx: number;
+        l5_disc: string | null;
+        trade: string | null;
+        company: string;
+        work_content: string | null;
+      }>;
 
       items = rows.map((r) => ({
         id:         String(r.idx).padStart(3, "0"),
-        trade:      r.trade ?? "—",
+        trade:      r.trade ?? r.l5_disc ?? "—",
         contractor: r.company,
         status:     "done" as const,
       }));
     }
 
     else if (agent === "Mapper") {
-      // parser_activities 전체 목록 조회 후 mapper_activities 와 교차.
-      // mapper_activities 에 있으면 done, 없으면 received.
-      const [parserRows, mapperRows] = await Promise.all([
-        (sql as any)`
-          SELECT idx, trade, company
-          FROM parser_activities
-          WHERE run_id = ${runId}
-          ORDER BY idx
-        ` as Promise<Array<{ idx: number; trade: string | null; company: string }>>,
-        (sql as any)`
-          SELECT idx
-          FROM mapper_activities
-          WHERE run_id = ${runId}
-        ` as Promise<Array<{ idx: number }>>,
-      ]);
+      // sequential await — Promise.all + postgres RowList 조합 불안정 방지
+      const parserRows = (await (sql as any)`
+        SELECT idx, l5_disc, trade, company
+        FROM parser_activities
+        WHERE run_id = ${runId}
+        ORDER BY idx
+      `) as Array<{ idx: number; l5_disc: string | null; trade: string | null; company: string }>;
 
-      const mappedIdx = new Set(mapperRows.map((r: { idx: number }) => r.idx));
+      const mapperRows = (await (sql as any)`
+        SELECT idx FROM mapper_activities WHERE run_id = ${runId}
+      `) as Array<{ idx: number }>;
 
-      items = parserRows.map((r: { idx: number; trade: string | null; company: string }) => ({
+      // Number() 강제 변환 — postgres 가 bigint 로 반환할 수 있음
+      const mappedIdx = new Set(mapperRows.map((r) => Number(r.idx)));
+
+      items = parserRows.map((r) => ({
         id:         String(r.idx).padStart(3, "0"),
-        trade:      r.trade ?? "—",
+        trade:      r.trade ?? r.l5_disc ?? "—",
         contractor: r.company,
-        status:     (mappedIdx.has(r.idx) ? "done" : "received") as AgentTaskItem["status"],
+        status:     (mappedIdx.has(Number(r.idx)) ? "done" : "received") as AgentTaskItem["status"],
       }));
     }
 
     else if (agent === "Human Review") {
       const rows = (await (sql as any)`
-        SELECT idx, trade, company, requires_review
+        SELECT idx, l6_main, trade, company, requires_review
         FROM mapper_activities
         WHERE run_id = ${runId}
         ORDER BY requires_review DESC, idx
-      `) as Array<{ idx: number; trade: string | null; company: string; requires_review: boolean }>;
+      `) as Array<{
+        idx: number;
+        l6_main: string | null;
+        trade: string | null;
+        company: string;
+        requires_review: boolean;
+      }>;
 
       items = rows.map((r) => ({
         id:         String(r.idx).padStart(3, "0"),
-        trade:      r.trade ?? "—",
+        trade:      r.l6_main ?? r.trade ?? "—",
         contractor: r.company,
         status:     (r.requires_review ? "hil_pending" : "done") as AgentTaskItem["status"],
       }));
@@ -124,15 +136,15 @@ export async function GET(req: Request) {
     else {
       // Atomizer / Exporter / Forecaster / Optimizer — mapper_activities 기반
       const rows = (await (sql as any)`
-        SELECT idx, trade, company
+        SELECT idx, l6_main, trade, company
         FROM mapper_activities
         WHERE run_id = ${runId}
         ORDER BY idx
-      `) as Array<{ idx: number; trade: string | null; company: string }>;
+      `) as Array<{ idx: number; l6_main: string | null; trade: string | null; company: string }>;
 
       items = rows.map((r) => ({
         id:         String(r.idx).padStart(3, "0"),
-        trade:      r.trade ?? "—",
+        trade:      r.l6_main ?? r.trade ?? "—",
         contractor: r.company,
         status:     "done" as const,
       }));

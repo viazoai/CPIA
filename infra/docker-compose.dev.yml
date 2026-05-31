@@ -1,0 +1,46 @@
+# Next.js dev 서버(HMR) + 전체 스택 한 번에 기동하는 오버라이드 파일.
+#
+# 사용법:
+#   cd infra
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# 포트: postgres 5532 / chroma 5533 / adminer 5534 / pipeline 5538 / web-dev 5537
+#
+# 첫 실행 시 npm install 이 약간 걸림 (이후 node_modules 는 named volume 에 캐시).
+# 소스 변경 → HMR 즉시 반영 (재빌드 불필요).
+
+services:
+  web:
+    build: !reset null          # 프로덕션 이미지 빌드 비활성화
+    image: node:22-alpine
+    container_name: cpia-web-dev
+    working_dir: /app
+    volumes:
+      - ../web:/app             # 소스 실시간 마운트
+      - web_dev_modules:/app/node_modules   # node_modules 는 named volume (host 와 분리)
+    environment:
+      NODE_ENV: development
+      TZ: Asia/Seoul
+      POSTGRES_URL: postgresql://${POSTGRES_USER:-cpia}:${POSTGRES_PASSWORD:-cpia}@cpia-postgres:5432/${POSTGRES_DB:-cpia}
+      CHROMA_HOST: cpia-chroma
+      CHROMA_PORT: "8000"
+      FASTAPI_URL: http://cpia-pipeline:8000
+      NEXT_PUBLIC_DEMO_RESET: "1"
+      WATCHPACK_POLLING: "true"   # 컨테이너 내 파일 감시 안정성
+    ports:
+      - "0.0.0.0:5537:5537"
+    command: sh -c "npm install --prefer-offline && npm run dev2:docker"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      chroma:
+        condition: service_healthy
+      pipeline:
+        condition: service_started
+    networks:
+      - cpia_net
+      - npm
+    restart: unless-stopped
+
+volumes:
+  web_dev_modules:

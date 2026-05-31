@@ -95,10 +95,10 @@ export async function GET(req: Request) {
       (SELECT COUNT(*)::int FROM parser_activities   WHERE run_id = ${run.run_id}) AS parser_rows,
       (SELECT COUNT(*)::int FROM mapper_activities   WHERE run_id = ${run.run_id}) AS mapper_rows
   `) as Array<{ file_count: number; parser_rows: number; mapper_rows: number }>;
-  const fileCount  = Math.max(countRows[0]?.file_count  ?? 0, 1);
-  const parserRows = Math.max(countRows[0]?.parser_rows ?? 0, 1);
-  const mapperRows = Math.max(countRows[0]?.mapper_rows ?? 0, 1);
-  const atomizedCount = Math.max(run.atomized_count ?? 0, 1);
+  const fileCount     = countRows[0]?.file_count  ?? 0;
+  const parserRows    = countRows[0]?.parser_rows ?? 0;
+  const mapperRows    = countRows[0]?.mapper_rows ?? 0;
+  const atomizedCount = run.atomized_count ?? 0;
 
   // 단계별 "total received" 기준 — 각 단계가 처리하는 단위 수.
   // Exporter/Forecaster/Optimizer 는 mapper_rows 를 입력 단위로 간주.

@@ -84,12 +84,15 @@ export default function AgentTasksPage() {
       });
   }, []);
 
+  // DB items — hasProgress 시 선택된 agent 의 실제 아이템 조회.
+  const [dbItems, setDbItems] = useState<AgentTaskItem[]>([]);
+  const dbItemsKeyRef = useRef<string>("");  // 중복 fetch 방지
+
   // 2) selectedDate 변경 시에만 detail fetch.
-  //    sim 활성 + sim date 선택 중이면 fetch 건너뛰기 (sim store 가 stages 제공).
+  //    실 progress(hasProgress) 또는 sim 활성 시 mock detail 건너뜀.
   useEffect(() => {
     if (!selectedDate) return;
     if (sim.simDate && selectedDate === sim.simDate && sim.phase !== "idle") {
-      // sim 우선 — fetch 안 함. detail 은 null 로 둬도 isSimSelected 분기에서 sim stages 사용.
       return;
     }
     const cached = detailCacheRef.current.get(selectedDate);
@@ -158,6 +161,42 @@ export default function AgentTasksPage() {
       if (timerId) clearTimeout(timerId);
     };
   }, [selectedDate]);
+
+  // 4) DB items fetch — hasProgress 이고 agent 가 선택됐을 때 /api/runs/items 호출.
+  //    progress.run_id + selectedAgent 조합이 바뀔 때만 재요청.
+  useEffect(() => {
+    if (!progress?.run_id || !selectedAgent) {
+      setDbItems([]);
+      return;
+    }
+    const key = `${progress.run_id}:${selectedAgent}`;
+    if (dbItemsKeyRef.current === key) return; // 이미 fetch 중/완료
+    dbItemsKeyRef.current = key;
+    let cancelled = false;
+    fetch(`/api/runs/items?run_id=${progress.run_id}&agent=${encodeURIComponent(selectedAgent)}`)
+      .then((r) => r.json())
+      .then((d: { ok: boolean; items?: AgentTaskItem[] }) => {
+        if (cancelled || !d.ok) return;
+        setDbItems(d.items ?? []);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [progress?.run_id, selectedAgent]);
+
+  // progress 가 polling 될 때마다 items 재조회 (run_id 동일해도 stage 진행으로 items 변동).
+  useEffect(() => {
+    if (!progress?.run_id || !selectedAgent) return;
+    let cancelled = false;
+    fetch(`/api/runs/items?run_id=${progress.run_id}&agent=${encodeURIComponent(selectedAgent)}`)
+      .then((r) => r.json())
+      .then((d: { ok: boolean; items?: AgentTaskItem[] }) => {
+        if (cancelled || !d.ok) return;
+        setDbItems(d.items ?? []);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [progress?.current_node, progress?.status]);
 
   // --- H1: 아래 useMemo / useEffect 들은 모두 early-return *위* 에 위치해야 함.
   //         조기 반환 후 hook 호출 → "Rendered more hooks than during the previous render" 위반.
@@ -253,8 +292,13 @@ export default function AgentTasksPage() {
 
   const stages: AgentStageProgress[] = animatedProgressStages
     ?? (isSimSelected ? (simStages as AgentStageProgress[]) : detail?.stages ?? []);
-  const itemsForDate = detail?.items ?? {};
-  const itemsForAgent = selectedAgent ? itemsForDate[selectedAgent] || [] : [];
+
+  // 아이템 우선순위: DB 실 데이터(hasProgress) > mock detail
+  const itemsForAgent: AgentTaskItem[] = hasProgress
+    ? dbItems
+    : selectedAgent
+      ? (detail?.items ?? {})[selectedAgent] ?? []
+      : [];
   const selectedStage = selectedAgent ? stages.find((s) => s.agent === selectedAgent) ?? null : null;
 
   return (

@@ -15,6 +15,23 @@ import path from "node:path";
 const DATA_DIR = path.join(process.cwd(), "..", "data");
 const UPLOAD_DIR = path.join(DATA_DIR, "upload");
 const INPUT_DIR = path.join(DATA_DIR, "input");
+const FASTAPI_URL = process.env.FASTAPI_URL ?? "http://localhost:8000";
+
+async function triggerPipeline(simDate: string, siteId = "m15x-ph3-ibl"): Promise<string | null> {
+  try {
+    const res = await fetch(`${FASTAPI_URL}/run`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ site_id: siteId, report_date: simDate }),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { run_id?: string };
+    return data.run_id ?? null;
+  } catch {
+    return null;
+  }
+}
 
 function tsFolder(d = new Date()): string {
   const p = (n: number) => String(n).padStart(2, "0");
@@ -69,6 +86,9 @@ export async function POST(req: NextRequest) {
       saved.push({ name, size: buf.length });
     }
 
+    // FastAPI /run 호출 — 성공하면 run_id 반환, 실패해도 업로드 자체는 성공.
+    const runId = await triggerPipeline(simDate);
+
     return NextResponse.json({
       ok: true,
       count: saved.length,
@@ -76,6 +96,7 @@ export async function POST(req: NextRequest) {
       inputDir: path.relative(DATA_DIR, inputDir),
       simDate,
       files: saved,
+      run_id: runId,       // null 이면 FastAPI 미연결 (sim fallback)
     });
   } catch (e: any) {
     return NextResponse.json(

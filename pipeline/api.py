@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import asyncio
 import os
+import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any, AsyncIterator
 
 from fastapi import FastAPI, HTTPException
@@ -27,7 +29,7 @@ from pydantic import BaseModel
 
 from pipeline.collector.config import load_collector_config
 from pipeline.collector.idle_worker import idle_loop, request_shutdown
-from pipeline.db import PGClient
+from pipeline.db import PGClient, set_run_status
 from pipeline.exporter_routes import router as exporter_router
 from pipeline.graph import GraphConfig, build_graph
 
@@ -57,6 +59,16 @@ class Hil1ResumeResponse(BaseModel):
     """resume 후 진행된 노드명."""
 
     next_node: str
+
+
+class RunRequest(BaseModel):
+    site_id: str = "m15x-ph3-ibl"
+    report_date: str  # "YYYYMMDD" or "YYYY-MM-DD"
+
+
+class RunResponse(BaseModel):
+    run_id: str
+    status: str = "started"
 
 
 # ---------------------------------------------------------------------------
@@ -218,6 +230,64 @@ async def health() -> dict:
         "pg": row is not None and row["ok"] == 1,
         "version": app.version,
     }
+
+
+_DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+
+
+@app.post("/run", response_model=RunResponse)
+async def run_pipeline(body: RunRequest) -> RunResponse:
+    """파이프라인 실행 — data/input/YYYYMMDD/ 파일을 읽어 백그라운드로 graph.ainvoke.
+
+    run_id 를 즉시 반환하고 처리는 비동기로 진행.
+    B_Track 업로드 라우트가 이 엔드포인트를 호출해 pipeline_runs 행을 생성하고,
+    tasks/page 의 DB polling 이 current_node 를 읽어 게이지를 갱신한다.
+    """
+    pg: PGClient = app.state.pg
+    graph = app.state.graph
+    cfg: GraphConfig = app.state.cfg
+
+    # date 정규화: YYYYMMDD ↔ YYYY-MM-DD 양쪽 허용.
+    raw = body.report_date.replace("-", "")
+    if len(raw) != 8 or not raw.isdigit():
+        raise HTTPException(status_code=400, detail="report_date 형식 오류 (YYYYMMDD 또는 YYYY-MM-DD)")
+    date_compact = raw                                      # "20250925"
+    date_iso = f"{raw[:4]}-{raw[4:6]}-{raw[6:]}"           # "2025-09-25"
+
+    input_dir = _DATA_DIR / "input" / date_compact
+    if not input_dir.is_dir():
+        raise HTTPException(status_code=404, detail=f"입력 디렉토리 없음: data/input/{date_compact}/")
+
+    input_files = sorted(
+        str(p.resolve())
+        for p in input_dir.iterdir()
+        if p.is_file() and p.suffix.lower() in (".xlsx", ".xlsm")
+    )
+    if not input_files:
+        raise HTTPException(status_code=404, detail=f"{date_compact} 에 .xlsx/.xlsm 파일 없음")
+
+    run_id = uuid.uuid4()
+    await pg.insert_pipeline_run(run_id=run_id, site_id=body.site_id, date=date_iso)
+
+    postgres_url: str = cfg.atomizer.postgres_url
+
+    async def _bg() -> None:
+        try:
+            await graph.ainvoke(
+                {
+                    "run_id": str(run_id),
+                    "site_id": body.site_id,
+                    "date": date_iso,
+                    "input_files": input_files,
+                    "postgres_url": postgres_url,
+                },
+                config={"configurable": {"thread_id": str(run_id)}},
+            )
+        except Exception:
+            await set_run_status(postgres_url, run_id, "failed")
+
+    asyncio.create_task(_bg())
+    return RunResponse(run_id=str(run_id))
 
 
 @app.post("/api/runs/{run_id}/hil_1/resume", response_model=Hil1ResumeResponse)

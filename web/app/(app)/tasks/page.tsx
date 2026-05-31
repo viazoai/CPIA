@@ -97,10 +97,13 @@ export default function AgentTasksPage() {
 
   // 3) progress polling — selectedDate 가 바뀔 때마다 2초 간격으로 /api/runs/progress.
   //    sim 보다 우선 사용. status='completed' 또는 4xx 응답이면 polling 중단.
+  //    업로드 직후 race condition 방어: 404 연속 5회(10초) 까지는 재시도.
   useEffect(() => {
     if (!selectedDate) return;
     let cancelled = false;
     let timerId: ReturnType<typeof setTimeout> | null = null;
+    let notFoundCount = 0;
+    const NOT_FOUND_GIVE_UP = 5;
 
     const tick = async () => {
       if (cancelled) return;
@@ -108,19 +111,26 @@ export default function AgentTasksPage() {
         const res = await fetch(`/api/runs/progress?date=${selectedDate}`);
         if (cancelled) return;
         if (res.status === 404) {
-          // 해당 date 에 실 run 없음 — sim fallback 그대로.
-          setProgress(null);
-          return; // polling 중단
-        }
-        if (!res.ok) return;
-        const data = (await res.json()) as ProgressData;
-        if (cancelled) return;
-        setProgress(data);
-        if (data.status === "completed" || data.status === "failed") {
-          return; // polling 중단
+          notFoundCount++;
+          if (notFoundCount >= NOT_FOUND_GIVE_UP) {
+            // 10초 간 run 없으면 sim fallback 확정.
+            setProgress(null);
+            return; // polling 중단
+          }
+          // 재시도 — 업로드 직후 DB write 전일 수 있음.
+        } else if (!res.ok) {
+          // 기타 서버 오류 — 재시도
+        } else {
+          notFoundCount = 0;
+          const data = (await res.json()) as ProgressData;
+          if (cancelled) return;
+          setProgress(data);
+          if (data.status === "completed" || data.status === "failed") {
+            return; // polling 중단
+          }
         }
       } catch {
-        // network error 무시
+        // network error — 재시도
       }
       timerId = setTimeout(tick, 2000);
     };

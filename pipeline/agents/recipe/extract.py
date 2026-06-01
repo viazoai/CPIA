@@ -8,7 +8,14 @@ skip·today_qty 파싱은 원본을 line-by-line 전사 (재설계 금지 — IR
 
 from __future__ import annotations
 
-from pipeline.agents.parser import _build_activity, _safe_int, _shift_dict_sum
+from pipeline.agents.parser import (
+    _build_activity,
+    _disc_abbrev_to_kr,
+    _is_admin_job,
+    _safe_int,
+    _shift_dict_row,
+    _shift_dict_sum,
+)
 from pipeline.agents.parser_post import (
     extract_zone,
     normalize_company,
@@ -16,7 +23,7 @@ from pipeline.agents.parser_post import (
 )
 from pipeline.agents.recipe.bpcode import is_bp_code_v2
 from pipeline.agents.recipe.model import SheetRecipe
-from pipeline.state import Activity, BPSummary
+from pipeline.state import Activity, BPSummary, JobAllocation
 
 
 def extract_sheet1(ws, sheet_recipe: SheetRecipe) -> list[BPSummary]:
@@ -138,6 +145,100 @@ def extract_sheet1(ws, sheet_recipe: SheetRecipe) -> list[BPSummary]:
             }
         )
     return summaries
+
+
+def extract_sheet2(ws, sheet_recipe: SheetRecipe) -> list[JobAllocation]:
+    """시트2 (직종별 인원현황) -> JobAllocation[].
+
+    _parse_sheet2_job_allocations 전사:
+      - has_final_flag 게이트: recipe 가 컬럼(final_flag_col)만 주입하고, 'O' 존재 여부는
+        원본처럼 런타임 스캔으로 판정. 통합(col25 에 'O' 존재)은 group 시작·직종 row 둘 다
+        게이트. 업체(final_flag_col=None)는 비활성 — 원본이 col25 무 'O' 일 때와 동일.
+      - group 시작 = disc_code='Mm01' + trade·bp_company 채워있음 + 게이트 + is_bp_code_v2(bp)
+      - 컬럼 위치·시간대 3블록은 recipe 로 주입, BP 코드 판정만 is_bp_code_v2 로 교체.
+        그 외 group 경계·company 탐색·row loop·skip·관리자 filter 는 line-by-line 전사.
+    """
+    cols = sheet_recipe.columns
+    blocks = sheet_recipe.timeshift_blocks
+    ff = sheet_recipe.final_flag_col
+    # 원본 _parse_sheet2_job_allocations 와 동일하게 런타임 'O' 스캔으로 게이트 활성 여부 결정.
+    # recipe 는 컬럼(ff)만 주입 — ff 가 캐시/LLM 으로 설정됐어도 실제 'O' 가 없으면 게이트 비활성
+    # (구조적 ff!=None 만으로 게이트하면 'O' 없는 변형 파일에서 전 row 조용히 drop → 오염).
+    has_final_flag = ff is not None and any(
+        ws.cell(r, ff).value == "O" for r in range(6, (ws.max_row or 0) + 1)
+    )
+    disc_code_col = cols["disc_code"]
+    trade_col = cols["trade"]
+    bp_col = cols["bp_company"]
+    job_type_col = cols["job_type"]
+
+    # 1. group 시작 row 식별
+    starts: list[int] = []
+    for r in range(6, ws.max_row + 1):
+        c4 = ws.cell(r, disc_code_col).value
+        if c4 != "Mm01":
+            continue
+        c2 = ws.cell(r, trade_col).value
+        c3 = ws.cell(r, bp_col).value
+        if c2 is None or c3 is None:
+            continue
+        if has_final_flag and ws.cell(r, ff).value != "O":
+            continue
+        if not is_bp_code_v2(c3):
+            continue
+        starts.append(r)
+
+    groups: list[tuple[int, int]] = [
+        (s, (starts[i + 1] - 1) if i + 1 < len(starts) else ws.max_row) for i, s in enumerate(starts)
+    ]
+
+    jobs: list[JobAllocation] = []
+    for start, end in groups:
+        bp_code = str(ws.cell(start, bp_col).value).strip()
+        discipline_raw = str(ws.cell(start, trade_col).value).strip()
+        discipline = _disc_abbrev_to_kr(discipline_raw) or discipline_raw
+
+        # 회사명: start 다음 5 row 안의 첫 bp_col 한글값 (BP 코드 아님)
+        company_raw: str | None = None
+        for r in range(start + 1, min(start + 6, end + 1)):
+            v = ws.cell(r, bp_col).value
+            if v is not None and not is_bp_code_v2(v):
+                company_raw = str(v)
+                break
+        company = normalize_company(split_company_and_zone(company_raw)) or ""
+
+        for r in range(start, end + 1):
+            c4 = ws.cell(r, disc_code_col).value
+            if c4 is None:
+                continue
+            if has_final_flag and ws.cell(r, ff).value != "O":
+                continue
+            job_type = str(ws.cell(r, job_type_col).value or "").strip()
+            if not job_type:
+                continue
+            if _is_admin_job(job_type):
+                continue
+            disc_code = str(c4).strip()
+            manager_code = disc_code if disc_code.startswith("Mm") else None
+            worker_code = disc_code if not disc_code.startswith("Mm") else None
+            workers_today_cum = _shift_dict_row(ws, r, blocks["today_cum"])
+            jobs.append(
+                {
+                    "bp_code": bp_code,
+                    "company": company,
+                    "disc_abbrev": discipline,
+                    "manager_code": manager_code,
+                    "worker_code": worker_code,
+                    "job_type": job_type,
+                    "workers_yesterday_cum": _shift_dict_row(ws, r, blocks["yest_cum"]),
+                    "workers_today_incr": _shift_dict_row(ws, r, blocks["today_incr"]),
+                    "workers_today_cum": workers_today_cum,
+                    "final_flag": "O",
+                    "workers_cum_t": workers_today_cum.get("total", 0),
+                }
+            )
+
+    return jobs
 
 
 def extract_sheet4(ws, sheet_recipe: SheetRecipe) -> list[Activity]:

@@ -118,9 +118,9 @@ SheetRecipe
 
 - **실측**: sheet2(직종)·sheet3(장비)는 (업체×직종/장비×시간대) **총투입**, activity 연결 컬럼 물리적으로 없음. parser 는 `assigned_workers=0.0`·`worker_source='parsed'`·`plan_mh=None`(`parser.py:448-450`)로 캡쳐만.
 - **재분배는 mapper** `_prorate_mh`(`graph.py:114` → `mapper.py:529-604`): `BP사 총 인원 × (l6 candidate Σplan_mh / company Σplan_mh)`(`state.py:78`). **WV = `plan_mh`(WBS l6 계획 man-hour), `today_qty`(실적물량) 아님**.
-- **착지**: parser 책임 = 총투입 손실 없이 3 entity 캡쳐. 설계 변경 0. recipe 에 invariant 2개 명시:
-  - 캡쳐 보존: `Σ JobAllocation.workers_today_incr.total == sheet1 today_incr_total` (중원=191).
-  - 분배 보존: `Σ activity.assigned_workers (distinct (company, l6) 기준) == BP사 총 인원`.
+- **착지**: parser 책임 = 총투입 손실 없이 3 entity 캡쳐. 설계 변경 0. 본 모듈 검증 invariant = **캡쳐 정확성**(recipe 경로의 job/bp/eq 집계 == `parse_daily_report` 골든).
+  - **주의(실측 정정 2026-06-01)**: `Σ JobAllocation.workers_today_incr.total`(업체=191) 과 `Σ BPSummary.today_incr_total`(업체=212)는 **등가 아님** — 차이 21 = `_is_admin_job` 로 job_allocations 에서 제외된 관리자. 두 시트 집계 모집단 차이라 정상. 따라서 cross-sheet 등식은 assert 하지 않는다.
+  - 분배 보존(`Σ activity.assigned_workers (distinct (company,l6)) == BP사 총 인원`)은 mapper `_prorate_mh` **downstream 영역** — 본 parser 모듈 밖.
 - **주의(이중경로 리스크)**: `_prorate_mh` 는 sheet1 `today_incr_total`(191)을 분자로, `_prorate_workers_with_mh` 는 sheet2 누계(3561)를 분모로 — 投入 vs 累計 라 두 경로 불일치 시 activity 인원 갈림. 메모리 `cpia_report_ssot_decision` 의 delay -37 = Σ/distinct 집계 불일치 오진과 동류. recipe 검증에서 합산 규칙 못박을 것.
 - **장비 activity 단위 분배는 미구현**(총투입 캡쳐만) — 본 스코프 밖, recipe 에 "장비는 분배 안 함" 명시해 누락 오해 방지.
 
@@ -156,9 +156,10 @@ LLM 비결정성을 배제하고 결정론 코드만 검증. (메모리 `feedbac
 - recipe 생성 동일 입력 2회 → 동일 recipe(field→column 맵 안정) assert. 이후 Pass2 는 순수 결정론 → 2회 실행 동일.
 - 캐시 hit 경로(2번째 파일부터 LLM 0콜)도 동일 출력 assert.
 
-### 5.4 invariant (§4.3)
-- 캡쳐: `Σ JobAllocation.workers_today_incr.total == sheet1 today_incr_total`.
-- 분배: `Σ activity.assigned_workers (distinct (company,l6)) == BP사 총 인원`.
+### 5.4 invariant (캡쳐 정확성, 본 모듈 범위)
+- 캡쳐 정확성: recipe 경로의 `Σ job/bp/eq` 집계 == `parse_daily_report` 골든 집계 (Tasks 6-9 dict 등가 + Task16 집계 가드).
+- cross-sheet 등식(`Σ job incr == Σ bp today_incr_total`)은 §4.3 주의대로 **성립 안 함**(admin 제외분) — assert 금지.
+- 분배 보존(distinct (company,l6))은 mapper downstream — 본 모듈 밖.
 
 ### 5.5 통과 기준
 실 2종 baseline 등가 + 합성 등가 + 결정성 + invariant 4개가 **같은 코드 경로**로 모두 통과해야 "N종 흡수 + prod 융합 안전"이 증명된다.

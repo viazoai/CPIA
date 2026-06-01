@@ -347,85 +347,162 @@ def _safe_num(v: object) -> float | None:
         return None
 
 
+def _norm_header(v: object) -> str:
+    return re.sub(r"\s+", "", str(v)) if v is not None else ""
+
+
+def _resolve_sheet4_columns(ws, header_rows: tuple[int, int] = (3, 4)) -> dict[str, int]:
+    """시트4 헤더 텍스트 → {필드: 컬럼인덱스} 매핑. 통합/업체 자동 흡수.
+
+    헤더 2-row 스택(row3 주 라벨 + row4 [A][B][C][D]·F% 마커)을 함께 읽는다.
+    '업체명' 헤더가 있으면 통합포맷(company_col 별도), 없으면 업체포맷
+    (company 는 BP사 컬럼의 코드/회사명 교대행에서 추출).
+    """
+    cols: dict[str, int] = {}
+    for c in range(1, ws.max_column + 1):
+        h3 = _norm_header(ws.cell(header_rows[0], c).value)
+        h4 = _norm_header(ws.cell(header_rows[1], c).value)
+        h = h3 or h4
+        if not h:
+            continue
+        if h == "공종":
+            cols.setdefault("trade", c)
+        elif h == "BP사":
+            cols.setdefault("bp", c)
+        elif h == "업체명":
+            cols.setdefault("company_col", c)
+        elif h.lower().startswith("scope"):
+            cols.setdefault("scope", c)
+        elif "대표물량" in h or "작업내용" in h:
+            cols.setdefault("work_content", c)
+        elif h == "단위":
+            cols.setdefault("unit", c)
+        elif "총물량" in h:
+            cols.setdefault("plan_total", c)
+        elif "전일누적" in h:
+            cols.setdefault("yesterday_cum", c)
+        elif "금일실적" in h:  # today_qty = 실적[C], 누적[D] 아님
+            cols.setdefault("today_qty", c)
+        elif "금일누적" in h:
+            cols.setdefault("today_cum", c)
+        # F% 는 row4 전용 마커라 h3/h4 를 직접 재테스트한다. h = h3 or h4 는
+        # h3 가 비었을 때만 h4 를 살리므로, 이 elif 순서나 재테스트 방식을 바꾸면
+        # 통합포맷 progress(F%) 가 누락돼 act=1193 회귀가 깨진다.
+        elif "F%" in h3 or "F%" in h4:  # progress_percent — row4 위치 (회귀 필수)
+            cols.setdefault("progress", c)
+    required = ("trade", "bp", "work_content", "unit", "today_qty")
+    missing = [f for f in required if f not in cols]
+    if missing:
+        raise ParseError(f"시트4 헤더 매핑 실패: {missing}")
+    return cols
+
+
+def _build_activity(ws, r: int, cols: dict[str, int], trade, bp_code, company_raw) -> Activity:
+    """헤더 매핑(cols) 기준으로 단일 row → Activity dict 생성.
+
+    기존 _parse_sheet4_activities 의 Activity dict shape·default 를 그대로 재현하되
+    컬럼 위치만 cols 인덱스로 해석한다 (하드코딩 → 헤더 기반).
+    """
+    c7 = ws.cell(r, cols["scope"]).value if "scope" in cols else None  # Scope
+    c8 = ws.cell(r, cols["work_content"]).value  # work_content
+    c9 = ws.cell(r, cols["unit"]).value  # unit
+    c10 = _safe_num(ws.cell(r, cols["plan_total"]).value) if "plan_total" in cols else None
+    c11 = _safe_num(ws.cell(r, cols["yesterday_cum"]).value) if "yesterday_cum" in cols else None
+    c12 = _safe_num(ws.cell(r, cols["today_qty"]).value)  # today_qty
+    c13 = _safe_num(ws.cell(r, cols["today_cum"]).value) if "today_cum" in cols else None
+    c14 = _safe_num(ws.cell(r, cols["progress"]).value) if "progress" in cols else None  # F% (row4)
+
+    company = normalize_company(split_company_and_zone(company_raw))
+    zone = extract_zone(str(c7) if c7 is not None else None)
+
+    return {
+        "zone": zone,
+        "bp_code": bp_code,
+        "company": company or "",
+        "scope": str(c7) if c7 is not None else None,
+        "trade": trade or "",
+        "work_content": str(c8).strip(),
+        "unit": _normalize_unit(str(c9 or "").strip()),
+        "plan_total_qty": c10,
+        "yesterday_cum_qty": c11,
+        "today_qty": c12 if c12 is not None else 0.0,
+        "today_cum_qty": c13,
+        "progress_percent": c14,
+        "remaining_qty": None,
+        "remaining_percent": None,
+        "note": None,
+        "work_location_code": None,
+        "wbs_mid_name": None,
+        "wbs_sub_name": None,
+        "wbs_detail_name": None,
+        "wbs_activity_id": None,
+        "l5_disc": trade or "",
+        "l6_main": None,
+        "l7_sub": None,
+        "l7_5_activity": None,
+        "sub_work_area": None,
+        "conditions": [],
+        "assigned_workers": 0.0,
+        "worker_source": "parsed",
+        "plan_mh": None,
+        "wa": None,
+        "mapping_conf": None,
+        "mapping_source": None,
+        "requires_review": False,
+    }
+
+
 def _parse_sheet4_activities(ws) -> list[Activity]:
     """시트4 (물량) -> Activity[].
 
-    spec §2.5 (2026-05-20 refactor):
-      - ffill 4 컬럼 (col 3 zone_raw, col 4 trade, col 5 BP 코드, col 6 회사명)
-      - col 5 (BP) 채워있는 row = 새 회사 그룹 시작 (col 6 = 회사명)
-      - Activity row = col 8 (work_content) 채워있는 row 만
-      - zone = extract_zone(col 7 명시 토큰만, 옵션 2 — scope ≠ wa)
-      - B+C=D 산술 cross-check — mismatch 카운트만 (silent)
+    spec §2.5 (2026-05-20 refactor) + Task 3 (2026-06-01 헤더 기반):
+      - 컬럼 위치는 _resolve_sheet4_columns 로 헤더 텍스트에서 해석 (통합/업체 흡수)
+      - 통합포맷(company_col 존재): trade ffill + company 는 BP행에 종속
+      - 업체포맷(company_col 없음): BP 코드행~다음 코드행 group, company = group 내 첫 non-bp
+      - Activity row = work_content 채워있는 row 만
+      - zone = extract_zone(scope 명시 토큰만, 옵션 2 — scope ≠ wa)
     """
-    current_trade: str | None = None
-    current_bp_code: str | None = None
-    current_company_raw: str | None = None
-
+    cols = _resolve_sheet4_columns(ws)
+    has_company_col = "company_col" in cols
     activities: list[Activity] = []
-
-    for r in range(5, ws.max_row + 1):
-        c4 = ws.cell(r, 4).value
-        c5 = ws.cell(r, 5).value
-        c6 = ws.cell(r, 6).value
-
-        if c4 is not None:
-            current_trade = str(c4)
-        if c5 is not None:
-            current_bp_code = str(c5).strip()
-            current_company_raw = str(c6) if c6 is not None else None
-
-        c8 = ws.cell(r, 8).value
-        if c8 is None:
-            continue
-
-        c7 = ws.cell(r, 7).value  # Scope
-        c9 = ws.cell(r, 9).value  # unit
-        c10 = _safe_num(ws.cell(r, 10).value)  # plan_total
-        c11 = _safe_num(ws.cell(r, 11).value)  # yesterday_cum
-        c12 = _safe_num(ws.cell(r, 12).value)  # today_qty
-        c13 = _safe_num(ws.cell(r, 13).value)  # today_cum
-        c14 = _safe_num(ws.cell(r, 14).value)  # F%
-
-        company = normalize_company(split_company_and_zone(current_company_raw))
-        zone = extract_zone(str(c7) if c7 is not None else None)
-
-        activities.append(
-            {
-                "zone": zone,
-                "bp_code": current_bp_code,
-                "company": company or "",
-                "scope": str(c7) if c7 is not None else None,
-                "trade": current_trade or "",
-                "work_content": str(c8).strip(),
-                "unit": _normalize_unit(str(c9 or "").strip()),
-                "plan_total_qty": c10,
-                "yesterday_cum_qty": c11,
-                "today_qty": c12 if c12 is not None else 0.0,
-                "today_cum_qty": c13,
-                "progress_percent": c14,
-                "remaining_qty": None,
-                "remaining_percent": None,
-                "note": None,
-                "work_location_code": None,
-                "wbs_mid_name": None,
-                "wbs_sub_name": None,
-                "wbs_detail_name": None,
-                "wbs_activity_id": None,
-                "l5_disc": current_trade or "",
-                "l6_main": None,
-                "l7_sub": None,
-                "l7_5_activity": None,
-                "sub_work_area": None,
-                "conditions": [],
-                "assigned_workers": 0.0,
-                "worker_source": "parsed",
-                "plan_mh": None,
-                "wa": None,
-                "mapping_conf": None,
-                "mapping_source": None,
-                "requires_review": False,
-            }
-        )
+    if has_company_col:
+        # 통합포맷: trade ffill + company 는 BP행에 종속(독립 ffill 아님)
+        cur_trade = cur_bp = cur_company_raw = None
+        for r in range(5, ws.max_row + 1):
+            tv = ws.cell(r, cols["trade"]).value
+            if tv is not None:
+                cur_trade = str(tv)
+            bv = ws.cell(r, cols["bp"]).value
+            if bv is not None:
+                cur_bp = str(bv).strip()
+                cv = ws.cell(r, cols["company_col"]).value
+                cur_company_raw = str(cv) if cv is not None else None
+            wv = ws.cell(r, cols["work_content"]).value
+            if wv is None:
+                continue
+            activities.append(_build_activity(ws, r, cols, cur_trade, cur_bp, cur_company_raw))
+    else:
+        # 업체포맷: BP사 컬럼 코드행~다음코드행 group, 회사명=group 내 첫 non-bp 값
+        bpc = cols["bp"]
+        code_rows = [r for r in range(5, ws.max_row + 1) if _is_bp_code(ws.cell(r, bpc).value)]
+        for gi, start in enumerate(code_rows):
+            end = (code_rows[gi + 1] - 1) if gi + 1 < len(code_rows) else ws.max_row
+            bp_code = str(ws.cell(start, bpc).value).strip()
+            company_raw = None
+            for r in range(start, end + 1):
+                v = ws.cell(r, bpc).value
+                if v is not None and not _is_bp_code(v):
+                    company_raw = str(v)
+                    break
+            cur_trade = None
+            for r in range(5, start + 1):
+                tv = ws.cell(r, cols["trade"]).value
+                if tv is not None:
+                    cur_trade = str(tv)
+            for r in range(start, end + 1):
+                if ws.cell(r, cols["work_content"]).value is None:
+                    continue
+                activities.append(_build_activity(ws, r, cols, cur_trade, bp_code, company_raw))
     return activities
 
 

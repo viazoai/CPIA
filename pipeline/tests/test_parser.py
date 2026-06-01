@@ -76,6 +76,7 @@ import openpyxl  # noqa: E402
 import pytest  # noqa: E402
 
 from pipeline.agents.parser import _parse_sheet4_activities  # noqa: E402
+from pipeline.agents.parser import _resolve_sheet4_columns  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -84,6 +85,19 @@ def sample_tong_path() -> Path:
         Path(__file__).resolve().parents[2]
         / "docs/sample/통합작업일보_M15X Ph-3 IBL PJT 작업일보_20250925.xlsx"
     )
+
+
+def test_resolve_sheet4_columns_integrated(sample_tong_path):
+    """통합포맷: 업체명 컬럼 존재 → company_col 매핑."""
+    wb = openpyxl.load_workbook(sample_tong_path, data_only=True)
+    cols = _resolve_sheet4_columns(wb["4.물량"])
+    wb.close()
+    assert cols["work_content"] == 8  # 통합: 작업내용 col8
+    assert cols["unit"] == 9
+    assert cols["today_qty"] == 12  # 금일실적[C]
+    assert cols["today_cum"] == 13  # 금일누적[D]
+    assert cols["progress"] == 14  # F% (row4 둘째 헤더) — 회귀 필수
+    assert "company_col" in cols  # 업체명 컬럼 있음
 
 
 def test_parse_sheet4_activities_count(sample_tong_path: Path):

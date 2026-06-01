@@ -27,7 +27,7 @@ export default async function HomePage() {
         </div>
         {/* 우 — 작업내용 테이블 */}
         <div className="xl:col-span-7">
-          <HomeWorkSummaryCard rows={home.work_rows} workSummary={home.work_summary} />
+          <HomeWorkSummaryCard rows={home.work_rows} workSummary={home.work_summary} brief={home.work_brief} />
         </div>
       </section>
     </div>

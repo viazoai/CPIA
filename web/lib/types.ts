@@ -118,18 +118,24 @@ export interface WBSNode {
   total_count: number;          // 총 작업(매핑 활동) 건수 — 집계
   status: Status;
   children?: WBSNode[];
+  wa?: string;                  // work_package 노드의 원 wa (remap 역매핑용)
+  l6_main?: string;             // work_package 노드의 원 l6_main (remap 역매핑용)
 }
 
 export interface ReviewItem {
   id: string;
+  idx: number;                  // mapper_activities.idx — BE corrections key (= mapped 리스트 위치)
   bp_name: string;              // "A건설"
   work_content: string;         // 작업내용 원문
   quantity: number;
   unit: string;                 // "㎡" | "ton" | "m³" | "EA"
-  ai_mapped_wp_id: string;      // 매핑된 WP id
+  ai_mapped_wp_id: string;      // 매핑된 WP id (remap 시 갱신)
   ai_mapped_path: string;       // "M15X > 골조 > WP-3-2 거푸집"
+  wa: string | null;            // 현재 매핑 wa (remap 시 갱신) — resume corrections 전달용
+  l6_main: string | null;       // 현재 매핑 l6_main (remap 시 갱신)
   confidence: number;           // 0.0~1.0
   status: "confirmed" | "unconfirmed";
+  remapped?: boolean;           // 사용자가 AI 추천과 다르게 수정했는지 (corrections 전송 대상)
   alternative_wps?: { id: string; path: string; score: number }[];
 }
 
@@ -181,11 +187,23 @@ export interface QuadrantPoint {
   trade: string;
   productivity: number;     // 0..100 (X축)
   impact: number;           // 0..100 (Y축)
-  quadrant: "risk" | "caution" | "watch" | "safe";
+  quadrant: "risk" | "caution" | "watch" | "safe";  // cpi×impact 4분면 (점 위치)
+  // 2026-05-29 SSOT: 점 색은 status (forecaster risk_level) 기준 — 목록·카드와 통일.
+  status?: "risk" | "caution" | "normal";
+  risk_level?: string | null;
   size: number;             // 잔여 물량 비례
   display_label?: string;
   perperson?: number;
   perperson_unit?: string;
+  units_detail?: UnitDetail[];  // 2026-05-29 Task 4.3: 혼재 WP 단위별 분리 (m³/인·ton/인)
+}
+
+// 2026-05-29 Task 4.3: 혼재 WP 의 단위별 생산성 detail (group 내부 unit 별 집계).
+export interface UnitDetail {
+  unit: string | null;
+  perperson: number;
+  productivity: number;
+  plan_mh: number;
 }
 
 // 권고사항 schema — V10 BE 가 string → {keyword, action, reason} 객체로 변경.
@@ -199,10 +217,22 @@ export type OptimizerRecommendation =
       reason: string;
     };
 
+export interface SimilarCase {
+  date: string;
+  condition?: string;        // 조건 태그 (인력부족/자재미입고…)
+  degraded?: string;         // 저하일 work_content
+  recovered?: string;        // 회복일(D+1) work_content
+  recovery_days?: number | null;
+  // legacy 호환 (옛 데이터)
+  description?: string;
+  outcome?: string;
+}
+
 export interface OptimizerOutput {
   wp_id: string;
-  diagnosis: string;                              // 진단 (자연어)
-  similar_cases: { date: string; description: string; outcome: string }[];
+  diagnosis: string;                              // 진단 (개조식 — '\n' 줄바꿈)
+  similar_cases: SimilarCase[];
+  recovery_distribution_text?: string;            // "5건 중 5건 회복 | D+1 회복 5건" (유사사례 밑)
   recommendations: OptimizerRecommendation[];     // 권고사항 — string (구) 또는 object (V10 신)
   details: { label: string; value: string }[];   // 상세 현황 (key-value)
 }
@@ -284,6 +314,8 @@ export interface WPSummaryRow {
   display_label?: string;
   perperson?: number;
   perperson_unit?: string;
+  recovery_days?: number;  // 2026-05-29 BE 단일 source (scenarios.by_wp base_p50). FE 결정론 폐기.
+  units_detail?: UnitDetail[];  // 2026-05-29 Task 4.3: 혼재 WP 단위별 분리
 }
 
 // ────── Dashboard Fleet Performance ──────

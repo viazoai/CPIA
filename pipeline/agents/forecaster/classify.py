@@ -22,6 +22,32 @@ PLAN_NORMAL_RATIO = 0.85  # today_prod / plan_prod_proxy >= 0.85 → 정상
 PLAN_WARN_RATIO = 0.65  # 0.65 <= ratio < 0.85 → 주의
 DELAY_DAYS_BOUND = 5  # delay_days > 5 → 누적 지연 신호
 RECOVERY_LIKELIHOOD_BOUND = 0.7  # recovery >= 0.7 → 회복 가능
+# 2026-05-29 사용자 결정: condition 저하 (정상 페이스 대비 생산성 하락) 를 risk_level 에 직접 반영.
+# 이전엔 assessment(today vs rag평균) + delay 주도라, condition 별로 rag 평균도 같이 저하되면
+# delta~0 → 정상으로 빠져 condition 저하 wp 가 위험/주의로 안 잡혔다.
+RISK_PROD_WARN_RATIO = 0.85  # 정상 페이스 대비 < 85% → 주의
+RISK_PROD_CRIT_RATIO = 0.70  # 정상 페이스 대비 < 70% → 이상
+
+_LEVEL_ORDER = {"정상": 0, "주의": 1, "이상": 2}
+
+
+def _worse(a: Optional[str], b: Optional[str]) -> Optional[str]:
+    """두 level 중 더 나쁜 쪽 (정상 < 주의 < 이상). None 은 무시."""
+    cands = [x for x in (a, b) if x in _LEVEL_ORDER]
+    if not cands:
+        return a if a is not None else b
+    return max(cands, key=lambda x: _LEVEL_ORDER[x])
+
+
+def _prod_ratio_level(productivity_ratio: Optional[float]) -> Optional[str]:
+    """정상 페이스 대비 생산성 비율 → level."""
+    if productivity_ratio is None:
+        return None
+    if productivity_ratio < RISK_PROD_CRIT_RATIO:
+        return "이상"
+    if productivity_ratio < RISK_PROD_WARN_RATIO:
+        return "주의"
+    return "정상"
 
 
 def classify_assessment_rag(today_prod: float, rag_avg_prod: float) -> str:
@@ -85,30 +111,37 @@ def classify_risk_level(
     recovery_likelihood: Optional[float],
     delay_days: Optional[float],
     schedule_state: str,
+    productivity_ratio: Optional[float] = None,
 ) -> Optional[str]:
-    """hybrid 룰 — assessment + recovery + delay + state.
+    """hybrid 룰 — (assessment + recovery + delay + state) 와 정상 페이스 대비 생산성 중 더 나쁜 쪽.
 
+    2026-05-29: productivity_ratio (today_prod / 계획 정상 인당) threshold 추가.
+    condition 저하 wp 가 assessment/delay 로는 정상으로 빠지더라도, 정상 페이스 대비
+    생산성이 낮으면 (< 85% 주의, < 70% 이상) 위험/주의로 격상.
     임계 DELAY_DAYS_BOUND·RECOVERY_LIKELIHOOD_BOUND = 가정값 (회귀 후 조정).
     """
+    prod_level = _prod_ratio_level(productivity_ratio)
+
     if assessment is None:
-        return None
+        # assessment 없으면(cold) 정상 페이스 대비만으로 판정.
+        return prod_level
     if schedule_state == "post_due":
         return "이상"
     if schedule_state == "unknown" or delay_days is None:
-        return assessment
+        return _worse(assessment, prod_level)
 
     if assessment == "정상":
-        if delay_days > DELAY_DAYS_BOUND:
-            return "주의"
-        return "정상"
-    if assessment == "주의":
+        base = "주의" if delay_days > DELAY_DAYS_BOUND else "정상"
+    elif assessment == "주의":
         if (
             recovery_likelihood is not None
             and recovery_likelihood >= RECOVERY_LIKELIHOOD_BOUND
             and delay_days <= DELAY_DAYS_BOUND
         ):
-            return "주의"
-        return "이상"
-    if delay_days <= 0:
-        return "주의"
-    return "이상"
+            base = "주의"
+        else:
+            base = "이상"
+    else:  # assessment == "이상"
+        base = "주의" if delay_days <= 0 else "이상"
+
+    return _worse(base, prod_level)

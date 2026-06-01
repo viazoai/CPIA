@@ -256,6 +256,12 @@ async def hil_1_node(state: CPIAState, cfg) -> dict:
 
     corrections_raw = interrupt({"review_needed": review_needed})
     corrections_raw = corrections_raw or {}
+    # langgraph 1.2.0: Command(resume=<falsy>) (예: 보정 0건 → {}) 는 그래프에 전달되지
+    # 않아 interrupt 가 재발생, hil_1 에 영구히 갇힌다. endpoint(api.py)가 빈 보정에도
+    # 항상 truthy 한 {"corrections": {...}} 래퍼로 resume 하므로 여기서 언랩한다.
+    # 래퍼 없는 직접 dict 호출(테스트/구버전 호환)은 그대로 통과.
+    if isinstance(corrections_raw, dict) and set(corrections_raw) == {"corrections"}:
+        corrections_raw = corrections_raw["corrections"] or {}
     corrections = {int(k): v for k, v in corrections_raw.items()}
 
     corrected = _apply_corrections(mapped, corrections)
@@ -349,15 +355,18 @@ async def hil_2_node(state: CPIAState, cfg: GraphConfig) -> dict:
             continue
 
         # F5: coll.get 1회 호출 후 두 함수에 metadatas/documents 전달.
-        # 2026-05-22: company hard filter 제거 — l6_main 만 매칭하여 cross-company case 활용
-        # (이전엔 합성 3사 외 75사가 case=0 cold_start fallback).
+        # 2026-05-29: company-scoped 로 복귀 — 각 wp 의 저하/회복을 그 회사 데이터로 판정.
+        # 이전 cross-company (company=None) 는 _group_day_productivity 산식 버그(합산qty/첫회사
+        # workers)와 결합해 forecaster(wp baseline)와 retrieve(cross-company baseline) 가 불일치 →
+        # 같은 wp 가 forecaster=정상인데 retrieve=전부 미회복으로 나오는 모순을 만들었다.
+        # seed 가 86일 condition→prod 패턴을 회사별로 생성하므로 own-company case 가 충분하다.
         result = coll.get(
-            where={"l6_main": r["l6_main"]},
+            where={"$and": [{"l6_main": r["l6_main"]}, {"company": r["company"]}]},
             include=["metadatas", "documents"],
         )
         metas, docs = result["metadatas"], result["documents"]
 
-        baseline_value = _group_baseline(metas, None, r["l6_main"], baseline_unit)
+        baseline_value = _group_baseline(metas, r["company"], r["l6_main"], baseline_unit)
         if baseline_value is None:
             # F7: None 분기 명시 — pre_cases[key]=[] 후 다음 그룹
             pre_cases[key] = []
@@ -366,7 +375,7 @@ async def hil_2_node(state: CPIAState, cfg: GraphConfig) -> dict:
         cases = fetch_degradation_cases(
             metas,
             docs,
-            None,  # 2026-05-22 cross-company retrieve
+            r["company"],  # 2026-05-29 company-scoped
             r["l6_main"],
             today,
             baseline_unit,
@@ -376,7 +385,7 @@ async def hil_2_node(state: CPIAState, cfg: GraphConfig) -> dict:
         for c in cases:
             c["recovery"] = fetch_recovery_trajectory(
                 metas,
-                None,  # 2026-05-22 cross-company recovery 추세
+                r["company"],  # 2026-05-29 company-scoped recovery
                 r["l6_main"],
                 c["date"],
                 today,
@@ -456,10 +465,19 @@ async def reporter_node(state: CPIAState, cfg: GraphConfig) -> dict:
             site_id = _row["site_id"] if _row else None
         if site_id:
             await update_site_last_run(pg, site_id=site_id, run_id=run_id)
+            # build_demo_graph 는 atomizer 가 없어 state["atomized_ids"]=[] →
+            # seed 가 박은 pipeline_runs.atomized_count 로 fallback.
+            atomized_count = len(state.get("atomized_ids", []) or [])
+            if atomized_count == 0:
+                async with pg._pool.acquire() as _con2:  # type: ignore[attr-defined]
+                    _r = await _con2.fetchrow(
+                        "SELECT atomized_count FROM pipeline_runs WHERE run_id = $1", run_id
+                    )
+                atomized_count = (_r["atomized_count"] or 0) if _r else 0
             await update_site_hours_saved_cum(
                 pg,
                 site_id=site_id,
-                atomized_count=len(state.get("atomized_ids", []) or []),
+                atomized_count=atomized_count,
             )
         # 2026-05-20 Issue B fix: pipeline_runs.status='completed' + completed_at 갱신.
         # 이전엔 reporter_node 진입 후 graph 끝나도 status='running' 그대로 (completed_at=NULL).
@@ -576,8 +594,8 @@ def build_graph(cfg: GraphConfig):
 
     async def _parser_p(state: CPIAState) -> dict:
         await set_current_node(pg_url, state["run_id"], "parser")
-        # parser_node 는 sync — await 사용 X.
-        return _parser(state)
+        # parser_node 는 async (multi-file 병렬 파싱 + merge) — await 필수.
+        return await _parser(state)
 
     async def _mapper(state: CPIAState) -> dict:
         await set_current_node(pg_url, state["run_id"], "mapper")

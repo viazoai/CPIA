@@ -393,7 +393,8 @@ export function ForecastChart({
               <span className="h-1.5 w-1.5 rounded-full" style={{ background: "#0ea76a" }} />
               AI 권고 — 공기 단축 가능한 공종
             </div>
-            <ul className="space-y-2.5 text-sm text-ink">
+            {/* 2026-05-29 (2차): 카드 많으면 너무 길어지므로 max-h + 스크롤 (사용자 요청). */}
+            <ul className="max-h-[440px] space-y-2.5 overflow-y-auto pr-1 text-sm text-ink">
               {aiAdvice.map((wp, idx) => (
                 <li key={idx} className="rounded bg-card px-3 py-2 ring-1 ring-border-soft">
                   <div className="flex items-center justify-between gap-3">

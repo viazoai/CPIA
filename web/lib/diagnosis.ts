@@ -46,7 +46,8 @@ function ewma(values: (number | undefined)[], lambda: number): number[] {
 /* ───── 시나리오 곡선 생성 — catch-up + plan 동행 ─────
  *
  * 의미: AI 만회 시나리오 = recoveryDays 만에 plan 따라잡고, 그 후 plan 곡선 동행.
- * 1) catch-up 구간 (today ~ today+recoveryDays): lastActual → plan[today+recoveryDays] 직선 slope
+ * 1) catch-up 구간 (today ~ today+recoveryDays): plan 곡선 증분 × boostK 누적 = 점진 수렴
+ *    (직선 chord 아님 — plan 모양 따라가며 catch-up 시점에 plan 에 정확히 도달)
  * 2) catch-up 이후: plan 그대로 동행 (별도 100% 도달이 아니라 plan 의 완공일에 함께 도달)
  *
  * 이전 산식 (completionOffset 기반 lastActual→100% 직진) 은 "AI 만회 = 더 늦게 완공" 처럼
@@ -61,17 +62,26 @@ function buildScenarioCurve(
   const out: (number | null)[] = [];
   const catchUpEndIdx = Math.min(s_curve.length - 1, todayIdx + Math.max(1, recoveryDays));
   const planAtCatchUp = s_curve[catchUpEndIdx]?.planned ?? 100;
+  const planAtToday = s_curve[todayIdx]?.planned ?? lastActual;
   const span = Math.max(1, catchUpEndIdx - todayIdx);
-  const catchUpSlope = (planAtCatchUp - lastActual) / span;
+  // 점진 수렴 (2026-05-30): 직선 chord 대신 plan 곡선 증분 × boostK 로 누적 → plan 모양을
+  // 따라가며(곡선) gap 을 닫고 catch-up 시점에 정확히 plan 도달. boostK = 1 + gap0/planSpan.
+  // planSpan<=0 (catch-up 창에서 plan 평탄) 이면 직선 fallback.
+  const planSpan = planAtCatchUp - planAtToday;
+  const gap0 = Math.max(0, planAtToday - lastActual);
+  const boostK = planSpan > 1e-9 ? 1 + gap0 / planSpan : 1;
   for (let i = 0; i < s_curve.length; i++) {
     if (i < todayIdx) {
       out.push(null); // 과거 — 라인 안 그림
     } else if (i === todayIdx) {
       out.push(lastActual);
     } else if (i <= catchUpEndIdx) {
-      // catch-up 구간만 dashed slope
-      const offset = i - todayIdx;
-      out.push(Math.max(0, Math.min(100, lastActual + catchUpSlope * offset)));
+      const planAtI = s_curve[i]?.planned ?? planAtCatchUp;
+      const v =
+        planSpan > 1e-9
+          ? lastActual + (planAtI - planAtToday) * boostK // plan 증분 × boostK 누적 (점진 수렴)
+          : lastActual + (planAtCatchUp - lastActual) * ((i - todayIdx) / span); // 평탄 fallback
+      out.push(Math.max(0, Math.min(100, v)));
     } else {
       // catch-up 후 plan 따라잡았으니 라인 안 그림 (plan 곡선이 대신 그려짐)
       out.push(null);

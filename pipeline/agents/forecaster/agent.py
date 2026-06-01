@@ -27,8 +27,10 @@ from .aggregate import (
     compute_delay,
     fetch_chroma_actual,
     fetch_pg_actual_cum_qty,
+    fetch_pg_planned_qty_to_date,
 )
 from .classify import classify_assessment, classify_risk_level
+from .constants import WORK_HOURS_PER_DAY
 from .prompt import (
     SYSTEM_PROMPT,
     FEW_SHOT_MESSAGES,
@@ -70,6 +72,17 @@ def _format_chroma_result(rag_result: dict) -> list[dict]:
     ]
 
 
+def _bottleneck_unit(per_unit_delays: dict[str, int]) -> str | None:
+    """unit별 delay_days 중 최댓값(가장 지연된) unit = 병목. 빈 dict → None.
+
+    혼재 WP(남웅 철콘 ea·m²·m³·ton 등)에서 매일 main_unit 이 바뀌며 다른 unit 의
+    지연이 묻히는 문제 → positive unit 전부의 delay 중 최댓값 unit 을 카드 대표로.
+    """
+    if not per_unit_delays:
+        return None
+    return max(per_unit_delays, key=lambda u: per_unit_delays[u])
+
+
 async def _forecast_one_group(
     company: str,
     l6_main: str,
@@ -88,17 +101,51 @@ async def _forecast_one_group(
     today_assigned_workers = activities[0]["assigned_workers"]
     # qty>0 인 unit 만 후보. 모든 unit 0 → main_unit=None (의미적 "오늘 물량 0").
     positive_units = {u: q for u, q in today_qty_by_unit.items() if q > 0}
+    # 초기 main_unit = 오늘 최대 물량 unit (②-b 에서 병목 unit 으로 대체될 수 있음).
     main_unit = max(positive_units, key=positive_units.get) if positive_units else None
-    today_productivity = (
-        today_qty_by_unit[main_unit] / today_assigned_workers
-        if main_unit and today_assigned_workers > 0
-        else 0.0
-    )
     work_content = " / ".join(set(a["work_content"] for a in activities if a.get("work_content")))[:200]
     conditions_set = sorted(set(c for a in activities for c in (a.get("conditions") or [])))
 
     # ② Plan
     plan = await pg.fetch_plan_for_group(company, l6_main)
+
+    # ②-b 병목 unit 선정 (2026-05-29 reseed v2 Task 3.2):
+    # positive unit 전부 per-unit delay 산출 → 최댓값(가장 지연) unit 을 카드 대표 main_unit 으로.
+    # 혼재 WP(예: 철콘 ea·m²·m³·ton)에서 매일 max-qty unit 만 보던 탓에 묻혔던 unit 지연을 노출.
+    # delay_days 는 qty 경로만 사용(mh 무관)하므로 per-unit 은 actual_window/mh 없이 산출.
+    per_unit_delays: dict[str, int] = {}
+    for _u, _u_today in positive_units.items():
+        _u_plan_qtys = {
+            round(float(a["plan_total_qty"]), 4)
+            for a in activities
+            if a.get("unit") == _u and a.get("plan_total_qty") is not None
+        }
+        _u_plan_qty = sum(_u_plan_qtys) if _u_plan_qtys else None
+        if not _u_plan_qty or _u_plan_qty <= 0:
+            continue  # Plan unit set 에 없는 unit 은 delay 산출 불가 → 병목 후보 제외
+        _u_pg_cum = await fetch_pg_actual_cum_qty(pg, company, l6_main, today, _u)
+        _u_planned = await fetch_pg_planned_qty_to_date(pg, company, l6_main, today, _u)
+        _u_delay_info = compute_delay(
+            plan,
+            today,
+            None,
+            0.0,
+            actual_cum_qty=_u_pg_cum + _u_today,
+            plan_total_qty_main=_u_plan_qty,
+            today_qty_main=_u_today,
+            planned_qty_to_date_main=_u_planned,
+        )
+        if _u_delay_info["delay_days"] is not None:
+            per_unit_delays[_u] = _u_delay_info["delay_days"]
+    _bottleneck = _bottleneck_unit(per_unit_delays)
+    if _bottleneck is not None:
+        main_unit = _bottleneck  # 초기 max-qty 선정을 병목 unit 으로 대체
+    # today_productivity 를 (재지정된) main_unit 기준으로 재산출 (RAG/assessment 비교용).
+    today_productivity = (
+        today_qty_by_unit[main_unit] / today_assigned_workers
+        if main_unit and today_assigned_workers > 0
+        else 0.0
+    )
 
     # ③ RAG 검색 + 정규화 + rerank
     # Chroma where 절은 한 dict 안에 하나의 operator 만 허용 + $gte/$lt 는 숫자 전용 →
@@ -184,6 +231,7 @@ async def _forecast_one_group(
     )
     pg_cum_qty = await fetch_pg_actual_cum_qty(pg, company, l6_main, today, main_unit)
     actual_cum_qty = pg_cum_qty + today_qty_main
+    planned_main_qty = await fetch_pg_planned_qty_to_date(pg, company, l6_main, today, main_unit)
     delay_info = compute_delay(
         plan,
         today,
@@ -192,6 +240,7 @@ async def _forecast_one_group(
         actual_cum_qty=actual_cum_qty,
         plan_total_qty_main=plan_main_qty,
         today_qty_main=today_qty_main,
+        planned_qty_to_date_main=planned_main_qty,
     )
 
     # ⑥ LLM
@@ -232,12 +281,27 @@ async def _forecast_one_group(
         reasoning = llm_out.get("reasoning", "")
         recovery_likelihood = llm_out.get("recovery_likelihood")
 
-    # ⑦ risk_level
+    # ⑦ risk_level — 2026-05-29: 정상 페이스 대비 생산성 ratio 추가 (condition 저하 반영).
+    # plan_prod_proxy = 계획 정상 인당 생산성 (plan_total_qty / 계획 인-day).
+    plan_prod_proxy = None
+    if (
+        plan_main_qty
+        and plan
+        and plan.get("plan_mh_sum")
+        and plan["plan_mh_sum"] > 0
+    ):
+        plan_prod_proxy = plan_main_qty / (plan["plan_mh_sum"] / WORK_HOURS_PER_DAY)
+    productivity_ratio = (
+        today_productivity / plan_prod_proxy
+        if plan_prod_proxy and plan_prod_proxy > 0
+        else None
+    )
     risk_level = classify_risk_level(
         assessment,
         recovery_likelihood,
         delay_info["delay_days"],
         delay_info["schedule_state"],
+        productivity_ratio=productivity_ratio,
     )
 
     # ⑧ row

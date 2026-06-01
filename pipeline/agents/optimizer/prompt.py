@@ -401,34 +401,31 @@ RECS_PROMPT_V10 = """당신은 건설 현장 PM 옆에서 매일 작업일보를
 - 최근 5건의 비슷한 저하 사례
 - trade_frame: 공종 고유 사고 프레임
 
-작성할 것: **Action Plan 1~2건** (조건/원인이 복잡한 wp 만 최대 3건). 각 항목은 **3 필드 (keyword + action + reason)** 로 분리.
+작성할 것: **Action Plan 2~3건**. 각 항목은 **3 필드 (keyword + action + reason)** 로 분리.
 
-【keyword 가이드 (5~10자 명사구)】
+【keyword 가이드 (5~10자 명사구 — 조치 요약)】
+- **대괄호 [] 를 넣지 마세요.** keyword 는 순수 명사구만 (UI 가 [keyword] 형태로 감쌉니다).
 - trade_frame 핵심 키워드 (양생·적층·양중·계측·간섭·동기화·함수율·면 분리 등) 우선 인용.
-- G2 액션 카테고리 시그널 자연 노출:
-  * 자원 투입: "양중 슬롯 재배치", "반장 호출"
-  * 일정·공정 조정: "양중 순번 재조정", "면 분리 진행"
-  * 사전 점검·조사: "반입 동선 체크", "자재 시점 대조"
-  * 연쇄 알림·협의: "간섭 구간 사전 통보", "후행 팀 알림"
-  * 품질·안전 검증: "패널 체결부 점검", "함수율 재확인"
-  * 기록·신호 강화: "품질 기록 관리", "양중 공백 기록"
+- 명사형 조치 요약 예: "면 건조 확보", "양중 순번 재조정", "함수율 점검", "증원 요청", "자재 시점 대조", "간섭 구간 통보".
 - 금지: "확인 검토" / "모니터링 강화" 약한 명사구. 시점 표현 ("지금 즉시", "내일") 키워드 X.
 
-【action 가이드 (한 문장, 명령형)】
-- 언제 / 누구에게 / 무엇을 한 문장에. 마침표 끝.
-- 시점 표현: **최소 1건 조건 trigger** ("재발 시 / 입고 직후 / 도면 받는 즉시 / 결원 시 / 풍속 초과 시"). 절대 시각 (지금 즉시 / 내일) 은 보조로만.
-- 명령형 동사: 지시하세요 / 통보하세요 / 배치하세요 / 점검하세요 / 전화하세요. "확인 권장 / 검토" 금지.
+【action 가이드 (개조식 — 명사 종결, 문장 종결어 금지)】
+- 언제 / 누구에게 / 무엇을 명사구로 압축. **마침표·"~하세요/~합니다/~하십시오" 등 문장 종결어 금지** (telegraphic 개조식).
+- 동사는 명사형으로 변환: 통보하세요→통보, 지시하세요→지시, 배치하세요→배치, 점검하세요→점검, 재조정하세요→재조정. 복수 조치는 "+" 또는 "→" 로 연결.
+- 시점 표현: **최소 1건 조건 trigger** ("재발 시 / 입고 직후 / 도면 수령 즉시 / 결원 시 / 풍속 초과 시"). 절대 시각 (지금 즉시 / 내일) 은 보조로만.
+- 약한 표현 ("확인 권장 / 검토") 금지.
+- 예: "도면 수령 즉시 현장대리인에게 변위·침하 계측 기준선 재설정 + 위험 구간 통보"
 
-【reason 가이드 (한 문장, 사례 인용)】
-- raw 사례 또는 trade_frame 제약 직접 인용. 일반론 금지.
-- "예시 사례 → 결과" 패턴 자연스럽게: "우천 시(6/28) 사례처럼 양중이 밀리면 외장판넬은 손을 못 대는 구간이 길어집니다."
+【reason 가이드 (개조식 — 명사 종결, 저하/회복 사례 인용)】
+- 저하 사례 날짜 + **저하/회복 work_content** 직접 인용. 일반론 금지. **"~했습니다/~입니다" 등 문장 종결어 금지** — "→" 로 인과 연결 (telegraphic 개조식).
+- "저하 → 회복 패턴" 압축: "09-22 인력부족(가용 면 축소) → 건조 완료 구획 집중 배치 → D+1 회복".
 - 사례 빈 array (RAG cold) 일 때는 trade_frame 의 물리적 제약만 인용.
 
 【가드 (v9 유지)】
 G1 시점 다양화 / G2 액션 카테고리 4개 / G3 환각 방지 (today_conditions 에 있어도 raw 5건에 없으면 사례 인용 금지, 회사명 today.company 일치)
-G4 약한 동사 금지 / G6 risk_level=이상 시 "정상범주" 금지 / G8 공종 고유 인사이트 자가 검열
+G4 약한 동사 금지 / G6 위험도 이상 시 "정상범주" 금지 / G8 공종 고유 인사이트 자가 검열
 
-원칙: 한자 금지.
+원칙: 한자 금지. **스키마/필드명(risk_level, delay_days 등) 을 keyword/action/reason 본문에 그대로 쓰지 말 것 — 자연어로 풀어쓴다.**
 
 출력 JSON:
 {
@@ -459,27 +456,28 @@ DIAG_PROMPT_V10 = """당신은 건설 현장 PM 의 일일 의사결정을 돕�
 - 다른 분석가가 작성한 Action Plan 4건
 - trade_frame
 
-작성할 것: 진단 1~3 문장 — PM 용 요약/총평.
+작성할 것: **개조식 진단 2 문장** (각 문장 짧게 — PM 이 3초 안에 읽도록).
+시스템이 진단 첫 줄에 "생산성 수치 prefix" (정상 대비 %) 를 자동으로 붙입니다.
+당신은 그 **다음 줄들 (회복 패턴 판단 + 오늘의 분기점)** 만 작성하세요. 수치 prefix 는 쓰지 마세요.
 
 진단 작성 원칙:
-1. **첫 문장에 두 차원 delay 둘 다 인용**: 예 "현재 8일 뒤처졌으며 (계획 누계 15루베 대비 실 7루베), 이 페이스가 유지될 경우 완공이 34일 지연될 우려입니다."
-2. **MH gap 도 자연 인용** (mh_gap 이 큰 경우 — oversupply 또는 undersupply): 예 "MH 는 계획 대비 540시간 oversupply 인데 진척이 거의 없어 효율 문제가 핵심" 또는 "MH 부족 240시간이 페이스를 누름".
+1. **첫 문장 = 회복 패턴 판단**: 과거 저하 사례에서 무엇이 D+1 회복을 만들었는지 한 문장.
+   예: "과거 5건 중 4건이 D+1 회복했고, 건조 완료 구획 집중 배치가 이루어진 날에 회복이 집중됨."
+   회복 사례가 없으면: "최근 사례는 회복이 없었고, 조건이 풀리지 않으면 적층 지연이 누적되는 흐름."
+2. **둘째 문장 = 오늘의 분기점**: 오늘 무엇을 확인/조치해야 하는지 한 문장. trade_frame 제약에서 출발.
+   예: "오늘은 자재 도착 시점에 건조 완료 면부터 단계 배치를 적용할 수 있는지가 분기점."
 
-**가드 6 강화 (절대 룰)**:
-- **risk_level = "이상" 이면 "정상범주 / 정상 범위 / 평시 대비 충분히 높음" 표현 절대 금지.**
-- 대신 "단위 생산성 X 이지만 계획 진척 기준 위험 / 진척 격차 N일 / 효율 문제" 등 risk_level 차원 인용 필수.
-- assessment vs risk_level 충돌 시 항상 risk_level 우선 (PM 의사결정과 직결).
-- today_productivity 가 raw 사례 평균보다 명백히 낮으면 "정상" 단어 사용 금지.
+**가드 6 (절대 룰)**:
+- 위험도가 "이상" 이면 "정상범주 / 정상 범위" 표현 금지. 위험 수준이 높다는 점을 자연어로 명시.
+- **스키마/필드명을 본문에 그대로 쓰지 말 것** (예: "risk_level", "delay_days", "point_in_time", "mh_gap"). PM 이 읽는 자연어로 풀어쓴다 ("위험 수준이 높음", "현 추세로 N일 지연", "지금까지 N일치 부족").
 
 **가드 8 (공종 고유)**:
-- trade_frame 의 제약 (예: 양생·적층·간섭·양중·계측) 에서 출발한 위험 신호 1가지 인용.
+- trade_frame 의 제약 (양생·적층·간섭·양중·계측) 에서 출발한 신호 1가지 인용.
 - 공종 이름만 바꾸면 다른 공종에 쓸 수 있는 일반 문장 금지.
 
-**Action Plan 의 핵심 의사결정 포인트** 1~2 가지를 진단에 녹여 표현 (권고 4건 단순 나열 X).
+피해야 할 표현: "확인 권장" 약한 동사, 사례 인용 없는 일반 명제, 영어 약어(D+1 제외), 수치 prefix 중복.
 
-피해야 할 표현: 권고 4건 나열, "확인 권장" 약한 동사, 사례 인용 없는 일반 명제, "today/D+1" 영어/약어.
-
-출력 JSON: {"diagnosis": "..."}
+출력 JSON: {"diagnosis": "첫 문장\\n둘째 문장"}
 """
 
 
@@ -529,6 +527,38 @@ WP (공종) 의 메타데이터 + 현재 예상 완료일 (조치 없을 때) + 
 # ---------------------------------------------------------------------------
 
 
+def _recovery_work_content(case: dict) -> str:
+    """trajectory 에서 첫 recovered=True 날의 work_content (회복 narrative)."""
+    for t in (case.get("recovery") or {}).get("trajectory") or []:
+        if t.get("recovered"):
+            return t.get("work_content") or ""
+    return ""
+
+
+def recovery_distribution_text(degradation_cases: list[dict]) -> str:
+    """'N건 중 M건 회복 | D+1 회복 4건 · 미회복 1건' 형식 (회복 분포 텍스트).
+
+    view_builder 도 동일 형식으로 UI 에 표시 (similar_cases 바로 밑).
+    """
+    cases = degradation_cases or []
+    total = len(cases)
+    if not total:
+        return "유사 저하 사례 없음"
+    dist: dict[str, int] = {}
+    recovered = 0
+    for c in cases:
+        rd = (c.get("recovery") or {}).get("recovery_days")
+        if rd:
+            dist[f"D+{rd}"] = dist.get(f"D+{rd}", 0) + 1
+            recovered += 1
+        else:
+            dist["미회복"] = dist.get("미회복", 0) + 1
+    parts = " · ".join(
+        f"{k} 회복 {v}건" if k != "미회복" else f"미회복 {v}건" for k, v in sorted(dist.items())
+    )
+    return f"{total}건 중 {recovered}건 회복 | {parts}"
+
+
 def build_recs_input_v10(
     forecast_row: dict,
     degradation_cases: list[dict],
@@ -538,10 +568,10 @@ def build_recs_input_v10(
 ) -> dict:
     """RECS_PROMPT_V10 LLM 입력 빌드.
 
-    Spec §4.2.4. PoC v10 payload 구조 그대로:
-    - today: 오늘 데이터 + 평가 두 차원 (assessment + risk_level) + delay 두 차원 + mh_gap + frame_category
-    - trade_frame: 공종 고유 사고 프레임 텍스트 (lookup_frame 결과)
-    - degradation_cases: 최근 5건 비슷한 저하 사례
+    2026-05-29: degradation_cases 에 저하/회복 work_content 추가 (reason 이 인용).
+    - today: 오늘 데이터 + 평가 + delay 두 차원 + mh_gap + frame_category
+    - trade_frame: 공종 고유 사고 프레임
+    - degradation_cases: 최근 저하 사례 (저하/회복 narrative + recovery_days)
     """
     return {
         "today": {
@@ -563,9 +593,9 @@ def build_recs_input_v10(
             {
                 "date": c["date"],
                 "conditions": c["conditions"],
-                "productivity": c["productivity"],
-                "activities": c["activities"],
-                "recovery_days": c["recovery"]["recovery_days"],
+                "저하": c.get("work_content") or "",
+                "회복": _recovery_work_content(c),
+                "recovery_days": (c.get("recovery") or {}).get("recovery_days"),
             }
             for c in (degradation_cases or [])
         ],
@@ -586,6 +616,8 @@ def build_diag_input_v10(
     """
     base = build_recs_input_v10(forecast_row, degradation_cases, today_date, frame_category, frame_text)
     base["recommendations"] = recs_out or []
+    # 2026-05-29: 회복 분포 — DIAG 첫 문장(회복 패턴 판단)이 인용.
+    base["recovery_pattern"] = recovery_distribution_text(degradation_cases)
     return base
 
 

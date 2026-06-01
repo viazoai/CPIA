@@ -1,27 +1,30 @@
 "use client";
 import { cn } from "@/lib/utils";
-import type { QuadrantPoint } from "@/lib/types";
+import type { WPSummaryRow } from "@/lib/types";
 
 type Filter = "all" | "risk" | "caution" | "safe";
 
 interface Props {
-  points: QuadrantPoint[];
+  wpSummary: WPSummaryRow[];
   filter: Filter;
   onFilterChange: (f: Filter) => void;
 }
 
-export function QuadrantCountKpi({ points, filter, onFilterChange }: Props) {
+// 2026-05-29: 칩 카운트를 wp_summary.status (forecaster risk_level) 단일 source 로 통일.
+// 이전엔 quadrant.quadrant (productivity×impact 4분면) 기반이라 WP 목록 status 와
+// 어긋났다 (분포도 "위험 0" 인데 목록 "이상" 표시). 라벨도 정상/주의/이상 통일.
+export function QuadrantCountKpi({ wpSummary, filter, onFilterChange }: Props) {
   const counts = {
-    risk: points.filter((p) => p.quadrant === "risk").length,
-    caution: points.filter((p) => p.quadrant === "caution").length,
-    safe: points.filter((p) => p.quadrant === "safe" || p.quadrant === "watch").length,
+    risk: wpSummary.filter((w) => w.status === "risk").length,
+    caution: wpSummary.filter((w) => w.status === "caution").length,
+    safe: wpSummary.filter((w) => w.status === "normal").length,
   };
 
   return (
     <div className="grid grid-cols-3 gap-2">
-      <Chip tone="rose"  active={filter === "risk"}    onClick={() => onFilterChange(filter === "risk" ? "all" : "risk")}       label="위험" count={counts.risk} />
-      <Chip tone="sun"   active={filter === "caution"} onClick={() => onFilterChange(filter === "caution" ? "all" : "caution")} label="경고" count={counts.caution} />
-      <Chip tone="mint"  active={filter === "safe"}    onClick={() => onFilterChange(filter === "safe" ? "all" : "safe")}       label="안전" count={counts.safe} />
+      <Chip tone="rose"  active={filter === "risk"}    onClick={() => onFilterChange(filter === "risk" ? "all" : "risk")}       label="이상" count={counts.risk} />
+      <Chip tone="sun"   active={filter === "caution"} onClick={() => onFilterChange(filter === "caution" ? "all" : "caution")} label="주의" count={counts.caution} />
+      <Chip tone="mint"  active={filter === "safe"}    onClick={() => onFilterChange(filter === "safe" ? "all" : "safe")}       label="정상" count={counts.safe} />
     </div>
   );
 }

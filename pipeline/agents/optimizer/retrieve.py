@@ -43,15 +43,21 @@ _RECOVERY_RATIO = 0.95
 
 
 def _group_day_productivity(metas_of_day: list[dict], baseline_unit: str) -> float:
-    """그 날 (company, l6_main) 의 baseline_unit Σ today_qty / assigned_workers.
+    """그 날 그룹의 baseline_unit Σ today_qty / Σ assigned_workers.
 
-    같은 그룹 = assigned_workers 동일 reference (downstream §3.4 옵션 X).
+    2026-05-29 버그 수정: 이전엔 workers = metas_of_day[0]["assigned_workers"] (첫 row 만)
+    → cross-company 합산 qty / 한 회사 workers 라 productivity 가 회사 수만큼 부풀어
+    회복 판정이 공종 스케일에 좌우됐다. 이제 같은 unit row 의 qty·workers 둘 다 합산.
+    company-scoped (1 row/day) 면 단독 prod 와 동일.
     0 workers 또는 metas 0건 → 0.0.
     """
     if not metas_of_day:
         return 0.0
-    qty = sum(m["today_qty"] for m in metas_of_day if m["unit"] == baseline_unit)
-    workers = metas_of_day[0]["assigned_workers"]
+    rows = [m for m in metas_of_day if m["unit"] == baseline_unit]
+    if not rows:
+        return 0.0
+    qty = sum(m["today_qty"] for m in rows)
+    workers = sum(m["assigned_workers"] for m in rows)
     return qty / workers if workers > 0 else 0.0
 
 
@@ -144,6 +150,10 @@ def fetch_degradation_cases(
                 "conditions": raw,
                 "productivity": prod,
                 "assigned_workers": rows[0][0]["assigned_workers"],
+                "company": rows[0][0].get("company"),
+                "l6_main": rows[0][0].get("l6_main"),
+                # 2026-05-29: 저하일 work_content (저하 narrative). similar_cases 저하 줄.
+                "work_content": rows[0][0].get("work_content") or "",
                 "activities": [doc for _, doc in rows],
             }
         )
@@ -197,6 +207,8 @@ def fetch_recovery_trajectory(
                 "conditions": rows[0].get("conditions") or "",
                 "productivity": prod,
                 "recovered": prod >= baseline_value * _RECOVERY_RATIO,
+                # 2026-05-29: 회복일 work_content (회복 narrative). similar_cases 회복 줄.
+                "work_content": rows[0].get("work_content") or "",
             }
         )
     recovery_days = next(

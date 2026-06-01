@@ -46,16 +46,56 @@ export default function HumanReviewPage() {
     return filtered;
   }, [cards, wbs, selectedNodeId, onlyUnconfirmed]);
 
+  // work_package wp_id → {wa, l6_main} 룩업. wp_id=safe(wa)-safe(l6_main) 는 역변환 lossy 라
+  // remap 시 WBS 노드가 들고 있는 원 wa/l6_main 을 찾아 BE corrections 로 정확히 전달한다.
+  const wpIdToWaL6 = useMemo(() => {
+    const m = new Map<string, { wa: string | null; l6_main: string | null }>();
+    const walk = (n: WBSNode | null) => {
+      if (!n) return;
+      if (n.type === "work_package") m.set(n.id, { wa: n.wa ?? null, l6_main: n.l6_main ?? null });
+      (n.children || []).forEach(walk);
+    };
+    walk(wbs);
+    return m;
+  }, [wbs]);
+
   const handleConfirm = (id: string) => {
     setCards((cs) => cs.map((c) => c.id === id ? { ...c, status: "confirmed" as const } : c));
   };
 
   const handleRemap = (id: string, newWpId: string, newPath: string) => {
-    setCards((cs) => cs.map((c) => c.id === id ? { ...c, ai_mapped_wp_id: newWpId, ai_mapped_path: newPath, confidence: 1.0 } : c));
+    const wl = wpIdToWaL6.get(newWpId);
+    setCards((cs) => cs.map((c) => c.id === id ? {
+      ...c,
+      ai_mapped_wp_id: newWpId,
+      ai_mapped_path: newPath,
+      wa: wl?.wa ?? c.wa,
+      l6_main: wl?.l6_main ?? c.l6_main,
+      confidence: 1.0,
+      remapped: true,            // AI 추천과 다르게 수정됨 → corrections 전송 대상
+    } : c));
   };
 
   const handleConfirmAll = () => {
-    setCards((cs) => cs.map((c) => c.confidence >= 0.8 && c.status === "unconfirmed" ? { ...c, status: "confirmed" as const } : c));
+    // 게이트: 검토 대상(저확신) 전부를 확정한다 — 하나도 빠짐없이 처리돼야 다음 단계로 넘어간다.
+    // 미확정 카드는 AI 추천대로 일괄 확정(개별 수정한 카드는 그 결정 유지 → corrections).
+    setCards((cs) => cs.map((c) => c.status === "unconfirmed" ? { ...c, status: "confirmed" as const } : c));
+    // 사용자가 수정(remap)한 카드만 corrections 로 BE 전달(idx 키 = mapper_activities.idx).
+    // 수정 안 한 요검토 항목은 BE hil_1_node 가 AI 매핑 그대로 확정(corrections 불필요).
+    const corrections: Record<string, { wa: string; l6_main: string }> = {};
+    for (const c of cards) {
+      if (c.remapped && c.wa && c.l6_main) {
+        corrections[String(c.idx)] = { wa: c.wa, l6_main: c.l6_main };
+      }
+    }
+    fetch("/api/hil/resume", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ corrections }),
+    })
+      .then((r) => r.json())
+      .then((d) => console.log("[hil/resume]", d))
+      .catch((e) => console.error("[hil/resume] 실패", e));
   };
 
   if (!wbs) return <div className="px-6 py-10 text-ink-light">Loading...</div>;

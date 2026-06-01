@@ -7,6 +7,7 @@ from pipeline.agents.parser import (
     _disc_abbrev_to_kr,
     _ffill,
     _is_admin_job,
+    _is_bp_code,
     _is_total_row,
     _normalize_unit,
 )
@@ -75,6 +76,7 @@ import openpyxl  # noqa: E402
 import pytest  # noqa: E402
 
 from pipeline.agents.parser import _parse_sheet4_activities  # noqa: E402
+from pipeline.agents.parser import _resolve_sheet4_columns  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -83,6 +85,19 @@ def sample_tong_path() -> Path:
         Path(__file__).resolve().parents[2]
         / "docs/sample/통합작업일보_M15X Ph-3 IBL PJT 작업일보_20250925.xlsx"
     )
+
+
+def test_resolve_sheet4_columns_integrated(sample_tong_path):
+    """통합포맷: 업체명 컬럼 존재 → company_col 매핑."""
+    wb = openpyxl.load_workbook(sample_tong_path, data_only=True)
+    cols = _resolve_sheet4_columns(wb["4.물량"])
+    wb.close()
+    assert cols["work_content"] == 8  # 통합: 작업내용 col8
+    assert cols["unit"] == 9
+    assert cols["today_qty"] == 12  # 금일실적[C]
+    assert cols["today_cum"] == 13  # 금일누적[D]
+    assert cols["progress"] == 14  # F% (row4 둘째 헤더) — 회귀 필수
+    assert "company_col" in cols  # 업체명 컬럼 있음
 
 
 def test_parse_sheet4_activities_count(sample_tong_path: Path):
@@ -510,50 +525,6 @@ def test_sheet4_required_new_fields(sample_tong_path: Path):
 
 
 # ---------------------------------------------------------------------------
-# 2026-05-20 refactor: LLM 검증 wrapper (spec §2.6)
-# ---------------------------------------------------------------------------
-
-import os  # noqa: E402
-from unittest.mock import patch  # noqa: E402
-
-
-def test_parse_daily_report_llm_verify_off_skip(sample_tong_path: Path):
-    """CPIA_PARSER_VERIFY_LLM=off 시 LLM 호출 없이 정상 종료."""
-    with patch.dict(os.environ, {"CPIA_PARSER_VERIFY_LLM": "off"}):
-        parsed = parse_daily_report(sample_tong_path)
-    assert "bp_summaries" in parsed
-    assert len(parsed["bp_summaries"]) > 0
-
-
-def test_parse_daily_report_llm_verify_graceful_on_error(sample_tong_path: Path):
-    """LLM 호출 실패 (API key 가짜) 해도 cycle block 안 함 (graceful degrade)."""
-    with patch.dict(
-        os.environ,
-        {"CPIA_PARSER_VERIFY_LLM": "on", "AZURE_OPENAI_API_KEY": "FAKE_KEY_FOR_TEST"},
-    ):
-        # Exception 안 던지고 정상 종료해야 함
-        parsed = parse_daily_report(sample_tong_path)
-    assert "bp_summaries" in parsed
-    assert len(parsed["bp_summaries"]) > 0
-
-
-def test_should_verify_llm_env_parsing():
-    """env CPIA_PARSER_VERIFY_LLM 파싱: 'off'/'false'/'0'/'no' 만 opt-out."""
-    from pipeline.agents.parser import _should_verify_llm
-
-    for v in ("off", "false", "0", "no", "Off", "False"):
-        with patch.dict(os.environ, {"CPIA_PARSER_VERIFY_LLM": v}):
-            assert _should_verify_llm() is False, f"{v} should opt-out"
-    for v in ("on", "true", "1", "yes", "anything-else"):
-        with patch.dict(os.environ, {"CPIA_PARSER_VERIFY_LLM": v}):
-            assert _should_verify_llm() is True, f"{v} should opt-in"
-    # default = on
-    with patch.dict(os.environ, {}, clear=False):
-        os.environ.pop("CPIA_PARSER_VERIFY_LLM", None)
-        assert _should_verify_llm() is True
-
-
-# ---------------------------------------------------------------------------
 # 2026-05-20 refactor: caller smoke test — collector + run_one_cycle (spec §4.1)
 # ---------------------------------------------------------------------------
 
@@ -632,3 +603,57 @@ def test_sheet4_col_indices_match_header(sample_tong_path: Path):
     assert ws.cell(3, 7).value == "Scope"
     assert ws.cell(3, 8).value == "대표물량_작업 내용"
     wb.close()
+
+
+def test_is_bp_code_multiformat():
+    # 통합 포맷 (회귀)
+    assert _is_bp_code("PH_X-088") is True
+    assert _is_bp_code("PH_X-002") is True
+    # 업체 포맷 (신규)
+    assert _is_bp_code("M15X_PH4_041") is True
+    # 회사명은 코드 아님
+    assert _is_bp_code("중원엔지니어링FAB") is False
+    assert _is_bp_code("㈜해광FAB") is False
+    assert _is_bp_code(None) is False
+    assert _is_bp_code("123_PH4_041") is False  # 순수 숫자 prefix 는 BP코드 아님
+
+
+# ---------------------------------------------------------------------------
+# 업체 포맷 회귀 가드 (시트1 BP/회사명 분리 + 시트2 final_flag 완화)
+# ---------------------------------------------------------------------------
+
+
+def test_sheet2_job_subcon_nonzero(sample_subcon_path):
+    """업체포맷: final_flag 없어도 job_allocations > 0."""
+    import openpyxl
+    from pipeline.agents.parser import _parse_sheet2_job_allocations
+
+    wb = openpyxl.load_workbook(sample_subcon_path, data_only=True)
+    jobs = _parse_sheet2_job_allocations(wb["2.직종별 인원현황"])
+    wb.close()
+    assert len(jobs) > 0  # 현재는 0 (col25=='O' 게이트)
+
+
+def test_parse_sheet1_subcon_bp_company_split(sample_subcon_path):
+    """업체포맷 시트1: BP코드와 회사명이 정확히 분리 (Task 2 다중패턴 효과)."""
+    wb = openpyxl.load_workbook(sample_subcon_path, data_only=True)
+    summaries = _parse_sheet1_bp_summaries(wb["1.출력인원 현황"])
+    wb.close()
+    assert len(summaries) == 1
+    s = summaries[0]
+    assert s["bp_code"] == "M15X_PH4_041"
+    assert "중원엔지니어링" in s["company"]  # 회사명이 company (코드 누출 X)
+
+
+# ---------------------------------------------------------------------------
+# 통합 E2E 골든 — baseline 실측 4건수 못박기
+# ---------------------------------------------------------------------------
+
+
+def test_integrated_e2e_golden_counts(sample_tong_path):
+    """통합포맷 회귀 골든 — baseline 실측 4건수 못박기."""
+    r = parse_daily_report(sample_tong_path)
+    assert len(r["activities"]) == 1193
+    assert len(r["bp_summaries"]) == 99
+    assert len(r["job_allocations"]) == 975
+    assert len(r["equipment_allocations"]) == 1111

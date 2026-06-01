@@ -6,10 +6,7 @@ Spec: docs/superpowers/specs/2026-05-15-cpia-parser-design.md +
 
 from __future__ import annotations
 
-import json
-import os
 import re
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -97,13 +94,17 @@ def _ffill(
     return out
 
 
-_BP_RE = re.compile(r"^PH[_\- ]?X[_\- ]?\d+$", re.IGNORECASE)
+_BP_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"^PH[_\- ]?X[_\- ]?\d+$", re.IGNORECASE),  # 통합: PH_X-088
+    re.compile(r"^[A-Za-z][A-Za-z0-9]*_PH\d+_\d+$", re.IGNORECASE),  # 업체: M15X_PH4_041
+)
 
 
 def _is_bp_code(v: object) -> bool:
     if v is None:
         return False
-    return bool(_BP_RE.match(str(v).strip()))
+    s = str(v).strip()
+    return any(p.match(s) for p in _BP_PATTERNS)
 
 
 def _safe_int(v: object) -> int:
@@ -264,6 +265,9 @@ def _parse_sheet2_job_allocations(ws) -> list[JobAllocation]:
       - 3 시간대 그룹 (yest_cum col 7, today_incr col 13, today_cum col 19)
       - cross-check (직종 cum.t 합 vs grand_total col 24) — 불일치 시 미사용 (silent)
     """
+    # 업체포맷 감지: col25 에 'O' 가 하나라도 있으면 통합포맷 (final_flag 게이트 유지)
+    has_final_flag = any(ws.cell(r, 25).value == "O" for r in range(6, ws.max_row + 1))
+
     # 1. group 시작 row 식별
     starts: list[int] = []
     for r in range(6, ws.max_row + 1):
@@ -273,9 +277,11 @@ def _parse_sheet2_job_allocations(ws) -> list[JobAllocation]:
         c2 = ws.cell(r, 2).value
         c3 = ws.cell(r, 3).value
         c25 = ws.cell(r, 25).value
-        if c25 != "O" or c2 is None or c3 is None:
+        if c2 is None or c3 is None:
             continue
-        if not _BP_RE.match(str(c3).strip()):
+        if has_final_flag and c25 != "O":
+            continue
+        if not _is_bp_code(c3):
             continue
         starts.append(r)
 
@@ -301,8 +307,9 @@ def _parse_sheet2_job_allocations(ws) -> list[JobAllocation]:
 
         for r in range(start, end + 1):
             c4 = ws.cell(r, 4).value
-            c25 = ws.cell(r, 25).value
-            if c4 is None or c25 != "O":
+            if c4 is None:
+                continue
+            if has_final_flag and ws.cell(r, 25).value != "O":
                 continue
             job_type = str(ws.cell(r, 6).value or "").strip()
             if not job_type:
@@ -343,85 +350,162 @@ def _safe_num(v: object) -> float | None:
         return None
 
 
+def _norm_header(v: object) -> str:
+    return re.sub(r"\s+", "", str(v)) if v is not None else ""
+
+
+def _resolve_sheet4_columns(ws, header_rows: tuple[int, int] = (3, 4)) -> dict[str, int]:
+    """시트4 헤더 텍스트 → {필드: 컬럼인덱스} 매핑. 통합/업체 자동 흡수.
+
+    헤더 2-row 스택(row3 주 라벨 + row4 [A][B][C][D]·F% 마커)을 함께 읽는다.
+    '업체명' 헤더가 있으면 통합포맷(company_col 별도), 없으면 업체포맷
+    (company 는 BP사 컬럼의 코드/회사명 교대행에서 추출).
+    """
+    cols: dict[str, int] = {}
+    for c in range(1, ws.max_column + 1):
+        h3 = _norm_header(ws.cell(header_rows[0], c).value)
+        h4 = _norm_header(ws.cell(header_rows[1], c).value)
+        h = h3 or h4
+        if not h:
+            continue
+        if h == "공종":
+            cols.setdefault("trade", c)
+        elif h == "BP사":
+            cols.setdefault("bp", c)
+        elif h == "업체명":
+            cols.setdefault("company_col", c)
+        elif h.lower().startswith("scope"):
+            cols.setdefault("scope", c)
+        elif "대표물량" in h or "작업내용" in h:
+            cols.setdefault("work_content", c)
+        elif h == "단위":
+            cols.setdefault("unit", c)
+        elif "총물량" in h:
+            cols.setdefault("plan_total", c)
+        elif "전일누적" in h:
+            cols.setdefault("yesterday_cum", c)
+        elif "금일실적" in h:  # today_qty = 실적[C], 누적[D] 아님
+            cols.setdefault("today_qty", c)
+        elif "금일누적" in h:
+            cols.setdefault("today_cum", c)
+        # F% 는 row4 전용 마커라 h3/h4 를 직접 재테스트한다. h = h3 or h4 는
+        # h3 가 비었을 때만 h4 를 살리므로, 이 elif 순서나 재테스트 방식을 바꾸면
+        # 통합포맷 progress(F%) 가 누락돼 act=1193 회귀가 깨진다.
+        elif "F%" in h3 or "F%" in h4:  # progress_percent — row4 위치 (회귀 필수)
+            cols.setdefault("progress", c)
+    required = ("trade", "bp", "work_content", "unit", "today_qty")
+    missing = [f for f in required if f not in cols]
+    if missing:
+        raise ParseError(f"시트4 헤더 매핑 실패: {missing}")
+    return cols
+
+
+def _build_activity(ws, r: int, cols: dict[str, int], trade, bp_code, company_raw) -> Activity:
+    """헤더 매핑(cols) 기준으로 단일 row → Activity dict 생성.
+
+    기존 _parse_sheet4_activities 의 Activity dict shape·default 를 그대로 재현하되
+    컬럼 위치만 cols 인덱스로 해석한다 (하드코딩 → 헤더 기반).
+    """
+    c7 = ws.cell(r, cols["scope"]).value if "scope" in cols else None  # Scope
+    c8 = ws.cell(r, cols["work_content"]).value  # work_content
+    c9 = ws.cell(r, cols["unit"]).value  # unit
+    c10 = _safe_num(ws.cell(r, cols["plan_total"]).value) if "plan_total" in cols else None
+    c11 = _safe_num(ws.cell(r, cols["yesterday_cum"]).value) if "yesterday_cum" in cols else None
+    c12 = _safe_num(ws.cell(r, cols["today_qty"]).value)  # today_qty
+    c13 = _safe_num(ws.cell(r, cols["today_cum"]).value) if "today_cum" in cols else None
+    c14 = _safe_num(ws.cell(r, cols["progress"]).value) if "progress" in cols else None  # F% (row4)
+
+    company = normalize_company(split_company_and_zone(company_raw))
+    zone = extract_zone(str(c7) if c7 is not None else None)
+
+    return {
+        "zone": zone,
+        "bp_code": bp_code,
+        "company": company or "",
+        "scope": str(c7) if c7 is not None else None,
+        "trade": trade or "",
+        "work_content": str(c8).strip(),
+        "unit": _normalize_unit(str(c9 or "").strip()),
+        "plan_total_qty": c10,
+        "yesterday_cum_qty": c11,
+        "today_qty": c12 if c12 is not None else 0.0,
+        "today_cum_qty": c13,
+        "progress_percent": c14,
+        "remaining_qty": None,
+        "remaining_percent": None,
+        "note": None,
+        "work_location_code": None,
+        "wbs_mid_name": None,
+        "wbs_sub_name": None,
+        "wbs_detail_name": None,
+        "wbs_activity_id": None,
+        "l5_disc": trade or "",
+        "l6_main": None,
+        "l7_sub": None,
+        "l7_5_activity": None,
+        "sub_work_area": None,
+        "conditions": [],
+        "assigned_workers": 0.0,
+        "worker_source": "parsed",
+        "plan_mh": None,
+        "wa": None,
+        "mapping_conf": None,
+        "mapping_source": None,
+        "requires_review": False,
+    }
+
+
 def _parse_sheet4_activities(ws) -> list[Activity]:
     """시트4 (물량) -> Activity[].
 
-    spec §2.5 (2026-05-20 refactor):
-      - ffill 4 컬럼 (col 3 zone_raw, col 4 trade, col 5 BP 코드, col 6 회사명)
-      - col 5 (BP) 채워있는 row = 새 회사 그룹 시작 (col 6 = 회사명)
-      - Activity row = col 8 (work_content) 채워있는 row 만
-      - zone = extract_zone(col 7 명시 토큰만, 옵션 2 — scope ≠ wa)
-      - B+C=D 산술 cross-check — mismatch 카운트만 (silent)
+    spec §2.5 (2026-05-20 refactor) + Task 3 (2026-06-01 헤더 기반):
+      - 컬럼 위치는 _resolve_sheet4_columns 로 헤더 텍스트에서 해석 (통합/업체 흡수)
+      - 통합포맷(company_col 존재): trade ffill + company 는 BP행에 종속
+      - 업체포맷(company_col 없음): BP 코드행~다음 코드행 group, company = group 내 첫 non-bp
+      - Activity row = work_content 채워있는 row 만
+      - zone = extract_zone(scope 명시 토큰만, 옵션 2 — scope ≠ wa)
     """
-    current_trade: str | None = None
-    current_bp_code: str | None = None
-    current_company_raw: str | None = None
-
+    cols = _resolve_sheet4_columns(ws)
+    has_company_col = "company_col" in cols
     activities: list[Activity] = []
-
-    for r in range(5, ws.max_row + 1):
-        c4 = ws.cell(r, 4).value
-        c5 = ws.cell(r, 5).value
-        c6 = ws.cell(r, 6).value
-
-        if c4 is not None:
-            current_trade = str(c4)
-        if c5 is not None:
-            current_bp_code = str(c5).strip()
-            current_company_raw = str(c6) if c6 is not None else None
-
-        c8 = ws.cell(r, 8).value
-        if c8 is None:
-            continue
-
-        c7 = ws.cell(r, 7).value  # Scope
-        c9 = ws.cell(r, 9).value  # unit
-        c10 = _safe_num(ws.cell(r, 10).value)  # plan_total
-        c11 = _safe_num(ws.cell(r, 11).value)  # yesterday_cum
-        c12 = _safe_num(ws.cell(r, 12).value)  # today_qty
-        c13 = _safe_num(ws.cell(r, 13).value)  # today_cum
-        c14 = _safe_num(ws.cell(r, 14).value)  # F%
-
-        company = normalize_company(split_company_and_zone(current_company_raw))
-        zone = extract_zone(str(c7) if c7 is not None else None)
-
-        activities.append(
-            {
-                "zone": zone,
-                "bp_code": current_bp_code,
-                "company": company or "",
-                "scope": str(c7) if c7 is not None else None,
-                "trade": current_trade or "",
-                "work_content": str(c8).strip(),
-                "unit": _normalize_unit(str(c9 or "").strip()),
-                "plan_total_qty": c10,
-                "yesterday_cum_qty": c11,
-                "today_qty": c12 if c12 is not None else 0.0,
-                "today_cum_qty": c13,
-                "progress_percent": c14,
-                "remaining_qty": None,
-                "remaining_percent": None,
-                "note": None,
-                "work_location_code": None,
-                "wbs_mid_name": None,
-                "wbs_sub_name": None,
-                "wbs_detail_name": None,
-                "wbs_activity_id": None,
-                "l5_disc": current_trade or "",
-                "l6_main": None,
-                "l7_sub": None,
-                "l7_5_activity": None,
-                "sub_work_area": None,
-                "conditions": [],
-                "assigned_workers": 0.0,
-                "worker_source": "parsed",
-                "plan_mh": None,
-                "wa": None,
-                "mapping_conf": None,
-                "mapping_source": None,
-                "requires_review": False,
-            }
-        )
+    if has_company_col:
+        # 통합포맷: trade ffill + company 는 BP행에 종속(독립 ffill 아님)
+        cur_trade = cur_bp = cur_company_raw = None
+        for r in range(5, ws.max_row + 1):
+            tv = ws.cell(r, cols["trade"]).value
+            if tv is not None:
+                cur_trade = str(tv)
+            bv = ws.cell(r, cols["bp"]).value
+            if bv is not None:
+                cur_bp = str(bv).strip()
+                cv = ws.cell(r, cols["company_col"]).value
+                cur_company_raw = str(cv) if cv is not None else None
+            wv = ws.cell(r, cols["work_content"]).value
+            if wv is None:
+                continue
+            activities.append(_build_activity(ws, r, cols, cur_trade, cur_bp, cur_company_raw))
+    else:
+        # 업체포맷: BP사 컬럼 코드행~다음코드행 group, 회사명=group 내 첫 non-bp 값
+        bpc = cols["bp"]
+        code_rows = [r for r in range(5, ws.max_row + 1) if _is_bp_code(ws.cell(r, bpc).value)]
+        for gi, start in enumerate(code_rows):
+            end = (code_rows[gi + 1] - 1) if gi + 1 < len(code_rows) else ws.max_row
+            bp_code = str(ws.cell(start, bpc).value).strip()
+            company_raw = None
+            for r in range(start, end + 1):
+                v = ws.cell(r, bpc).value
+                if v is not None and not _is_bp_code(v):
+                    company_raw = str(v)
+                    break
+            cur_trade = None
+            for r in range(5, start + 1):
+                tv = ws.cell(r, cols["trade"]).value
+                if tv is not None:
+                    cur_trade = str(tv)
+            for r in range(start, end + 1):
+                if ws.cell(r, cols["work_content"]).value is None:
+                    continue
+                activities.append(_build_activity(ws, r, cols, cur_trade, bp_code, company_raw))
     return activities
 
 
@@ -436,6 +520,9 @@ def _parse_sheet3_equipment_allocations(ws) -> list[EquipmentAllocation]:
       - 3 시간대 그룹 (yest_cum col 7, today_incr col 13, today_cum col 19)
       - subtotal 없음 → cross-check 불요
     """
+    # 업체포맷 감지: col25 에 'O' 가 하나라도 있으면 통합포맷 (final_flag 게이트 유지)
+    has_final_flag = any(ws.cell(r, 25).value == "O" for r in range(6, ws.max_row + 1))
+
     starts: list[int] = []
     for r in range(6, ws.max_row + 1):
         c2 = ws.cell(r, 2).value
@@ -443,7 +530,7 @@ def _parse_sheet3_equipment_allocations(ws) -> list[EquipmentAllocation]:
         c4 = ws.cell(r, 4).value
         if c2 is None or c3 is None or c4 is None:
             continue
-        if not _BP_RE.match(str(c3).strip()):
+        if not _is_bp_code(c3):
             continue
         # 헤더 reprint row 회피
         if "장비 투입" in str(c2):
@@ -469,11 +556,10 @@ def _parse_sheet3_equipment_allocations(ws) -> list[EquipmentAllocation]:
         company = normalize_company(split_company_and_zone(company_raw)) or ""
 
         for r in range(start, end + 1):
-            c25 = ws.cell(r, 25).value
-            if c25 != "O":
-                continue
             c4 = ws.cell(r, 4).value
             if c4 is None:
+                continue
+            if has_final_flag and ws.cell(r, 25).value != "O":
                 continue
             count_today_cum = _shift_dict_row(ws, r, 19)
             eqs.append(
@@ -500,7 +586,7 @@ def _parse_sheet3_equipment_allocations(ws) -> list[EquipmentAllocation]:
 # Task 6: 공개 API
 # ---------------------------------------------------------------------------
 
-_DATE_PATTERN = re.compile(r"_(\d{4})(\d{2})(\d{2})\.xlsx$|_(\d{6})\.xlsm?$")
+_DATE_PATTERN = re.compile(r"_(\d{4})(\d{2})(\d{2})\.(?:xlsx|xlsm)$|_(\d{6})\.(?:xlsx|xlsm)$")
 
 
 def _extract_meta(xlsx_path: Path, wb) -> tuple[str, str]:
@@ -529,7 +615,7 @@ def _extract_meta(xlsx_path: Path, wb) -> tuple[str, str]:
 
     if not project:
         stem = xlsx_path.stem
-        project = stem.replace("통합작업일보_", "").rsplit("_", 1)[0].strip()
+        project = stem.replace("통합작업일보_", "").replace("업체작업일보_", "").rsplit("_", 1)[0].strip()
         if not project:
             raise ParseError(f"project 추출 실패: {xlsx_path.name}")
 
@@ -563,11 +649,6 @@ def parse_daily_report(xlsx_path: Path | str) -> ParsedDailyReport:
         job_allocations = _parse_sheet2_job_allocations(wb["2.직종별 인원현황"])
         equipment_allocations = _parse_sheet3_equipment_allocations(wb["3.장비현황"])
         activities = _parse_sheet4_activities(wb["4.물량"])
-
-        # spec §2.6 — 시트1/4 LLM 검증 (default on, CPIA_PARSER_VERIFY_LLM=off 로 opt-out)
-        if _should_verify_llm():
-            _verify_sheet1_via_llm(wb["1.출력인원 현황"], bp_summaries)
-            _verify_sheet4_via_llm(wb["4.물량"], activities)
     finally:
         wb.close()
 
@@ -581,180 +662,3 @@ def parse_daily_report(xlsx_path: Path | str) -> ParsedDailyReport:
         "worker_outputs": [],
         "report_meta": None,
     }
-
-
-# ---------------------------------------------------------------------------
-# 2026-05-20 refactor: 시트1/4 LLM 검증 wrapper (spec §2.6)
-# ---------------------------------------------------------------------------
-
-
-def _should_verify_llm() -> bool:
-    """env CPIA_PARSER_VERIFY_LLM — default 'on', 'off'/'false'/'0'/'no' 면 opt-out."""
-    v = os.environ.get("CPIA_PARSER_VERIFY_LLM", "on").lower().strip()
-    return v not in ("off", "false", "0", "no")
-
-
-def _verify_sheet1_via_llm(ws, bp_summaries: list[BPSummary]) -> None:
-    """spec §2.6.1 — 시트1 rule 결과 LLM 검증. issues 는 stderr 로그만 (결정성 보존).
-
-    8 종 error path graceful catch (timeout 30s / length / content_filter /
-    JSONDecodeError / Exception broad / 빈 input / API key 없음).
-    """
-    if not bp_summaries:
-        return  # 빈 input
-    try:
-        from openai import AzureOpenAI
-
-        client = AzureOpenAI(
-            azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
-            api_key=os.environ["AZURE_OPENAI_API_KEY"],
-            api_version=os.environ["AZURE_OPENAI_API_VERSION"],
-        )
-        raw_rows = []
-        for r in range(5, ws.max_row + 1):
-            v5 = ws.cell(r, 5).value
-            if v5 is None:
-                continue
-            raw_rows.append(
-                {
-                    "r": r,
-                    "col5": v5,
-                    "col6": ws.cell(r, 6).value,
-                    "col7_prev": ws.cell(r, 7).value,
-                    "col8_today": ws.cell(r, 8).value,
-                    "col30_total": ws.cell(r, 30).value,
-                    "col37_cum": ws.cell(r, 37).value,
-                }
-            )
-        sys_prompt = (
-            "건설 작업일보 시트1 (출력인원) rule 추출 검증. "
-            "각 BPSummary 필드: bp_code (PH_X-NNN), company (정규화), zone (FAB/CUB/null), "
-            "work_text_today, today_cum_total. raw 와 명확히 어긋난 경우만 issues 에 보고. "
-            'JSON: {"issues": [{"row": N, "field": "...", "current": "...", '
-            '"expected": "...", "why": "..."}]}'
-        )
-        payload = {"rule_results": list(bp_summaries), "raw_rows": raw_rows}
-        resp = client.chat.completions.create(
-            model=os.environ["LLM_MODEL"],
-            messages=[
-                {"role": "system", "content": sys_prompt},
-                {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
-            ],
-            response_format={"type": "json_object"},
-            max_completion_tokens=2000,
-            timeout=30,
-        )
-        choice = resp.choices[0]
-        if choice.finish_reason in ("length", "content_filter"):
-            print(
-                f"[parser:sheet1] LLM verify finish_reason={choice.finish_reason} — issues=[]",
-                file=sys.stderr,
-                flush=True,
-            )
-            return
-        try:
-            verify = json.loads(choice.message.content or "{}")
-        except json.JSONDecodeError as e:
-            print(
-                f"[parser:sheet1] LLM verify malformed JSON: {e} — issues=[]",
-                file=sys.stderr,
-                flush=True,
-            )
-            return
-        for it in verify.get("issues", []):
-            print(
-                f"[parser:sheet1] LLM 검증 issue: row={it.get('row')} field={it.get('field')} "
-                f"current={it.get('current')} expected={it.get('expected')} reason={it.get('why')}",
-                file=sys.stderr,
-                flush=True,
-            )
-    except Exception as e:  # noqa: BLE001 — spec §2.6.4 broad catch (cycle block 방지)
-        print(
-            f"[parser:sheet1] LLM verify EXCEPTION: {type(e).__name__}: {e}",
-            file=sys.stderr,
-            flush=True,
-        )
-
-
-def _verify_sheet4_via_llm(ws, activities: list[Activity]) -> None:
-    """spec §2.6.1 — 시트4 sample LLM 검증. 8 종 error path graceful catch."""
-    if not activities:
-        return
-    try:
-        from openai import AzureOpenAI
-
-        client = AzureOpenAI(
-            azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
-            api_key=os.environ["AZURE_OPENAI_API_KEY"],
-            api_version=os.environ["AZURE_OPENAI_API_VERSION"],
-        )
-        # sample 선정 — 첫 10 + 의심 (zone None / plan None / work<=3) 각 5 + 끝 5
-        suspicious_zone = [a for a in activities if a.get("zone") is None][:5]
-        suspicious_no_plan = [a for a in activities if a.get("plan_total_qty") is None][:5]
-        suspicious_short = [a for a in activities if len(a.get("work_content", "")) <= 3][:5]
-        sample = (
-            list(activities[:10])
-            + suspicious_zone
-            + suspicious_no_plan
-            + suspicious_short
-            + list(activities[-5:])
-        )
-        seen: set = set()
-        sample_unique: list = []
-        for a in sample:
-            key = (a.get("bp_code"), a.get("work_content"))
-            if key in seen:
-                continue
-            seen.add(key)
-            sample_unique.append(a)
-
-        sys_prompt = (
-            "건설 작업일보 시트4 (물량) rule 추출 검증. "
-            "각 Activity 필드: company / bp_code / trade / zone (FAB/CUB/null) / "
-            "work_content / unit / plan_total_qty / today_cum_qty. "
-            "명확한 mis-parse 만 보고. "
-            'JSON: {"issues": [{"company": "...", "work_content": "...", "field": "...", '
-            '"current": "...", "expected": "...", "why": "..."}]}'
-        )
-        payload = {"rule_results_sample": sample_unique}
-        resp = client.chat.completions.create(
-            model=os.environ["LLM_MODEL"],
-            messages=[
-                {"role": "system", "content": sys_prompt},
-                {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
-            ],
-            response_format={"type": "json_object"},
-            max_completion_tokens=1500,
-            timeout=30,
-        )
-        choice = resp.choices[0]
-        if choice.finish_reason in ("length", "content_filter"):
-            print(
-                f"[parser:sheet4] LLM verify finish_reason={choice.finish_reason} — issues=[]",
-                file=sys.stderr,
-                flush=True,
-            )
-            return
-        try:
-            verify = json.loads(choice.message.content or "{}")
-        except json.JSONDecodeError as e:
-            print(
-                f"[parser:sheet4] LLM verify malformed JSON: {e} — issues=[]",
-                file=sys.stderr,
-                flush=True,
-            )
-            return
-        for it in verify.get("issues", []):
-            print(
-                f"[parser:sheet4] LLM 검증 issue: work={it.get('work_content')} "
-                f"field={it.get('field')} current={it.get('current')} "
-                f"expected={it.get('expected')} reason={it.get('why')}",
-                file=sys.stderr,
-                flush=True,
-            )
-    except Exception as e:  # noqa: BLE001
-        print(
-            f"[parser:sheet4] LLM verify EXCEPTION: {type(e).__name__}: {e}",
-            file=sys.stderr,
-            flush=True,
-        )

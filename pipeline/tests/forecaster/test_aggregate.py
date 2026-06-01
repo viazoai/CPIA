@@ -104,12 +104,11 @@ def test_aggregate_today_by_unit_same_unit_sum():
 
 
 def test_compute_delay_on_schedule_behind():
-    """A7: qty 기반 delay 산식 — 60% 진행 상태 → 잔여물량/페이스 → 양수 delay.
+    """A7: point-in-time delay (2026-05-29 reseed v2: deficit ÷ actual_rate).
 
-    plan 1/1 ~ 12/31 (365일), 오늘 9/15 (window=258일).
-    actual_cum_qty=60 (plan_total=100) → remaining=40, pace=60/258=0.2326,
-    rem_days=172 → expected=3/6, delay=(3/6-12/31).days=65 (양수, 지연).
-    mh_gap 는 reference 컬럼 (산식 검증 보조).
+    plan 1/1 ~ 12/31 (365일, plan_per_day=0.274), 오늘 9/15 (today_offset=257).
+    계획누적=0.274×257=70.4, 실적 60 → 부족 10.4. actual_rate=60/257=0.233.
+    delay = round(10.4 / 0.233) ≈ 45 (양수, 지연). mh_gap 는 reference 컬럼.
     """
     plan = {
         "plan_start": date(2025, 1, 1),
@@ -129,7 +128,9 @@ def test_compute_delay_on_schedule_behind():
     assert result["plan_mh_per_day"] == pytest.approx(10.0, abs=0.1)
     assert result["mh_gap"] == pytest.approx(180.0, abs=1.0)  # reference 컬럼 유지
     assert isinstance(result["delay_days"], int)
-    assert 50 <= result["delay_days"] <= 80, f"기댓값 ~65 (rem_days~172), got {result['delay_days']}"
+    assert 40 <= result["delay_days"] <= 50, (
+        f"기댓값 ~45 (부족 10.4 ÷ actual_rate 0.233), got {result['delay_days']}"
+    )
 
 
 def test_compute_delay_early_before_start():
@@ -180,7 +181,12 @@ def test_compute_delay_unknown_no_plan():
 
 
 def test_compute_delay_ahead():
-    """A7: actual_cum_qty=90 (90% 완료) → 잔여 10/페이스 0.349 → rem_days=29 → delay=-78 (앞당김)."""
+    """A7: 앞섬(90% 완료) → point-in-time 은 부족분 기반이라 deficit 0 → delay 0.
+
+    계획누적=0.274×257=70.4, 실적 90 → 부족 max(0, 70.4−90)=0 → delay 0.
+    (구 forward 모델은 -78 같은 음수 '앞당김' 을 냈으나, 잠긴 결정 §9 point-in-time
+     은 일정 충족/앞섬을 모두 0 으로 본다 — 음수 delay 없음.)
+    """
     plan = {
         "plan_start": date(2025, 1, 1),
         "plan_finish": date(2025, 12, 31),
@@ -195,9 +201,7 @@ def test_compute_delay_ahead():
         actual_cum_qty=90.0,
         plan_total_qty_main=100.0,
     )
-    assert -100 <= result["delay_days"] <= -5, (
-        f"기댓값 ~-78 (rem_days~29, pace~0.349), got {result['delay_days']}"
-    )
+    assert result["delay_days"] == 0, f"앞섬 → 부족 0 → delay 0 기대 (음수 없음), got {result['delay_days']}"
     assert result["mh_gap"] < 0  # reference 컬럼: mh 도 expected 초과
 
 
@@ -238,10 +242,10 @@ def test_fetch_chroma_actual_empty():
 
 
 def test_compute_delay_zero_total_days():
-    """A7: plan_start == plan_finish (1일 공정). qty 기반 산식 검증.
+    """A7: plan_start == plan_finish (1일 공정). today_offset=0 → point-in-time 0.
 
-    actual_cum_qty=5 (plan=10), window=1일 → pace=5, rem_days=1 → delay=+1일 (지연).
-    plan_mh_per_day 산식 (reference) 은 그대로 검증.
+    today=plan_start=9/25 → today_offset=(today-plan_start).days=0 → 경과일 0 →
+    부족 누적 전이라 delay 0 (point-in-time 정의). remaining_qty 는 그대로 5.
     """
     plan = {
         "plan_start": date(2025, 9, 25),
@@ -259,16 +263,17 @@ def test_compute_delay_zero_total_days():
     )
     # reference 컬럼
     assert result["plan_mh_per_day"] == pytest.approx(100.0)
-    # qty 산식: remaining=5, pace=5/1=5, rem_days=1 → delay=1
-    assert result["delay_days"] == 1
+    # point-in-time: today_offset=0(당일) → 부족 산출 전 → delay 0.
+    assert result["delay_days"] == 0
     assert result["remaining_qty"] == pytest.approx(5.0)
 
 
 def test_compute_delay_plan_mh_zero():
     """A7: plan_mh_sum=0 이어도 qty 산식 정상 작동. mh 는 reference only.
 
-    actual_cum_qty=40 (plan=100), window=152일 → pace=0.263, rem_days=228 → delay=+15일 (지연).
-    plan_mh_per_day=0 (mh_sum=0) 이어도 qty 기반 delay 는 None 이 아님.
+    plan 1/1~12/31(plan_per_day=0.274), today=6/1(today_offset=151).
+    계획누적=0.274×151=41.4, 실적 40 → 부족 1.4. actual_rate=40/151=0.265.
+    delay=round(1.4/0.265)≈5 (양수). plan_mh_per_day=0 이어도 delay None 아님.
     """
     plan = {
         "plan_start": date(2025, 1, 1),
@@ -286,7 +291,9 @@ def test_compute_delay_plan_mh_zero():
     )
     assert result["plan_mh_per_day"] == pytest.approx(0.0)  # mh reference
     assert isinstance(result["delay_days"], int)
-    assert 10 <= result["delay_days"] <= 25, f"기댓값 ~+15 (pace=0.263, rem~228), got {result['delay_days']}"
+    assert 3 <= result["delay_days"] <= 8, (
+        f"기댓값 ~5 (부족 1.4 ÷ actual_rate 0.265), got {result['delay_days']}"
+    )
 
 
 def test_compute_delay_no_qty_returns_none():

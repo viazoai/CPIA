@@ -88,10 +88,18 @@ def test_scenarios_basic():
 
     assert set(out["site"].keys()) == {"no_action", "optimistic_p25", "base_p50", "pessimistic_p75"}
     assert out["site"]["no_action"]["delta_days"] == 0
+    # recovery_days = 공기단축(일). optimistic = 최선 = 더 많이 단축 (_wp_block_deterministic
+    # 이 optimistic←p75, pessimistic←p25 로 교차 매핑). 따라서 optimistic >= base >= pessimistic.
     assert (
         out["site"]["optimistic_p25"]["recovery_days"]
-        <= out["site"]["base_p50"]["recovery_days"]
-        <= out["site"]["pessimistic_p75"]["recovery_days"]
+        >= out["site"]["base_p50"]["recovery_days"]
+        >= out["site"]["pessimistic_p75"]["recovery_days"]
+    )
+    # delta_days = -recovery_days → optimistic 이 가장 음수 (최선).
+    assert (
+        out["site"]["optimistic_p25"]["delta_days"]
+        <= out["site"]["base_p50"]["delta_days"]
+        <= out["site"]["pessimistic_p75"]["delta_days"]
     )
     assert out["site"]["base_p50"]["delta_days"] == -out["site"]["base_p50"]["recovery_days"]
 
@@ -147,4 +155,7 @@ def test_scenarios_forecast_mismatch_skipped():
     ]
     out = _build_scenarios(advice_rows, forecast)
     assert out["by_wp"] == {}
-    assert out["site"]["base_p50"]["recovery_days"] == 3
+    # 2026-05-29: site = Σ(by_wp recovery_days) (db3cb55). by_wp 빈(mismatch) → site 0.
+    # 이전엔 advice.recovery_distribution median(d+3=3) 을 site 로 썼으나, 사용자 의도
+    # "site = wp 합" 통일로 매칭된 wp 없으면 0.
+    assert out["site"]["base_p50"]["recovery_days"] == 0

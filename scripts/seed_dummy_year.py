@@ -32,17 +32,6 @@ from typing import Any, Optional
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from pipeline.agents.optimizer.view_builder import (  # noqa: E402
-    _build_contractor_bars,
-    _build_kpi,
-    _build_optimizer_view,
-    _build_productivity_views,
-    _build_quadrant,
-    _build_s_curve,
-    _build_scenarios,
-    _build_trade_bars,
-    _build_wp_summary,
-)
 from pipeline.agents.synthetic.distributions import (  # noqa: E402,F401
     P_NORM,
     PEAK_MULT,
@@ -51,7 +40,18 @@ from pipeline.agents.synthetic.distributions import (  # noqa: E402,F401
     f3_cum_ratio,
     f3_daily_ratio,
 )
+from pipeline.agents.synthetic.seed_distribution import (  # noqa: E402
+    bell_distribute,
+    conserve_actual,
+    cumulative,
+)
 from pipeline.db import PGClient  # noqa: E402
+from pipeline.agents.optimizer._trade_frames import lookup_frame  # noqa: E402
+from pipeline.agents.optimizer._work_content import (  # noqa: E402
+    DEGRADE_CUT,
+    factor_for,
+    work_content_for,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -117,8 +117,8 @@ TAG_TO_CONDS: dict[str, list[str]] = {
     "normal_steady": ["정상"],
 }
 
-# spec §7 — prod target 역산 상수
-PROD_TARGET = 90.0
+# spec §7 — 2026-05-29: PROD_TARGET(90 고정) 은 condition→prod factor 로 대체.
+# (condition 과 prod 가 독립 생성되던 문제 해소 — _work_content.CONDITION_PROD_FACTOR)
 OUTLIER_PROB = 0.05
 
 
@@ -131,11 +131,22 @@ def _noise(rng: random.Random, scale: float = 0.10) -> float:
     return 1.0 + (rng.random() * 2.0 - 1.0) * scale
 
 
+# 사용자 결정 (2026-05-29): condition 분포 정상 ~60% + 저하 ~40%.
+# 이전엔 7 tag 균등 (정상 14%, incident 86%) → 모든 wp 가 매일 incident 라 저하→회복
+# 패턴이 안 생기고 일부 wp 는 정상날이 없어 회복 trajectory 가 비었다.
+# 정상 비율을 높여 "대부분 정상 + 가끔 저하 → 회복" 실제 현장 패턴을 만든다.
+_NORMAL_WEIGHT = 0.60
+
+
 def _pick_diagnosis(date_str: str, wa: str, company: str, l6: str) -> dict[str, Any]:
-    idx = int(hashlib.md5(f"{date_str}|{wa}|{company}".encode()).hexdigest(), 16) % len(
-        DIAGNOSIS_PATTERNS
-    )
-    pat = DIAGNOSIS_PATTERNS[idx]
+    h = int(hashlib.md5(f"{date_str}|{wa}|{company}".encode()).hexdigest(), 16)
+    r = (h % 1_000_000) / 1_000_000.0  # 결정성 [0, 1)
+    if r < _NORMAL_WEIGHT:
+        pat = next(p for p in DIAGNOSIS_PATTERNS if p["tag"] == "normal_steady")
+    else:
+        incidents = [p for p in DIAGNOSIS_PATTERNS if p["tag"] != "normal_steady"]
+        idx = int((r - _NORMAL_WEIGHT) / (1.0 - _NORMAL_WEIGHT) * len(incidents))
+        pat = incidents[min(idx, len(incidents) - 1)]
     return {
         "tag": pat["tag"],
         "diagnosis": pat["text"].format(l6=l6, company=company),
@@ -222,8 +233,93 @@ def _chroma_should_seed(d: date, mode: str, start: date) -> bool:
 
 
 # ============================================================================
-# PHASE 1 — per-row mapper_activities builder (Case A / Case B)
+# PHASE 1 — per-row mapper_activities builder (reseed v2 — 정규분포 + 총합보존)
 # ============================================================================
+
+
+# 지각완료(stretch) 모델 (사용자 결정 2026-05-29 option2): 일부 활동의 actual 을
+# plan_finish 너머 effective_finish = plan_finish + ext 까지 늘려 분배. 전체 물량은
+# plan_total 그대로 다 소화(보존)하되 plan_finish 시점엔 미달 = 실 지연 갭. 정시 활동(ext=0)은
+# plan_finish 까지 ~85% 엔벨로프 후 보존. 결정성 hash 선정. 게이트 결과 보고 비율/연장 튜닝.
+DELAY_PROB = 0.55  # 활동 중 지각완료 비율 (게이트 결과 보고 튜닝)
+DELAY_EXT_MIN_DAYS = 90
+DELAY_EXT_MAX_DAYS = 240
+
+
+def _activity_delay_ext(wa: str, company: str, l6: str, l7_5: str) -> int:
+    """결정성 지각 연장일수 (0 = 정시). ~DELAY_PROB 활동만 ext>0."""
+    h = int(hashlib.md5(f"{wa}|{company}|{l6}|{l7_5}".encode()).hexdigest(), 16)
+    if (h % 100) >= int(DELAY_PROB * 100):
+        return 0
+    span = DELAY_EXT_MAX_DAYS - DELAY_EXT_MIN_DAYS + 1
+    return DELAY_EXT_MIN_DAYS + (h // 100) % span
+
+
+def _v2_activity_series(am_row: dict[str, Any]) -> dict[str, Any]:
+    """활동 전체 기간의 plan/actual/mh 일별 시계열 (결정성, am_row 캐시).
+
+    설계 §1 + 지각완료(stretch):
+      plan 일별 = bell_distribute(plan_total, total_days) (계획 기간, Σ=plan_total),
+      actual 일별 = conserve_actual(bell over eff_days, 조건factors) (Σ=plan_total 보존),
+        eff_days = total_days + ext (지각 활동은 ext>0 → 더 긴 기간에 분배 → plan_finish 미달),
+      mh 일별 = actual × (plan_mh/plan_total) ÷ factor (CPI=조건 생산성).
+    am_list dict 가 일자 루프에서 재사용되므로 활동당 1회만 계산.
+    """
+    cached = am_row.get("_v2series")
+    if cached is not None:
+        return cached
+    plan_start = am_row["plan_start"]
+    plan_finish = am_row["plan_finish"]
+    total_days = (plan_finish - plan_start).days + 1
+    plan_total = float(am_row.get("plan_total_qty") or 0)
+    plan_mh = float(am_row.get("plan_mh_rev2") or 0)
+    wa = am_row["wa"]
+    company = am_row["company"]
+    l6 = am_row["l6_main"]
+    l7_5 = am_row.get("l7_5_activity") or ""
+    frame = lookup_frame(l6)[0]
+
+    ext = _activity_delay_ext(wa, company, l6, l7_5)
+    eff_days = total_days + ext
+
+    # 조건 factor — actual 분배 전 기간(eff_days)
+    conds: list[tuple[str, dict[str, Any]]] = []
+    factors: list[float] = []
+    for i in range(eff_days):
+        dd = plan_start + timedelta(days=i)
+        diag = _pick_diagnosis(str(dd), wa, company, l6)
+        c = diag["conditions"][0] if diag["conditions"] else "정상"
+        conds.append((c, diag))
+        factors.append(factor_for(c, f"{dd}|{wa}|{company}|pf"))
+
+    plan_daily = bell_distribute(plan_total, total_days)  # 계획 기간 bell
+    actual_base = bell_distribute(
+        plan_total, eff_days
+    )  # actual 분배 기간 bell (지각=더 김)
+    actual_daily = conserve_actual(actual_base, factors)  # Σ=plan_total 보존
+    pmpq = (plan_mh / plan_total) if plan_total > 0 else 0.0
+    mh_daily = [
+        (aq * pmpq / f) if f > 0 else (aq * pmpq)
+        for aq, f in zip(actual_daily, factors)
+    ]
+    series: dict[str, Any] = {
+        "total_days": total_days,
+        "eff_days": eff_days,
+        "ext_days": ext,
+        "plan_total": plan_total,
+        "plan_mh": plan_mh,
+        "frame": frame,
+        "plan_daily": plan_daily,
+        "plan_cum": cumulative(plan_daily),
+        "actual_daily": actual_daily,
+        "mh_daily": mh_daily,
+        "cum_qty": cumulative(actual_daily),
+        "cum_mh": cumulative(mh_daily),
+        "factors": factors,
+        "conds": conds,
+    }
+    am_row["_v2series"] = series
+    return series
 
 
 def _build_mapper_row(
@@ -234,45 +330,33 @@ def _build_mapper_row(
     ],  # 인터페이스 보존 (호출자 영향 X), 내부 사용 X
     rng: random.Random,
 ) -> Optional[dict[str, Any]]:
-    """activity_master row → 일자별 mapper_activities row.
+    """activity_master row → 일자별 mapper_activities row (reseed v2).
 
-    spec §10: 모든 일자 동일 F3 + prod target 역산 logic. Case A 분기 제거.
-    spec §13.4: 보존 항목 (mapping_conf, parser pass-through) + 교체 항목 (분포·prod·trade·conditions·l7.5).
+    설계: 2026-05-29-cpia-reseed-v2-per-unit-seeding-design.md §1.
+    plan 일별=정규분포(bell), actual=plan×조건factor + 활동별 총합보존(막바지 보정),
+    today_cum_qty=Σ(일별 actual) (구 'plan_total×cum_frac' 계획곡선 추종 버그 제거).
+    rng: 인터페이스 보존 (v2 는 _v2_activity_series 결정성 — 미사용).
     """
     plan_start = am_row["plan_start"]
-    plan_finish = am_row["plan_finish"]
-    if d < plan_start or d > plan_finish:
+    series = _v2_activity_series(am_row)
+    idx = (d - plan_start).days
+    # 지각 활동은 effective_finish(=plan_start+eff_days-1) 까지 row 생성 (plan_finish 너머).
+    if idx < 0 or idx >= series["eff_days"]:
         return None
 
-    total_days = (plan_finish - plan_start).days + 1
-    days_elapsed = (d - plan_start).days + 1
-    progress = days_elapsed / total_days
+    total_days = series["total_days"]
+    plan_total = series["plan_total"]
+    plan_mh = series["plan_mh"]
 
-    plan_total = float(am_row.get("plan_total_qty") or 0)
-    plan_mh = float(am_row.get("plan_mh_rev2") or 0)
+    today_qty = series["actual_daily"][idx]
+    today_cum_qty = series["cum_qty"][idx]
+    cum_actual_mh = series["cum_mh"][idx]
+    factor = series["factors"][idx]
+    cond, diag = series["conds"][idx]
 
-    # F3 분포
-    ratio_today = f3_daily_ratio(progress)
-    cum_frac = f3_cum_ratio(progress)
-
-    # prod target 역산 (spec §7)
-    # _pick_diagnosis 는 내부에서 hashlib 기반 결정성 선택 — rng 사용 안 함
-    diag = _pick_diagnosis(str(d), am_row["wa"], am_row["company"], am_row["l6_main"])
-    is_outlier = rng.random() < OUTLIER_PROB
-    if is_outlier:
-        actual_prod_pct = rng.choice([50.0, 150.0])
-    else:
-        actual_prod_pct = PROD_TARGET * (1.0 + (rng.random() * 2 - 1) * 0.10)
-
-    today_qty = (
-        plan_total / total_days * ratio_today * (1.0 + (rng.random() * 2 - 1) * 0.10)
-    )
-    today_cum_qty = plan_total * cum_frac
-    cum_actual_mh = plan_mh * progress * actual_prod_pct / 100.0
-    plan_mh_per_day = plan_mh / total_days if total_days > 0 else 0
-    today_assigned_workers = max(
-        1.0, plan_mh_per_day / 8.0 * (1.0 + (rng.random() * 2 - 1) * 0.10)
-    )
+    # plan-relative 진척 (지각 구간 idx>=total_days 면 >1 = post_due)
+    progress = (idx + 1) / total_days
+    today_assigned_workers = max(1.0, series["mh_daily"][idx] / 8.0)
     cum_workers_today = cum_actual_mh / 8.0
 
     return {
@@ -298,7 +382,13 @@ def _build_mapper_row(
         "plan_mh": plan_mh,
         "conditions": diag["conditions"],  # spec §5 — TAG_TO_CONDS[tag]
         "alternatives": [],
-        "work_content": f"{am_row['l6_main']} 진행",
+        # work_content: 저하일(factor<DEGRADE_CUT)=저하 narrative, 회복/정상일=회복 narrative.
+        # retrieve 가 저하일 + D+1 회복일 work_content 를 가져와 similar_cases 저하/회복 분리.
+        "work_content": work_content_for(
+            series["frame"],
+            cond,
+            "저하" if factor < DEGRADE_CUT else "회복",
+        ),
         "zone": "",
         "scope": "",
         "yesterday_cum_qty": today_cum_qty - today_qty
@@ -312,144 +402,6 @@ def _build_mapper_row(
         "wbs_mid_name": "",
         "wbs_sub_name": "",
         "wbs_detail_name": "",
-        # diag 추가 정보 (호출자가 _build_optimizer_advice 에서 재사용)
-        "_diag_tag": diag["tag"],
-    }
-
-
-def _classify_assessment(progress_ratio: float, day_ratio: float) -> str:
-    """gap = progress - day_ratio 기반 결정성 분류."""
-    gap = progress_ratio - day_ratio
-    if gap >= -0.03:
-        return "정상"
-    if gap >= -0.07:
-        return "주의"
-    return "이상"
-
-
-def _build_forecast_row(
-    d: date,
-    run_id: uuid.UUID,
-    group: tuple[str, str, str],
-    activities: list[dict[str, Any]],
-    am_rows: list[dict[str, Any]],
-) -> dict[str, Any]:
-    """(wa, company, l6) group 별 forecasts row dict."""
-    wa, company, l6 = group
-    today_qty_sum = sum(a["today_qty"] for a in activities)
-    today_workers_sum = sum(a["assigned_workers"] for a in activities)
-    cum_actual_qty = sum(a["today_cum_qty"] for a in activities)
-    cum_actual_mh = sum(a["cum_actual_mh_today"] for a in activities)
-    plan_qty = sum(a["plan_total_qty"] for a in activities)
-    plan_mh = sum(a["plan_mh"] for a in activities)
-    unit = activities[0]["unit"]
-
-    # plan_start / plan_finish: am_rows 의 그 group min/max
-    am_grp = [
-        r
-        for r in am_rows
-        if r["wa"] == wa and r["company"] == company and r["l6_main"] == l6
-    ]
-    plan_start = min((r["plan_start"] for r in am_grp), default=d)
-    plan_finish = max((r["plan_finish"] for r in am_grp), default=d)
-    total_days = (plan_finish - plan_start).days + 1
-    days_elapsed = max(0, (d - plan_start).days + 1)
-    progress_ratio = cum_actual_qty / plan_qty if plan_qty > 0 else 0
-    day_ratio = days_elapsed / total_days if total_days > 0 else 0
-    assessment = _classify_assessment(progress_ratio, day_ratio)
-
-    plan_mh_per_day = plan_mh / total_days if total_days > 0 else 0
-    expected_mh = plan_mh_per_day * days_elapsed
-    # Fix 3: delay_days clamp ±30 (cum_actual_mh cap 의 안전 마진)
-    delay_days = (
-        round(max(-30, min(30, (expected_mh - cum_actual_mh) / plan_mh_per_day)))
-        if plan_mh_per_day > 0
-        else 0
-    )
-    # productivity clamp 0~150 (Fix 2 후 자연스럽지만 안전망)
-    raw_prod = (cum_actual_mh / expected_mh * 100) if expected_mh > 0 else 100.0
-    today_productivity = max(0.0, min(150.0, raw_prod))
-
-    # spec §13.5 — activities 의 conditions list 들의 union (sorted)
-    conditions_set = sorted(
-        {c for a in activities for c in (a.get("conditions") or [])}
-    )
-
-    return {
-        "run_id": run_id,
-        "company": company,
-        "l6_main": l6,
-        "wa": wa,
-        "today_qty_by_unit": {unit: today_qty_sum},
-        "today_assigned_workers": today_workers_sum,
-        "today_productivity": today_productivity,
-        "plan_total_qty_by_unit": {unit: plan_qty},
-        "plan_mh_sum": plan_mh,
-        "plan_start": plan_start,
-        "plan_finish": plan_finish,
-        "plan_mh_per_day": plan_mh_per_day,
-        "schedule_state": "on_schedule" if delay_days <= 1 else "post_due",
-        "window_start": d - timedelta(days=7),
-        "window_days": 7,
-        "expected_in_window_mh": plan_mh_per_day * 7,
-        "actual_in_window_mh": cum_actual_mh * (7 / max(days_elapsed, 1)),
-        "mh_gap": (plan_mh_per_day * 7) - (cum_actual_mh * (7 / max(days_elapsed, 1))),
-        "delay_days": delay_days,
-        "rag_n_similar": 0,
-        "similar_cases": [],
-        "assessment": assessment,
-        "reasoning": "",
-        "recovery_likelihood": None,
-        "expected_completion": plan_finish,
-        "risk_level": assessment,
-        "main_unit": unit,
-        "today_conditions": ",".join(conditions_set) if conditions_set else "",
-    }
-
-
-def _build_optimizer_advice(
-    d: date,
-    run_id: uuid.UUID,
-    forecast_row: dict[str, Any],
-) -> dict[str, Any]:
-    """risky 그룹 → fixture diagnosis. degradation_cases 결정성 2건."""
-    wa = forecast_row["wa"]
-    company = forecast_row["company"]
-    l6 = forecast_row["l6_main"]
-    date_str = d.isoformat()
-    pat = _pick_diagnosis(date_str, wa, company, l6)
-    # degradation_cases 결정성 2 건
-    cases = [
-        {
-            "date": (d - timedelta(days=180)).isoformat(),
-            "activities": [f"{l6} 작업"],
-            "conditions": ",".join(
-                pat["conditions"]
-            ),  # spec §13.7 — list → comma-joined str
-            "productivity": 78.0,
-            "recovery": {"recovery_days": 3},
-        },
-        {
-            "date": (d - timedelta(days=90)).isoformat(),
-            "activities": [f"{l6} 작업"],
-            "conditions": ",".join(pat["conditions"]),  # spec §13.7
-            "productivity": 82.0,
-            "recovery": {"recovery_days": 2},
-        },
-    ]
-    return {
-        "run_id": run_id,
-        "company": company,
-        "l6_main": l6,
-        "forecast_assessment": forecast_row["assessment"],
-        "diagnosis": pat["diagnosis"],
-        "degradation_cases": cases,
-        "recovery_pattern": [
-            {"date": c["date"], "recovery_days": c["recovery"]["recovery_days"]}
-            for c in cases
-        ],
-        "recovery_distribution": {"d+2": 1, "d+3": 1},
-        "recommendations": pat["recommendations"],
     }
 
 
@@ -502,6 +454,8 @@ async def chroma_upsert_day(
             "worker_source": valid[i]["worker_source"],
             "mapping_conf": float(valid[i]["mapping_conf"] or 0.0),
             "conditions": ",".join(valid[i].get("conditions") or []),  # spec §13.6
+            "work_content": valid[i].get("work_content")
+            or "",  # 2026-05-29 저하/회복 narrative
         }
         for i in seen.values()
     ]
@@ -538,15 +492,28 @@ async def chroma_upsert_day(
 
 
 async def cleanup_dummy(pg: PGClient, start: date, end: date) -> int:
-    """기존 dummy_seed row 삭제 — date range 내."""
+    """기존 dummy_seed row 삭제 — date range 내.
+
+    2026-05-29: consolidated_reports FK 선삭제 추가. pipeline_runs 삭제 시
+    consolidated_reports_run_id_fkey 위반을 막는다 (재seed 반복 시 발생하던 FK 에러).
+    """
     async with pg._pool.acquire() as con:
-        result = await con.execute(
-            """
-            DELETE FROM pipeline_runs WHERE site_id=$1 AND report_date BETWEEN $2 AND $3
-            AND run_id IN (
+        target_runs_sql = """
+            SELECT pr.run_id FROM pipeline_runs pr
+            WHERE pr.site_id=$1 AND pr.report_date BETWEEN $2 AND $3
+            AND pr.run_id IN (
                 SELECT DISTINCT run_id FROM mapper_activities WHERE mapping_source='dummy_seed'
             )
-            """,
+        """
+        # FK 자식 테이블 선삭제 (run_id 참조).
+        await con.execute(
+            f"DELETE FROM consolidated_reports WHERE run_id IN ({target_runs_sql})",
+            SITE_ID,
+            start,
+            end,
+        )
+        result = await con.execute(
+            f"DELETE FROM pipeline_runs pr WHERE pr.run_id IN ({target_runs_sql})",
             SITE_ID,
             start,
             end,
@@ -671,89 +638,15 @@ async def seed_day(
     ]
     await pg.insert_mapped_history_batch(run_id, d, SITE_ID, mh_rows)
 
-    # 7. forecasts — group by (wa, company, l6)
-    groups: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
-    for r in mapper_rows:
-        groups.setdefault((r["wa"], r["company"], r["l6_main"]), []).append(r)
-    forecast_rows: list[dict[str, Any]] = []
-    for key, group_rows in groups.items():
-        fc = _build_forecast_row(d, run_id, key, group_rows, am_list)
-        await pg.insert_forecast(fc)
-        forecast_rows.append(fc)
-
-    # 8. optimizer_advice — risky 만 (assessment ∈ {이상, 주의}) 중 ~30% sampling = 전체 ~5%
-    advice_rows: list[dict[str, Any]] = []
-    for fc in forecast_rows:
-        if fc["assessment"] not in ("이상", "주의"):
-            continue
-        # sampling: 결정성 hash 기준 ~30%
-        h = int(
-            hashlib.md5(
-                f"{d.isoformat()}|{fc['wa']}|{fc['company']}|{fc['l6_main']}".encode()
-            ).hexdigest(),
-            16,
-        )
-        if (h % 100) >= 30:
-            continue
-        adv = _build_optimizer_advice(d, run_id, fc)
-        await pg.insert_optimizer_advice(adv)
-        advice_rows.append(adv)
-
-    # 9. daily_reports row (report_md fixture)
-    history_csv = {
-        "date": d.isoformat(),
-        "site_id": SITE_ID,
-        "activities": n_active,
-        "forecasts": len(forecast_rows),
-        "risky": len(advice_rows),
-    }
-    report_md = f"# {PROJECT} 일일 보고서 ({d.isoformat()})\n\n- 활성 활동: {n_active}\n- 진단 그룹: {len(forecast_rows)}\n- 리스크 advice: {len(advice_rows)}\n"
-    await pg.insert_daily_report(
-        run_id, d, report_md, history_csv, bp_name="", site_id=SITE_ID
-    )
-
-    # 10. view_builder 9 jsonb upsert
-    productivity = await _build_productivity_views(
-        pg, run_id, SITE_ID, d, forecast_rows, []
-    )
-    quadrant = await _build_quadrant(pg, SITE_ID, d, productivity)
-    wa_rows = await pg._pool.fetch(
-        """
-        SELECT l6_main, company, array_agg(DISTINCT wa) FILTER (WHERE wa IS NOT NULL) AS wa_list
-        FROM mapper_activities WHERE run_id = $1 GROUP BY l6_main, company
-        """,
-        run_id,
-    )
-    wa_lookup = {
-        (r["l6_main"], r["company"]): list(r["wa_list"] or []) for r in wa_rows
-    }
-
-    view_jsonbs = {
-        "productivity_jsonb": productivity,
-        "kpi_jsonb": await _build_kpi(pg, SITE_ID, d, productivity),
-        "contractor_bars_jsonb": _build_contractor_bars(productivity),
-        "trade_bars_jsonb": _build_trade_bars(productivity),
-        "quadrant_jsonb": quadrant,
-        "wp_summary_jsonb": await _build_wp_summary(
-            pg, SITE_ID, d, productivity, quadrant
-        ),
-        "s_curve_jsonb": await _build_s_curve(pg, SITE_ID, d),
-        "optimizer_view_jsonb": _build_optimizer_view(
-            advice_rows, forecast_rows, [], wa_lookup=wa_lookup
-        ),
-        "scenarios_jsonb": _build_scenarios(advice_rows, forecast_rows),
-    }
-    for col, val in view_jsonbs.items():
-        await pg.upsert_daily_report_view_col(run_id, SITE_ID, d, col, val)
-
+    # 2026-05-29 reseed-v2 (Task 6.3): seed 는 INPUT (mapper_activities) 전용.
+    # forecaster/optimizer/reporter 산출은 실 prod graph (build_demo_graph) 가
+    # 생성한다 — fixture INSERT 금지 (prod-graph-only). 구 step 7~10 (forecasts /
+    # optimizer_advice / daily_reports / view jsonb) 제거.
     counts: dict[str, int] = {
         "pipeline_runs": 1,
         "parser_activities": n_active,
         "mapper_activities": n_active,
         "mapped_history": n_active,
-        "forecasts": len(forecast_rows),
-        "optimizer_advice": len(advice_rows),
-        "daily_reports": 1,
     }
 
     # Chroma sample 일자 (PG INSERT 후, 같은 mapper_rows 사용)

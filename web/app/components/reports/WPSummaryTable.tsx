@@ -20,17 +20,8 @@ export const STATUS_LABEL = {
   risk:    "이상",
 } as const;
 
-/**
- * WP 단위 공기 단축 추정 — baseline 까지 회복했을 때 전체 공기에 주는 영향.
- *   days = max(0, round((baseline − productivity)/100 × impact × scale))
- * scale 은 시연 합산이 적절한 폭(약 10~15일)이 되도록 조정한 PoC 상수.
- * A_Track 의 Optimizer 가 산출하는 실 회복일 수로 대체 예정.
- */
-export function recoveryDays(productivity: number, baseline: number, impact: number): number {
-  const gap = baseline - productivity;
-  if (gap <= 0) return 0;
-  return Math.max(0, Math.round((gap / 100) * impact * 0.3));
-}
+// 2026-05-29: 결정론 recoveryDays() 폐기 — BE wp_summary.recovery_days (scenarios.by_wp
+// base_p50) 단일 source 로 대체. site = Σ(wp recovery_days) 정합 보장.
 
 export function WPSummaryTable({ rows, selectedWpId, onSelect }: Props) {
   return (
@@ -83,7 +74,9 @@ export function WPSummaryTable({ rows, selectedWpId, onSelect }: Props) {
                   </td>
                   <td className="px-3 py-1 text-[12px] tabular-nums">
                     {(() => {
-                      const days = recoveryDays(row.productivity, row.baseline, row.impact);
+                      // 2026-05-29: BE 단일 source (wp_summary.recovery_days = scenarios.by_wp).
+                      // FE 결정론 recoveryDays() 폐기 — site = Σ(wp recovery_days) 정합.
+                      const days = row.recovery_days ?? 0;
                       return days > 0
                         ? <span className="font-semibold text-mint-text">-{days}일</span>
                         : <span className="text-ink-light">—</span>;

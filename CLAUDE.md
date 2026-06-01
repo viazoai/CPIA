@@ -239,18 +239,18 @@ docker-compose up -d
 
 ### 컨테이너 빌드 & 재시작 규칙
 
-**코드 변경 후 배포 순서 (반드시 이 순서):**
+**코드 변경 후 배포 (레포 루트에서 `make` 사용):**
 
 ```bash
-# 1. 이미지 빌드 — 레포 루트에서 실행
-docker build -t cpia/web:latest -f web/Dockerfile .
-
-# 2. 컨테이너 재시작
-cd infra
-docker-compose up -d web
+make build            # web 이미지 빌드(캐시 사용) → up -d --force-recreate
+make build-pipeline   # pipeline 이미지 빌드(캐시 사용) → up -d --force-recreate
 ```
 
-> **주의:** `docker-compose restart web` 은 이미지를 갱신하지 않는다. 반드시 `docker build` 먼저 실행 후 `up -d` 로 교체할 것.
+`make build` 는 `docker compose build` + `up -d --force-recreate` 를 묶은 것이다. **캐시를 사용**하므로 변경된 레이어만 다시 빌드되어 빠르고, 빌드 캐시가 무한정 쌓이지 않는다. 소스(`web/`)가 바뀌면 `COPY` 레이어 해시가 바뀌어 변경분은 정상 반영된다.
+
+> **`--no-cache` 는 기본이 아니다.** 과거 `make build` 가 `--no-cache` 로 박혀 있어 빌드마다 `COPY web/`(~800MB)+`npm ci`(~840MB) 레이어를 통째로 새로 쌓아 빌드 캐시가 30GB+ 누적되는 문제가 있었다(2026-06-01 수정). 캐시 꼬임이 의심될 때만 `make rebuild` / `make rebuild-pipeline`(no-cache) 를 가끔 쓴다.
+
+> **주의:** `docker-compose restart web` 은 이미지를 갱신하지 않는다. 반드시 `build`(=`make build`) 후 `up -d --force-recreate` 로 교체할 것.
 > DB·Chroma 등 외부 이미지 서비스는 `docker-compose restart <서비스명>` 으로 재시작해도 된다 (이미지 변경 없음).
 
 ### Python 파이프라인 로컬 실행
@@ -275,27 +275,22 @@ npm run dev  # http://localhost:3000
 
 | 용도 | 실행 위치 | 명령 | 포트 | 코드 반영 |
 |------|-----------|------|------|-----------|
-| **시연 / homelab (프로덕션)** | `infra/` | `docker compose build web && docker compose up -d --force-recreate web` | `5535` | **수동 재빌드 필요** (Next.js standalone, NODE_ENV=production) |
+| **시연 / homelab (프로덕션)** | 레포 루트 | `make build` (캐시 사용) | `5535` | **수동 재빌드 필요** (Next.js standalone, NODE_ENV=production) |
 | **개발 (HMR)** | `web/` | `npm run dev` | `5536` (혹은 `3000`) | 워킹트리 자동 reload |
 | **빌드 검증** | `web/` | `npm run build` | — | 타입·빌드 통과 여부 확인용 (서빙 안 함) |
 
 **시연 화면 (5535) 업데이트 절차** — 코드 머지·pull 직후 또는 이전 image 가 옛 코드로 보일 때:
 
 ```bash
-# 1. 호스트 build 캐시 제거 (필수는 아니지만 안전)
-cd web && rm -rf .next
+# 1. 캐시 사용 빌드 + 재기동 (레포 루트에서)
+make build
 
-# 2. Compose 로 cpia-web image 를 --no-cache 로 재빌드 (~1~2분)
-cd ../infra
-docker compose build --no-cache web
-
-# 3. 컨테이너 재기동 (image 가 갱신됐으니 force-recreate)
-docker compose up -d --force-recreate web
-
-# 4. 확인
+# 2. 확인
 docker logs cpia-web --tail 10   # "✓ Ready in ..." 확인
 docker ps --filter "name=cpia-web"
 ```
+
+> 화면이 여전히 옛 코드면(드묾) 캐시 꼬임 의심 → `make rebuild`(no-cache) 1회. 그래도 안 되면 `rm -rf web/.next` 후 다시.
 
 **왜 자동이 아닌가**: `cpia-web` 은 `web/Dockerfile` 의 멀티스테이지 standalone 빌드를 사용합니다. `docker compose up -d web` 만 실행해도 image 가 이미 존재하면 재빌드되지 않습니다 (Compose 의 일반 동작). 새 코드는 **명시적 `build` 명령**이 있어야 image 에 반영됩니다.
 
@@ -363,11 +358,12 @@ docs/sample/WBS공정표_M15X IBL PH-3_CPRS_2025.09.25.xlsx
 
 > 코드 변경/추가 작업 시작 전 `deep-dive/design-intent/INDEX.md` 의 T1 인덱스에서 관련 함수 검색. 매칭 시 해당 T2 카드 확인 후 기존 핸들러 확장 우선 검토.
 
-> **배포 규칙:** `web/` 코드 변경 시 `docker build` → `docker-compose up -d web` 순서로 배포. `docker-compose restart` 단독 사용 금지 (이미지 미갱신).
+> **배포 규칙:** `web/` 코드 변경 시 레포 루트에서 `make build`(캐시 사용 빌드 + `up -d --force-recreate`). `docker-compose restart` 단독 사용 금지 (이미지 미갱신). `--no-cache` 는 기본 아님 — 캐시 꼬임 의심 시에만 `make rebuild`.
 
 ---
 
-*최종 수정: 2026-05-20 — 컨테이너 빌드 & 재시작 규칙 추가 (`docker build` → `docker-compose up -d` 순서 명시). Web 빌드 경로 명시: `cpia-web` (port 5535, Compose) 는 `docker compose build --no-cache web && docker compose up -d --force-recreate web` 로 수동 재빌드 필요, `npm run dev` (port 5536) 는 HMR 자동 반영. 시연 직전 Compose 재빌드 1회 권장.*
+*최종 수정: 2026-06-01 — 빌드 캐시 정책 변경: `make build`/`make build-pipeline` 에서 `--no-cache` 제거(캐시 사용 기본). no-cache 전체 재빌드는 `make rebuild`/`make rebuild-pipeline` 로 분리. 기존 `--no-cache` 디폴트가 빌드마다 ~1.6GB 레이어를 새로 쌓아 빌드 캐시 30GB+ 누적 → `docker builder prune` 으로 ~33GB 회수. CLAUDE.md 빌드 절차를 `make build`(캐시) 기준으로 정리.*
+*이전 수정: 2026-05-20 — 컨테이너 빌드 & 재시작 규칙 추가 (`docker build` → `docker-compose up -d` 순서 명시). Web 빌드 경로 명시: `cpia-web` (port 5535, Compose) 는 `docker compose build --no-cache web && docker compose up -d --force-recreate web` 로 수동 재빌드 필요, `npm run dev` (port 5536) 는 HMR 자동 반영. 시연 직전 Compose 재빌드 1회 권장.*
 *이전 수정: 2026-05-18 — Agent rename: Reporter → Exporter (한글 "보고" → "출력"). 기능 재정의: "업체별 작업일보 → 통합 작업일보 출력". 이번 변경은 B_Track (web/, data/mock, CLAUDE.md) 만 반영, pipeline/agents/reporter.py 등 A_Track 파일 rename 은 후속 PR 로 분리.*
 *이전 수정: 2026-05-17 — design-intent + deep-dive 산출물 추가 (`deep-dive/design-intent/INDEX.md` + 서브시스템 카드 7종, `deep-dive/architecture_overview.md`)*
 *이전 수정: 2026-05-16 — A_Track 매핑 레이어 plan 반영 (Azure OpenAI gpt-5.1 + text-embedding-3-small 전환, ChromaDB `wbs_master`+`daily_activities` 두 컬렉션, PG `activity_master` 추가, A 는 로컬 Docker 로 PoC 진행 중 — homelab 은 대기·마이그레이션 예정)*

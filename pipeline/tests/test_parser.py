@@ -660,3 +660,19 @@ def test_is_bp_code_multiformat():
     assert _is_bp_code("㈜해광FAB") is False
     assert _is_bp_code(None) is False
     assert _is_bp_code("123_PH4_041") is False  # 순수 숫자 prefix 는 BP코드 아님
+
+
+# ---------------------------------------------------------------------------
+# Task 4: 업체 포맷 시트1 BP코드/회사명 분리 가드 (다중패턴 효과 검증)
+# ---------------------------------------------------------------------------
+
+
+def test_parse_sheet1_subcon_bp_company_split(sample_subcon_path):
+    """업체포맷 시트1: BP코드와 회사명이 정확히 분리 (Task 2 다중패턴 효과)."""
+    wb = openpyxl.load_workbook(sample_subcon_path, data_only=True)
+    summaries = _parse_sheet1_bp_summaries(wb["1.출력인원 현황"])
+    wb.close()
+    assert len(summaries) == 1
+    s = summaries[0]
+    assert s["bp_code"] == "M15X_PH4_041"
+    assert "중원엔지니어링" in s["company"]  # 회사명이 company (코드 누출 X)

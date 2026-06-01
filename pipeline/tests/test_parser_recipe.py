@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import openpyxl
+from openpyxl import load_workbook
 from pipeline.agents.parser import parse_daily_report
 from pipeline.agents.recipe.bpcode import is_bp_code_v2, looks_like_code_no_korean
 from pipeline.agents.recipe.extract import (
@@ -228,3 +229,87 @@ def test_recipe_cache_roundtrip(tmp_path, monkeypatch):
     assert loaded.sheets["activity"].columns == r.sheets["activity"].columns
     assert loaded.sheets["job"].header_rows == r.sheets["job"].header_rows  # tuple 복원
     assert isinstance(loaded.sheets["job"].header_rows, tuple)
+
+
+class _MockLLM:
+    def __init__(self, payload):
+        self.payload = payload
+        self.calls = 0
+
+    def complete(self, prompt: str) -> str:
+        self.calls += 1
+        return self.payload
+
+
+def _make_activity_gap_wb(tmp_path):
+    # 업체 파일의 activity 시트 work_content 헤더를 미인식 문자열로 바꿔 Tier1 gap 유발
+    wb = load_workbook(BP)
+    # recognize 로 activity 시트명/헤더행/work_content 컬럼을 실측해 그 헤더 셀을 깨뜨림
+    probe = openpyxl.load_workbook(BP, data_only=True)
+    r0 = recognize_format(probe, use_cache=False)
+    a = r0.sheets["activity"]
+    wc_col = a.columns["work_content"]
+    ws = wb[a.sheet_name]
+    # 헤더행(3,4) 중 work_content 헤더가 있는 행을 gibberish 로 치환
+    for hr in a.header_rows:
+        ws.cell(hr, wc_col).value = "ZZZUNKNOWN"
+    probe.close()
+    out = tmp_path / "gap.xlsx"
+    wb.save(out)
+    return str(out), wc_col
+
+
+def test_tier2_broken_header_yields_tier1_gap(tmp_path, monkeypatch):
+    # llm 없이 Tier1 만: work_content gap → deterministic + confidence<1.0 (fallback 가 진짜 발동함을 증명)
+    monkeypatch.setattr("pipeline.agents.recipe.recognize.RECIPE_CACHE_DIR", tmp_path)
+    path, wc_col = _make_activity_gap_wb(tmp_path)
+    wb = openpyxl.load_workbook(path, data_only=True)
+    r = recognize_format(wb, use_cache=False)
+    wb.close()
+    assert r.generated_by == "deterministic"
+    assert r.confidence < 1.0
+    assert "work_content" not in r.sheets["activity"].columns
+
+
+def test_tier2_llm_fills_gap_deterministic(tmp_path, monkeypatch):
+    monkeypatch.setattr("pipeline.agents.recipe.recognize.RECIPE_CACHE_DIR", tmp_path)
+    path, wc_col = _make_activity_gap_wb(tmp_path)
+    payload = '{"activity": {"work_content": %d}}' % wc_col
+
+    wb1 = openpyxl.load_workbook(path, data_only=True)
+    m1 = _MockLLM(payload)
+    r1 = recognize_format(wb1, use_cache=False, llm_client=m1)
+    wb1.close()
+    assert m1.calls == 1
+    assert r1.generated_by == "llm"
+    assert r1.sheets["activity"].columns["work_content"] == wc_col
+
+    # 결정성: 같은 입력 2회 → 동일 컬럼맵
+    wb2 = openpyxl.load_workbook(path, data_only=True)
+    m2 = _MockLLM(payload)
+    r2 = recognize_format(wb2, use_cache=False, llm_client=m2)
+    wb2.close()
+    assert r1.sheets["activity"].columns == r2.sheets["activity"].columns
+
+
+def test_tier2_bad_json_no_cache_poisoning(tmp_path, monkeypatch):
+    # LLM 이 JSON 파싱 실패 응답 → gap 그대로. generated_by 는 llm 아님, 캐시 파일도 안 생김
+    # (gappy recipe 를 llm 으로 캐시하면 다음 실행이 Tier3 안전망을 영구 우회 = 조용한 오염).
+    monkeypatch.setattr("pipeline.agents.recipe.recognize.RECIPE_CACHE_DIR", tmp_path)
+    path, _ = _make_activity_gap_wb(tmp_path)
+    wb = openpyxl.load_workbook(path, data_only=True)
+    r = recognize_format(wb, use_cache=False, llm_client=_MockLLM("NOT JSON{{"))
+    wb.close()
+    assert r.generated_by == "deterministic"  # 못 채웠으므로 llm 표기 안 함
+    assert "work_content" not in r.sheets["activity"].columns
+    assert not list(tmp_path.glob("*.json"))  # gappy recipe 캐시 금지
+
+
+def test_tier2_non_numeric_value_no_crash(tmp_path, monkeypatch):
+    # LLM 이 비숫자 컬럼값 반환 → caller 까지 crash 금지. 해당 필드 skip (Tier3 가 잔여 처리).
+    monkeypatch.setattr("pipeline.agents.recipe.recognize.RECIPE_CACHE_DIR", tmp_path)
+    path, _ = _make_activity_gap_wb(tmp_path)
+    wb = openpyxl.load_workbook(path, data_only=True)
+    r = recognize_format(wb, use_cache=False, llm_client=_MockLLM('{"activity": {"work_content": "oops"}}'))
+    wb.close()
+    assert "work_content" not in r.sheets["activity"].columns  # 비숫자 → skip

@@ -38,43 +38,6 @@ def _find_header_cell(
     return None
 
 
-def _get_col_data(ws, col: int, start_row: int = 1) -> list:
-    """워크시트에서 지정 컬럼의 모든 셀 값을 start_row 부터 반환."""
-    return [ws.cell(r, col).value for r in range(start_row, (ws.max_row or 0) + 1)]
-
-
-def _set_col_data(ws, col: int, values: list, start_row: int = 1) -> None:
-    """워크시트의 지정 컬럼에 values 를 start_row 부터 기록."""
-    for i, v in enumerate(values):
-        ws.cell(start_row + i, col).value = v
-
-
-def _move_column(ws, from_col: int, to_col: int) -> None:
-    """from_col 전체 셀을 to_col 로 이동. 이동 방향에 따라 중간 컬럼을 한 칸씩 shift.
-
-    헤더 + 데이터 행 모두 함께 이동하므로 컬럼 의미가 보존됨.
-    """
-    max_row = ws.max_row or 0
-    # 이동 대상 컬럼 값 저장
-    col_vals = _get_col_data(ws, from_col, start_row=1)
-
-    if from_col < to_col:
-        # 오른쪽으로 이동: from_col+1 ~ to_col 을 한 칸 왼쪽으로 밀기
-        for c in range(from_col, to_col):
-            src_vals = _get_col_data(ws, c + 1, start_row=1)
-            _set_col_data(ws, c, src_vals, start_row=1)
-    else:
-        # 왼쪽으로 이동: to_col ~ from_col-1 을 한 칸 오른쪽으로 밀기
-        for c in range(from_col, to_col, -1):
-            src_vals = _get_col_data(ws, c - 1, start_row=1)
-            _set_col_data(ws, c, src_vals, start_row=1)
-
-    # 저장된 원본 컬럼을 목적지에 기록
-    _set_col_data(ws, to_col, col_vals, start_row=1)
-
-    _ = max_row  # suppress unused-variable lint
-
-
 def _insert_column_right(ws, insert_at: int, fill_value=None) -> None:
     """insert_at 컬럼 위치에 새 컬럼 삽입. 오른쪽 컬럼들을 한 칸씩 우측 shift.
 
@@ -107,21 +70,26 @@ def _apply_v1(wb) -> None:
 
 
 def _apply_v2(wb) -> None:
-    """V2: 헤더 동의어 치환.
+    """V2: 헤더 동의어 치환 (결정론 recipe 가 흡수하는 동의어만).
 
-    activity 시트에서 `금일실적` → `당일실적`, `대표물량_작업 내용` → `작업내용`
+    - sheet4: `대표물량_작업 내용` → `작업내용` (work_content — _resolve_sheet4_columns 가 흡수)
+    - sheet3: `대분류` → `장비명` (equip_big — field_for_header 동의어 흡수)
+
+    주의: `금일실적`→`당일실적` 류 sheet4 today_qty 동의어는 _resolve_sheet4_columns 가
+    "금일실적" 만 인식하므로 결정론 흡수 불가 (Tier2 LLM 영역). V2 는 결정론 등치 변이만 담아
+    Task 15 등가 테스트가 통과하도록 한다.
     """
-    activity_name = _find_activity_sheet(wb)
-    ws = wb[activity_name]
     swap_map = {
-        "금일실적": "당일실적",
         "대표물량_작업내용": "작업내용",
+        "대분류": "장비명",
     }
-    for r in range(1, min((ws.max_row or 0) + 1, 6)):
-        for c in range(1, (ws.max_column or 0) + 1):
-            norm = _norm_header(ws.cell(r, c).value)
-            if norm in swap_map:
-                ws.cell(r, c).value = swap_map[norm]
+    for name in wb.sheetnames:
+        ws = wb[name]
+        for r in range(1, min((ws.max_row or 0) + 1, 6)):
+            for c in range(1, (ws.max_column or 0) + 1):
+                norm = _norm_header(ws.cell(r, c).value)
+                if norm in swap_map:
+                    ws.cell(r, c).value = swap_map[norm]
 
 
 def _apply_v3(wb) -> None:
@@ -155,32 +123,33 @@ def _apply_v3(wb) -> None:
 
 
 def _apply_v4(wb) -> None:
-    """V4: activity 시트에 `업체명` 컬럼 삽입.
+    """V4: activity 시트에 `업체명` 컬럼 삽입 (vendor → 통합축).
 
-    기존 데이터의 BP사 컬럼(col 5)에서 업체명을 읽어 새 컬럼(col 6)에 삽입.
-    이후 컬럼은 모두 우측으로 1칸 shift.
+    업체파일 BP사 컬럼(col 5)은 BP 코드행과 회사명행이 교대로 들어있다. 통합포맷의
+    company_col 은 회사명만 담으므로, col 5 의 회사명(비-BP코드 한글값)을 ffill 해 새
+    company_col(col 6)에 채운다 — BP 코드가 company 로 누출되지 않도록 (값 의미 보존).
     """
+    from pipeline.agents.recipe.bpcode import is_bp_code_v2
+
     activity_name = _find_activity_sheet(wb)
     ws = wb[activity_name]
-
-    # BP사 컬럼(col 5)에서 값 수집 (row5 이후 데이터)
     bp_col = 5
+    insert_at = 6
     max_row = ws.max_row or 0
 
-    # 삽입 위치: BP사(col 5) 바로 다음 col 6
-    insert_at = 6
-
-    # 기존 컬럼을 우측으로 한 칸 밀기
     _insert_column_right(ws, insert_at, fill_value=None)
-
-    # 헤더 행(3, 4)에 `업체명` 기록
     ws.cell(3, insert_at).value = "업체명"
     ws.cell(4, insert_at).value = None
 
-    # 데이터 행 (row 5~): BP사 컬럼 값을 업체명 컬럼에 복사
+    # col 5 의 회사명을 ffill 해 company_col 에 기록 (BP 코드행은 직전 회사명 유지)
+    cur_company: str | None = None
     for r in range(5, max_row + 1):
-        # insert 후 BP사 컬럼은 여전히 col 5 (shift 되지 않은 쪽)
-        ws.cell(r, insert_at).value = ws.cell(r, bp_col).value
+        v = ws.cell(r, bp_col).value
+        if v is not None and not is_bp_code_v2(v):
+            s = str(v).strip()
+            if s:
+                cur_company = s
+        ws.cell(r, insert_at).value = cur_company
 
 
 def _apply_v5(wb) -> None:
@@ -246,8 +215,11 @@ def make_variant(src_path: str, variant: str, out_path: str) -> None:
             f"알 수 없는 변이 코드: {variant!r}. 유효값: {sorted(_VARIANTS)}"
         )
 
-    # data_only=False: 수식 보존 + 재저장 가능
-    wb = load_workbook(src_path)
+    # data_only=True: 수식 셀을 캐시값(리터럴)으로 읽어 재저장 — 원본 헤더 다수가
+    # =CONCATENATE(...) 수식(예: "금일 작업사항 [09/17]")이라, formula 모드로 재저장하면
+    # openpyxl 이 캐시값을 잃어 data_only 로 다시 읽을 때 None 이 된다. 합성 corpus 는 값만 필요하므로
+    # 리터럴로 고정하는 것이 정확 (값 보존, 의미 등치 유지).
+    wb = load_workbook(src_path, data_only=True)
     _VARIANTS[variant](wb)
     wb.save(out_path)
     wb.close()

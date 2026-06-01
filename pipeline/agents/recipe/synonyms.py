@@ -40,6 +40,7 @@ _FIELD_CONTAINS: list[tuple[str, str]] = [
 _SHEET_ALIASES: dict[str, str] = {
     "1.출력인원현황": "bp_summary",
     "출력인원현황": "bp_summary",
+    "출력인원": "bp_summary",
     "2.직종별인원현황": "job",
     "직종별인원현황": "job",
     "직종별인원": "job",

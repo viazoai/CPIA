@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import openpyxl
 import pytest
 from openpyxl import load_workbook
@@ -340,3 +341,55 @@ def test_synth_variants_load(tmp_path):
         wb = openpyxl.load_workbook(out, data_only=True)
         assert len(wb.sheetnames) >= 4
         wb.close()
+
+
+def _approx_equal(a, b) -> bool:
+    """float 필드는 isclose, 나머지는 exact 로 재귀 비교.
+
+    합성 변이는 openpyxl 재저장 과정에서 수식 캐시값(progress_percent 등)이 ~1e-17 수준
+    float drift 를 겪는다 (Excel↔openpyxl 직렬화 차이 — 파서 로직과 무관). 의미 등가 검증은
+    이 drift 를 isclose 로 흡수해야 정직하다. 결정성 검증(같은 파일 2회)은 exact == 로 한다.
+    """
+    if isinstance(a, float) and isinstance(b, float):
+        return math.isclose(a, b, rel_tol=1e-9, abs_tol=1e-9)
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(_approx_equal(a[k], b[k]) for k in a)
+    if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
+        return len(a) == len(b) and all(_approx_equal(x, y) for x, y in zip(a, b))
+    return a == b
+
+
+_SYNTH_ENTITY_KEYS = ("activities", "bp_summaries", "job_allocations", "equipment_allocations")
+
+
+def test_synth_equivalence_and_determinism(tmp_path, monkeypatch):
+    # V1(시트rename)/V2(헤더동의어)/V3(컬럼shuffle) — 라벨·위치만 바뀐 의미등가 변이.
+    # parse_with_recipe 산출이 canonical 업체 산출과 의미등가(float 필드 isclose) + 2회 결정성.
+    monkeypatch.setattr("pipeline.agents.recipe.recognize.RECIPE_CACHE_DIR", tmp_path)
+    canon = parse_with_recipe(BP)
+    for v in ("V1", "V2", "V3"):
+        # 파일명에 회사명(중원엔지니어링)+날짜(250917) → company match(리뷰X) + _extract_meta 날짜 OK
+        out = tmp_path / f"업체작업일보_M15X_PH4_중원엔지니어링_{v}_250917.xlsx"
+        make_variant(BP, v, str(out))
+        got1 = parse_with_recipe(str(out))
+        got2 = parse_with_recipe(str(out))
+        for key in _SYNTH_ENTITY_KEYS:
+            assert _approx_equal(got1[key], canon[key]), f"{v} {key} 의미등가 실패"
+            assert got1[key] == got2[key], f"{v} {key} 결정성 실패"
+
+
+def test_synth_v4_format_flip(tmp_path, monkeypatch):
+    # V4: 업체파일에 업체명 컬럼 삽입 → 통합축. recipe 가 format_class='통합' 으로 flip 감지하고
+    # 4 엔티티 건수를 보존. 단 activity dict 는 vendor↔통합 추출 경로가 본질적으로 달라(통합 ffill
+    # vs vendor group-scan) byte/의미 등가 비대상 — 경로 차이는 파서 결함이 아니라 포맷축 차이다.
+    monkeypatch.setattr("pipeline.agents.recipe.recognize.RECIPE_CACHE_DIR", tmp_path)
+    canon = parse_with_recipe(BP)
+    out = tmp_path / "업체작업일보_M15X_PH4_중원엔지니어링_V4_250917.xlsx"
+    make_variant(BP, "V4", str(out))
+    wb = openpyxl.load_workbook(str(out), data_only=True)
+    r = recognize_format(wb, use_cache=False, strict=False)
+    wb.close()
+    assert r.format_class == "통합"  # 업체명 컬럼 삽입 → 통합 인식 (flip)
+    got = parse_with_recipe(str(out))
+    for key in _SYNTH_ENTITY_KEYS:
+        assert len(got[key]) == len(canon[key]), f"V4 {key} 건수 불일치"

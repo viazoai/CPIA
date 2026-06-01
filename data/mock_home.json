@@ -1,0 +1,27 @@
+{
+  "site": {
+    "id": "m15x-ph3-ibl",
+    "name": "M15X Ph-3 IBL",
+    "location": "청주",
+    "date": "2025-09-25",
+    "weather": { "icon": "sun", "label": "맑음", "temp_c": 23 }
+  },
+  "user": { "name": "김현장" },
+  "processing": {
+    "expected": 12,
+    "submitted": 9,
+    "completed": 7,
+    "in_progress": 2,
+    "unsubmitted": 3,
+    "hours_saved_today": 18
+  },
+  "unsubmitted_companies": [
+    { "trade": "철근", "name": "한신산업" },
+    { "trade": "전기", "name": "파인텍" },
+    { "trade": "도장", "name": "해광" }
+  ],
+  "work_summary": {
+    "total_workers": 69,
+    "total_equipment": 6
+  }
+}

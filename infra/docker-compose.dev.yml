@@ -18,7 +18,10 @@ services:
     environment:
       NODE_ENV: development
       TZ: Asia/Seoul
-      POSTGRES_URL: postgresql://${POSTGRES_USER:-cpia}:${POSTGRES_PASSWORD:-cpia}@cpia-postgres:5432/${POSTGRES_DB:-cpia}
+      # 기본은 로컬 compose postgres. 외부(AWS) DB 를 보려면 DEV_DB_URL 로 override.
+      # (POSTGRES_URL 이 아닌 전용 변수 — .env 의 localhost 용 POSTGRES_URL 과 충돌 방지)
+      #   예: DEV_DB_URL='postgresql://USER:PASS@AWS_HOST:5432/cpia?sslmode=require' make dev2
+      POSTGRES_URL: ${DEV_DB_URL:-postgresql://${POSTGRES_USER:-cpia}:${POSTGRES_PASSWORD:-cpia}@cpia-postgres:5432/${POSTGRES_DB:-cpia}}
       CHROMA_HOST: cpia-chroma
       CHROMA_PORT: "8000"
       FASTAPI_URL: http://cpia-pipeline:8000

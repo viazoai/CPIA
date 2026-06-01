@@ -42,6 +42,32 @@ def test_fingerprint_distinguishes_and_is_stable():
 
 
 from pipeline.agents.recipe.bpcode import is_bp_code_v2, looks_like_code_no_korean
+from pipeline.agents.recipe.synonyms import field_for_header, role_for_sheet
+
+
+def test_synonyms_map_headers_and_sheets():
+    assert field_for_header("금일실적") == "today_qty"
+    assert field_for_header("당일실적") == "today_qty"      # V2 동의어
+    assert field_for_header("대표물량_작업내용") == "work_content"
+    assert field_for_header("작업내용") == "work_content"
+    assert field_for_header("BP사") == "bp"
+    assert field_for_header("업체명") == "company_col"
+    # sheet2/3 필수필드 (실측 헤더)
+    assert field_for_header("관리자/근로자") == "disc_code"   # sheet2 col4 (Mm01 앵커)
+    assert field_for_header("직종") == "job_type"            # sheet2 col6
+    assert field_for_header("대분류") == "equip_big"          # sheet3 col4
+    assert field_for_header("중분류") == "equip_mid"
+    assert field_for_header("규 격") == "equip_spec"          # _norm_header 가 공백 제거 → "규격"
+    # sheet1 작업텍스트 (헤더에 날짜 brackets 붙음 → substring)
+    assert field_for_header("전일 작업사항 [09/24]") == "work_prev"
+    assert field_for_header("금일 작업사항 [09/25]") == "work_today"
+    assert field_for_header("명일 작업사항 [09/26]") == "work_tomorrow"
+    assert field_for_header("ZZZ알수없음") is None
+    assert role_for_sheet("4.물량") == "activity"
+    assert role_for_sheet("물량집계") == "activity"          # V1 시트명 변이 alias
+    assert role_for_sheet("1.출력인원 현황") == "bp_summary"
+    assert role_for_sheet("2.직종별 인원현황") == "job"
+    assert role_for_sheet("3.장비현황") == "equip"
 
 
 def test_bp_code_v2_accepts_variants():

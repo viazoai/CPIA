@@ -9,6 +9,7 @@ from pipeline.agents.recipe.extract import (
     extract_sheet3,
     extract_sheet4,
 )
+from pipeline.agents.recipe import parse_with_recipe
 from pipeline.agents.recipe.fingerprint import fingerprint
 from pipeline.agents.recipe.model import FormatRecipe, SheetRecipe, REQUIRED_FIELDS
 from pipeline.agents.recipe.recognize import recognize_format
@@ -189,3 +190,27 @@ def test_sheet3_equiv():
         wb.close()
         assert len(got) == len(golden) == n
         assert got == golden
+
+
+def test_full_report_equiv_both_formats():
+    for path in (UNI, BP):
+        golden = parse_daily_report(path)
+        got = parse_with_recipe(path)
+        for key in (
+            "activities",
+            "bp_summaries",
+            "job_allocations",
+            "equipment_allocations",
+            "report_date",
+            "project",
+            "worker_outputs",
+            "report_meta",
+        ):
+            assert got[key] == golden[key], f"{path} {key} 불일치"
+
+
+def test_company_mismatch_sets_review():
+    demo = "data/demo_inputs/20250925/업체작업일보_M15X_PH3_남웅건설_단열공사_20250925.xlsm"
+    got = parse_with_recipe(demo)
+    assert {a["company"] for a in got["activities"]} == {"중원엔지니어링"}  # 셀 SSOT, 덮어쓰기 X
+    assert all(a["requires_review"] for a in got["activities"])  # 셀 company 가 파일명에 없음 → 전부 review

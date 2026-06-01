@@ -13,10 +13,17 @@ is_bp_code_v2 (Task 3) 로 교체. row loop·group 경계·company 탐색·skip�
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+import openpyxl
+
 from pipeline.agents.parser import (
     _build_activity,
     _disc_abbrev_to_kr,
+    _extract_meta,
     _is_admin_job,
+    _norm_header,
     _safe_int,
     _shift_dict_row,
     _shift_dict_sum,
@@ -27,8 +34,15 @@ from pipeline.agents.parser_post import (
     split_company_and_zone,
 )
 from pipeline.agents.recipe.bpcode import is_bp_code_v2
-from pipeline.agents.recipe.model import SheetRecipe
-from pipeline.state import Activity, BPSummary, EquipmentAllocation, JobAllocation
+from pipeline.agents.recipe.model import FormatRecipe, SheetRecipe
+from pipeline.agents.recipe.recognize import recognize_format
+from pipeline.state import (
+    Activity,
+    BPSummary,
+    EquipmentAllocation,
+    JobAllocation,
+    ParsedDailyReport,
+)
 
 
 def extract_sheet1(ws, sheet_recipe: SheetRecipe) -> list[BPSummary]:
@@ -385,3 +399,63 @@ def extract_sheet4(ws, sheet_recipe: SheetRecipe) -> list[Activity]:
                     continue
                 activities.append(_build_activity(ws, r, cols, cur_trade, bp_code, company_raw))
     return activities
+
+
+# ---------------------------------------------------------------------------
+# Task 10: 공개 API — extract_with_recipe + parse_with_recipe
+# ---------------------------------------------------------------------------
+
+
+def extract_with_recipe(wb, recipe: FormatRecipe, xlsx_path) -> ParsedDailyReport:
+    """recipe 4시트 추출기 호출 + _extract_meta -> ParsedDailyReport.
+
+    sheet_name 은 recipe.sheets[role].sheet_name 로 주입 (role: bp_summary/job/equip/activity).
+    worker_outputs=[], report_meta=None 은 golden parse_daily_report 와 동일 (양식 2종 실측 일치).
+    """
+    bp_summaries = extract_sheet1(wb[recipe.sheets["bp_summary"].sheet_name], recipe.sheets["bp_summary"])
+    job_allocations = extract_sheet2(wb[recipe.sheets["job"].sheet_name], recipe.sheets["job"])
+    equipment_allocations = extract_sheet3(wb[recipe.sheets["equip"].sheet_name], recipe.sheets["equip"])
+    activities = extract_sheet4(wb[recipe.sheets["activity"].sheet_name], recipe.sheets["activity"])
+    report_date, project = _extract_meta(Path(xlsx_path), wb)
+    return {
+        "report_date": report_date,
+        "project": project,
+        "bp_summaries": bp_summaries,
+        "job_allocations": job_allocations,
+        "equipment_allocations": equipment_allocations,
+        "activities": activities,
+        "worker_outputs": [],
+        "report_meta": None,
+    }
+
+
+def parse_with_recipe(xlsx_path) -> ParsedDailyReport:
+    """xlsx 1개 -> recognize_format -> extract_with_recipe + 업체-전용 company mismatch review.
+
+    업체(format_class=='업체') 파일에서만 파일명 토큰 vs 셀 company 를 대조해 mismatch 시
+    해당 activity 의 requires_review=True (셀 company 는 SSOT, 덮어쓰기 X). 통합은 SKIP
+    (파일명이 generic 이라 전체 review 처리되면 등가가 깨짐).
+    """
+    path = Path(xlsx_path)
+    wb = openpyxl.load_workbook(path, data_only=True)
+    try:
+        recipe = recognize_format(wb)
+        report = extract_with_recipe(wb, recipe, path)
+        if recipe.format_class == "업체":
+            tokens = {_norm_header(t) for t in path.stem.split("_")}
+            mismatched: set[str] = set()
+            for a in report["activities"]:
+                c = a["company"]
+                norm_c = _norm_header(c)
+                if not any(norm_c in tok for tok in tokens):
+                    a["requires_review"] = True
+                    mismatched.add(c)
+            if mismatched:
+                for company in sorted(mismatched):
+                    print(
+                        f"[recipe] company mismatch: 셀 '{company}' 가 파일명 '{path.name}' 에 없음 -> review",
+                        file=sys.stderr,
+                    )
+    finally:
+        wb.close()
+    return report

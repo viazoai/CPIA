@@ -301,6 +301,7 @@ export interface HomeWorkSummary {
 
 /** 제출 업체별 작업 행 — 통합작업일보(실제 데이터 기반) */
 export interface HomeWorkRow {
+  work_area: string;    // Work Area (FAB / CUB)
   trade: string;        // 공종 (공통가설·토목·건축·설비·UT·전기·제어·소방설비·소방전기)
   bp_name: string;      // 협력업체
   work_content: string; // 금일 작업사항 요약

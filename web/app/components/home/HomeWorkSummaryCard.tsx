@@ -14,6 +14,8 @@ interface Props {
  *   행이 많아(≈제출 업체 수) 카드 내부 세로 스크롤 (sticky 헤더).
  */
 export function HomeWorkSummaryCard({ rows, workSummary }: Props) {
+  // 인원 내림차순 정렬 (표시용 — 원본 불변)
+  const sorted = [...rows].sort((a, b) => b.workers - a.workers);
   return (
     <div>
       {/* 블록 밖 헤더 */}
@@ -34,16 +36,18 @@ export function HomeWorkSummaryCard({ rows, workSummary }: Props) {
           <table className="w-full text-xs">
             <thead className="sticky top-0 z-10 bg-surface-soft">
               <tr>
-                <Th className="w-[12%]">공종</Th>
-                <Th className="w-[20%]">업체</Th>
+                <Th className="w-[10%]">Area</Th>
+                <Th className="w-[11%]">공종</Th>
+                <Th className="w-[19%]">업체</Th>
                 <Th>작업내용(요약)</Th>
-                <Th className="w-[10%] text-right">인원</Th>
-                <Th className="w-[10%] text-right">장비</Th>
+                <Th className="w-[9%] text-right">인원</Th>
+                <Th className="w-[9%] text-right">장비</Th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r, i) => (
+              {sorted.map((r, i) => (
                 <tr key={i} className="border-t border-border-soft transition-colors hover:bg-surface-soft/40">
+                  <td className="px-5 py-2.5 font-mono text-[11px] font-semibold text-brand-text">{r.work_area}</td>
                   <td className="px-5 py-2.5 font-medium text-ink-mid">{r.trade}</td>
                   <td className="px-5 py-2.5 font-medium text-ink">{r.bp_name}</td>
                   <td className="px-5 py-2.5 text-ink-mid">{r.work_content}</td>
@@ -59,7 +63,7 @@ export function HomeWorkSummaryCard({ rows, workSummary }: Props) {
               ))}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-5 py-10 text-center text-ink-light">
+                  <td colSpan={6} className="px-5 py-10 text-center text-ink-light">
                     오늘 접수된 작업일보가 없습니다
                   </td>
                 </tr>

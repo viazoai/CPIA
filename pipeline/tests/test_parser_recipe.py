@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import openpyxl
+from pipeline.agents.recipe.bpcode import is_bp_code_v2, looks_like_code_no_korean
 from pipeline.agents.recipe.fingerprint import fingerprint
 from pipeline.agents.recipe.model import FormatRecipe, SheetRecipe, REQUIRED_FIELDS
+from pipeline.agents.recipe.recognize import recognize_format
+from pipeline.agents.recipe.synonyms import field_for_header, role_for_sheet
 
 UNI = "docs/sample/통합작업일보_M15X Ph-3 IBL PJT 작업일보_20250925.xlsx"
 BP = "docs/sample/업체작업일보_M15X_PH4_041_M15X_PH4_UT_ 중원엔지니어링_UT배관공사_FAB_250917.xlsx"
@@ -41,33 +44,61 @@ def test_fingerprint_distinguishes_and_is_stable():
     wb_b.close()
 
 
-from pipeline.agents.recipe.bpcode import is_bp_code_v2, looks_like_code_no_korean
-from pipeline.agents.recipe.synonyms import field_for_header, role_for_sheet
-
-
 def test_synonyms_map_headers_and_sheets():
     assert field_for_header("금일실적") == "today_qty"
-    assert field_for_header("당일실적") == "today_qty"      # V2 동의어
+    assert field_for_header("당일실적") == "today_qty"  # V2 동의어
     assert field_for_header("대표물량_작업내용") == "work_content"
     assert field_for_header("작업내용") == "work_content"
     assert field_for_header("BP사") == "bp"
     assert field_for_header("업체명") == "company_col"
     # sheet2/3 필수필드 (실측 헤더)
-    assert field_for_header("관리자/근로자") == "disc_code"   # sheet2 col4 (Mm01 앵커)
-    assert field_for_header("직종") == "job_type"            # sheet2 col6
-    assert field_for_header("대분류") == "equip_big"          # sheet3 col4
+    assert field_for_header("관리자/근로자") == "disc_code"  # sheet2 col4 (Mm01 앵커)
+    assert field_for_header("직종") == "job_type"  # sheet2 col6
+    assert field_for_header("대분류") == "equip_big"  # sheet3 col4
     assert field_for_header("중분류") == "equip_mid"
-    assert field_for_header("규 격") == "equip_spec"          # _norm_header 가 공백 제거 → "규격"
+    assert field_for_header("규 격") == "equip_spec"  # _norm_header 가 공백 제거 → "규격"
     # sheet1 작업텍스트 (헤더에 날짜 brackets 붙음 → substring)
     assert field_for_header("전일 작업사항 [09/24]") == "work_prev"
     assert field_for_header("금일 작업사항 [09/25]") == "work_today"
     assert field_for_header("명일 작업사항 [09/26]") == "work_tomorrow"
     assert field_for_header("ZZZ알수없음") is None
     assert role_for_sheet("4.물량") == "activity"
-    assert role_for_sheet("물량집계") == "activity"          # V1 시트명 변이 alias
+    assert role_for_sheet("물량집계") == "activity"  # V1 시트명 변이 alias
     assert role_for_sheet("1.출력인원 현황") == "bp_summary"
     assert role_for_sheet("2.직종별 인원현황") == "job"
     assert role_for_sheet("3.장비현황") == "equip"
+
+
+def test_recognize_integrated_format():
+    wb = openpyxl.load_workbook(UNI, data_only=True)
+    r = recognize_format(wb)
+    assert r.format_class == "통합"
+    assert r.generated_by == "deterministic"
+    assert r.confidence == 1.0
+    # sheet4 컬럼 (통합 실측: company_col=6 이 있어 이후 1칸 우측 시프트)
+    # trade=4 bp=5 company_col=6 scope=7 work_content=8 unit=9 today_qty=12
+    a = r.sheets["activity"]
+    assert a.columns["trade"] == 4 and a.columns["bp"] == 5
+    assert a.columns["company_col"] == 6 and a.columns["work_content"] == 8
+    assert a.columns["unit"] == 9 and a.columns["today_qty"] == 12
+    # sheet2 final_flag 존재(통합)
+    assert r.sheets["job"].final_flag_col == 25
+    # sheet2 timeshift (실측: today_cum block 첫칸 col19)
+    assert r.sheets["job"].timeshift_blocks["today_cum"] == 19
+    # sheet3 final_flag 도 통합은 'O' 게이트 존재 (실측 col25)
+    assert r.sheets["equip"].final_flag_col == 25
+    wb.close()
+
+
+def test_recognize_vendor_format():
+    wb = openpyxl.load_workbook(BP, data_only=True)
+    r = recognize_format(wb)
+    assert r.format_class == "업체"
+    a = r.sheets["activity"]
+    assert "company_col" not in a.columns  # 업체는 업체명 컬럼 없음
+    assert a.columns["work_content"] == 7 and a.columns["today_qty"] == 11
+    assert r.sheets["job"].final_flag_col is None  # 업체는 'O' 게이트 없음
+    wb.close()
 
 
 def test_bp_code_v2_accepts_variants():
@@ -75,8 +106,8 @@ def test_bp_code_v2_accepts_variants():
     assert is_bp_code_v2("PH_X-088")
     assert is_bp_code_v2("M15X_PH4_041")
     # P1 변종 — 누출 차단 대상
-    assert is_bp_code_v2("M15X-PH4-041")     # dash
-    assert is_bp_code_v2("M15X_PH4_041A")    # trailing suffix
+    assert is_bp_code_v2("M15X-PH4-041")  # dash
+    assert is_bp_code_v2("M15X_PH4_041A")  # trailing suffix
     # 회사명은 코드 아님
     assert not is_bp_code_v2("중원엔지니어링")
     assert not is_bp_code_v2("협력업체01")

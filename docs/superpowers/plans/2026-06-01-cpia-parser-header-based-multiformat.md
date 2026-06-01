@@ -329,10 +329,20 @@ def _parse_sheet4_activities(ws) -> list[Activity]:
 - `company = normalize_company(split_company_and_zone(company_raw))`
 - `trade`/`l5_disc = trade or ""`, 나머지 필드(remaining_*/wbs_*/wa/mapping_*/conditions/assigned_workers 등) 기존 기본값 그대로
 
-- [ ] **Step 6: 통합 회귀 — 기존 시트4 테스트 통과 확인**
+- [ ] **Step 6: 통합 회귀 — 시트4 단위 테스트 (주의 2건, 실측 기반)**
 
-Run: `uv run --project pipeline python -m pytest pipeline/tests/test_parser.py -k sheet4 -v`
-Expected: 기존 `test_parse_sheet4_*` 전부 PASS (통합 activities 건수·필드 회귀 없음). 실패 시 헤더 매핑/ffill 로직 수정.
+Run (선택, 느림): `uv run --project pipeline python -m pytest pipeline/tests/test_parser.py -k sheet4`
+
+**주의 — 실행 전 반드시 읽을 것:**
+- ⚠️ **`test_parse_sheet4_required_fields` 는 헤더전환 전부터 FAIL (pre-existing).** 통합 원본에
+  업체명 빈 BP행(예 `PH_X-080`: `company=''`, work_content='CMP 구간 기준점 마킹 및 천공')이
+  31건 있어 `assert a["company"]` 가 깨진다. 이는 **기존 파서 동작이고 신규 회귀가 아니다**
+  (검증: 헤더기반 결과 = 기존 결과, company 필드 diff 0). **이 테스트를 고치려 들지 말 것** —
+  company 빈 31건 제거는 기존 동작 변경이라 이번 스코프 밖. 기대 결과: `1 failed, 9 passed`.
+- ⚠️ 이 단위 테스트는 `read_only=True` 라 `ws.cell` 임의접근이 O(n²) → **~14분** 소요(실측).
+  시트4 회귀의 **실질 검증은 Step 7 의 `act=1193` E2E**(`read_only=False`, 초 단위)로 한다.
+  Step 6 은 시간 여유 있을 때만, 없으면 건너뛰고 Step 7 로.
+- 판정: count/unit/today_qty/zone 등 **9개가 PASS** 면 회귀 없음 (required_fields 1건은 pre-existing).
 
 - [ ] **Step 7: 통합 activities 건수 회귀 직접 확인**
 
@@ -360,16 +370,29 @@ git commit -m "feat(parser): 시트4 헤더 기반 컬럼 해석 — column shif
 ## Task 4: 시트1 코드/회사명 분리 (BP 다중패턴 효과 검증 — 코드 변경 불요 확정)
 
 **Files:**
-- Test 만: `pipeline/tests/test_parser.py` (회귀 가드 추가). **`parser.py` 수정 없음.**
+- Modify: `pipeline/tests/conftest.py` (업체 fixture — Task 4·5·6 공용, 여기서 최초 추가)
+- Modify: `pipeline/tests/test_parser.py` (회귀 가드 추가). **`parser.py` 수정 없음.**
 
 **검증으로 확정**: Task 2 의 `_is_bp_code` 다중패턴만 적용하면, 기존
 `_parse_sheet1_bp_summaries`(col30 병합 group + skip 로직) 가 **그대로** 통합 99 / 업체 1 을
 정확히 낸다. 업체파일 시트1 에도 col30 병합 group 이 있어 group 검출이 작동하며(실측),
 bp/company 분리도 정확(통합 `PH_X-002`/`에스티엠`, 업체 `M15X_PH4_041`/`중원엔지니어링`).
 → **이 task 는 group fallback 같은 코드 변경이 불필요**하다. 회귀 가드 테스트만 추가한다.
-(`sample_subcon_path` fixture 는 Task 6 Step 1 에서 conftest 에 추가 — Task 4 를 먼저 실행하면 여기서 추가.)
 
-- [ ] **Step 1: 업체 시트1 분리 가드 테스트 작성**
+- [ ] **Step 1: conftest 에 업체 fixture 추가 (Task 4·5·6 공용 — 여기서 한 번만)**
+
+`pipeline/tests/conftest.py` 에 추가 (Task 6 에서 또 언급되지만 **중복 추가 금지**):
+```python
+@pytest.fixture(scope="session")
+def sample_subcon_path(cpia_root) -> Path:
+    return cpia_root / "data/demo_inputs/20250925/업체작업일보_M15X_PH3_㈜신성이엔지_골조공사_20250925.xlsx"
+
+@pytest.fixture(scope="session")
+def demo_inputs_dir(cpia_root) -> Path:
+    return cpia_root / "data/demo_inputs/20250925"
+```
+
+- [ ] **Step 2: 업체 시트1 분리 가드 테스트 작성**
 
 ```python
 def test_parse_sheet1_subcon_bp_company_split(sample_subcon_path):
@@ -385,23 +408,23 @@ def test_parse_sheet1_subcon_bp_company_split(sample_subcon_path):
     assert "중원엔지니어링" in s["company"]   # 회사명이 company (코드 누출 X)
 ```
 
-- [ ] **Step 2: 통과 확인 (Task 2 적용 후이므로 코드 변경 없이 PASS 기대)**
+- [ ] **Step 3: 통과 확인 (Task 2 적용 후이므로 코드 변경 없이 PASS 기대)**
 
 Run: `uv run --project pipeline python -m pytest pipeline/tests/test_parser.py::test_parse_sheet1_subcon_bp_company_split -v`
 Expected: PASS (검증 실측 — 기존 함수가 업체 col30 group 으로 bp=1 정확 추출).
 만약 FAIL 이면(예상 외) `_parse_sheet1_bp_summaries` group 검출에 BP코드 기반 fallback 추가:
 col30 병합/solo 가 없을 때 `_is_bp_code` 코드행을 group 시작으로, 회사명=group 내 첫 non-bp col5.
 
-- [ ] **Step 3: 통합 시트1 회귀 확인**
+- [ ] **Step 4: 통합 시트1 회귀 확인**
 
 Run: `uv run --project pipeline python -m pytest pipeline/tests/test_parser.py -k sheet1 -v`
 Expected: 기존 `test_parse_sheet1_*` (bp_summaries_count 99 등) 전부 PASS.
 
-- [ ] **Step 4: 커밋**
+- [ ] **Step 5: 커밋**
 
 ```bash
-git add pipeline/tests/test_parser.py
-git commit -m "test(parser): 시트1 업체포맷 BP/회사명 분리 가드 (다중패턴 효과 검증)"
+git add pipeline/tests/conftest.py pipeline/tests/test_parser.py
+git commit -m "test(parser): 업체 fixture + 시트1 BP/회사명 분리 가드 (다중패턴 효과)"
 ```
 
 ---
@@ -487,20 +510,11 @@ git commit -m "feat(parser): 시트2/3 final_flag 조건부 완화 ('O' 없는 �
 **Files:**
 - Modify: `pipeline/agents/parser.py` (`parse_daily_report` L539 — LLM 검증 호출 L567-570 제거, `_extract_meta` L532 project prefix)
 - Create: `pipeline/tests/test_parser_subcon.py`
-- Modify: `pipeline/tests/conftest.py` (`sample_subcon_path` fixture)
+- (`conftest.py` 업체 fixture 는 **Task 4 Step 1 에서 이미 추가** — 중복 금지)
 
-- [ ] **Step 1: conftest 에 업체 fixture 추가**
+- [ ] **Step 1: conftest 업체 fixture 존재 확인**
 
-`pipeline/tests/conftest.py` 에:
-```python
-@pytest.fixture(scope="session")
-def sample_subcon_path(cpia_root) -> Path:
-    return cpia_root / "data/demo_inputs/20250925/업체작업일보_M15X_PH3_㈜신성이엔지_골조공사_20250925.xlsx"
-
-@pytest.fixture(scope="session")
-def demo_inputs_dir(cpia_root) -> Path:
-    return cpia_root / "data/demo_inputs/20250925"
-```
+Task 4 Step 1 에서 `sample_subcon_path` / `demo_inputs_dir` 가 이미 추가됐다. 없으면(Task 4 를 건너뛴 경우) 여기서 추가하되, 있으면 그대로 사용.
 
 - [ ] **Step 2: 업체포맷 E2E 골든 테스트 작성**
 
@@ -617,10 +631,15 @@ def test_integrated_e2e_golden_counts(sample_tong_path):
 Run: `CPIA_PARSER_VERIFY_LLM=off uv run --project pipeline python -m pytest pipeline/tests/test_parser.py::test_integrated_e2e_golden_counts -v`
 Expected: PASS (1193/99/975/1111)
 
-- [ ] **Step 3: parser 전체 테스트 스위트 회귀**
+- [ ] **Step 3: parser 회귀 — 빠른 핵심 (권장) + 선택적 전체**
 
+**빠른 핵심** (read_only=False, 초 단위 — 이걸로 회귀 판정):
+Run: `CPIA_PARSER_VERIFY_LLM=off uv run --project pipeline python -m pytest pipeline/tests/test_parser_subcon.py pipeline/tests/test_filename_parser.py pipeline/tests/test_parser_node.py pipeline/tests/test_parser_post.py pipeline/tests/test_parser.py::test_integrated_e2e_golden_counts pipeline/tests/test_parser.py::test_is_bp_code_multiformat pipeline/tests/test_parser.py::test_resolve_sheet4_columns_integrated -v`
+Expected: 전부 PASS (업체 골든 33/1/76/68 + 통합 E2E 1193/99/975/1111 + 날짜 + 노드 + post).
+
+**선택적 전체** (시트4 단위 테스트 포함 → `read_only=True` O(n²) 로 **~14분**):
 Run: `CPIA_PARSER_VERIFY_LLM=off uv run --project pipeline python -m pytest pipeline/tests/test_parser.py pipeline/tests/test_parser_subcon.py pipeline/tests/test_filename_parser.py pipeline/tests/test_parser_node.py pipeline/tests/test_parser_post.py -v`
-Expected: 전부 PASS (통합 회귀 0 + 업체 신규 통과)
+Expected: `test_parse_sheet4_required_fields` **1건만 pre-existing FAIL** (Task 3 Step 6 참조 — 통합 원본 빈 업체명, 헤더전환 무관), 나머지 전부 PASS. 이 1건은 신규 회귀가 아니므로 통과로 간주.
 
 - [ ] **Step 4: 다운스트림 인접 테스트 회귀 (무수정 확인)**
 
@@ -640,7 +659,7 @@ git commit -m "test(parser): 통합 E2E 골든 1193/99/975/1111 못박기 + 전�
 
 1. `data/demo_inputs/20250925/` 10개(.xlsm 3 포함) 전부 ParseError 없이 33 activities, work_content/unit/today_qty/company/bp_code 정상 (issue #52 해소).
 2. 통합포맷 회귀 골든 1193/99/975/1111 유지.
-3. parser 관련 전체 테스트 스위트 green.
+3. parser 빠른 핵심 스위트 green (업체 골든 33/1/76/68 + 통합 E2E 골든 1193/99/975/1111 + 날짜/BP/헤더). 시트4 단위 `test_parse_sheet4_required_fields` 는 **pre-existing fail**(통합 원본 빈 업체명 31건, 헤더전환·이번 스코프 무관 — 손대지 않음).
 4. 출력 스키마(`ParsedDailyReport`) 불변 — 다운스트림 무수정.
 
 ## 미해결 / 다음 (이번 비목표)

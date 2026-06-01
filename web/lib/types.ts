@@ -293,10 +293,19 @@ export interface HomeUnsubmittedCompany {
 }
 
 export interface HomeWorkSummary {
-  /** Σ raw_data.workers 와 일치 */
+  /** Σ work_rows.workers */
   total_workers: number;
-  /** 중장비 기준 명시값 (equipment 문자열 파싱 불안정 회피) */
+  /** Σ work_rows.equipment */
   total_equipment: number;
+}
+
+/** 제출 업체별 작업 행 — 통합작업일보(실제 데이터 기반) */
+export interface HomeWorkRow {
+  trade: string;        // 공종 (공통가설·토목·건축·설비·UT·전기·제어·소방설비·소방전기)
+  bp_name: string;      // 협력업체
+  work_content: string; // 금일 작업사항 요약
+  workers: number;      // 투입 인원
+  equipment: number;    // 투입 장비 대수
 }
 
 export interface HomeFixture {
@@ -305,6 +314,8 @@ export interface HomeFixture {
   processing: HomeProcessing;
   unsubmitted_companies: HomeUnsubmittedCompany[];
   work_summary: HomeWorkSummary;
+  /** 제출 업체 작업 행 (스크롤 테이블) */
+  work_rows: HomeWorkRow[];
 }
 
 // ────── /reports § 5 — WP 단위 요약 (작업일보 상세의 컨텍스트) ──────

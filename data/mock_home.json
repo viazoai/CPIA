@@ -4,24 +4,727 @@
     "name": "M15X Ph-3 IBL",
     "location": "청주",
     "date": "2025-09-25",
-    "weather": { "icon": "sun", "label": "맑음", "temp_c": 23 }
+    "weather": {
+      "icon": "sun",
+      "label": "맑음",
+      "temp_c": 23
+    }
   },
-  "user": { "name": "김현장" },
+  "user": {
+    "name": "김현장"
+  },
   "processing": {
-    "expected": 112,
+    "expected": 108,
     "submitted": 98,
-    "unsubmitted": 14,
+    "unsubmitted": 10,
     "completed_cum": 23800,
     "hours_saved_cum": 2640,
     "hours_saved_per_day": 10
   },
   "unsubmitted_companies": [
-    { "trade": "철근", "name": "한신산업" },
-    { "trade": "전기", "name": "파인텍" },
-    { "trade": "도장", "name": "해광" }
+    {
+      "trade": "건축",
+      "name": "까뮤이앤씨"
+    },
+    {
+      "trade": "설비",
+      "name": "㈜세보엠이씨"
+    },
+    {
+      "trade": "전기",
+      "name": "우일계전공업㈜"
+    }
   ],
   "work_summary": {
-    "total_workers": 880,
-    "total_equipment": 64
-  }
+    "total_workers": 953,
+    "total_equipment": 70
+  },
+  "work_rows": [
+    {
+      "trade": "토목",
+      "bp_name": "㈜청조이엔씨",
+      "work_content": "층 살수장애 배관 설치",
+      "workers": 11,
+      "equipment": 3
+    },
+    {
+      "trade": "UT",
+      "bp_name": "㈜두제산업개발",
+      "work_content": "Digital Leak Test 작업 [PGS] PGS-313,OUT",
+      "workers": 6,
+      "equipment": 0
+    },
+    {
+      "trade": "제어",
+      "bp_name": "㈜거성씨엔에스",
+      "work_content": "배관 및 보온 설치작업",
+      "workers": 17,
+      "equipment": 0
+    },
+    {
+      "trade": "소방설비",
+      "bp_name": "세기산업개발",
+      "work_content": "CIB/VMB 불합리 조치",
+      "workers": 3,
+      "equipment": 0
+    },
+    {
+      "trade": "전기",
+      "bp_name": "범미건설화학㈜",
+      "work_content": "마감 작업",
+      "workers": 4,
+      "equipment": 1
+    },
+    {
+      "trade": "제어",
+      "bp_name": "한국이엔씨",
+      "work_content": "UPW Flushing 장비 눈관리 실시 가동전 점검 실시",
+      "workers": 8,
+      "equipment": 1
+    },
+    {
+      "trade": "토목",
+      "bp_name": "㈜청조이엔씨",
+      "work_content": "FRP STACK 마감 작업 - FRP Duct 오버레이 및 겔코트 ",
+      "workers": 18,
+      "equipment": 0
+    },
+    {
+      "trade": "건축",
+      "bp_name": "㈜에스비테크",
+      "work_content": "F 파이프렉 설치 작업, 배관 설치 작업",
+      "workers": 14,
+      "equipment": 2
+    },
+    {
+      "trade": "전기",
+      "bp_name": "씨앤지하이테크",
+      "work_content": "Sump Pump Panel 결선 수정(전층 점검)",
+      "workers": 9,
+      "equipment": 1
+    },
+    {
+      "trade": "소방전기",
+      "bp_name": "케이엔솔㈜",
+      "work_content": ",~4F 배관 용접, 설치 및 앙카작업, 행거, 서포트 설치, 도장작",
+      "workers": 17,
+      "equipment": 0
+    },
+    {
+      "trade": "설비",
+      "bp_name": "신성엔지니어링",
+      "work_content": "F02 N4E 전기실 불합리 처리 작업 (관리자 -> 근로자 전환 작",
+      "workers": 10,
+      "equipment": 1
+    },
+    {
+      "trade": "공통가설",
+      "bp_name": "남웅건설",
+      "work_content": "F02,F04 B1F~PH2 컷팅,할석,벽체/슬라브 타공작업 및 폐기",
+      "workers": 9,
+      "equipment": 0
+    },
+    {
+      "trade": "설비",
+      "bp_name": "㈜해광",
+      "work_content": "M17안전야적장 CUB 안전자재 반출 및 자재정리",
+      "workers": 18,
+      "equipment": 0
+    },
+    {
+      "trade": "공통가설",
+      "bp_name": "㈜거성씨엔에스",
+      "work_content": "F04,F03 RF 하지 및 판넬 설치작업",
+      "workers": 6,
+      "equipment": 0
+    },
+    {
+      "trade": "설비",
+      "bp_name": "㈜세보엠이씨",
+      "work_content": "X코어 벽체 수성 페인트 작업",
+      "workers": 16,
+      "equipment": 1
+    },
+    {
+      "trade": "전기",
+      "bp_name": "티이엠씨씨엔에스",
+      "work_content": "F~9F 화물차(자재) 반입 및 하역작업,자재 운반 -3F PCW 트",
+      "workers": 17,
+      "equipment": 1
+    },
+    {
+      "trade": "소방설비",
+      "bp_name": "성우이엔씨",
+      "work_content": "M15X Ph-3 CUB 4F X 23-26 Y6~9",
+      "workers": 6,
+      "equipment": 0
+    },
+    {
+      "trade": "UT",
+      "bp_name": "이안코리아",
+      "work_content": "자동소화기 SET-UP, Leak Test - Tray, Duct, ",
+      "workers": 9,
+      "equipment": 0
+    },
+    {
+      "trade": "UT",
+      "bp_name": "센코어테크",
+      "work_content": "층 살수장애 배관 설치",
+      "workers": 6,
+      "equipment": 2
+    },
+    {
+      "trade": "토목",
+      "bp_name": "한국이엔씨",
+      "work_content": "FAB F03 4F. PH1 패드천공 및 조립",
+      "workers": 15,
+      "equipment": 1
+    },
+    {
+      "trade": "UT",
+      "bp_name": "오에스엘이엔지",
+      "work_content": "B1F 지하공동구 용접작업, 도장작업 - B1F HVAC배관 양중 및",
+      "workers": 4,
+      "equipment": 0
+    },
+    {
+      "trade": "공통가설",
+      "bp_name": "센코어테크",
+      "work_content": "UPW Flushing 장비 눈관리 실시 가동전 점검 실시",
+      "workers": 5,
+      "equipment": 1
+    },
+    {
+      "trade": "전기",
+      "bp_name": "㈜거성씨엔에스",
+      "work_content": "F X30~48, Y13~14 경량 골조 및 벽체설치 작업 2F X3",
+      "workers": 11,
+      "equipment": 0
+    },
+    {
+      "trade": "UT",
+      "bp_name": "㈜거성씨엔에스",
+      "work_content": "바닥 먹 및 마킹 작업 및 행거 작업",
+      "workers": 15,
+      "equipment": 0
+    },
+    {
+      "trade": "토목",
+      "bp_name": "㈜청조이엔씨",
+      "work_content": "F04,F03,F02 판넬설치작업,캐노피설치작업",
+      "workers": 6,
+      "equipment": 3
+    },
+    {
+      "trade": "제어",
+      "bp_name": "건명테크윈",
+      "work_content": "호기 내부 구조물 설치 2. 1호기 IN,OUT BOX 및 GENER",
+      "workers": 12,
+      "equipment": 1
+    },
+    {
+      "trade": "UT",
+      "bp_name": "케이엔솔㈜",
+      "work_content": "FRP 덕트 하역운반 작업 -FRP 덕트 설치 작업 -FRP 덕트 레",
+      "workers": 13,
+      "equipment": 2
+    },
+    {
+      "trade": "소방설비",
+      "bp_name": "윤성이엔지",
+      "work_content": "지상 1층 방풍실 벽체 수성 페ㅐ인트 작업",
+      "workers": 5,
+      "equipment": 1
+    },
+    {
+      "trade": "토목",
+      "bp_name": "㈜에스티엠",
+      "work_content": "검측,충수,턴온 준비 작업",
+      "workers": 13,
+      "equipment": 1
+    },
+    {
+      "trade": "공통가설",
+      "bp_name": "유창이앤씨",
+      "work_content": "MID SCR' 하역 운반 작업 -MID SCR' 설치 작업 -벽체 ",
+      "workers": 7,
+      "equipment": 2
+    },
+    {
+      "trade": "제어",
+      "bp_name": "㈜해광",
+      "work_content": "① CUB 1F~9F X11~29, Y0~10 : 자재운반 작업 및 ",
+      "workers": 17,
+      "equipment": 0
+    },
+    {
+      "trade": "UT",
+      "bp_name": "우일계전공업㈜",
+      "work_content": "UPW Flushing 장비 눈관리 실시 가동전 점검 실시",
+      "workers": 7,
+      "equipment": 1
+    },
+    {
+      "trade": "토목",
+      "bp_name": "케이엔솔㈜",
+      "work_content": "자동제어 작업 FFU Turn On 작업",
+      "workers": 4,
+      "equipment": 1
+    },
+    {
+      "trade": "UT",
+      "bp_name": "티이엠씨씨엔에스",
+      "work_content": "기타 부자재 화물차 반입, 인력운반 - 배관 설치(말비계, 고소작업대",
+      "workers": 7,
+      "equipment": 2
+    },
+    {
+      "trade": "전기",
+      "bp_name": "성우이엔씨",
+      "work_content": "FRP STACK 마감 작업 - FRP Duct 오버레이 및 겔코트 ",
+      "workers": 17,
+      "equipment": 0
+    },
+    {
+      "trade": "전기",
+      "bp_name": "㈜엔아이스틸",
+      "work_content": "바닥 먹 및 마킹 작업 및 행거 작업",
+      "workers": 4,
+      "equipment": 1
+    },
+    {
+      "trade": "건축",
+      "bp_name": "윤성이엔지",
+      "work_content": "보양,장비셋팅",
+      "workers": 4,
+      "equipment": 0
+    },
+    {
+      "trade": "토목",
+      "bp_name": "㈜제일공사",
+      "work_content": "CIB/VMB 불합리 조치",
+      "workers": 5,
+      "equipment": 0
+    },
+    {
+      "trade": "설비",
+      "bp_name": "세기산업개발",
+      "work_content": "현장 점검 및 안전순찰",
+      "workers": 18,
+      "equipment": 0
+    },
+    {
+      "trade": "전기",
+      "bp_name": "케이엔솔㈜",
+      "work_content": "F03 북측 충돌방지대 기초 거푸집 설치 - 4-4주차장 코너 유실부",
+      "workers": 7,
+      "equipment": 0
+    },
+    {
+      "trade": "소방설비",
+      "bp_name": "우리테크놀로지",
+      "work_content": "F04,F03 RF 하지 및 판넬 설치작업",
+      "workers": 15,
+      "equipment": 0
+    },
+    {
+      "trade": "전기",
+      "bp_name": "티이엠씨씨엔에스",
+      "work_content": "Panel 구서마감 작업 - Panel 점검 및 조치",
+      "workers": 12,
+      "equipment": 0
+    },
+    {
+      "trade": "토목",
+      "bp_name": "티이엠씨씨엔에스",
+      "work_content": "서측 접안도로 트랜치 집수정 접합부 할석",
+      "workers": 15,
+      "equipment": 0
+    },
+    {
+      "trade": "건축",
+      "bp_name": "나가세엔지니어링",
+      "work_content": "와이어 메신져 및 샘플링파이프 설치",
+      "workers": 4,
+      "equipment": 3
+    },
+    {
+      "trade": "소방설비",
+      "bp_name": "까뮤이앤씨",
+      "work_content": "바닥 먹 및 마킹 작업 및 행거 작업",
+      "workers": 16,
+      "equipment": 0
+    },
+    {
+      "trade": "제어",
+      "bp_name": "마루이엔씨",
+      "work_content": "호기 내부 구조물 설치 2. 1호기 IN,OUT BOX 및 GENER",
+      "workers": 9,
+      "equipment": 0
+    },
+    {
+      "trade": "공통가설",
+      "bp_name": "케이엔솔㈜",
+      "work_content": "DUCT 설치 및 CABLE 포설작업",
+      "workers": 5,
+      "equipment": 0
+    },
+    {
+      "trade": "공통가설",
+      "bp_name": "마루이엔씨",
+      "work_content": "F X30~48 Y13 경량 골조 및 벽체설치 작업 2F X30~48",
+      "workers": 12,
+      "equipment": 0
+    },
+    {
+      "trade": "소방설비",
+      "bp_name": "㈜에스비테크",
+      "work_content": "보양,장비셋팅",
+      "workers": 4,
+      "equipment": 1
+    },
+    {
+      "trade": "건축",
+      "bp_name": "세일이엔에스㈜",
+      "work_content": "F04,F03,F02 판넬설치작업,캐노피설치작업",
+      "workers": 8,
+      "equipment": 3
+    },
+    {
+      "trade": "소방설비",
+      "bp_name": "우일계전공업㈜",
+      "work_content": "마감 작업",
+      "workers": 9,
+      "equipment": 0
+    },
+    {
+      "trade": "소방전기",
+      "bp_name": "신성이엔지",
+      "work_content": "F02 2F X39~48 Y08~16 소방배관 및 Support 설치",
+      "workers": 18,
+      "equipment": 0
+    },
+    {
+      "trade": "토목",
+      "bp_name": "㈜거성씨엔에스",
+      "work_content": "F02,F04 B1F~PH2 컷팅,할석,벽체/슬라브 타공작업 및 폐기",
+      "workers": 5,
+      "equipment": 3
+    },
+    {
+      "trade": "설비",
+      "bp_name": "범미건설화학㈜",
+      "work_content": "CIB/VMB 불합리 조치",
+      "workers": 10,
+      "equipment": 1
+    },
+    {
+      "trade": "UT",
+      "bp_name": "세일이엔에스㈜",
+      "work_content": "F04,F03,F02 판넬설치작업,캐노피설치작업",
+      "workers": 11,
+      "equipment": 0
+    },
+    {
+      "trade": "공통가설",
+      "bp_name": "우일계전공업",
+      "work_content": "벽체도장 바닥도장 PSCR 기둥 코킹작업",
+      "workers": 8,
+      "equipment": 1
+    },
+    {
+      "trade": "소방설비",
+      "bp_name": "㈜장평건설",
+      "work_content": "CUB 5F 냉동기실 배관 설치 및 입선, 단말, 쉴드접지, 구서마감",
+      "workers": 5,
+      "equipment": 0
+    },
+    {
+      "trade": "건축",
+      "bp_name": "우일계전공업",
+      "work_content": "M15X Ph-3 CUB 4F X 23-26 Y6~9",
+      "workers": 14,
+      "equipment": 1
+    },
+    {
+      "trade": "건축",
+      "bp_name": "신성엔지니어링",
+      "work_content": "층 살수장애 배관 설치",
+      "workers": 17,
+      "equipment": 2
+    },
+    {
+      "trade": "설비",
+      "bp_name": "태우이엔지",
+      "work_content": "층 X27 Y10 하부파이프 재설치 및 X23 Y0 EV 기계실 발판",
+      "workers": 9,
+      "equipment": 1
+    },
+    {
+      "trade": "공통가설",
+      "bp_name": "마루이엔씨",
+      "work_content": "MID SCR' 하역 운반 작업 -MID SCR' 설치 작업 -벽체 ",
+      "workers": 15,
+      "equipment": 0
+    },
+    {
+      "trade": "공통가설",
+      "bp_name": "제일테크노스",
+      "work_content": "CUB 5F 냉동기실 배관 설치 및 입선, 단말, 쉴드접지, 구서마감",
+      "workers": 8,
+      "equipment": 1
+    },
+    {
+      "trade": "소방전기",
+      "bp_name": "윤성이엔지",
+      "work_content": "마감 작업",
+      "workers": 8,
+      "equipment": 1
+    },
+    {
+      "trade": "UT",
+      "bp_name": "㈜제일공사",
+      "work_content": "F 탱크 설치 및 배관 배열, 용접, 설치 2,3F FCU 배관, 서",
+      "workers": 4,
+      "equipment": 1
+    },
+    {
+      "trade": "토목",
+      "bp_name": "두제산업개발",
+      "work_content": "CUB 5F 냉동기실 배관 설치 및 입선, 단말, 쉴드접지, 구서마감",
+      "workers": 13,
+      "equipment": 0
+    },
+    {
+      "trade": "건축",
+      "bp_name": "우리테크놀로지",
+      "work_content": "층 X27 Y10 하부파이프 재설치 및 X23 Y0 EV 기계실 발판",
+      "workers": 18,
+      "equipment": 1
+    },
+    {
+      "trade": "공통가설",
+      "bp_name": "㈜세보엠이씨",
+      "work_content": "자동제어 작업 FFU Turn On 작업",
+      "workers": 3,
+      "equipment": 0
+    },
+    {
+      "trade": "설비",
+      "bp_name": "오에스엘이엔지",
+      "work_content": "지하저수조 배관, 서포트, 바닥 도장 1~4F 전체 잔손작업 1F 배",
+      "workers": 10,
+      "equipment": 0
+    },
+    {
+      "trade": "설비",
+      "bp_name": "㈜장평건설",
+      "work_content": "지하저수조 배관, 서포트, 바닥 도장 1~4F 전체 잔손작업 1F 배",
+      "workers": 3,
+      "equipment": 2
+    },
+    {
+      "trade": "제어",
+      "bp_name": "우일계전공업",
+      "work_content": "설비 상부 Support 보강 작업",
+      "workers": 16,
+      "equipment": 0
+    },
+    {
+      "trade": "공통가설",
+      "bp_name": "㈜에스티엠",
+      "work_content": "배관 및 보온 설치작업",
+      "workers": 9,
+      "equipment": 0
+    },
+    {
+      "trade": "토목",
+      "bp_name": "철우테크",
+      "work_content": "벽체도장 바닥도장 PSCR 기둥 코킹작업",
+      "workers": 11,
+      "equipment": 2
+    },
+    {
+      "trade": "UT",
+      "bp_name": "㈜해광",
+      "work_content": "층 X27 Y10 하부파이프 재설치 및 X23 Y0 EV 기계실 발판",
+      "workers": 17,
+      "equipment": 2
+    },
+    {
+      "trade": "전기",
+      "bp_name": "㈜두제산업개발",
+      "work_content": "마감 작업",
+      "workers": 5,
+      "equipment": 1
+    },
+    {
+      "trade": "전기",
+      "bp_name": "은민에스엔디",
+      "work_content": "배관 및 보온 설치작업",
+      "workers": 12,
+      "equipment": 0
+    },
+    {
+      "trade": "설비",
+      "bp_name": "건명테크윈",
+      "work_content": "F03 북측 충돌방지대 기초 거푸집 설치 - 4-4주차장 코너 유실부",
+      "workers": 3,
+      "equipment": 0
+    },
+    {
+      "trade": "공통가설",
+      "bp_name": "한국이엔씨",
+      "work_content": "자동제어 작업 FFU Turn On 작업",
+      "workers": 10,
+      "equipment": 2
+    },
+    {
+      "trade": "설비",
+      "bp_name": "㈜신성이엔지",
+      "work_content": "검측,충수,턴온 준비 작업",
+      "workers": 13,
+      "equipment": 0
+    },
+    {
+      "trade": "건축",
+      "bp_name": "케이씨이앤씨",
+      "work_content": "스크러버 정위치 앙카타공 그라우트 작업 - 계장 트레이 설치 및 전선",
+      "workers": 10,
+      "equipment": 3
+    },
+    {
+      "trade": "공통가설",
+      "bp_name": "씨앤지하이테크",
+      "work_content": "F02 2F X39~48 Y08~16 소방배관 및 Support 설치",
+      "workers": 10,
+      "equipment": 0
+    },
+    {
+      "trade": "전기",
+      "bp_name": "남웅건설",
+      "work_content": "F02,F04 B1F~PH2 컷팅,할석,벽체/슬라브 타공작업 및 폐기",
+      "workers": 3,
+      "equipment": 0
+    },
+    {
+      "trade": "설비",
+      "bp_name": "건명테크윈",
+      "work_content": "CUB 5F 냉동기실 배관 설치 및 입선, 단말, 쉴드접지, 구서마감",
+      "workers": 7,
+      "equipment": 0
+    },
+    {
+      "trade": "공통가설",
+      "bp_name": "중원엔지니어링",
+      "work_content": "F02 1F X30~48 Y05~09 공조배관 잔손보기 F02 1F ",
+      "workers": 16,
+      "equipment": 1
+    },
+    {
+      "trade": "제어",
+      "bp_name": "유창이앤씨",
+      "work_content": "CUB C3C, C4A전기실 불합리 처리 작업 (관리자 -> 근로자 ",
+      "workers": 9,
+      "equipment": 0
+    },
+    {
+      "trade": "공통가설",
+      "bp_name": "윤성이엔지",
+      "work_content": "설비 상부 Support 보강 작업",
+      "workers": 11,
+      "equipment": 2
+    },
+    {
+      "trade": "전기",
+      "bp_name": "㈜청조이엔씨",
+      "work_content": ",~4F 배관 용접, 설치 및 앙카작업, 행거, 서포트 설치, 도장작",
+      "workers": 6,
+      "equipment": 0
+    },
+    {
+      "trade": "토목",
+      "bp_name": "두제산업개발",
+      "work_content": "F02 1F X30~48 Y05~08 소방배관 잔손보기 F02 2F ",
+      "workers": 12,
+      "equipment": 0
+    },
+    {
+      "trade": "설비",
+      "bp_name": "오에스엘이엔지",
+      "work_content": "F X30~48, Y13~14 경량 골조 및 벽체설치 작업 2F X3",
+      "workers": 5,
+      "equipment": 0
+    },
+    {
+      "trade": "소방설비",
+      "bp_name": "㈜장평건설",
+      "work_content": "F04 1F (CORE #6X / X40,Y0",
+      "workers": 6,
+      "equipment": 1
+    },
+    {
+      "trade": "UT",
+      "bp_name": "㈜에스비테크",
+      "work_content": "UPW Flushing 장비 눈관리 실시 가동전 점검 실시",
+      "workers": 5,
+      "equipment": 1
+    },
+    {
+      "trade": "UT",
+      "bp_name": "나가세엔지니어링",
+      "work_content": "F 탱크 설치 및 배관 배열, 용접, 설치 2,3F FCU 배관, 서",
+      "workers": 16,
+      "equipment": 0
+    },
+    {
+      "trade": "토목",
+      "bp_name": "제일테크노스",
+      "work_content": "작업 없음",
+      "workers": 14,
+      "equipment": 0
+    },
+    {
+      "trade": "토목",
+      "bp_name": "우일계전공업",
+      "work_content": "보양,장비셋팅",
+      "workers": 4,
+      "equipment": 2
+    },
+    {
+      "trade": "전기",
+      "bp_name": "케이엔솔㈜",
+      "work_content": "FRP STACK 마감 작업 - FRP Duct 오버레이 및 겔코트 ",
+      "workers": 16,
+      "equipment": 0
+    },
+    {
+      "trade": "공통가설",
+      "bp_name": "㈜에스티엠",
+      "work_content": "PH-3 작업 없음",
+      "workers": 4,
+      "equipment": 0
+    },
+    {
+      "trade": "소방전기",
+      "bp_name": "㈜에스비테크",
+      "work_content": "M15X Ph-3 CUB 4F X 23-26 Y6~9",
+      "workers": 3,
+      "equipment": 0
+    },
+    {
+      "trade": "토목",
+      "bp_name": "성우이엔씨",
+      "work_content": "TMAH,SOL 워크웨이 핸드레일 용접 PFC 균등관,흡입장구통 제작",
+      "workers": 6,
+      "equipment": 1
+    },
+    {
+      "trade": "소방전기",
+      "bp_name": "씨앤지하이테크",
+      "work_content": "배관 설치 작업 및 검측 준비 작업",
+      "workers": 6,
+      "equipment": 0
+    }
+  ]
 }

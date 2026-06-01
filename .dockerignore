@@ -1,0 +1,15 @@
+# 가상환경 — Docker 빌드 시 호스트 .venv 가 컨테이너 venv 덮어쓰는 버그 방지
+pipeline/.venv
+
+# Node modules
+web/node_modules
+web/.next
+
+# Git
+.git
+.gitignore
+
+# 로컬 전용
+**/.env
+**/.env.local
+**/node_modules

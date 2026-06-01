@@ -12,7 +12,7 @@ from pipeline.agents.recipe.extract import (
 from pipeline.agents.recipe import parse_with_recipe
 from pipeline.agents.recipe.fingerprint import fingerprint
 from pipeline.agents.recipe.model import FormatRecipe, SheetRecipe, REQUIRED_FIELDS
-from pipeline.agents.recipe.recognize import recognize_format
+from pipeline.agents.recipe.recognize import load_cached_recipe, recognize_format, save_recipe
 from pipeline.agents.recipe.synonyms import field_for_header, role_for_sheet
 
 UNI = "docs/sample/통합작업일보_M15X Ph-3 IBL PJT 작업일보_20250925.xlsx"
@@ -214,3 +214,17 @@ def test_company_mismatch_sets_review():
     got = parse_with_recipe(demo)
     assert {a["company"] for a in got["activities"]} == {"중원엔지니어링"}  # 셀 SSOT, 덮어쓰기 X
     assert all(a["requires_review"] for a in got["activities"])  # 셀 company 가 파일명에 없음 → 전부 review
+
+
+def test_recipe_cache_roundtrip(tmp_path, monkeypatch):
+    monkeypatch.setattr("pipeline.agents.recipe.recognize.RECIPE_CACHE_DIR", tmp_path)
+    wb = openpyxl.load_workbook(BP, data_only=True)
+    r = recognize_format(wb)
+    wb.close()
+    save_recipe(r)
+    loaded = load_cached_recipe(r.fingerprint)
+    assert loaded is not None
+    assert loaded.format_class == r.format_class
+    assert loaded.sheets["activity"].columns == r.sheets["activity"].columns
+    assert loaded.sheets["job"].header_rows == r.sheets["job"].header_rows  # tuple 복원
+    assert isinstance(loaded.sheets["job"].header_rows, tuple)

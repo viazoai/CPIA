@@ -1,9 +1,16 @@
 from __future__ import annotations
 
+import json
+from dataclasses import asdict
+from pathlib import Path
+
 from pipeline.agents.parser import _norm_header, _resolve_sheet4_columns
 from pipeline.agents.recipe.fingerprint import fingerprint
 from pipeline.agents.recipe.model import REQUIRED_FIELDS, FormatRecipe, SheetRecipe
 from pipeline.agents.recipe.synonyms import field_for_header, role_for_sheet
+
+# recipe 캐시 디렉토리 (fingerprint 키). 테스트는 monkeypatch 로 tmp_path 주입.
+RECIPE_CACHE_DIR = Path("data/parser_recipes")
 
 _SHIFT_GROUP_LABELS = {  # group 라벨 토큰 -> block. 순서 중요: 긴/구체 토큰 먼저 (substring 매칭)
     "전일투입누계": "yest_cum",
@@ -80,8 +87,52 @@ def _resolve_sheet_recipe(ws, role: str) -> tuple[SheetRecipe, list[str]]:
     return sr, missing
 
 
-def recognize_format(wb) -> FormatRecipe:
+def _recipe_cache_path(fp: str) -> Path:
+    return RECIPE_CACHE_DIR / f"{fp}.json"
+
+
+def save_recipe(recipe: FormatRecipe) -> None:
+    """recipe 를 JSON 으로 fingerprint 키 캐시에 저장. SheetRecipe 까지 재귀 직렬화."""
+    RECIPE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    path = _recipe_cache_path(recipe.fingerprint)
+    path.write_text(json.dumps(asdict(recipe), ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def load_cached_recipe(fp: str) -> FormatRecipe | None:
+    """캐시된 recipe 로드. 파일 없거나 손상 시 None. header_rows 는 tuple 로 복원(JSON 은 tuple 없음)."""
+    path = _recipe_cache_path(fp)
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    sheets = {
+        role: SheetRecipe(
+            sheet_name=sr["sheet_name"],
+            columns=sr["columns"],
+            timeshift_blocks=sr["timeshift_blocks"],
+            group_boundary=sr["group_boundary"],
+            header_rows=tuple(sr["header_rows"]),
+            final_flag_col=sr["final_flag_col"],
+        )
+        for role, sr in data["sheets"].items()
+    }
+    return FormatRecipe(
+        fingerprint=data["fingerprint"],
+        format_class=data["format_class"],
+        sheets=sheets,
+        generated_by=data["generated_by"],
+        confidence=data["confidence"],
+    )
+
+
+def recognize_format(wb, use_cache: bool = True) -> FormatRecipe:
     fp = fingerprint(wb)
+    if use_cache:
+        cached = load_cached_recipe(fp)
+        if cached is not None:
+            return cached
     sheets: dict[str, SheetRecipe] = {}
     total_req = 0
     mapped_req = 0
@@ -95,4 +146,8 @@ def recognize_format(wb) -> FormatRecipe:
         mapped_req += len(REQUIRED_FIELDS[role]) - len(missing)
     fmt = "통합" if ("activity" in sheets and "company_col" in sheets["activity"].columns) else "업체"
     conf = (mapped_req / total_req) if total_req else 0.0
-    return FormatRecipe(fp, fmt, sheets, "deterministic", conf)
+    recipe = FormatRecipe(fp, fmt, sheets, "deterministic", conf)
+    # 결정론 recipe 는 매 실행 재현 가능 → 캐시 불필요(오염 방지). llm/human recipe 만 영속.
+    if recipe.generated_by in ("llm", "human"):
+        save_recipe(recipe)
+    return recipe

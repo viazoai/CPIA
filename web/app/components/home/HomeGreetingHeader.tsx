@@ -32,7 +32,7 @@ export function HomeGreetingHeader({ user, site }: Props) {
 
   return (
     <div
-      className="relative overflow-hidden text-white"
+      className="relative h-72 overflow-hidden text-white md:h-[22rem]"
       style={{
         background: [
           // 좌측 텍스트 가독성 스크림 — 좌측 진함 → 우측 투명(건물·로고 보존)
@@ -46,35 +46,34 @@ export function HomeGreetingHeader({ user, site }: Props) {
         backgroundPosition: "center, center, 64% 58%",
       }}
     >
-      <div className="relative mx-auto flex w-full max-w-screen-2xl flex-col gap-6 px-6 pt-12 pb-28 md:flex-row md:items-start md:justify-between md:px-10 md:pt-14 md:pb-44">
-        {/* 좌 — 현장명 + 인삿말 */}
-        <div>
-          <span className="font-mono text-[11px] font-medium uppercase tracking-[0.16em] text-white/65">
-            오늘의 현장 브리핑
-          </span>
-          <h1 className="mt-2 font-display text-h2 text-white drop-shadow-sm">{site.name}</h1>
-          <p className="mt-3 inline-flex items-center gap-1.5 text-body text-white/85">
-            <HardHat className="h-4 w-4 text-amber-300" />
-            <span className="font-semibold text-white">{user.name}님</span>, 오늘도 안전한 하루 되세요 
-          </p>
-        </div>
+      <div className="relative mx-auto flex h-full w-full max-w-screen-2xl flex-col justify-end px-6 pb-10 md:px-10 md:pb-12">
+        {/* 날짜 */}
+        <span className="font-mono text-xs uppercase tracking-[0.14em] text-white/70">
+          {formatDate(site.date)}
+        </span>
 
-        {/* 우 — 위치 · 날짜 · 날씨 */}
-        <div className="flex flex-col items-start gap-2.5 md:items-end">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/15 px-3 py-1 text-body-sm font-medium text-white backdrop-blur-sm">
-            <MapPin className="h-3.5 w-3.5 text-white/80" />
+        {/* 현장명 */}
+        <h1 className="mt-2 font-display text-h2 text-white drop-shadow-sm">{site.name}</h1>
+
+        {/* 위치 · 날씨 */}
+        <div className="mt-2.5 flex items-center gap-3 text-white/85">
+          <span className="inline-flex items-center gap-1.5 text-body-sm">
+            <MapPin className="h-4 w-4 text-white/80" />
             {site.location ?? "—"}
           </span>
-          <div className="flex items-center gap-3 text-white/85">
-            <span className="font-mono text-xs">{formatDate(site.date)}</span>
-            <span className="h-3.5 w-px bg-white/25" />
-            <span className="inline-flex items-center gap-1.5">
-              <Weather className="h-4 w-4 text-amber-300" />
-              <span className="text-body-sm">{site.weather.label}</span>
-              <span className="font-display text-h6 tabular-nums text-white">{site.weather.temp_c}°</span>
-            </span>
-          </div>
+          <span className="h-3.5 w-px bg-white/25" />
+          <span className="inline-flex items-center gap-1.5">
+            <Weather className="h-4 w-4 text-amber-300" />
+            <span className="text-body-sm">{site.weather.label}</span>
+            <span className="font-display text-h6 tabular-nums text-white">{site.weather.temp_c}°</span>
+          </span>
         </div>
+
+        {/* 인삿말 */}
+        <p className="mt-3 inline-flex items-center gap-1.5 text-body text-white/85">
+          <HardHat className="h-4 w-4 text-amber-300" />
+          <span className="font-semibold text-white">{user.name}님</span>, 오늘도 안전한 하루 되세요
+        </p>
       </div>
     </div>
   );

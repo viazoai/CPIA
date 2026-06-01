@@ -1,4 +1,4 @@
-import { promises as fs } from "fs";
+import { promises as fs, existsSync } from "fs";
 import path from "path";
 import sql from "./pg";
 import { deriveChatSequence } from "./transforms";
@@ -7,7 +7,7 @@ import type {
   WBSNode, ReviewItem, ReportDaily, ReportKpi, SCurvePoint, BarItem,
   QuadrantPoint, OptimizerOutput, RawDataRow, WPSummaryRow,
   ImpactSiteDistribution, ImpactTrendPoint, MiddleOfficeAutomation,
-  SimulationSequence, FleetTrendPoint,
+  SimulationSequence, FleetTrendPoint, HomeFixture,
 } from "./types";
 
 /**
@@ -25,6 +25,7 @@ type FixtureMap = {
   report: { daily: ReportDaily[]; details: Record<string, ReportDetail> };
   dashboard: DashboardFixture;
   simulation: SimulationSequence;
+  home: HomeFixture;
 };
 
 export type Scenario = {
@@ -83,7 +84,26 @@ export interface DashboardFixture {
   };
 }
 
-const DATA_DIR = path.join(process.cwd(), "..", "data");
+/**
+ * 데이터 디렉토리 해석 — 실행 cwd 3종을 모두 견딘다.
+ *   1) DATA_DIR env (컨테이너: docker-compose 가 /app/data 주입)
+ *   2) <cwd>/data       — cwd 가 repo 루트 / 컨테이너 /app 인 경우 (API route 와 동일 컨벤션)
+ *   3) <cwd>/../data    — cwd 가 web/ 인 경우 (로컬 `npm run dev`)
+ * 디렉토리 존재가 아닌 실제 fixture(mock_sites.json) 존재로 판정 — 빈 stub 디렉토리 회피.
+ * (commit e93cc65 에서 4개 API route 만 고치고 fixtures.ts 가 누락됐던 것을 정렬)
+ */
+function resolveDataDir(): string {
+  if (process.env.DATA_DIR) return process.env.DATA_DIR;
+  const candidates = [
+    path.join(process.cwd(), "data"),
+    path.join(process.cwd(), "..", "data"),
+  ];
+  for (const dir of candidates) {
+    if (existsSync(path.join(dir, "mock_sites.json"))) return dir;
+  }
+  return candidates[0];
+}
+const DATA_DIR = resolveDataDir();
 
 export async function loadFixture<K extends keyof FixtureMap>(name: K): Promise<FixtureMap[K]> {
   const file = path.join(DATA_DIR, `mock_${name}.json`);

@@ -5,8 +5,8 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import sql from "@/lib/pg";
-import { deriveStageProgress } from "@/lib/transforms";
-import type { AgentStageProgress, AgentTaskRow } from "@/lib/types";
+import { deriveStageProgress, deriveItemStatus } from "@/lib/transforms";
+import type { AgentStageProgress, AgentTaskItem } from "@/lib/types";
 
 export async function GET(
   _req: Request,
@@ -20,54 +20,55 @@ export async function GET(
 
   const useMock = process.env.CPIA_DEMO_FALLBACK === "on";
 
-  const [stages, mapperItems, parserCounts] = await Promise.all([
+  const [stages, mapperItems, parserItems] = await Promise.all([
     deriveStageProgress(date),
     (sql as any)`
-      SELECT ma.idx, ma.l5_disc, ma.l6_main, ma.company, pa.work_content, ma.requires_review
+      SELECT ma.id, ma.wa, ma.l6_main, ma.company, ma.mapping_conf, ma.requires_review
       FROM mapper_activities ma
       JOIN pipeline_runs pr USING (run_id)
-      LEFT JOIN parser_activities pa ON pa.run_id = ma.run_id AND pa.idx = ma.idx
       WHERE pr.report_date = ${date}
         AND ma.is_mock = ${useMock}
-      ORDER BY ma.requires_review DESC, ma.mapping_conf ASC NULLS FIRST, ma.idx
+      ORDER BY ma.mapping_conf ASC NULLS FIRST
       LIMIT 200
     ` as Promise<Array<{
-      idx: number;
-      l5_disc: string | null;
+      id: number | string;
+      wa: string | null;
       l6_main: string | null;
       company: string | null;
-      work_content: string | null;
+      mapping_conf: number | string | null;
       requires_review: boolean | null;
     }>>,
     (sql as any)`
-      SELECT pa.company, COUNT(*)::int AS c, MAX(pa.l5_disc) AS trade
+      SELECT pa.id, pa.trade, pa.company, pa.work_content
       FROM parser_activities pa
       JOIN pipeline_runs pr USING (run_id)
       WHERE pr.report_date = ${date}
         AND pa.is_mock = ${useMock}
-      GROUP BY pa.company
-    ` as Promise<Array<{ company: string | null; c: number; trade: string | null }>>,
+      ORDER BY pa.id
+      LIMIT 200
+    ` as Promise<Array<{
+      id: number | string;
+      trade: string | null;
+      company: string | null;
+      work_content: string | null;
+    }>>,
   ]) as [AgentStageProgress[], any[], any[]];
 
-  // 단계 고유 스키마(AgentTaskRow). mock 폴백은 Parser/Mapper 만 채우고,
-  // 나머지 단계 실데이터는 /api/runs/items (run_id 기반)가 담당.
-  const items: Record<string, AgentTaskRow[]> = {};
+  const items: Record<string, AgentTaskItem[]> = {};
   items["Mapper"] = mapperItems.map((r) => ({
-    id: `mapper-${r.idx}`,
-    values: {
-      trade: r.l5_disc ?? "—",
-      company: r.company ?? "—",
-      work: r.work_content ?? "—",
-      wbs: r.l6_main ?? "(미매핑)",
-    },
-    statusLabel: r.l6_main != null ? "매핑완료" : "검토필요",
-    statusTone: (r.l6_main != null ? "done" : "hil_pending") as AgentTaskRow["statusTone"],
+    id: `mapper-${r.id}`,
+    trade: r.l6_main ?? "—",
+    contractor: r.company ?? "—",
+    status: deriveItemStatus("Mapper", {
+      requires_review: Boolean(r.requires_review),
+      mapping_conf: r.mapping_conf != null ? Number(r.mapping_conf) : 0,
+    }),
   }));
-  items["Parser"] = parserCounts.map((r) => ({
-    id: `parser-${r.company}`,
-    values: { trade: r.trade ?? "—", company: r.company ?? "—", category: "물량 (시트4)", count: String(r.c) },
-    statusLabel: "파싱완료",
-    statusTone: "done" as AgentTaskRow["statusTone"],
+  items["Parser"] = parserItems.map((r) => ({
+    id: `parser-${r.id}`,
+    trade: r.trade ?? r.work_content ?? "—",
+    contractor: r.company ?? "—",
+    status: "done" as const,
   }));
   for (const agent of ["Collector", "Human Review", "Atomizer", "Exporter", "Forecaster", "Optimizer"]) {
     items[agent] = [];

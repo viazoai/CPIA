@@ -7,6 +7,7 @@ from pipeline.agents.parser import (
     _disc_abbrev_to_kr,
     _ffill,
     _is_admin_job,
+    _is_bp_code,
     _is_total_row,
     _normalize_unit,
 )
@@ -632,3 +633,16 @@ def test_sheet4_col_indices_match_header(sample_tong_path: Path):
     assert ws.cell(3, 7).value == "Scope"
     assert ws.cell(3, 8).value == "대표물량_작업 내용"
     wb.close()
+
+
+def test_is_bp_code_multiformat():
+    # 통합 포맷 (회귀)
+    assert _is_bp_code("PH_X-088") is True
+    assert _is_bp_code("PH_X-002") is True
+    # 업체 포맷 (신규)
+    assert _is_bp_code("M15X_PH4_041") is True
+    # 회사명은 코드 아님
+    assert _is_bp_code("중원엔지니어링FAB") is False
+    assert _is_bp_code("㈜해광FAB") is False
+    assert _is_bp_code(None) is False
+    assert _is_bp_code("123_PH4_041") is False  # 순수 숫자 prefix 는 BP코드 아님

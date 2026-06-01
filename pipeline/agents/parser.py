@@ -97,13 +97,17 @@ def _ffill(
     return out
 
 
-_BP_RE = re.compile(r"^PH[_\- ]?X[_\- ]?\d+$", re.IGNORECASE)
+_BP_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"^PH[_\- ]?X[_\- ]?\d+$", re.IGNORECASE),  # 통합: PH_X-088
+    re.compile(r"^[A-Za-z][A-Za-z0-9]*_PH\d+_\d+$", re.IGNORECASE),  # 업체: M15X_PH4_041
+)
 
 
 def _is_bp_code(v: object) -> bool:
     if v is None:
         return False
-    return bool(_BP_RE.match(str(v).strip()))
+    s = str(v).strip()
+    return any(p.match(s) for p in _BP_PATTERNS)
 
 
 def _safe_int(v: object) -> int:
@@ -275,7 +279,7 @@ def _parse_sheet2_job_allocations(ws) -> list[JobAllocation]:
         c25 = ws.cell(r, 25).value
         if c25 != "O" or c2 is None or c3 is None:
             continue
-        if not _BP_RE.match(str(c3).strip()):
+        if not _is_bp_code(c3):
             continue
         starts.append(r)
 
@@ -443,7 +447,7 @@ def _parse_sheet3_equipment_allocations(ws) -> list[EquipmentAllocation]:
         c4 = ws.cell(r, 4).value
         if c2 is None or c3 is None or c4 is None:
             continue
-        if not _BP_RE.match(str(c3).strip()):
+        if not _is_bp_code(c3):
             continue
         # 헤더 reprint row 회피
         if "장비 투입" in str(c2):

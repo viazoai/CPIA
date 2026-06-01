@@ -93,14 +93,7 @@ services:
       - cpia_net
 
   web:
-    build:
-      context: ..
-      dockerfile: web/Dockerfile
-      args:
-        # 시연 데이터 초기화 버튼 (UserMenu) 노출 — Compose 빌드 시 1 로 inline.
-        # 일반 배포에서 숨기려면 0 으로 변경 후 재빌드.
-        NEXT_PUBLIC_DEMO_RESET: "1"
-    image: cpia/web:latest
+    image: ghcr.io/viazoai/cpia-web:latest
     container_name: cpia-web
     restart: unless-stopped
     environment:

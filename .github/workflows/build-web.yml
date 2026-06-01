@@ -1,0 +1,45 @@
+name: Build & Push Web Image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'web/**'
+      - 'infra/docker-compose.yml'
+  workflow_dispatch:
+
+env:
+  IMAGE: ghcr.io/viazoai/cpia-web
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: web/Dockerfile
+          push: true
+          tags: ghcr.io/viazoai/cpia-web:latest
+          build-args: |
+            NEXT_PUBLIC_DEMO_RESET=1
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

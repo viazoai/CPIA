@@ -648,3 +648,17 @@ def test_parse_sheet1_subcon_bp_company_split(sample_subcon_path):
     s = summaries[0]
     assert s["bp_code"] == "M15X_PH4_041"
     assert "중원엔지니어링" in s["company"]  # 회사명이 company (코드 누출 X)
+
+
+# ---------------------------------------------------------------------------
+# Task 7: 통합 E2E 골든 — baseline 실측 4건수 못박기
+# ---------------------------------------------------------------------------
+
+
+def test_integrated_e2e_golden_counts(sample_tong_path):
+    """통합포맷 회귀 골든 — baseline 실측 4건수 못박기."""
+    r = parse_daily_report(sample_tong_path)
+    assert len(r["activities"]) == 1193
+    assert len(r["bp_summaries"]) == 99
+    assert len(r["job_allocations"]) == 975
+    assert len(r["equipment_allocations"]) == 1111

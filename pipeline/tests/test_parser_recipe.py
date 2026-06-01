@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import openpyxl
+from pipeline.agents.parser import parse_daily_report
 from pipeline.agents.recipe.bpcode import is_bp_code_v2, looks_like_code_no_korean
+from pipeline.agents.recipe.extract import extract_sheet4
 from pipeline.agents.recipe.fingerprint import fingerprint
 from pipeline.agents.recipe.model import FormatRecipe, SheetRecipe, REQUIRED_FIELDS
 from pipeline.agents.recipe.recognize import recognize_format
@@ -118,3 +120,25 @@ def test_leak_guard_flags_ascii_only_codeish():
     assert looks_like_code_no_korean("ABC-2025-001")
     assert not looks_like_code_no_korean("중원엔지니어링")
     assert not looks_like_code_no_korean("Hyundai E&C")  # 공백 포함 영문 회사명 — 코드 모양 아님
+
+
+def _activities_via_recipe(path):
+    wb = openpyxl.load_workbook(path, data_only=True)
+    r = recognize_format(wb)
+    acts = extract_sheet4(wb[r.sheets["activity"].sheet_name], r.sheets["activity"])
+    wb.close()
+    return acts
+
+
+def test_sheet4_equiv_integrated():
+    golden = parse_daily_report(UNI)["activities"]
+    got = _activities_via_recipe(UNI)
+    assert len(got) == len(golden) == 1193
+    assert got == golden  # dict 완전 일치
+
+
+def test_sheet4_equiv_vendor():
+    golden = parse_daily_report(BP)["activities"]
+    got = _activities_via_recipe(BP)
+    assert len(got) == len(golden) == 33
+    assert got == golden

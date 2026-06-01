@@ -322,8 +322,11 @@ async def hil_1_resume(run_id: str, body: Hil1ResumeRequest) -> Hil1ResumeRespon
     }
 
     try:
+        # langgraph 1.2.0: Command(resume=<falsy>) (보정 0건 → {}) 는 전달되지 않아
+        # hil_1 interrupt 가 재발생한다. 항상 truthy 한 {"corrections": ...} 래퍼로 감싸
+        # 보정 유무와 무관하게 resume 가 전달되도록 한다 (hil_1_node 가 언랩).
         result = await graph.ainvoke(
-            Command(resume=corrections_payload),
+            Command(resume={"corrections": corrections_payload}),
             config={"configurable": {"thread_id": run_id}},
         )
     except EmptyChannelError as exc:

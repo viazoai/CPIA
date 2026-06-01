@@ -36,6 +36,16 @@ def sample_tong_path(cpia_root) -> Path:
 
 
 @pytest.fixture(scope="session")
+def sample_subcon_path(cpia_root) -> Path:
+    return cpia_root / "data/demo_inputs/20250925/업체작업일보_M15X_PH3_㈜신성이엔지_골조공사_20250925.xlsx"
+
+
+@pytest.fixture(scope="session")
+def demo_inputs_dir(cpia_root) -> Path:
+    return cpia_root / "data/demo_inputs/20250925"
+
+
+@pytest.fixture(scope="session")
 def azure_openai_env() -> dict[str, str]:
     """Azure OpenAI 환경 변수. 누락 시 테스트 skip."""
     keys = [

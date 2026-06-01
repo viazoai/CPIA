@@ -50,8 +50,8 @@ async def test_dual_end_both_paths_reach_end() -> None:
 
     with (
         patch("pipeline.graph.build_checkpointer", new=_memory_checkpointer),
-        patch("pipeline.graph._collector", new=lambda s: {}),
-        patch("pipeline.graph._parser", new=lambda s: {}),
+        patch("pipeline.graph._collector", new=AsyncMock(return_value={})),
+        patch("pipeline.graph._parser", new=AsyncMock(return_value={})),
         patch("pipeline.graph.mapper_node", new=AsyncMock(return_value={})),
         patch("pipeline.graph.hil_1_node", new=AsyncMock(return_value={})),
         patch("pipeline.graph.atomizer_node", new=AsyncMock(return_value={"atomized_ids": []})),
@@ -94,8 +94,8 @@ async def test_exporter_failure_does_not_break_reporter_path() -> None:
 
     with (
         patch("pipeline.graph.build_checkpointer", new=_memory_checkpointer),
-        patch("pipeline.graph._collector", new=lambda s: {}),
-        patch("pipeline.graph._parser", new=lambda s: {}),
+        patch("pipeline.graph._collector", new=AsyncMock(return_value={})),
+        patch("pipeline.graph._parser", new=AsyncMock(return_value={})),
         patch("pipeline.graph.mapper_node", new=AsyncMock(return_value={})),
         patch("pipeline.graph.hil_1_node", new=AsyncMock(return_value={})),
         patch("pipeline.graph.atomizer_node", new=AsyncMock(return_value={})),
@@ -135,8 +135,8 @@ async def test_topology_atomizer_has_two_outgoing_edges() -> None:
     cfg = _fake_graph_config()
     with (
         patch("pipeline.graph.build_checkpointer", new=_memory_checkpointer),
-        patch("pipeline.graph._collector", new=lambda s: {}),
-        patch("pipeline.graph._parser", new=lambda s: {}),
+        patch("pipeline.graph._collector", new=AsyncMock(return_value={})),
+        patch("pipeline.graph._parser", new=AsyncMock(return_value={})),
         patch("pipeline.graph.mapper_node", new=AsyncMock(return_value={})),
         patch("pipeline.graph.hil_1_node", new=AsyncMock(return_value={})),
         patch("pipeline.graph.atomizer_node", new=AsyncMock(return_value={})),

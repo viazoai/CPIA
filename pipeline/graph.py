@@ -256,6 +256,12 @@ async def hil_1_node(state: CPIAState, cfg) -> dict:
 
     corrections_raw = interrupt({"review_needed": review_needed})
     corrections_raw = corrections_raw or {}
+    # langgraph 1.2.0: Command(resume=<falsy>) (예: 보정 0건 → {}) 는 그래프에 전달되지
+    # 않아 interrupt 가 재발생, hil_1 에 영구히 갇힌다. endpoint(api.py)가 빈 보정에도
+    # 항상 truthy 한 {"corrections": {...}} 래퍼로 resume 하므로 여기서 언랩한다.
+    # 래퍼 없는 직접 dict 호출(테스트/구버전 호환)은 그대로 통과.
+    if isinstance(corrections_raw, dict) and set(corrections_raw) == {"corrections"}:
+        corrections_raw = corrections_raw["corrections"] or {}
     corrections = {int(k): v for k, v in corrections_raw.items()}
 
     corrected = _apply_corrections(mapped, corrections)
@@ -588,8 +594,8 @@ def build_graph(cfg: GraphConfig):
 
     async def _parser_p(state: CPIAState) -> dict:
         await set_current_node(pg_url, state["run_id"], "parser")
-        # parser_node 는 sync — await 사용 X.
-        return _parser(state)
+        # parser_node 는 async (multi-file 병렬 파싱 + merge) — await 필수.
+        return await _parser(state)
 
     async def _mapper(state: CPIAState) -> dict:
         await set_current_node(pg_url, state["run_id"], "mapper")

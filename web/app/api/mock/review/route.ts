@@ -35,6 +35,7 @@ export async function GET() {
     JOIN pipeline_runs pr USING (run_id)
     LEFT JOIN parser_activities pa ON pa.run_id = ma.run_id AND pa.idx = ma.idx
     WHERE pr.site_id = ${siteId}
+      AND pr.status = 'waiting_hil_1'
       AND ma.requires_review = TRUE
       AND ma.is_mock = ${useMock}
     ORDER BY ma.mapping_conf ASC NULLS FIRST
@@ -77,12 +78,15 @@ export async function GET() {
 
     return {
       id: `r-${r.id}`,
+      idx: r.idx,
       bp_name: r.company ?? "",
       work_content: r.work_content ?? "",
       quantity: r.today_qty != null ? Number(r.today_qty) : 0,
       unit: r.unit ?? "",
       ai_mapped_wp_id: aiMapped.wp_id,
       ai_mapped_path: aiMapped.path,
+      wa: r.wa,
+      l6_main: r.l6_main,
       confidence: r.mapping_conf != null ? Number(r.mapping_conf) : 0,
       status: r.requires_review ? "unconfirmed" : "confirmed",
       alternative_wps: alts.map((a) => {

@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from pipeline.collector.filename_parser import ParsedFilename, parse_filename
+from pipeline.agents.parser import _DATE_PATTERN
 
 
 @pytest.mark.parametrize(
@@ -79,3 +80,17 @@ def test_parsed_filename_frozen() -> None:
     assert pf is not None
     with pytest.raises((AttributeError, TypeError)):  # frozen → setattr 차단
         pf.date = "x"  # type: ignore[misc]
+
+
+def test_date_pattern_xlsm_8digit():
+    """8자리 날짜 + .xlsm 조합도 추출돼야 한다 (업체작업일보)."""
+    m = _DATE_PATTERN.search("업체작업일보_M15X_PH3_남웅건설_단열공사_20250925.xlsm")
+    assert m is not None
+    assert (m.group(1), m.group(2), m.group(3)) == ("2025", "09", "25")
+
+
+def test_date_pattern_xlsx_8digit_still_works():
+    """기존 통합포맷(.xlsx 8자리) 회귀 없음."""
+    m = _DATE_PATTERN.search("통합작업일보_..._20250925.xlsx")
+    assert m is not None
+    assert (m.group(1), m.group(2), m.group(3)) == ("2025", "09", "25")

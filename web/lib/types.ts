@@ -118,18 +118,24 @@ export interface WBSNode {
   total_count: number;          // 총 작업(매핑 활동) 건수 — 집계
   status: Status;
   children?: WBSNode[];
+  wa?: string;                  // work_package 노드의 원 wa (remap 역매핑용)
+  l6_main?: string;             // work_package 노드의 원 l6_main (remap 역매핑용)
 }
 
 export interface ReviewItem {
   id: string;
+  idx: number;                  // mapper_activities.idx — BE corrections key (= mapped 리스트 위치)
   bp_name: string;              // "A건설"
   work_content: string;         // 작업내용 원문
   quantity: number;
   unit: string;                 // "㎡" | "ton" | "m³" | "EA"
-  ai_mapped_wp_id: string;      // 매핑된 WP id
+  ai_mapped_wp_id: string;      // 매핑된 WP id (remap 시 갱신)
   ai_mapped_path: string;       // "M15X > 골조 > WP-3-2 거푸집"
+  wa: string | null;            // 현재 매핑 wa (remap 시 갱신) — resume corrections 전달용
+  l6_main: string | null;       // 현재 매핑 l6_main (remap 시 갱신)
   confidence: number;           // 0.0~1.0
   status: "confirmed" | "unconfirmed";
+  remapped?: boolean;           // 사용자가 AI 추천과 다르게 수정했는지 (corrections 전송 대상)
   alternative_wps?: { id: string; path: string; score: number }[];
 }
 

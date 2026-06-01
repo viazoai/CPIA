@@ -307,6 +307,8 @@ export async function wbsTreeBuild(siteId: string, siteName?: string): Promise<W
       total_count: totalCount,
       status: riskToStatus(r.worst_risk),
       children: [],
+      wa: r.wa,             // remap 역매핑용 — page 가 wp_id→{wa,l6_main} 룩업
+      l6_main: r.l6_main,
     };
     discNode.children!.push(l6Node);
     discNode.review_count += reviewCount;

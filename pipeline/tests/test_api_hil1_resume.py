@@ -187,10 +187,14 @@ async def test_hil1_resume_preserves_string_key_in_command_resume(
     # ainvoke 첫 positional 인자 = Command(resume=...)
     cmd = mock_graph.ainvoke.call_args.args[0]
     assert isinstance(cmd, Command)
-    # resume payload 의 key 가 string "5" 그대로 (int 5 X)
-    assert "5" in cmd.resume
-    assert 5 not in cmd.resume
-    assert all(isinstance(k, str) for k in cmd.resume.keys())
+    # resume 는 {"corrections": {...}} truthy 래퍼 (langgraph 1.2.0 의 falsy-resume
+    # 미전달 버그 회피 — 빈 보정도 전달되게 함). hil_1_node 가 언랩.
+    assert set(cmd.resume) == {"corrections"}
+    inner = cmd.resume["corrections"]
+    # 래퍼 내부 corrections 의 key 가 string "5" 그대로 (int 5 X) — drift #N5
+    assert "5" in inner
+    assert 5 not in inner
+    assert all(isinstance(k, str) for k in inner.keys())
 
 
 # ---------------------------------------------------------------------------

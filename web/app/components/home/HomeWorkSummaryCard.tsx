@@ -23,13 +23,13 @@ const TRADE_FALLBACK = "bg-surface-soft text-ink-mid";
  */
 export function HomeWorkSummaryCard({ rows, workSummary }: Props) {
   return (
-    <div>
+    <div className="flex h-full flex-col">
       {/* 블록 밖 헤더 */}
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-3">
         <div className="flex items-baseline gap-2">
           <h2 className="font-display text-h5 text-ink">오늘 작업내용</h2>
           <span className="font-mono text-xs uppercase tracking-wider text-ink-light">
-            처리완료 {rows.length}건
+            주요 {rows.length}건
           </span>
         </div>
         <div className="flex items-center gap-4">
@@ -40,7 +40,7 @@ export function HomeWorkSummaryCard({ rows, workSummary }: Props) {
       </div>
 
       {/* 테이블 카드 */}
-      <div className="overflow-hidden rounded-card border border-border-soft bg-card shadow-xs">
+      <div className="flex-1 overflow-hidden rounded-card border border-border-soft bg-card shadow-xs">
         <div className="overflow-x-auto">
           <table className="w-full text-body-sm">
             <thead className="bg-surface-soft/60">
@@ -54,8 +54,8 @@ export function HomeWorkSummaryCard({ rows, workSummary }: Props) {
             <tbody>
               {rows.map((r, i) => (
                 <tr key={i} className="border-t border-border-soft transition-colors hover:bg-surface-soft/40">
-                  <td className="px-5 py-3 font-medium text-ink">{r.bp_name}</td>
-                  <td className="px-5 py-3">
+                  <td className="px-5 py-2.5 font-medium text-ink">{r.bp_name}</td>
+                  <td className="px-5 py-2.5">
                     <span
                       className={cn(
                         "inline-flex rounded-md px-2 py-0.5 text-xs font-medium",
@@ -65,8 +65,8 @@ export function HomeWorkSummaryCard({ rows, workSummary }: Props) {
                       {r.trade}
                     </span>
                   </td>
-                  <td className="px-5 py-3 text-ink-mid">{r.work_content}</td>
-                  <td className="px-5 py-3 text-right font-display tabular-nums text-ink">
+                  <td className="px-5 py-2.5 text-ink-mid">{r.work_content}</td>
+                  <td className="px-5 py-2.5 text-right font-display tabular-nums text-ink">
                     {r.workers}
                     <span className="ml-0.5 text-xs text-ink-light">명</span>
                   </td>

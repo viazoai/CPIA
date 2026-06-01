@@ -267,15 +267,24 @@ export interface HomeSiteInfo {
   weather: HomeWeather;
 }
 
-/** 협력업체별 일보 처리 깔때기 — 예정 = 제출(완료+처리중) + 미제출 */
+/**
+ * 협력업체 일보 처리/제출 지표.
+ *  - 제출 현황(오늘): expected / submitted / unsubmitted
+ *  - Agent 처리 현황(최근 1년 누적): completed_cum / hours_saved_cum (+ 일평균 rate)
+ */
 export interface HomeProcessing {
+  /** 오늘 예정 업체 수 */
   expected: number;
+  /** 오늘 제출 업체 수 */
   submitted: number;
-  completed: number;
-  in_progress: number;
+  /** 오늘 미제출 업체 수 */
   unsubmitted: number;
-  /** 오늘 처리완료분으로 절감된 시간(h) = 완료건 × 수작업 시간/건 */
-  hours_saved_today: number;
+  /** 최근 1년 누적 처리완료 건수 */
+  completed_cum: number;
+  /** 최근 1년 누적 절감 시간(h) — 일평균 절감 × 가동일 */
+  hours_saved_cum: number;
+  /** 일 평균 절감 시간(h) — 설명용 (M15X 월 ~221h ÷ 가동일 기준) */
+  hours_saved_per_day: number;
 }
 
 export interface HomeUnsubmittedCompany {

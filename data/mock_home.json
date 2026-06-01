@@ -8,12 +8,12 @@
   },
   "user": { "name": "김현장" },
   "processing": {
-    "expected": 12,
-    "submitted": 9,
-    "completed": 7,
-    "in_progress": 2,
-    "unsubmitted": 3,
-    "hours_saved_today": 18
+    "expected": 112,
+    "submitted": 98,
+    "unsubmitted": 14,
+    "completed_cum": 23800,
+    "hours_saved_cum": 2640,
+    "hours_saved_per_day": 10
   },
   "unsubmitted_companies": [
     { "trade": "철근", "name": "한신산업" },
@@ -21,7 +21,7 @@
     { "trade": "도장", "name": "해광" }
   ],
   "work_summary": {
-    "total_workers": 69,
-    "total_equipment": 6
+    "total_workers": 880,
+    "total_equipment": 64
   }
 }

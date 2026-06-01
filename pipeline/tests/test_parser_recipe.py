@@ -3,7 +3,7 @@ from __future__ import annotations
 import openpyxl
 from pipeline.agents.parser import parse_daily_report
 from pipeline.agents.recipe.bpcode import is_bp_code_v2, looks_like_code_no_korean
-from pipeline.agents.recipe.extract import extract_sheet4
+from pipeline.agents.recipe.extract import extract_sheet1, extract_sheet4
 from pipeline.agents.recipe.fingerprint import fingerprint
 from pipeline.agents.recipe.model import FormatRecipe, SheetRecipe, REQUIRED_FIELDS
 from pipeline.agents.recipe.recognize import recognize_format
@@ -142,3 +142,23 @@ def test_sheet4_equiv_vendor():
     got = _activities_via_recipe(BP)
     assert len(got) == len(golden) == 33
     assert got == golden
+
+
+def _bp_via_recipe(path):
+    wb = openpyxl.load_workbook(path, data_only=True)
+    r = recognize_format(wb)
+    out = extract_sheet1(wb[r.sheets["bp_summary"].sheet_name], r.sheets["bp_summary"])
+    wb.close()
+    return out
+
+
+def test_sheet1_equiv_integrated():
+    golden = parse_daily_report(UNI)["bp_summaries"]
+    got = _bp_via_recipe(UNI)
+    assert len(got) == len(golden) == 99
+    assert got == golden
+
+
+def test_sheet1_equiv_vendor_company():
+    got = _bp_via_recipe(BP)
+    assert {s["company"] for s in got} == {"중원엔지니어링"}  # 누출 0, 정규화 OK

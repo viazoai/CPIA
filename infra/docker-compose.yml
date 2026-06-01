@@ -61,10 +61,7 @@ services:
       - cpia_net
 
   pipeline:
-    build:
-      context: ..
-      dockerfile: pipeline/Dockerfile
-    image: cpia/pipeline:latest
+    image: ghcr.io/viazoai/cpia-pipeline:latest
     container_name: cpia-pipeline
     restart: unless-stopped
     environment:

@@ -13,7 +13,13 @@ import { HomeWorkSummaryCard } from "@/app/components/home/HomeWorkSummaryCard";
 export default async function HomePage() {
   const home = await loadFixture("home");
   const report = await loadFixture("report");
-  const rows = report.details[home.site.date]?.raw_data ?? [];
+
+  // 작업내용 = 해당 날짜의 raw_data. 날짜가 어긋나면(데모 데이터 변경 등)
+  // 가장 최근 날짜로 fallback → 라이브 시연 중 테이블이 조용히 비는 것 방지.
+  const details = report.details ?? {};
+  const latestDate = Object.keys(details).sort().pop() ?? "";
+  const rows =
+    details[home.site.date]?.raw_data ?? details[latestDate]?.raw_data ?? [];
 
   return (
     <div className="flex flex-col">

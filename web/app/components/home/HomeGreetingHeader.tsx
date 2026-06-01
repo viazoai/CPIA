@@ -55,8 +55,7 @@ export function HomeGreetingHeader({ user, site }: Props) {
           <h1 className="mt-2 font-display text-h2 text-white drop-shadow-sm">{site.name}</h1>
           <p className="mt-3 inline-flex items-center gap-1.5 text-body text-white/85">
             <HardHat className="h-4 w-4 text-amber-300" />
-            <span className="font-semibold text-white">{user.name}님</span>, 안녕하세요 — 오늘도{" "}
-            <span className="font-semibold text-amber-300">안전</span> 작업 되세요
+            <span className="font-semibold text-white">{user.name}님</span>, 오늘도 안전한 하루 되세요 
           </p>
         </div>
 

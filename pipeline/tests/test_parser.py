@@ -667,6 +667,22 @@ def test_is_bp_code_multiformat():
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Task 5: 업체 포맷 시트2 final_flag 없어도 job_allocations > 0
+# ---------------------------------------------------------------------------
+
+
+def test_sheet2_job_subcon_nonzero(sample_subcon_path):
+    """업체포맷: final_flag 없어도 job_allocations > 0."""
+    import openpyxl
+    from pipeline.agents.parser import _parse_sheet2_job_allocations
+
+    wb = openpyxl.load_workbook(sample_subcon_path, data_only=True)
+    jobs = _parse_sheet2_job_allocations(wb["2.직종별 인원현황"])
+    wb.close()
+    assert len(jobs) > 0  # 현재는 0 (col25=='O' 게이트)
+
+
 def test_parse_sheet1_subcon_bp_company_split(sample_subcon_path):
     """업체포맷 시트1: BP코드와 회사명이 정확히 분리 (Task 2 다중패턴 효과)."""
     wb = openpyxl.load_workbook(sample_subcon_path, data_only=True)

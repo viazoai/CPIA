@@ -268,6 +268,9 @@ def _parse_sheet2_job_allocations(ws) -> list[JobAllocation]:
       - 3 시간대 그룹 (yest_cum col 7, today_incr col 13, today_cum col 19)
       - cross-check (직종 cum.t 합 vs grand_total col 24) — 불일치 시 미사용 (silent)
     """
+    # 업체포맷 감지: col25 에 'O' 가 하나라도 있으면 통합포맷 (final_flag 게이트 유지)
+    has_final_flag = any(ws.cell(r, 25).value == "O" for r in range(6, ws.max_row + 1))
+
     # 1. group 시작 row 식별
     starts: list[int] = []
     for r in range(6, ws.max_row + 1):
@@ -277,7 +280,9 @@ def _parse_sheet2_job_allocations(ws) -> list[JobAllocation]:
         c2 = ws.cell(r, 2).value
         c3 = ws.cell(r, 3).value
         c25 = ws.cell(r, 25).value
-        if c25 != "O" or c2 is None or c3 is None:
+        if c2 is None or c3 is None:
+            continue
+        if has_final_flag and c25 != "O":
             continue
         if not _is_bp_code(c3):
             continue
@@ -305,8 +310,9 @@ def _parse_sheet2_job_allocations(ws) -> list[JobAllocation]:
 
         for r in range(start, end + 1):
             c4 = ws.cell(r, 4).value
-            c25 = ws.cell(r, 25).value
-            if c4 is None or c25 != "O":
+            if c4 is None:
+                continue
+            if has_final_flag and ws.cell(r, 25).value != "O":
                 continue
             job_type = str(ws.cell(r, 6).value or "").strip()
             if not job_type:
@@ -517,6 +523,9 @@ def _parse_sheet3_equipment_allocations(ws) -> list[EquipmentAllocation]:
       - 3 시간대 그룹 (yest_cum col 7, today_incr col 13, today_cum col 19)
       - subtotal 없음 → cross-check 불요
     """
+    # 업체포맷 감지: col25 에 'O' 가 하나라도 있으면 통합포맷 (final_flag 게이트 유지)
+    has_final_flag = any(ws.cell(r, 25).value == "O" for r in range(6, ws.max_row + 1))
+
     starts: list[int] = []
     for r in range(6, ws.max_row + 1):
         c2 = ws.cell(r, 2).value
@@ -550,11 +559,10 @@ def _parse_sheet3_equipment_allocations(ws) -> list[EquipmentAllocation]:
         company = normalize_company(split_company_and_zone(company_raw)) or ""
 
         for r in range(start, end + 1):
-            c25 = ws.cell(r, 25).value
-            if c25 != "O":
-                continue
             c4 = ws.cell(r, 4).value
             if c4 is None:
+                continue
+            if has_final_flag and ws.cell(r, 25).value != "O":
                 continue
             count_today_cum = _shift_dict_row(ws, r, 19)
             eqs.append(

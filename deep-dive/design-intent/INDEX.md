@@ -1,14 +1,21 @@
 # CPIA design-intent — Master INDEX
 
-- **Generated**: 2026-05-26 (Mock 재설계 PR #40 + AWS 마이그 + view_builder MEDIAN + backfill_v2 + ForecastChart catch-up + site_summary LLM cycle 후 갱신)
-- **Git SHA**: `1ba783f` (A_Track HEAD). 이전 스냅샷 `ef7c6cd` 대비 **70+ commits, 204 files, +30,151 / -3,055 LOC, pipeline non-test 8,928 → 11,656 (+31%)**
+- **Generated**: 2026-06-01 (parser 헤더기반 다포맷 7-task + parser_node async multi-file merge + hil_1 resume falsy-fix → main 머지 d317be9)
+- **Git SHA**: `d317be9` (A_Track→main 머지). 이전 스냅샷 `1ba783f` 대비 **parser·orchestration 2 서브시스템만 변경 (그 외 6개 미변경)**. 그 이전 `ef7c6cd` 대비 **70+ commits, 204 files, +30,151 / -3,055 LOC, pipeline non-test 8,928 → 11,656 (+31%)**
 - **Branch**: `A_Track` (main 머지 완료 — `7e9e1a1` 산식 A + site_summary / `1ba783f` Mock 재설계 sync). working tree: view_builder.py 1 줄 (다른 세션).
 - **Scope**: pipeline 전체 (9 active subsystem + 신규 exporter + collector IDLE worker + scripts 20+). Web/B_Track 제외.
 - **Pair**: `../architecture_overview.md` (deep-dive 라이트, 415 줄) + `../deep_dive_<X>.md` × 8 (각 300~1,100 줄, 합계 5,705)
 
 코드 변경/추가 작업 진입 시 아래 T1 인덱스에서 **함수 이름 / 키워드 / 파일** grep → 매칭 시 해당 서브시스템 `design_intent_<X>.md` 의 T2 카드 확인 → 기존 핸들러 확장 vs 새 설계 판단.
 
-> **이번 cycle 갱신 요지 (vs ef7c6cd / 2026-05-20)**:
+> **이번 cycle 갱신 요지 (vs 1ba783f / 2026-06-01, d317be9 — parser·orchestration 2 서브시스템만)**:
+>
+> - **parser 헤더기반 다포맷 7-task** (`65a8027`~`ac0a8c5`): issue#52 업체작업일보 컬럼시프트 garbage 해소. 시트4 `_resolve_sheet4_columns`/`_build_activity` 헤더 텍스트 기반 컬럼 해석, `_BP_PATTERNS` BP 코드 2 패턴 (통합 + 업체), 시트2/3 `has_final_flag` 조건부 게이트, `_DATE_PATTERN` .xlsm+8자리 수용, **무력 LLM 검증 wrapper 완전 제거** (LLM 0 호출 완전 결정론). parser.py 760 → 664 LOC ("parser.py 변경 0" 이전 라벨 무효). 골든 고정: 통합 byte-identical `act=1193/bp=99/job=975/equip=1111` + 업체 `act=33/bp=1/job=76/equip=68`.
+> - **parser_node async multi-file merge** (`a8d17e4`): 옛 25 LOC sync 단일파일 래퍼 → 64 LOC async N병렬 (`to_thread` Semaphore 4) + `_merge_reports` concat → 1 통합 `ParsedDailyReport`. `build_graph` 의 `_parser_p` wrapper 가 `return await _parser(state)` 로 await 추가. 10 업체파일 → activities 330.
+> - **hil_1 langgraph 1.2.0 falsy-resume fix** (`a8d17e4`): `Command(resume=<falsy>)` (보정 0건 → 빈 `{}`) 미전달로 interrupt 재발생 → hil_1 영구 갇힘 ("승인 눌러도 안 넘어감"). `api.py` 가 항상 truthy 래퍼 `Command(resume={"corrections": payload})` (api.py:328~331), `hil_1_node` 가 `set(corrections_raw)=={"corrections"}` 분기로 언랩 (graph.py:263~264). 결정론 재현으로 root cause 확정.
+> - **FE-BE 승인 배선 + A_Track→main 직접 머지** (사용자 직접 지시): 위 3종이 main 으로 머지 (d317be9). 그 외 6개 서브시스템 (persistence/mapper/atomizer/forecaster/optimizer/reporter) 미변경.
+>
+> **이전 cycle 갱신 요지 (vs ef7c6cd / 2026-05-20, 1ba783f 기록 — 보존)**:
 >
 > - **graph 진입점 이동 (D-12)**: `mapper` → `collector_node` (`55cad90`) + `parser_node` 분리 (`6b9db7c` state-key drift fix). 9-노드 production topology 완성.
 > - **IMAP IDLE Collector 신설**: `pipeline/collector/` 폴더 (filename_parser 64 + idle_worker 260 + config 68) + `agents/collector_node.py` 63 + `collector_inbox` 테이블 + 4 helper.
@@ -29,16 +36,16 @@
 
 | 서브시스템 | 파일 | T1 | T2 | LOC | 핵심 책임 | 본 cycle 변경 |
 |---|---|---:|---:|---:|---|---|
-| orchestration | [design_intent_orchestration.md](./design_intent_orchestration.md) | 22 → 33 | 12 → 21 | 868 | LangGraph StateGraph + 9 node + 2+1 builder + HIL 1/2 + IDLE worker + collector_node + parser_node + checkpoint | D-12 collector→parser→mapper 진입 + build_atomized_demo_graph + IDLE worker + get_llm_semaphore + Critical 2 (AUTO_BYPASS / parsed annotation) |
+| orchestration | [design_intent_orchestration.md](./design_intent_orchestration.md) | 33 | 21 → 24 | 868 | LangGraph StateGraph + 9 node + 2+1 builder + HIL 1/2 + IDLE worker + collector_node + parser_node + checkpoint | **d317be9 (`a8d17e4`)**: parser_node sync→async N병렬 multi-file merge (`_merge_reports` 신규, `_parser_p` await) + hil_1 langgraph 1.2.0 falsy-resume fix (truthy 래퍼 `{"corrections":...}` api.py:328~331 → graph.py:263~264 언랩). T2 신규 1 (`hil_1_node — falsy-resume fix`) + 갱신 3 (hil_1_node 본체 / parser_node / build_graph). 라인 shift (hil_1_node :233, build_graph :578) |
 | persistence | [design_intent_persistence.md](./design_intent_persistence.md) | 27 → 35 (+ 12 endpoint + /export/run) | 16 → 21 | 584 | PG asyncpg pool + Chroma HTTP + FastAPI 12 endpoint + exporter route + collector_inbox helper | collector_inbox + 4 helper / lifespan collector task + exporter include / `/export/run` + fetch_sheet_data / mapper_activities +4 컬럼 / site_summary_text 컬럼 (★ migration 없음) / Critical 3 |
-| parser | [design_intent_parser.md](./design_intent_parser.md) | 20 → 30+ | 11 → 13 | 517 | xlsx → 4시트 + LLM 검증 wrapper + IDLE listener + 파일명 분해 | parser/parser_post/parser_llm 자체 변경 0, 모든 변경이 graph 진입 분리 (collector_node + parser_node + filename_parser + idle_worker + config) |
+| parser | [design_intent_parser.md](./design_intent_parser.md) | 30+ | 13 → 17 | 664 | xlsx → 4시트 header-based 다포맷 (LLM 0 호출) + parser_node async merge + IDLE listener + 파일명 분해 | **d317be9 (`65a8027`~`a8d17e4`)**: header-based 다포맷 7-task — parser.py 22행 신규 4 (`_BP_PATTERNS` :97, `_norm_header` :353, `_resolve_sheet4_columns` :357, `_build_activity` :403; `_DATE_PATTERN` :589 이동) + parser_node.py 2행 (`_merge_reports` :18, async `parser_node` :40). 무력 LLM 검증 제거 (parser.py 760→664 LOC, "변경 0" 라벨 무효). T2 신규 5 (`_resolve_sheet4_columns` / `_build_activity` / `_BP_PATTERNS`·`_is_bp_code` / `_DATE_PATTERN` / `_merge_reports`). 이슈 = issue#52 컬럼시프트 + multi-file 통합 |
 | mapper | [design_intent_mapper.md](./design_intent_mapper.md) | 12 → 15 | 11 → 10 | 414 | 6단계 매핑 + resolve_wa 7단계 + shift-weighted MH + RAG top-K alternatives + cum_workers prorate | mapper_activities 33→37 컬럼 (l5_disc / l7_sub / l7_5_activity / sub_work_area, d40c84f) — mapper.py 자체는 미세 변경, db.py SQL 만 확장 |
 | atomizer | [design_intent_atomizer.md](./design_intent_atomizer.md) | 4 → 5 | 4 → 7 | 305 | Chroma daily_activities INSERT + mapped_history INSERT + retry/batch 가드 | 이전 "코드 변경 없음" 라벨 무효화 — `_format_document` live/backfill 2 모드 신규 + metadata 12→15 필드 + ChromaClient retry 3 + batch 100 split + batch_size 64 + **trade 컬럼 누락 (#A-N3)** |
 | forecaster | [design_intent_forecaster.md](./design_intent_forecaster.md) | 22 → 24 | 13 → 17 | 301 | RAG 우선 + Plan fallback 진단 + asyncio.gather + LLM cold start | 이전 "코드 변경 없음" 라벨 무효화 — plan_main_qty atomic distinct SUM (l6 SUM 폭주 fix, 6a89848) + forecast() asyncio.gather + Semaphore 4× (6ba0126) + get_llm_semaphore 흡수 + fetch_pg_actual_cum_qty PG 우회 |
 | optimizer | [design_intent_optimizer.md](./design_intent_optimizer.md) | 30+ → 55+ | 17 → 14 (★ 7 신규) | 729 | LLM 조언 + view_builder 9+1 jsonb + scenarios percentile 4 + recovery + ★ 산식 A WV×MH + ★ site_summary LLM JSON | view_builder.py 752 → 1,882 (+1,130) — 산식 A (★★) + site_summary (★★) + MEDIAN fix + 4 시나리오 percentile + v1↔v2 분기 (drift #N19) + quadrant Jaccard 100% + retrieve INCIDENT 9종 + optimize() asyncio.gather + to_thread 4× / working tree 미커밋 1 줄 (#1) |
 | reporter | [design_intent_reporter.md](./design_intent_reporter.md) | 5 → 22 | 7 → 14 (★ 8 신규) | 330 | 종합 보고서 + daily_reports + G8/G2 + **exporter 4 시트 xlsx + /export/run + lifespan include** | 이전 "코드 변경 없음" 라벨 무효화 — reporter 자체 변경 0, exporter (render_xlsx + 4 _fill_* + COL dict + timeshift + NoDataError + fetch_sheet_data + consolidated_template.xlsx + /export/run + app.include_router) 신규 흡수. **reporter→exporter rename 미시행 (CLAUDE.md 약속 vs 실 코드, #R-N1)** |
 
-**합계**: T1 ≈ 229+ public 함수/클래스 / T2 ≈ 117 이슈 카드 (이전 93 → +24). 본 cycle design_intent 산출 4,048 줄 (이전 ~3,200 → +800).
+**합계**: T1 ≈ 229+ public 함수/클래스 / T2 ≈ 124 이슈 카드 (이전 117 → +7: parser 13→17, orchestration 21→24). 본 cycle (d317be9) 은 parser·orchestration 2 서브시스템만 갱신 — 그 외 6개 미변경.
 
 ---
 
@@ -50,8 +57,15 @@
 
 | Function/Class | File:Line | 서브시스템 | One-line role |
 |---|---|---|---|
-| `collector_node` | agents/collector_node.py | orchestration / parser | ★ NEW (55cad9) graph 진입 노드 |
-| `parser_node` | agents/parser_node.py | orchestration / parser | ★ NEW (6b9db7c) state-key drift fix wrapper |
+| `collector_node` | agents/collector_node.py:16 | orchestration / parser | ★ NEW (55cad9) graph 진입 노드 |
+| `parser_node` (async N병렬) | agents/parser_node.py:40 | orchestration / parser | ★ 갱신 (a8d17e4) sync 단일파일 → async multi-file merge |
+| `_merge_reports` | agents/parser_node.py:18 | parser / orchestration | ★ NEW (a8d17e4) N개 ParsedDailyReport concat |
+| `_resolve_sheet4_columns` | agents/parser.py:357 | parser | ★ NEW (25bb85d) 시트4 헤더 텍스트 기반 컬럼 해석 (issue#52 컬럼시프트 본체) |
+| `_build_activity` | agents/parser.py:403 | parser | ★ NEW (25bb85d) cols 인덱스 기준 단일 row → Activity dict |
+| `_norm_header` | agents/parser.py:353 | parser | ★ NEW (25bb85d) 헤더 셀 공백 제거 정규화 |
+| `_BP_PATTERNS` / `_is_bp_code` | agents/parser.py:97, 103 | parser | ★ NEW (7d2befc) BP 코드 2 패턴 (통합 `PH_X-NNN` + 업체 `M15X_PHn_NNN`) |
+| `_DATE_PATTERN` (.xlsm+8자리) | agents/parser.py:589 | parser | ★ 갱신 (65a8027) .xlsx만→.xlsx/.xlsm + 8/6자리 수용 |
+| `hil_1_node — falsy-resume 언랩` | graph.py:257~265 + api.py:320~331 | orchestration | ★ NEW (a8d17e4) langgraph 1.2.0 Command(resume=<falsy>) 미전달 fix |
 | `build_atomized_demo_graph` | graph.py | orchestration | ★ NEW (ef95e02) 15일 backfill 표준 |
 | `get_llm_semaphore` | agents/_concurrency.py | orchestration | ★ NEW (1e24dc6) LLM 공용 |
 | `idle_loop` / `run_for_attachment` | collector/idle_worker.py | orchestration / parser | ★ NEW IMAP IDLE loop |
@@ -83,9 +97,10 @@
 
 | Function | 변경 |
 |---|---|
-| `build_graph` (graph.py) | 진입점 collector 로 이동, 노드 9 개로 확장 |
+| `build_graph` (graph.py:578) | 진입점 collector 로 이동, 노드 9 개로 확장. d317be9: `_parser_p` wrapper 가 async `parser_node` 를 `return await _parser(state)` 로 await (graph.py:595~598) |
 | `mapper_node` (graph.py) | 5 INSERT 비-atomic (#M1) — 변경 없음, 이슈 신규 발견 |
-| `hil_1_node` / `hil_2_node` (graph.py) | CPIA_HIL_AUTO_BYPASS env 활용 (이전 cycle 흡수), prod 가드 부재 #C1 + HIL2 AUTO_BYPASS 없음 #M4 |
+| `hil_1_node` (graph.py:233) | d317be9 (`a8d17e4`): resume 래퍼 언랩 분기 추가 (graph.py:263~264) — langgraph 1.2.0 falsy-resume fix. + CPIA_HIL_AUTO_BYPASS prod 가드 부재 #C1 |
+| `hil_2_node` (graph.py) | CPIA_HIL_AUTO_BYPASS env 활용 (이전 cycle 흡수), HIL2 AUTO_BYPASS 없음 #M4 |
 | `optimize` (optimizer/agent.py) | asyncio.gather + to_thread 4× + 9 jsonb fan-out 확장 |
 | `forecast` (forecaster/agent.py) | asyncio.gather + Semaphore 4× |
 | `insert_mapped_history_batch` (db.py) | ON CONFLICT 가 trade 컬럼 누락 #C3 (변경 없음, 이슈 신규 발견) |
@@ -143,5 +158,6 @@
 
 ---
 
-*최종 수정: 2026-05-26 (1ba783f) — 70+ commit 흡수, 8 서브시스템 design_intent 갱신 (총 4,048 줄, 이전 ~3,200 +800)*
+*최종 수정: 2026-06-01 (d317be9, A_Track→main 머지) — parser·orchestration 2 서브시스템만 갱신. parser 헤더기반 다포맷 7-task (issue#52 컬럼시프트 garbage 해소, T2 +5) + parser_node async multi-file merge + hil_1 langgraph 1.2.0 falsy-resume fix (T2 +1, orchestration 갱신 3). 그 외 6개 서브시스템 미변경.*
+*이전 수정: 2026-05-26 (1ba783f) — 70+ commit 흡수, 8 서브시스템 design_intent 갱신 (총 4,048 줄, 이전 ~3,200 +800)*
 *이전 수정: 2026-05-20 (ef7c6cd) — parser+mapper refactor + view_builder 752 LOC + FastAPI 12 endpoint*

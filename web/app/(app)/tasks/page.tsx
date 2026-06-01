@@ -6,7 +6,7 @@ import { AgentWorkflowList } from "@/app/components/tasks/AgentWorkflowList";
 import { AgentTaskItemList } from "@/app/components/tasks/AgentTaskItemList";
 import { UploadDailyReportDialog } from "@/app/components/tasks/UploadDailyReportDialog";
 import { Button } from "@/components/ui/button";
-import type { DailyTask, AgentStageProgress, AgentTaskItem } from "@/lib/types";
+import type { DailyTask, AgentStageProgress, AgentTaskRow } from "@/lib/types";
 import {
   useSimStore,
   useSimTick,
@@ -17,7 +17,7 @@ import {
 
 interface DetailData {
   stages: AgentStageProgress[];
-  items: Record<string, AgentTaskItem[]>;
+  items: Record<string, AgentTaskRow[]>;
 }
 
 interface ProgressData {
@@ -88,7 +88,7 @@ export default function AgentTasksPage() {
   }, []);
 
   // DB items — hasProgress 시 선택된 agent 의 실제 아이템 조회.
-  const [dbItems, setDbItems] = useState<AgentTaskItem[]>([]);
+  const [dbItems, setDbItems] = useState<AgentTaskRow[]>([]);
 
   // 2) selectedDate 변경 시에만 detail fetch.
   //    실 progress(hasProgress) 또는 sim 활성 시 mock detail 건너뜀.
@@ -183,7 +183,7 @@ export default function AgentTasksPage() {
           `/api/runs/items?run_id=${runId}&agent=${encodeURIComponent(selectedAgent)}`,
         );
         if (cancelled || !res.ok) return;
-        const d = (await res.json()) as { ok: boolean; items?: AgentTaskItem[] };
+        const d = (await res.json()) as { ok: boolean; items?: AgentTaskRow[] };
         if (cancelled || !d.ok) return;
         setDbItems(d.items ?? []);
       } catch {
@@ -298,7 +298,7 @@ export default function AgentTasksPage() {
     ?? (isSimSelected ? (simStages as AgentStageProgress[]) : detail?.stages ?? []);
 
   // 아이템 우선순위: DB 실 데이터(hasProgress) > mock detail
-  const itemsForAgent: AgentTaskItem[] = hasProgress
+  const itemsForAgent: AgentTaskRow[] = hasProgress
     ? dbItems
     : selectedAgent
       ? (detail?.items ?? {})[selectedAgent] ?? []
@@ -372,7 +372,7 @@ export default function AgentTasksPage() {
               <AgentTaskItemList
                 selectedAgent={selectedAgent}
                 stage={selectedStage}
-                items={itemsForAgent}
+                rows={itemsForAgent}
               />
             ) : (
               <div className="flex h-full items-center justify-center text-xs text-ink-light">

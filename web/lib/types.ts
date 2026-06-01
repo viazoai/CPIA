@@ -100,6 +100,27 @@ export interface AgentTaskItem {
   status: "done" | "processing" | "received" | "hil_pending" | "blocked";
 }
 
+// 단계(Agent)별 카드 컬럼은 서로 다르다 (파일/활동/업체/공종 단위) — 고정 4필드(AgentTaskItem)
+// 대신 per-step 컬럼 정의(AgentColumn) + generic row(AgentTaskRow) 로 표현.
+// 컬럼 정의 단일 source: lib/agent-task-schema.ts (AGENT_COLUMNS).
+export type AgentItemTone =
+  | "done" | "processing" | "received" | "hil_pending" | "blocked"  // 처리 상태
+  | "normal" | "caution" | "risk";                                  // 진단 톤
+
+export interface AgentColumn {
+  key: string;                  // row.values 의 키
+  label: string;                // 헤더 표시명
+  align?: "left" | "right";     // 기본 left
+  mono?: boolean;               // 숫자/코드용 monospace
+}
+
+export interface AgentTaskRow {
+  id: string;
+  values: Record<string, string>;  // column.key → 표시값
+  statusLabel: string;             // 단계별 상태 텍스트 ("수집완료"/"검토대기"/"완료"...)
+  statusTone: AgentItemTone;
+}
+
 export interface ChatMessage {
   ts: string;                   // "09:01:18"
   agent: string;

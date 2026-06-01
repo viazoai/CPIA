@@ -74,7 +74,10 @@ async def mapper_node(state: CPIAState, cfg: GraphConfig) -> dict:
     # ㈜/(주) prefix 가 LLM 응답에 섞이면 마스터와 mismatch 로 cand_pool 빔.
     # mapper 진입 직전 일괄 정규화 (line 138 의 mapper 후 정규화와 일관).
     for a in parsed["activities"]:
-        a["company"] = normalize_company(a.get("company"))
+        # parser.py:556 과 동일 — 빈 회사(예 통합일보 PH_X-080 가설work)는 normalize 가
+        # None 반환하므로 `or ""` 로 ''(NOT NULL 안전) 보존. 누락 시 parser_activities
+        # company NOT NULL 위반으로 1행이 1193 배치 전체를 죽임 (회사 미기재 행 존재 시).
+        a["company"] = normalize_company(a.get("company")) or ""
 
     # BP cand_pool 미리 batch fetch — 1 PG connection 으로 모든 company 조회
     pg = PGClient(cfg.mapper.postgres_url)
@@ -150,8 +153,9 @@ async def mapper_node(state: CPIAState, cfg: GraphConfig) -> dict:
         )
 
         # company 정규화 (㈜ prefix / 괄호 sub-context 제거) — A.6 와 일관
+        # `or ""` — 빈 회사는 ''(NOT NULL 안전) 보존 (line 77 과 동일 이유).
         for a in mapped:
-            a["company"] = normalize_company(a.get("company"))
+            a["company"] = normalize_company(a.get("company")) or ""
 
         await pg.insert_mapper_activities_batch(
             run_id=run_id,

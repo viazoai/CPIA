@@ -6,20 +6,33 @@ on:
     paths:
       - 'web/**'
       - 'pipeline/**'
-      - 'infra/docker-compose.yml'
   workflow_dispatch:
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      web: ${{ steps.filter.outputs.web }}
+      pipeline: ${{ steps.filter.outputs.pipeline }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            web:
+              - 'web/**'
+            pipeline:
+              - 'pipeline/**'
+
   build-web:
     name: Web Image
+    needs: changes
+    if: needs.changes.outputs.web == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-    if: >
-      github.event_name == 'workflow_dispatch' ||
-      contains(join(github.event.commits.*.modified, ','), 'web/') ||
-      contains(join(github.event.commits.*.added, ','), 'web/')
 
     steps:
       - name: Checkout
@@ -49,14 +62,12 @@ jobs:
 
   build-pipeline:
     name: Pipeline Image
+    needs: changes
+    if: needs.changes.outputs.pipeline == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-    if: >
-      github.event_name == 'workflow_dispatch' ||
-      contains(join(github.event.commits.*.modified, ','), 'pipeline/') ||
-      contains(join(github.event.commits.*.added, ','), 'pipeline/')
 
     steps:
       - name: Checkout

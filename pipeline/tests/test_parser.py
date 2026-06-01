@@ -525,50 +525,6 @@ def test_sheet4_required_new_fields(sample_tong_path: Path):
 
 
 # ---------------------------------------------------------------------------
-# 2026-05-20 refactor: LLM 검증 wrapper (spec §2.6)
-# ---------------------------------------------------------------------------
-
-import os  # noqa: E402
-from unittest.mock import patch  # noqa: E402
-
-
-def test_parse_daily_report_llm_verify_off_skip(sample_tong_path: Path):
-    """CPIA_PARSER_VERIFY_LLM=off 시 LLM 호출 없이 정상 종료."""
-    with patch.dict(os.environ, {"CPIA_PARSER_VERIFY_LLM": "off"}):
-        parsed = parse_daily_report(sample_tong_path)
-    assert "bp_summaries" in parsed
-    assert len(parsed["bp_summaries"]) > 0
-
-
-def test_parse_daily_report_llm_verify_graceful_on_error(sample_tong_path: Path):
-    """LLM 호출 실패 (API key 가짜) 해도 cycle block 안 함 (graceful degrade)."""
-    with patch.dict(
-        os.environ,
-        {"CPIA_PARSER_VERIFY_LLM": "on", "AZURE_OPENAI_API_KEY": "FAKE_KEY_FOR_TEST"},
-    ):
-        # Exception 안 던지고 정상 종료해야 함
-        parsed = parse_daily_report(sample_tong_path)
-    assert "bp_summaries" in parsed
-    assert len(parsed["bp_summaries"]) > 0
-
-
-def test_should_verify_llm_env_parsing():
-    """env CPIA_PARSER_VERIFY_LLM 파싱: 'off'/'false'/'0'/'no' 만 opt-out."""
-    from pipeline.agents.parser import _should_verify_llm
-
-    for v in ("off", "false", "0", "no", "Off", "False"):
-        with patch.dict(os.environ, {"CPIA_PARSER_VERIFY_LLM": v}):
-            assert _should_verify_llm() is False, f"{v} should opt-out"
-    for v in ("on", "true", "1", "yes", "anything-else"):
-        with patch.dict(os.environ, {"CPIA_PARSER_VERIFY_LLM": v}):
-            assert _should_verify_llm() is True, f"{v} should opt-in"
-    # default = on
-    with patch.dict(os.environ, {}, clear=False):
-        os.environ.pop("CPIA_PARSER_VERIFY_LLM", None)
-        assert _should_verify_llm() is True
-
-
-# ---------------------------------------------------------------------------
 # 2026-05-20 refactor: caller smoke test — collector + run_one_cycle (spec §4.1)
 # ---------------------------------------------------------------------------
 

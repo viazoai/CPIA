@@ -500,7 +500,7 @@ def _parse_sheet3_equipment_allocations(ws) -> list[EquipmentAllocation]:
 # Task 6: 공개 API
 # ---------------------------------------------------------------------------
 
-_DATE_PATTERN = re.compile(r"_(\d{4})(\d{2})(\d{2})\.xlsx$|_(\d{6})\.xlsm?$")
+_DATE_PATTERN = re.compile(r"_(\d{4})(\d{2})(\d{2})\.(?:xlsx|xlsm)$|_(\d{6})\.(?:xlsx|xlsm)$")
 
 
 def _extract_meta(xlsx_path: Path, wb) -> tuple[str, str]:

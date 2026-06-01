@@ -12,19 +12,23 @@ import { HomeWorkSummaryCard } from "@/app/components/home/HomeWorkSummaryCard";
  */
 export default async function HomePage() {
   const home = await loadFixture("home");
-  const report = await loadFixture("report");
-  const rows = report.details[home.site.date]?.raw_data ?? [];
 
   return (
     <div className="flex flex-col">
       <HomeGreetingHeader user={home.user} site={home.site} />
 
-      <section className="mx-auto flex w-full max-w-screen-2xl flex-col gap-8 px-6 pb-20 pt-8 md:px-10 md:pt-10">
-        <HomeProcessingSection
-          processing={home.processing}
-          unsubmitted={home.unsubmitted_companies}
-        />
-        <HomeWorkSummaryCard rows={rows} workSummary={home.work_summary} />
+      <section className="mx-auto grid w-full max-w-screen-2xl grid-cols-1 items-start gap-6 px-6 pb-10 pt-6 md:px-10 md:pt-8 xl:grid-cols-12">
+        {/* 좌 — 처리현황 2×2 + 미제출 */}
+        <div className="xl:col-span-5">
+          <HomeProcessingSection
+            processing={home.processing}
+            unsubmitted={home.unsubmitted_companies}
+          />
+        </div>
+        {/* 우 — 작업내용 테이블 */}
+        <div className="xl:col-span-7">
+          <HomeWorkSummaryCard rows={home.work_rows} workSummary={home.work_summary} />
+        </div>
       </section>
     </div>
   );

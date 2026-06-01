@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import openpyxl
+import pytest
 from openpyxl import load_workbook
-from pipeline.agents.parser import parse_daily_report
+from pipeline.agents.parser import ParseError, parse_daily_report
 from pipeline.agents.recipe.bpcode import is_bp_code_v2, looks_like_code_no_korean
 from pipeline.agents.recipe.extract import (
     extract_sheet1,
@@ -264,7 +265,7 @@ def test_tier2_broken_header_yields_tier1_gap(tmp_path, monkeypatch):
     monkeypatch.setattr("pipeline.agents.recipe.recognize.RECIPE_CACHE_DIR", tmp_path)
     path, wc_col = _make_activity_gap_wb(tmp_path)
     wb = openpyxl.load_workbook(path, data_only=True)
-    r = recognize_format(wb, use_cache=False)
+    r = recognize_format(wb, use_cache=False, strict=False)
     wb.close()
     assert r.generated_by == "deterministic"
     assert r.confidence < 1.0
@@ -278,7 +279,7 @@ def test_tier2_llm_fills_gap_deterministic(tmp_path, monkeypatch):
 
     wb1 = openpyxl.load_workbook(path, data_only=True)
     m1 = _MockLLM(payload)
-    r1 = recognize_format(wb1, use_cache=False, llm_client=m1)
+    r1 = recognize_format(wb1, use_cache=False, strict=False, llm_client=m1)
     wb1.close()
     assert m1.calls == 1
     assert r1.generated_by == "llm"
@@ -287,7 +288,7 @@ def test_tier2_llm_fills_gap_deterministic(tmp_path, monkeypatch):
     # 결정성: 같은 입력 2회 → 동일 컬럼맵
     wb2 = openpyxl.load_workbook(path, data_only=True)
     m2 = _MockLLM(payload)
-    r2 = recognize_format(wb2, use_cache=False, llm_client=m2)
+    r2 = recognize_format(wb2, use_cache=False, strict=False, llm_client=m2)
     wb2.close()
     assert r1.sheets["activity"].columns == r2.sheets["activity"].columns
 
@@ -298,7 +299,7 @@ def test_tier2_bad_json_no_cache_poisoning(tmp_path, monkeypatch):
     monkeypatch.setattr("pipeline.agents.recipe.recognize.RECIPE_CACHE_DIR", tmp_path)
     path, _ = _make_activity_gap_wb(tmp_path)
     wb = openpyxl.load_workbook(path, data_only=True)
-    r = recognize_format(wb, use_cache=False, llm_client=_MockLLM("NOT JSON{{"))
+    r = recognize_format(wb, use_cache=False, strict=False, llm_client=_MockLLM("NOT JSON{{"))
     wb.close()
     assert r.generated_by == "deterministic"  # 못 채웠으므로 llm 표기 안 함
     assert "work_content" not in r.sheets["activity"].columns
@@ -310,6 +311,22 @@ def test_tier2_non_numeric_value_no_crash(tmp_path, monkeypatch):
     monkeypatch.setattr("pipeline.agents.recipe.recognize.RECIPE_CACHE_DIR", tmp_path)
     path, _ = _make_activity_gap_wb(tmp_path)
     wb = openpyxl.load_workbook(path, data_only=True)
-    r = recognize_format(wb, use_cache=False, llm_client=_MockLLM('{"activity": {"work_content": "oops"}}'))
+    r = recognize_format(
+        wb, use_cache=False, strict=False, llm_client=_MockLLM('{"activity": {"work_content": "oops"}}')
+    )
     wb.close()
     assert "work_content" not in r.sheets["activity"].columns  # 비숫자 → skip
+
+
+def test_tier3_loud_fail_on_unmappable_required(tmp_path, monkeypatch):
+    monkeypatch.setattr("pipeline.agents.recipe.recognize.RECIPE_CACHE_DIR", tmp_path)
+    path, _ = _make_activity_gap_wb(tmp_path)
+    wb = openpyxl.load_workbook(path, data_only=True)
+    with pytest.raises(ParseError) as e:
+        recognize_format(wb, llm_client=None)  # strict=True default, no LLM → gap unresolved
+    wb.close()
+    assert "work_content" in str(e.value)
+    # 부분 recipe 가 _review 로 방출됐는지 (정상 캐시는 오염 안 됨)
+    review_files = list((tmp_path / "_review").glob("*.json"))
+    assert len(review_files) == 1
+    assert not list(tmp_path.glob("*.json"))  # 정상 캐시 디렉토리엔 없음

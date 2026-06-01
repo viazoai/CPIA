@@ -185,7 +185,16 @@ def _llm_fill_recipe_gaps(wb, sheets: dict[str, SheetRecipe], gaps: dict[str, li
     return sheets
 
 
-def recognize_format(wb, use_cache: bool = True, llm_client=None) -> FormatRecipe:
+def _emit_review_recipe(recipe: FormatRecipe) -> Path:
+    """부분 recipe 를 정상 캐시가 아닌 _review/ 로 방출 (사람 검수용). 캐시 오염 0."""
+    review_dir = RECIPE_CACHE_DIR / "_review"
+    review_dir.mkdir(parents=True, exist_ok=True)
+    path = review_dir / f"{recipe.fingerprint}.json"
+    path.write_text(json.dumps(asdict(recipe), ensure_ascii=False, indent=2), encoding="utf-8")
+    return path
+
+
+def recognize_format(wb, use_cache: bool = True, llm_client=None, strict: bool = True) -> FormatRecipe:
     fp = fingerprint(wb)
     if use_cache:
         cached = load_cached_recipe(fp)
@@ -231,6 +240,14 @@ def recognize_format(wb, use_cache: bool = True, llm_client=None) -> FormatRecip
             generated_by = "llm"
 
     recipe = FormatRecipe(fp, fmt, sheets, generated_by, _confidence())
+    # Tier3 안전망 (strict 일 때만): Tier1+Tier2 후에도 gap 이 남았거나 role boundary 가
+    # "unknown"(미등록 role) 이면 조용히 부분 recipe 를 반환하지 않고 loud-fail.
+    # 부분 recipe 는 _review/ 로 방출해 사람이 검수하게 하고, 정상 캐시는 절대 오염시키지 않는다.
+    if strict:
+        unknown_roles = [r for r, sr in sheets.items() if sr.group_boundary == "unknown"]
+        if gaps or unknown_roles:
+            _emit_review_recipe(recipe)
+            raise ParseError(f"recipe 미완성 — 매핑 실패 필드: {gaps}; boundary 미해석 role: {unknown_roles}")
     # gap 0 인 완성 recipe(llm/human)만 캐시. gappy recipe 를 캐시하면 다음 실행이
     # 캐시 hit 으로 Tier3 안전망을 영구 우회(조용한 오염) → 미완성은 캐시 금지.
     if recipe.generated_by in ("llm", "human") and not gaps:

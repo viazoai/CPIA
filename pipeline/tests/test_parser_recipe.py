@@ -3,7 +3,12 @@ from __future__ import annotations
 import openpyxl
 from pipeline.agents.parser import parse_daily_report
 from pipeline.agents.recipe.bpcode import is_bp_code_v2, looks_like_code_no_korean
-from pipeline.agents.recipe.extract import extract_sheet1, extract_sheet2, extract_sheet4
+from pipeline.agents.recipe.extract import (
+    extract_sheet1,
+    extract_sheet2,
+    extract_sheet3,
+    extract_sheet4,
+)
 from pipeline.agents.recipe.fingerprint import fingerprint
 from pipeline.agents.recipe.model import FormatRecipe, SheetRecipe, REQUIRED_FIELDS
 from pipeline.agents.recipe.recognize import recognize_format
@@ -170,6 +175,17 @@ def test_sheet2_equiv():
         wb = openpyxl.load_workbook(path, data_only=True)
         r = recognize_format(wb)
         got = extract_sheet2(wb[r.sheets["job"].sheet_name], r.sheets["job"])
+        wb.close()
+        assert len(got) == len(golden) == n
+        assert got == golden
+
+
+def test_sheet3_equiv():
+    for path, n in [(UNI, 1111), (BP, 68)]:
+        golden = parse_daily_report(path)["equipment_allocations"]
+        wb = openpyxl.load_workbook(path, data_only=True)
+        r = recognize_format(wb)
+        got = extract_sheet3(wb[r.sheets["equip"].sheet_name], r.sheets["equip"])
         wb.close()
         assert len(got) == len(golden) == n
         assert got == golden

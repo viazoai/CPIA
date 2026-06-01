@@ -1,9 +1,14 @@
-"""Recipe 기반 추출 — sheet4(물량) Activity[].
+"""Recipe 기반 추출 — 4개 시트 추출기.
 
-Task 6: parser.py _parse_sheet4_activities 를 그대로 포팅하되,
-컬럼 위치를 _resolve_sheet4_columns 재호출이 아니라 recipe.columns 로 주입.
-BP 코드 판정만 is_bp_code_v2 (Task 3) 로 교체. row loop·group 경계·company ffill·
-skip·today_qty 파싱은 원본을 line-by-line 전사 (재설계 금지 — IRON LAW).
+parser.py 의 _parse_sheetN_* 4종을 그대로 포팅하되, 컬럼 위치를 _resolve_* 재호출이
+아니라 recipe(columns/timeshift_blocks/final_flag_col) 로 주입. BP 코드 판정만
+is_bp_code_v2 (Task 3) 로 교체. row loop·group 경계·company 탐색·skip·시간대 블록은
+원본을 line-by-line 전사 (재설계 금지 — IRON LAW).
+
+  - extract_sheet1: 시트1 출력인원 현황 -> BPSummary[] (col30 merge 경계)
+  - extract_sheet2: 시트2 직종별 인원현황 -> JobAllocation[] (Mm01 앵커 경계)
+  - extract_sheet3: 시트3 장비현황 -> EquipmentAllocation[] (equip_triple 경계)
+  - extract_sheet4: 시트4 물량 -> Activity[] (bp_company_pair 경계)
 """
 
 from __future__ import annotations
@@ -23,7 +28,7 @@ from pipeline.agents.parser_post import (
 )
 from pipeline.agents.recipe.bpcode import is_bp_code_v2
 from pipeline.agents.recipe.model import SheetRecipe
-from pipeline.state import Activity, BPSummary, JobAllocation
+from pipeline.state import Activity, BPSummary, EquipmentAllocation, JobAllocation
 
 
 def extract_sheet1(ws, sheet_recipe: SheetRecipe) -> list[BPSummary]:
@@ -239,6 +244,93 @@ def extract_sheet2(ws, sheet_recipe: SheetRecipe) -> list[JobAllocation]:
             )
 
     return jobs
+
+
+def extract_sheet3(ws, sheet_recipe: SheetRecipe) -> list[EquipmentAllocation]:
+    """시트3 (장비현황) -> EquipmentAllocation[].
+
+    _parse_sheet3_equipment_allocations 전사:
+      - group 시작 = trade(col2)+bp_company(col3)+equip_big(col4) 동시 채워있음(=equip_triple
+        앵커) + is_bp_code_v2(bp). 헤더 reprint row('장비 투입...') 회피.
+      - has_final_flag 게이트: sheet2 와 동일하게 recipe 가 컬럼(final_flag_col)만 주입하고,
+        'O' 존재 여부는 원본처럼 런타임 스캔으로 판정 (구조적 ff!=None 만으로 게이트하면
+        'O' 없는 변형 파일에서 전 row 조용히 drop → 오염). 통합(col25 에 'O' 존재)은 장비 row
+        에서 게이트, 업체(final_flag_col=None)는 비활성.
+      - 컬럼 위치·시간대 3블록은 recipe 로 주입, BP 코드 판정만 is_bp_code_v2 로 교체.
+        그 외 group 경계·company 탐색·row loop 은 line-by-line 전사. subtotal 없음.
+    """
+    cols = sheet_recipe.columns
+    blocks = sheet_recipe.timeshift_blocks
+    ff = sheet_recipe.final_flag_col
+    # 원본 _parse_sheet3_equipment_allocations 와 동일하게 런타임 'O' 스캔으로 게이트 활성 여부 결정.
+    has_final_flag = ff is not None and any(
+        ws.cell(r, ff).value == "O" for r in range(6, (ws.max_row or 0) + 1)
+    )
+    trade_col = cols["trade"]
+    bp_col = cols["bp_company"]
+    equip_big_col = cols["equip_big"]
+    equip_mid_col = cols["equip_mid"]
+    equip_spec_col = cols["equip_spec"]
+
+    starts: list[int] = []
+    for r in range(6, ws.max_row + 1):
+        c2 = ws.cell(r, trade_col).value
+        c3 = ws.cell(r, bp_col).value
+        c4 = ws.cell(r, equip_big_col).value
+        if c2 is None or c3 is None or c4 is None:
+            continue
+        if not is_bp_code_v2(c3):
+            continue
+        # 헤더 reprint row 회피
+        if "장비 투입" in str(c2):
+            continue
+        starts.append(r)
+
+    groups: list[tuple[int, int]] = [
+        (s, (starts[i + 1] - 1) if i + 1 < len(starts) else ws.max_row) for i, s in enumerate(starts)
+    ]
+
+    eqs: list[EquipmentAllocation] = []
+    for start, end in groups:
+        bp_code = str(ws.cell(start, bp_col).value).strip()
+        discipline_raw = str(ws.cell(start, trade_col).value).strip()
+        discipline = _disc_abbrev_to_kr(discipline_raw) or discipline_raw
+
+        company_raw: str | None = None
+        for r in range(start + 1, min(start + 6, end + 1)):
+            v = ws.cell(r, bp_col).value
+            if v is not None and not is_bp_code_v2(v):
+                company_raw = str(v)
+                break
+        company = normalize_company(split_company_and_zone(company_raw)) or ""
+
+        for r in range(start, end + 1):
+            c4 = ws.cell(r, equip_big_col).value
+            if c4 is None:
+                continue
+            if has_final_flag and ws.cell(r, ff).value != "O":
+                continue
+            count_today_cum = _shift_dict_row(ws, r, blocks["today_cum"])
+            eqs.append(
+                {
+                    "bp_code": bp_code,
+                    "company": company,
+                    "disc_abbrev": discipline,
+                    "equipment_big": str(c4).strip(),
+                    "equipment_mid": str(ws.cell(r, equip_mid_col).value or "").strip(),
+                    "equipment_spec": (
+                        str(ws.cell(r, equip_spec_col).value).strip()
+                        if ws.cell(r, equip_spec_col).value is not None
+                        else None
+                    ),
+                    "count_yesterday_cum": _shift_dict_row(ws, r, blocks["yest_cum"]),
+                    "count_today_incr": _shift_dict_row(ws, r, blocks["today_incr"]),
+                    "count_today_cum": count_today_cum,
+                    "final_flag": "O",
+                    "count_cum_t": count_today_cum.get("total", 0),
+                }
+            )
+    return eqs
 
 
 def extract_sheet4(ws, sheet_recipe: SheetRecipe) -> list[Activity]:

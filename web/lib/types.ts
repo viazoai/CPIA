@@ -309,12 +309,20 @@ export interface HomeWorkRow {
   equipment: number;    // 투입 장비 대수
 }
 
+/** FAB·CUB 동별 작업 요약 (LLM 생성) */
+export interface HomeWorkBrief {
+  fab: string;
+  cub: string;
+}
+
 export interface HomeFixture {
   site: HomeSiteInfo;
   user: { name: string };
   processing: HomeProcessing;
   unsubmitted_companies: HomeUnsubmittedCompany[];
   work_summary: HomeWorkSummary;
+  /** FAB·CUB 동별 LLM 작업 요약 */
+  work_brief: HomeWorkBrief;
   /** 제출 업체 작업 행 (스크롤 테이블) */
   work_rows: HomeWorkRow[];
 }

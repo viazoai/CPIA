@@ -16,6 +16,7 @@ from pipeline.agents.recipe.fingerprint import fingerprint
 from pipeline.agents.recipe.model import FormatRecipe, SheetRecipe, REQUIRED_FIELDS
 from pipeline.agents.recipe.recognize import load_cached_recipe, recognize_format, save_recipe
 from pipeline.agents.recipe.synonyms import field_for_header, role_for_sheet
+from scripts.synth_formats import make_variant
 
 UNI = "docs/sample/통합작업일보_M15X Ph-3 IBL PJT 작업일보_20250925.xlsx"
 BP = "docs/sample/업체작업일보_M15X_PH4_041_M15X_PH4_UT_ 중원엔지니어링_UT배관공사_FAB_250917.xlsx"
@@ -330,3 +331,12 @@ def test_tier3_loud_fail_on_unmappable_required(tmp_path, monkeypatch):
     review_files = list((tmp_path / "_review").glob("*.json"))
     assert len(review_files) == 1
     assert not list(tmp_path.glob("*.json"))  # 정상 캐시 디렉토리엔 없음
+
+
+def test_synth_variants_load(tmp_path):
+    for v in ("V1", "V2", "V3", "V4", "V5"):
+        out = tmp_path / f"{v}.xlsx"
+        make_variant(BP, v, str(out))
+        wb = openpyxl.load_workbook(out, data_only=True)
+        assert len(wb.sheetnames) >= 4
+        wb.close()

@@ -219,6 +219,55 @@ export interface RawDataRow {
   equipment: string;
 }
 
+// ────── /home — 구성원 운영 홈 (단일 현장) ──────
+// spec: docs/superpowers/specs/2026-06-01-cpia-home-member-redesign-design.md
+export interface HomeWeather {
+  /** lucide 아이콘 키 (sun / cloud / cloud-rain …) */
+  icon: string;
+  label: string;
+  temp_c: number;
+}
+
+export interface HomeSiteInfo {
+  id: string;
+  name: string;
+  /** 시연 고정 날짜 (YYYY-MM-DD) — report.details 키와 일치 */
+  date: string;
+  location?: string;
+  weather: HomeWeather;
+}
+
+/** 협력업체별 일보 처리 깔때기 — 예정 = 제출(완료+처리중) + 미제출 */
+export interface HomeProcessing {
+  expected: number;
+  submitted: number;
+  completed: number;
+  in_progress: number;
+  unsubmitted: number;
+  /** 오늘 처리완료분으로 절감된 시간(h) = 완료건 × 수작업 시간/건 */
+  hours_saved_today: number;
+}
+
+export interface HomeUnsubmittedCompany {
+  trade: string;
+  name: string;
+}
+
+export interface HomeWorkSummary {
+  /** Σ raw_data.workers 와 일치 */
+  total_workers: number;
+  /** 중장비 기준 명시값 (equipment 문자열 파싱 불안정 회피) */
+  total_equipment: number;
+}
+
+export interface HomeFixture {
+  site: HomeSiteInfo;
+  user: { name: string };
+  processing: HomeProcessing;
+  unsubmitted_companies: HomeUnsubmittedCompany[];
+  work_summary: HomeWorkSummary;
+}
+
 // ────── /reports § 5 — WP 단위 요약 (작업일보 상세의 컨텍스트) ──────
 export interface WPSummaryRow {
   wp_id: string;

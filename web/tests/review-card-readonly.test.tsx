@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { ReviewCard } from "@/app/components/review/ReviewCard";
 import type { ReviewItem, WBSNode } from "@/lib/types";
 
@@ -20,5 +20,23 @@ describe("ReviewCard readOnly", () => {
   it("readOnly 아니면 수정 버튼 있음", () => {
     render(<ReviewCard item={{ ...item, status: "unconfirmed" }} wbsRoot={wbs} onConfirm={() => {}} onRemap={() => {}} />);
     expect(screen.getByText("수정")).toBeTruthy();
+  });
+});
+
+describe("ReviewCard 선택/앵커", () => {
+  it("data-card-anchor 에 item.id 부여", () => {
+    const { container } = render(
+      <ReviewCard item={item} wbsRoot={wbs} onConfirm={() => {}} onRemap={() => {}} />
+    );
+    expect(container.querySelector(`[data-card-anchor="r1"]`)).toBeTruthy();
+  });
+
+  it("본문 클릭 시 onSelectCard(item.id) 호출", () => {
+    const onSelectCard = vi.fn();
+    render(
+      <ReviewCard item={item} wbsRoot={wbs} onConfirm={() => {}} onRemap={() => {}} onSelectCard={onSelectCard} />
+    );
+    fireEvent.click(screen.getByText(/작업/));
+    expect(onSelectCard).toHaveBeenCalledWith("r1");
   });
 });

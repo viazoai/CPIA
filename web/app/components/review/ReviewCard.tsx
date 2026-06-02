@@ -11,23 +11,28 @@ interface Props {
   onConfirm: (id: string) => void;
   onRemap: (id: string, newWpId: string, newPath: string) => void;
   readOnly?: boolean;
+  selected?: boolean;
+  onSelectCard?: (id: string) => void;
 }
 
-export function ReviewCard({ item, wbsRoot, onConfirm, onRemap, readOnly }: Props) {
+export function ReviewCard({ item, wbsRoot, onConfirm, onRemap, readOnly, selected, onSelectCard }: Props) {
   const [editMode, setEditMode] = useState(false);
   const isConfirmed = item.status === "confirmed";
 
   return (
     <div
+      data-card-anchor={item.id}
       draggable={!isConfirmed && !readOnly}
       onDragStart={(e) => {
         if (isConfirmed || readOnly) return;
         e.dataTransfer.setData("text/card-id", item.id);
         e.dataTransfer.effectAllowed = "move";
       }}
+      onClick={() => onSelectCard?.(item.id)}
       className={cn(
         "rounded-card border bg-card p-4 shadow-xs",
-        isConfirmed ? "border-mint/30 bg-mint-light/10" : "border-sun/30 cursor-grab"
+        isConfirmed ? "border-mint/30 bg-mint-light/10" : "border-sun/30 cursor-grab",
+        selected && "ring-2 ring-brand/50 border-brand"
       )}
     >
       <div className="flex items-center justify-between">

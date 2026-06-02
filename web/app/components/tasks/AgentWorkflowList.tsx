@@ -56,8 +56,11 @@ const DESCRIPTION: Record<string, string> = {
 type StageState = "done" | "active" | "pending";
 function stageState(s: AgentStageProgress): StageState {
   if (s.waiting_hil) return "active";
+  // percent 또는 처리건수 어느 쪽으로든 완료 판정 (사람 단계는 percent 없이 처리=접수로 완료)
   if (s.percent >= 100) return "done";
+  if (s.received > 0 && s.processed >= s.received) return "done";
   if (s.percent === -1 || (s.percent > 0 && s.percent < 100)) return "active";
+  if (s.received > 0 && s.processed > 0) return "active";
   return "pending";
 }
 
@@ -73,24 +76,20 @@ export function AgentWorkflowList({ stages, selectedAgent, onSelect }: Props) {
   else if (inflightStage) statusLabel = "처리중";
   else if (allDone) statusLabel = "전 단계 완료";
 
+  // 진행 프런티어 — active/done(=non-pending) 인 가장 마지막 단계 인덱스.
+  // 이 인덱스 이하로 이어지는 라인은 "통과됨"으로 보고 초록 채움.
+  // (사람 단계가 자체 건수를 0 으로 남겨도 뒷 단계가 시작되면 자동으로 라인이 채워짐)
+  const frontierIdx = stages.reduce((m, s, i) => (stageState(s) !== "pending" ? i : m), -1);
+  // 단계 완료 여부 — 프런티어보다 앞이거나, 프런티어 자신이 자체적으로 done.
+  // 이걸로 "에이전트가 끝난 순간" 그 아래 라인이 (다음 단계 시작 전에) 초록으로 차오른다.
+  const doneAt = (j: number) =>
+    j < frontierIdx || (j === frontierIdx && stageState(stages[j]) === "done");
+
   return (
     <div className="flex flex-col h-full">
-      {/* ── 헤더 + 범례 ── */}
+      {/* ── 헤더 ── */}
       <div className="px-4 py-2.5 border-b border-border-soft shrink-0">
-        <div className="flex items-baseline justify-between gap-2">
-          <div className="font-display text-h6 font-bold text-ink">Agent Workflow</div>
-          <div className="flex items-center gap-2.5 text-[10px] text-ink-light">
-            <Legend dotClass="bg-mint" label="완료" />
-            <Legend dotClass="bg-brand" label="진행" ping />
-            <Legend dotClass="bg-card border border-border" label="대기" />
-            <span className="inline-flex items-center gap-1">
-              <span className="inline-flex h-2.5 w-2.5 items-center justify-center rounded-full bg-peach text-white">
-                <UserCheck className="h-1.5 w-1.5" />
-              </span>
-              사람
-            </span>
-          </div>
-        </div>
+        <div className="font-display text-h6 font-bold text-ink">Agent Workflow</div>
         <div className="mt-0.5 flex items-center gap-2 text-xs text-ink-mid tabular-nums">
           <span>현재 단계 {currentStage ? currentStage.agent : "—"}</span>
           <span>·</span>
@@ -106,18 +105,21 @@ export function AgentWorkflowList({ stages, selectedAgent, onSelect }: Props) {
           const selected = selectedAgent === s.agent;
           const isLast = i === stages.length - 1;
           const isFirst = i === 0;
-          const state = stageState(s);
-          const isDone = state === "done";
-          const isActive = state === "active";
-          const isPending = state === "pending";
+          // 노드 상태 — 프런티어 기준으로 통일 (HIL 이 percent·processed 를 0 으로 남겨도
+          // 뒤 단계가 시작되면 "통과=완료"로 잡힘). 대기 단계는 회색.
+          const ownState = stageState(s);
+          const isActive = i === frontierIdx && ownState === "active";
+          const isDone = i < frontierIdx || (i === frontierIdx && ownState === "done");
+          const isPending = i > frontierIdx;
 
           // 연결선 — 노드 중앙 기준 위/아래 세그먼트로 분리해 끊김 없는 스파인.
           // 색: 통과한(완료) 노드 쪽이 mint. 사람(HIL) 노드에 인접한 세그먼트는 점선(수동 핸드오프).
           const prev = stages[i - 1];
           const next = stages[i + 1];
-          const segAboveDone = !!prev && stageState(prev) === "done";
+          // 라인 채움: "이전/이 단계가 완료된 순간" 채워짐 (다음 단계 시작을 기다리지 않음).
+          const segAboveDone = i > 0 && doneAt(i - 1); // 이전 단계 완료 → 위(진입) 라인 채움
           const segAboveDashed = isHil || (!!prev && prev.is_hil);
-          const segBelowDone = isDone;
+          const segBelowDone = doneAt(i); // 이 단계 완료 → 아래(진출) 라인 채움
           const segBelowDashed = isHil || (!!next && next.is_hil);
 
           // 우측 백분율 라벨
@@ -136,78 +138,39 @@ export function AgentWorkflowList({ stages, selectedAgent, onSelect }: Props) {
                 ? "text-brand-text"
                 : "text-ink-light";
 
-          // 진행 막대 폭 — -1(진행중·미상)은 보조 애니메이션.
-          const barPct = s.percent === -1 ? 40 : Math.max(0, s.percent);
-
           return (
             <li key={s.agent} className="relative flex flex-1 gap-3">
               {/* ── 왼쪽 레일: 끊김 없는 스파인 + 세로 중앙 정렬된 메달리온 노드 ── */}
               <div className="relative flex w-11 shrink-0 items-center justify-center">
                 {/* 위 세그먼트 — 컨테이너 top → 노드 상단(중앙-22px) */}
-                {!isFirst &&
-                  (segAboveDashed ? (
-                    <span
-                      aria-hidden
-                      className={cn(
-                        "absolute left-1/2 top-0 bottom-[calc(50%+22px)] -translate-x-1/2 border-l-2 border-dashed",
-                        segAboveDone ? "border-mint/70" : "border-peach/50",
-                      )}
-                    />
-                  ) : (
-                    <span
-                      aria-hidden
-                      className={cn(
-                        "absolute left-1/2 top-0 bottom-[calc(50%+22px)] w-[3px] -translate-x-1/2 rounded-full",
-                        segAboveDone ? "bg-mint" : "bg-border",
-                      )}
-                    />
-                  ))}
-
-                {/* 아래 세그먼트 — 노드 하단(중앙+22px) → 다음 노드 상단(pb 만큼 연장) */}
-                {!isLast &&
-                  (segBelowDashed ? (
-                    <span
-                      aria-hidden
-                      className={cn(
-                        "absolute left-1/2 top-[calc(50%+22px)] bottom-0 -translate-x-1/2 border-l-2 border-dashed",
-                        segBelowDone ? "border-mint/70" : "border-peach/50",
-                      )}
-                    />
-                  ) : (
-                    <span
-                      aria-hidden
-                      className={cn(
-                        "absolute left-1/2 top-[calc(50%+22px)] bottom-0 w-[3px] -translate-x-1/2 rounded-full",
-                        segBelowDone ? "bg-mint" : "bg-border",
-                      )}
-                    />
-                  ))}
+                {!isFirst && <RailSegment pos="above" dashed={segAboveDashed} done={segAboveDone} />}
+                {/* 아래 세그먼트 — 노드 하단(중앙+22px) → 다음 노드 상단 */}
+                {!isLast && <RailSegment pos="below" dashed={segBelowDashed} done={segBelowDone} />}
 
                 {/* 메달리온 노드 — 카드 높이 기준 세로 중앙 */}
                 <div className="relative z-10">
-                  {/* 진행중 펄스 링 */}
-                  {isActive && (
-                    <span
-                      aria-hidden
-                      className={cn(
-                        "absolute inset-0 animate-ping",
-                        isHil ? "rounded-full bg-peach/40" : "rounded-2xl bg-brand/40",
-                      )}
-                    />
-                  )}
+                  {/* 진행중 = 노드 안쪽 채워진 색이 천천히 점등(밝기 깜빡임)으로 작업중 표기.
+                      에이전트=초록 / 사람=주황 */}
                   <span
                     className={cn(
                       "relative inline-flex h-11 w-11 items-center justify-center shadow-sm transition-all",
                       isHil
-                        // 사람 단계 = 항상 주황 원형 (상태 무관 — 사람임을 표기)
-                        ? cn("rounded-full bg-peach text-white", s.waiting_hil && "shadow-md ring-2 ring-peach/30")
-                        // 에이전트 = 둥근 사각, 상태별 색
+                        // 사람 단계 = 원형. 진행중(검토중)=주황 점등 / 완료=주황 / 대기=회색 외곽선
+                        ? cn(
+                            "rounded-full",
+                            isActive
+                              ? "bg-peach text-white shadow-md animate-node-lit"
+                              : isDone
+                                ? "bg-peach text-white"
+                                : "border border-border-soft bg-surface-soft text-ink-light",
+                          )
+                        // 에이전트 = 둥근 사각. 진행중=초록 점등 / 완료=초록 / 대기=회색 외곽선
                         : cn(
                             "rounded-2xl",
-                            isDone
-                              ? "bg-mint text-white"
-                              : isActive
-                                ? "bg-brand text-white shadow-md ring-2 ring-brand/30"
+                            isActive
+                              ? "bg-mint text-white shadow-md animate-node-lit"
+                              : isDone
+                                ? "bg-mint text-white"
                                 : "border border-border-soft bg-surface-soft text-ink-light",
                           ),
                     )}
@@ -231,7 +194,7 @@ export function AgentWorkflowList({ stages, selectedAgent, onSelect }: Props) {
                     : selected
                       ? "border border-brand bg-brand-light ring-2 ring-brand/40 shadow-sm"
                       : isActive
-                        ? "border border-brand/40 bg-brand-light/30 hover:bg-brand-light/50"
+                        ? "border border-border-soft bg-mint-light"
                         : "border border-border-soft bg-surface-soft/40 hover:bg-surface-soft",
                 )}
               >
@@ -277,20 +240,6 @@ export function AgentWorkflowList({ stages, selectedAgent, onSelect }: Props) {
                     )}
                   </div>
                 </div>
-
-                {/* 진행 막대 — 사람 단계는 게이지 없음 */}
-                {!isHil && (
-                  <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-card">
-                    <div
-                      className={cn(
-                        "h-full rounded-full transition-all",
-                        isDone ? "bg-mint" : "bg-brand",
-                        s.percent === -1 && "animate-pulse",
-                      )}
-                      style={{ width: `${barPct}%` }}
-                    />
-                  </div>
-                )}
               </button>
             </li>
           );
@@ -300,15 +249,39 @@ export function AgentWorkflowList({ stages, selectedAgent, onSelect }: Props) {
   );
 }
 
-/** 헤더 범례 점 */
-function Legend({ dotClass, label, ping }: { dotClass: string; label: string; ping?: boolean }) {
+/**
+ * 레일 연결선 세그먼트 — 노드 중앙 기준 위/아래 절반.
+ *   기본은 회색, done 되면 초록(mint) 채움이 위→아래로 흐르는 애니메이션.
+ *   사람 단계 인접 구간(dashed)은 점선 핸드오프 — 색만 전환.
+ */
+function RailSegment({ pos, dashed, done }: { pos: "above" | "below"; dashed: boolean; done: boolean }) {
+  const posCls =
+    pos === "above" ? "top-0 bottom-[calc(50%+22px)]" : "top-[calc(50%+22px)] bottom-0";
+  if (dashed) {
+    return (
+      <span
+        aria-hidden
+        className={cn(
+          "absolute left-1/2 -translate-x-1/2 border-l-2 border-dashed transition-colors duration-500",
+          posCls,
+          done ? "border-mint" : "border-border",
+        )}
+      />
+    );
+  }
   return (
-    <span className="inline-flex items-center gap-1">
-      <span className="relative inline-flex h-2.5 w-2.5">
-        {ping && <span className={cn("absolute inset-0 animate-ping rounded-full", dotClass, "opacity-40")} />}
-        <span className={cn("relative inline-flex h-2.5 w-2.5 rounded-full", dotClass)} />
-      </span>
-      {label}
+    <span
+      aria-hidden
+      className={cn("absolute left-1/2 w-[3px] -translate-x-1/2 overflow-hidden rounded-full bg-border", posCls)}
+    >
+      {/* 초록 채움 — done 시 height 0→100% 로 흘러내림 */}
+      <span
+        className={cn(
+          "absolute inset-x-0 top-0 rounded-full bg-mint transition-[height] duration-700 ease-out",
+          done ? "h-full" : "h-0",
+        )}
+      />
     </span>
   );
 }
+

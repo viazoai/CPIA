@@ -178,6 +178,17 @@ body::after {
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
+/* Agent Workflow 진행중 노드 — 채워진 색이 천천히 점등(밝기 깜빡임)으로 작업중 표기.
+   0.7s 딜레이 + backwards: 진입 라인이 회색→초록으로 차오르는 동안(700ms) 노드는 흐린
+   첫 프레임(opacity 0.4)으로 대기하다가, 채움이 끝나면 밝아지며 점등(시연용 순차 연출). */
+@keyframes cpiaNodeLit {
+  0%, 100% { opacity: 0.4; }
+  50%      { opacity: 1; }
+}
+.animate-node-lit {
+  animation: cpiaNodeLit 1.6s ease-in-out 0.7s infinite backwards;
+}
+
 /* active 슬라이드 내부의 1차 레벨 요소 — h1~h3 / p / [data-anim] 가 부드럽게 진입 */
 .slide[data-active="true"] h1,
 .slide[data-active="true"] h2,

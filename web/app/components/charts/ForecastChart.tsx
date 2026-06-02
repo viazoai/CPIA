@@ -82,8 +82,8 @@ export function ForecastChart({
     forecast: (p as any).forecast,  // BE _extend_forecast 산출 — 현 추세 연장 (격차 유지)
     band_low:  diagnosis.band_p25[i],
     band_high: diagnosis.band_p75[i],
-    base:      diagnosis.scenarios.base.curve[i],
-    optimistic:  diagnosis.scenarios.optimistic.curve[i],
+    base:      diagnosis.scenarios?.base?.curve?.[i],
+    optimistic:  diagnosis.scenarios?.optimistic?.curve?.[i],
   }));
   // todayIdx = actual 마지막 점 (역순 탐색 — sparse hole 회피)
   let todayIdx = -1;
@@ -149,8 +149,8 @@ export function ForecastChart({
   })();
   const noActionEnd = scenarios?.no_action?.expected_completion ?? null;
   // catch-up intersection 마커 — FE 산출 (recoveryDays 만에 plan 따라잡는 점)
-  const baseCatchUp = diagnosis.scenarios.base.catch_up;
-  const optCatchUp = diagnosis.scenarios.optimistic.catch_up;
+  const baseCatchUp = diagnosis.scenarios?.base?.catch_up ?? null;
+  const optCatchUp = diagnosis.scenarios?.optimistic?.catch_up ?? null;
 
   return (
     <div className="rounded-card border border-border-soft bg-card p-5 shadow-xs">

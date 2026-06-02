@@ -39,4 +39,21 @@ describe("ReviewCard 선택/앵커", () => {
     fireEvent.click(screen.getByText(/작업/));
     expect(onSelectCard).toHaveBeenCalledWith("r1");
   });
+
+  it("확정 버튼 클릭은 onConfirm 만 (선택 버블링 차단)", () => {
+    const onSelectCard = vi.fn();
+    const onConfirm = vi.fn();
+    render(
+      <ReviewCard
+        item={{ ...item, status: "unconfirmed" }}
+        wbsRoot={wbs}
+        onConfirm={onConfirm}
+        onRemap={() => {}}
+        onSelectCard={onSelectCard}
+      />
+    );
+    fireEvent.click(screen.getByText("확정"));
+    expect(onConfirm).toHaveBeenCalledWith("r1");
+    expect(onSelectCard).not.toHaveBeenCalled();
+  });
 });

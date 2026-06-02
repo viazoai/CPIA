@@ -82,7 +82,7 @@ export function ReviewCard({ item, wbsRoot, onConfirm, onRemap, readOnly, select
       )}
 
       {!readOnly && editMode && (
-        <div className="mt-3 rounded-md bg-surface-soft p-2">
+        <div className="mt-3 rounded-md bg-surface-soft p-2" onClick={(e) => e.stopPropagation()}>
           <div className="text-xs font-mono uppercase tracking-wider text-ink-light mb-1.5">
             수정: 검색 또는 좌측 트리로 드래그
           </div>
@@ -102,7 +102,7 @@ export function ReviewCard({ item, wbsRoot, onConfirm, onRemap, readOnly, select
           {!isConfirmed && (
             <button
               type="button"
-              onClick={() => onConfirm(item.id)}
+              onClick={(e) => { e.stopPropagation(); onConfirm(item.id); }}
               className="inline-flex items-center gap-1 rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-text transition-colors"
             >
               <Check className="h-3.5 w-3.5" strokeWidth={2.5} />
@@ -111,7 +111,7 @@ export function ReviewCard({ item, wbsRoot, onConfirm, onRemap, readOnly, select
           )}
           <button
             type="button"
-            onClick={() => setEditMode((v) => !v)}
+            onClick={(e) => { e.stopPropagation(); setEditMode((v) => !v); }}
             className="inline-flex items-center gap-1 rounded-md border border-border bg-white px-3 py-1.5 text-xs font-semibold text-ink-mid hover:bg-surface-soft"
           >
             <Pencil className="h-3.5 w-3.5" />

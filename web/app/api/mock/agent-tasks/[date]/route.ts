@@ -32,7 +32,7 @@ export async function GET(
       WHERE pr.report_date = ${date}
         AND ma.is_mock = ${useMock}
       ORDER BY ma.mapping_conf ASC NULLS FIRST
-      LIMIT 200
+      LIMIT 500
     ` as Promise<Array<{
       id: number | string;
       trade: string | null;
@@ -49,7 +49,7 @@ export async function GET(
       WHERE pr.report_date = ${date}
         AND pa.is_mock = ${useMock}
       ORDER BY pa.id
-      LIMIT 200
+      LIMIT 500
     ` as Promise<Array<{
       id: number | string;
       trade: string | null;

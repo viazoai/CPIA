@@ -93,6 +93,9 @@ services:
     image: ghcr.io/viazoai/cpia-web:latest
     container_name: cpia-web
     restart: unless-stopped
+    # standalone 이미지는 USER nextjs(1001) 비root → 마운트된 data/upload(호스트 root 소유)에
+    # mkdir 시 EACCES. root 로 실행해 업로드 폴더 생성 가능하게 함 (dev 컨테이너와 동일).
+    user: "0:0"
     environment:
       NODE_ENV: production
       TZ: Asia/Seoul

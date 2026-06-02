@@ -89,24 +89,23 @@ export function UploadDailyReportDialog({ open, onOpenChange, onUploaded }: Prop
 
   const onSubmit = async () => {
     if (files.length === 0 || status === "uploading") return;
-    setStatus("uploading");
-    setError(null);
+    // 버튼 클릭 → 모달 즉시 닫고 업로드는 백그라운드 진행 (클릭 한 번으로 끝).
+    const filesToUpload = files;
+    onOpenChange(false);
     try {
       const fd = new FormData();
-      files.forEach((f) => fd.append("files", f, f.name));
+      filesToUpload.forEach((f) => fd.append("files", f, f.name));
       const res = await fetch("/api/upload", { method: "POST", body: fd });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
-      setStatus("done");
-      setResult({ count: data.count, folder: data.folder });
       onUploaded?.({
         count: data.count,
         folder: data.folder,
-        files: data.files ?? files.map((f) => ({ name: f.name, size: f.size })),
+        files: data.files ?? filesToUpload.map((f) => ({ name: f.name, size: f.size })),
       });
     } catch (e: any) {
-      setStatus("error");
-      setError(e?.message ?? "업로드 실패");
+      // 모달이 이미 닫혀서 실패는 alert 로 알림.
+      alert(`업로드 실패: ${e?.message ?? "오류"}`);
     }
   };
 

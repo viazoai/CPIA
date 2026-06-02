@@ -87,10 +87,11 @@ def _clear_rows(ws, r_from, r_to, cmax):
             cell.value = None
 
 
-def _fill_sheet4(ws, acts: list[dict]):
+def _fill_sheet4(ws, acts: list[dict], out_company: str):
     """업체포맷 시트4: r5=BP코드행(공종 c4 포함), r6=회사명행, 이후 활동행.
     c4=공종, c5=BP/회사, c6=Scope, c7=작업내용, c8=단위, c9=총물량, c10=전일누적,
-    c11=금일실적, c12=금일누적, c13=F%, c14=잔여, c16=위치, c17=중공종, c18=소공종, c19=세공종."""
+    c11=금일실적, c12=금일누적, c13=F%, c14=잔여, c16=위치, c17=중공종, c18=소공종, c19=세공종.
+    out_company 는 Task 4 에서 회사명 오버라이드에 사용 예정 (현재는 acts[0].company 유지)."""
     CMAX = 19
     DATA0 = 5
     style_row = 7  # 활동행 스타일 src (병합 없는 일반 데이터행)
@@ -128,10 +129,11 @@ def _fill_sheet4(ws, acts: list[dict]):
         r += 1
 
 
-def _fill_sheet1(ws, summaries: list[dict], company: str, trade: str):
+def _fill_sheet1(ws, summaries: list[dict], jobs: list[dict], company: str, trade: str):
     """출력인원: r5=BP코드행, r6=회사명행. c4=공종,c5=BP/회사,c7/8/9=작업텍스트,
     c24-29=금일투입 shift, c30=금일투입총, c31-36=금일누적 shift, c37=금일누적총,
-    c10-15 전일투입, c17-22 전일누적. 병합셀(헤더 r3-4)은 보존."""
+    c10-15 전일투입, c17-22 전일누적. 병합셀(헤더 r3-4)은 보존.
+    jobs 파라미터: Task 3 에서 직종별 rollup 로직 구현 예정 (현재 미사용)."""
     CMAX = 37
     DATA0 = 5
     style_row = 5
@@ -222,12 +224,48 @@ def _fill_sheet2(ws, jobs: list[dict], company: str, trade: str):
         r += 1
 
 
+def _write_equip_row(ws, r: int, e: dict):
+    """장비행 1줄: col4=big col5=mid col6=spec + 6교대 + col25='O'."""
+    _set(ws, r, 4, e.get("equipment_big") or "")
+    _set(ws, r, 5, e.get("equipment_mid") or "")
+    _set(ws, r, 6, e.get("equipment_spec"))
+    yc = e.get("count_yesterday_cum") or {}
+    ti = e.get("count_today_incr") or {}
+    tc = e.get("count_today_cum") or {}
+    for i, k in enumerate(SHIFT_KEYS):
+        _set(ws, r, 7 + i, int(yc.get(k) or 0) or None)  # 전일누계 c7-12
+        _set(ws, r, 13 + i, int(ti.get(k) or 0) or None)  # 금일투입 c13-18
+        _set(ws, r, 19 + i, int(tc.get(k) or 0) or None)  # 금일누계 c19-24
+    _set(ws, r, 25, "O")
+
+
 def _fill_sheet3(ws, equips: list[dict], company: str, trade: str):
-    """장비: 데이터행 클리어 (장비 없으면 빈 상태). equips 있으면 채움(선택)."""
-    CMAX = 24
+    """장비: equipment_allocations 로 채움. parser sheet3 게이트 미러
+    (parser.py:512-582): 그룹시작행 col2=공종+col3=BP+col4=장비대분류,
+    회사명행 col3=company, 장비행 col4=big/col5=mid/col6=spec,
+    6교대 col7-12=전일누계/col13-18=금일투입/col19-24=금일누계, col25='O'."""
+    CMAX = 25
     DATA0 = 6
+    style_row = 6
     _clear_rows(ws, DATA0, ws.max_row, CMAX)
-    # 장비는 forecaster/optimizer 무관 — 빈 상태 유지 (parser equip=[] OK)
+    if not equips:
+        return
+    bp = equips[0].get("bp_code") or "PH_X-000"
+    # r6: 그룹시작행 (공종 col2 + BP col3 + 첫 장비 col4) — 첫 장비를 함께 기록
+    _copy_style_row(ws, style_row, DATA0, CMAX)
+    e0 = equips[0]
+    _set(ws, DATA0, 2, trade)
+    _set(ws, DATA0, 3, bp)
+    _write_equip_row(ws, DATA0, e0)
+    # r7: 회사명행 (col3=company). 첫 장비는 r6 에 기록됐으므로 r7 은 회사명만
+    _copy_style_row(ws, 7, DATA0 + 1, CMAX)
+    _set(ws, DATA0 + 1, 3, company)
+    # 둘째 장비부터 r8...
+    r = DATA0 + 2
+    for e in equips[1:]:
+        _copy_style_row(ws, style_row, r, CMAX)
+        _write_equip_row(ws, r, e)
+        r += 1
 
 
 def build_one(out_company, src_company, raw_name, trade_label, by_co_act, by_co_job, by_co_sum, by_co_eq):

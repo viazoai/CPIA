@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import sys
+from collections import defaultdict
 from pathlib import Path
 
+import pytest
 
 ROOT = Path("/Users/kyungseoplee/Project Agent/CPIA")
 sys.path.insert(0, str(ROOT))
@@ -36,3 +38,49 @@ def test_targets_are_seven_4tuples():
     # src!=out 3건
     src_neq_out = {t[2] for t in gen.TARGETS if t[2] != t[3]}
     assert src_neq_out == {"광건", "태우", "선보"}
+
+
+@pytest.fixture(scope="module")
+def built_files(tmp_path_factory):
+    """7개사 전부 임시 OUT_DIR 에 생성 후 재파싱 결과 반환 (결정론 loop)."""
+    from pipeline.agents.parser import parse_daily_report
+
+    tmp = tmp_path_factory.mktemp("gen_out")
+    orig_out = gen.OUT_DIR
+    gen.OUT_DIR = tmp
+    try:
+        rep = parse_daily_report(str(gen.SRC))
+        by_act, by_job, by_sum, by_eq = (
+            defaultdict(list),
+            defaultdict(list),
+            defaultdict(list),
+            defaultdict(list),
+        )
+        for a in rep["activities"]:
+            if a.get("trade") in ("건축", "토목"):
+                by_act[a.get("company") or ""].append(a)
+        for j in rep["job_allocations"]:
+            by_job[j.get("company") or ""].append(j)
+        for s in rep["bp_summaries"]:
+            by_sum[s.get("company") or ""].append(s)
+        for e in rep.get("equipment_allocations", []):
+            by_eq[e.get("company") or ""].append(e)
+        results = {}
+        for raw_name, trade_label, out_company, src_company in gen.TARGETS:
+            out, na, nj, ns, ne = gen.build_one(
+                out_company, src_company, raw_name, trade_label, by_act, by_job, by_sum, by_eq
+            )
+            results[out_company] = (out, parse_daily_report(str(out)))
+        return results
+    finally:
+        gen.OUT_DIR = orig_out
+
+
+@pytest.mark.parametrize("out_company", list(EXPECTED))
+def test_sheet3_equip_count_roundtrip(built_files, out_company):
+    exp_eq = EXPECTED[out_company][4]
+    _, rp = built_files[out_company]
+    eqs = rp.get("equipment_allocations", [])
+    assert len(eqs) == exp_eq, f"{out_company} eq {len(eqs)} != {exp_eq}"
+    cos = {e.get("company") for e in eqs}
+    assert cos == {out_company}, f"{out_company} eq company {cos}"

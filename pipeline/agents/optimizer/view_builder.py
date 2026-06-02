@@ -1103,6 +1103,46 @@ def _diagnosis_prefix(prod_info: Optional[dict], conditions: str) -> str:
     return f"{cond} 조건에서 생산성 {pp:.2f} {unit} (정상 페이스 대비 {dev:+d}%)."
 
 
+def _num(v):
+    """Decimal/str/None 안전 float 변환."""
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _unit_qty(raw, unit):
+    """JSONB 가 str 로 올 수 있어 defensive — {unit: qty} dict 에서 unit 값."""
+    import json as _json  # noqa: PLC0415 — 모듈 패턴: late import (autoflake 방지)
+
+    if isinstance(raw, str):
+        try:
+            raw = _json.loads(raw)
+        except (ValueError, TypeError):
+            return None
+    return _num((raw or {}).get(unit)) if isinstance(raw, dict) else None
+
+
+def _status_line_qty(fr: dict) -> str:
+    """진단 1줄(현황) — 결정론 물량 기준. '{조건} 조건 · 금일 {qty} {unit} (계획 일평균 {plan} {unit})'.
+
+    per-person % 는 forecast 생산성 basis 불일치로 미사용(스펙 caveat). 소수 1자리, 아라비아 숫자.
+    실 PG: today_qty_by_unit/plan_total_qty_by_unit 는 JSONB→str, plan_mh_* 는 Decimal → 전부 coerce.
+    """
+    cond = (fr.get("today_conditions") or "정상").split(",")[0].strip() or "정상"
+    unit = fr.get("main_unit") or ""
+    tq = _unit_qty(fr.get("today_qty_by_unit"), unit)
+    pt = _unit_qty(fr.get("plan_total_qty_by_unit"), unit)
+    pmh, pmh_d = _num(fr.get("plan_mh_sum")), _num(fr.get("plan_mh_per_day"))
+    total_days = (pmh / pmh_d) if (pmh and pmh_d) else None
+    plan_daily = (pt / total_days) if (pt is not None and total_days) else None
+    tq_s = f"{tq:.1f}" if tq is not None else "—"
+    pd_s = f"{plan_daily:.1f}" if plan_daily is not None else "—"
+    return f"{cond} 조건 · 금일 {tq_s} {unit} (계획 일평균 {pd_s} {unit})"
+
+
 def _build_optimizer_view(
     advice_rows: list[dict[str, Any]],
     forecast: list[dict[str, Any]],
@@ -1207,11 +1247,12 @@ def _build_optimizer_view(
         if avg_rd is not None and rdist_text and "없음" not in rdist_text:
             rdist_text = f"{rdist_text} · 평균 {avg_rd:.1f}일 회복"
 
-        # 2026-05-29: 진단 prefix (정상 페이스 대비 %) + LLM 패턴 판단 합성. (그룹 narrative)
+        # 2026-06: 진단 1줄 = 결정론 물량 현황 (정상대비% 폐기 — basis 불일치). 2줄째 = LLM 현장여건.
+        status_line = _status_line_qty(matched_f)
+        llm_diag = advice.get("diagnosis") or ""  # 새 프롬프트 = 현장여건 1줄
+        diagnosis = f"{status_line}\n{llm_diag}".strip()
+        # prod_info: details 카드(계획/금일 생산성·공사기간)에서 계속 사용 — 진단 prefix 만 폐기.
         prod_info = prod_lookup.get((advice.get("company"), advice.get("l6_main")))
-        prefix = _diagnosis_prefix(prod_info, matched_f.get("today_conditions") or "")
-        llm_diag = advice.get("diagnosis") or ""
-        diagnosis = f"{prefix}\n{llm_diag}".strip() if prefix else llm_diag
 
         # 2026-05-29 SSOT: per-wa 숫자 (위험평가·생산성·일정영향·산출근거)는 그 wa 의 forecast 에서.
         # 이전엔 matched_f (company,l6 첫 행) 를 모든 wa 에 broadcast → 같은 (company,l6)에 wp 2개면

@@ -1337,3 +1337,42 @@ async def set_run_status(postgres_url: str, run_id: str | uuid.UUID, status: str
             await conn.close()
     except Exception:
         pass
+
+
+async def upsert_agent_progress(
+    postgres_url: str,
+    run_id: str | uuid.UUID,
+    agent: str,
+    processed: int,
+    total: int,
+) -> None:
+    """agent_progress (run_id, agent) UPSERT — B3 per-item 진행도.
+
+    Web UI (tasks/page) 가 polling 으로 processed/total 을 읽어 게이지 표시.
+    GREATEST = out-of-order concurrent upsert 에서 processed 단조 보장
+    (작은 값이 와도 후퇴 안 함). total 은 항상 EXCLUDED 로 갱신.
+    실패 시 silent — pipeline 본 동작 막지 않음 (progress 표시는 secondary).
+    """
+    rid = uuid.UUID(run_id) if isinstance(run_id, str) else run_id
+    try:
+        conn = await asyncpg.connect(postgres_url)
+        try:
+            await conn.execute(
+                """
+                INSERT INTO agent_progress (run_id, agent, processed, total, updated_at)
+                VALUES ($1, $2, $3, $4, now())
+                ON CONFLICT (run_id, agent) DO UPDATE SET
+                    processed  = GREATEST(agent_progress.processed, EXCLUDED.processed),
+                    total      = EXCLUDED.total,
+                    updated_at = now()
+                """,
+                rid,
+                agent,
+                processed,
+                total,
+            )
+        finally:
+            await conn.close()
+    except Exception:
+        # progress write 실패는 본 동작 영향 X.
+        pass

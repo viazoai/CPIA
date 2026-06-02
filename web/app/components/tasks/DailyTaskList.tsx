@@ -1,12 +1,18 @@
 "use client";
 import { cn } from "@/lib/utils";
-import { AlertTriangle, CheckCircle2, Pause } from "lucide-react";
 import type { DailyTask } from "@/lib/types";
 
 interface Props {
   tasks: DailyTask[];
   selectedDate: string;
   onSelect: (date: string) => void;
+}
+
+/** progress 기반 3-상태 점 — 완료(초록) / 작업중(주황) / 미진행(빨강) */
+function statusDot(progress: number) {
+  if (progress >= 100) return { dot: "bg-mint", text: "완료", tcls: "text-mint-text" };
+  if (progress > 0) return { dot: "bg-peach", text: "작업중", tcls: "text-peach-text" };
+  return { dot: "bg-rose", text: "미진행", tcls: "text-rose-text" };
 }
 
 export function DailyTaskList({ tasks, selectedDate, onSelect }: Props) {
@@ -34,42 +40,28 @@ export function DailyTaskList({ tasks, selectedDate, onSelect }: Props) {
       <div className="flex flex-col flex-1 overflow-y-auto">
         {tasks.map((t) => {
           const active = t.date === selectedDate;
+          const s = statusDot(t.progress_percent);
           return (
             <button
               type="button"
               key={t.date}
               onClick={() => onSelect(t.date)}
               className={cn(
-                "relative flex items-center gap-2 border-b border-border-soft px-3 py-1.5 text-left transition-colors",
+                "relative flex items-center gap-3 border-b border-border-soft px-3 py-2.5 text-left transition-colors",
                 active
                   ? "bg-brand-light shadow-inner before:absolute before:inset-y-0 before:left-0 before:w-1 before:bg-brand"
                   : "hover:bg-surface-soft"
               )}
             >
+              <span className={cn("h-2 w-2 shrink-0 rounded-full", s.dot)} title={s.text} />
               <span className={cn(
                 "font-mono text-[11px] leading-tight shrink-0",
                 active ? "text-brand-text font-bold" : "text-ink"
               )}>
                 {t.date}
               </span>
-              <div className="flex-1 h-1.5 overflow-hidden rounded-full bg-surface-soft">
-                <div
-                  className={cn(
-                    "h-full transition-all",
-                    t.status === "review_pending" ? "bg-sun" : t.has_anomaly ? "bg-rose" : "bg-mint"
-                  )}
-                  style={{ width: `${t.progress_percent}%` }}
-                />
-              </div>
-              <span className={cn(
-                "font-mono text-[11px] tabular-nums leading-tight w-9 text-right shrink-0",
-                active ? "text-brand-text font-bold" : "text-ink-mid"
-              )}>
-                {t.progress_percent}%
-              </span>
-              <span className="flex items-center gap-1 w-7 justify-end shrink-0">
-                {t.has_anomaly && <AlertTriangle className="h-3 w-3 text-rose-text" />}
-                <RunStatusIcon status={t.status} />
+              <span className="ml-auto font-mono text-[11px] tabular-nums text-ink-mid">
+                {t.total_count.toLocaleString()}건
               </span>
             </button>
           );
@@ -77,10 +69,4 @@ export function DailyTaskList({ tasks, selectedDate, onSelect }: Props) {
       </div>
     </div>
   );
-}
-
-function RunStatusIcon({ status }: { status: DailyTask["status"] }) {
-  if (status === "review_pending") return <Pause className="h-3 w-3 text-sun" fill="currentColor" />;
-  if (status === "running")        return <span className="h-1.5 w-1.5 rounded-full bg-sky animate-pulse" />;
-  return <CheckCircle2 className="h-3 w-3 text-mint" />;
 }

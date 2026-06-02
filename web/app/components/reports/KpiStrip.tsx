@@ -50,7 +50,7 @@ export function KpiStrip({
           key={i}
           className={cn(
             "rounded-card border border-border-soft bg-card p-4 shadow-xs transition-shadow hover:shadow-sm",
-            fill && "flex min-h-[9.25rem] flex-col items-center justify-center text-center",
+            fill && "flex min-h-[7rem] flex-col items-center justify-center text-center",
           )}
         >
           <div className="font-display text-h6 text-ink">{it.label}</div>

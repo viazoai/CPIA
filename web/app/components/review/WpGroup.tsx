@@ -68,7 +68,7 @@ export function WpGroup({ group, selectedCardId, wbsRoot, onConfirm, onRemap, on
             onClick={() => setShowConfirmed((v) => !v)}
             className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] text-mint-text hover:bg-mint-light/30"
           >
-            {showConfirmed ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+            {showConfirmed ? <ChevronDown aria-hidden className="h-3.5 w-3.5" /> : <ChevronRight aria-hidden className="h-3.5 w-3.5" />}
             ✓ 확정 {confirmed.length}건 {showConfirmed ? "접기" : "펼치기"}
           </button>
         )}

@@ -186,7 +186,7 @@ body::after {
   50%      { opacity: 1; }
 }
 .animate-node-lit {
-  animation: cpiaNodeLit 1.6s ease-in-out 0.7s infinite backwards;
+  animation: cpiaNodeLit 1.6s ease-in-out 1s infinite backwards;
 }
 
 /* active 슬라이드 내부의 1차 레벨 요소 — h1~h3 / p / [data-anim] 가 부드럽게 진입 */

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Upload } from "lucide-react";
 import { DailyTaskList } from "@/app/components/tasks/DailyTaskList";
 import { AgentWorkflowList } from "@/app/components/tasks/AgentWorkflowList";
+import { STAGE_ORDER } from "@/lib/progress-stages";
 import { AgentTaskItemList } from "@/app/components/tasks/AgentTaskItemList";
 import { UploadDailyReportDialog } from "@/app/components/tasks/UploadDailyReportDialog";
 import { Button } from "@/components/ui/button";
@@ -268,6 +269,13 @@ export default function AgentTasksPage() {
   const stages: AgentStageProgress[] = rawProgressStages
     ?? (isSimSelected ? (simStages as AgentStageProgress[]) : detail?.stages ?? []);
 
+  // 현재 실행 노드 → agent 명. 진행도(processed) 가 아직 0 이어도 그 단계를 active(처리중·점등) 로
+  // 표시하기 위해 AgentWorkflowList 에 전달. (sim 은 percent 가 차오르므로 null 로 둬도 됨)
+  const activeAgent: string | null =
+    hasProgress && progress?.current_node
+      ? STAGE_ORDER.find((s) => s.currentNode === progress.current_node)?.agent ?? null
+      : null;
+
   // 아이템 우선순위: DB 실 데이터(hasProgress) > mock detail
   const rowsForAgent: AgentTaskRow[] = hasProgress
     ? dbItems.rows
@@ -335,6 +343,7 @@ export default function AgentTasksPage() {
                 stages={stages}
                 selectedAgent={selectedAgent}
                 onSelect={setSelectedAgent}
+                activeAgent={activeAgent}
               />
             ) : (
               <div className="flex h-full items-center justify-center text-xs text-ink-light">

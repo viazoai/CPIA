@@ -16,6 +16,9 @@ interface Props {
   stages: AgentStageProgress[];
   selectedAgent: string | null;
   onSelect: (agent: string) => void;
+  /** 현재 실행중인 노드의 agent 명 (progress.current_node 매핑).
+   *  진행도(processed) 가 0 이거나 아직 기록 전이어도 이 단계를 active(처리중·점등) 로 강제. */
+  activeAgent?: string | null;
 }
 
 const STEP_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -64,26 +67,34 @@ function stageState(s: AgentStageProgress): StageState {
   return "pending";
 }
 
-export function AgentWorkflowList({ stages, selectedAgent, onSelect }: Props) {
-  // 현재 작업중 단계 — HIL 대기 우선 → 첫 미완 단계 → 모두 완료면 마지막 단계
+export function AgentWorkflowList({ stages, selectedAgent, onSelect, activeAgent }: Props) {
+  // 단계 유효 상태 — stageState 가 pending 이어도 현재 실행 노드(activeAgent)면 active 로 강제.
+  // (실데이터에서 현재 노드가 아직 진행도 0 이라 pending 처럼 보이는 문제 방지)
+  const effState = (s: AgentStageProgress): StageState => {
+    const st = stageState(s);
+    if (st !== "pending") return st;
+    return activeAgent && s.agent === activeAgent ? "active" : "pending";
+  };
+  // 현재 작업중 단계 — HIL 대기 우선 → 현재 실행 노드(activeAgent) → 첫 미완 단계 → 모두 완료면 마지막
   const waitingStage = stages.find((s) => s.waiting_hil);
+  const activeStage = activeAgent ? stages.find((s) => s.agent === activeAgent && !s.waiting_hil) : undefined;
   const inflightStage = stages.find((s) => s.received > 0 && s.percent < 100 && !s.waiting_hil);
   const allDone = stages.length > 0 && stages.every((s) => s.percent === 100 && !s.waiting_hil);
-  const currentStage = waitingStage ?? inflightStage ?? (allDone ? stages[stages.length - 1] : null);
+  const currentStage = waitingStage ?? activeStage ?? inflightStage ?? (allDone ? stages[stages.length - 1] : null);
 
   let statusLabel = "대기 없음";
   if (waitingStage) statusLabel = "검토 대기중";
-  else if (inflightStage) statusLabel = "처리중";
+  else if (activeStage || inflightStage) statusLabel = "처리중";
   else if (allDone) statusLabel = "전 단계 완료";
 
   // 진행 프런티어 — active/done(=non-pending) 인 가장 마지막 단계 인덱스.
   // 이 인덱스 이하로 이어지는 라인은 "통과됨"으로 보고 초록 채움.
   // (사람 단계가 자체 건수를 0 으로 남겨도 뒷 단계가 시작되면 자동으로 라인이 채워짐)
-  const frontierIdx = stages.reduce((m, s, i) => (stageState(s) !== "pending" ? i : m), -1);
+  const frontierIdx = stages.reduce((m, s, i) => (effState(s) !== "pending" ? i : m), -1);
   // 단계 완료 여부 — 프런티어보다 앞이거나, 프런티어 자신이 자체적으로 done.
   // 이걸로 "에이전트가 끝난 순간" 그 아래 라인이 (다음 단계 시작 전에) 초록으로 차오른다.
   const doneAt = (j: number) =>
-    j < frontierIdx || (j === frontierIdx && stageState(stages[j]) === "done");
+    j < frontierIdx || (j === frontierIdx && effState(stages[j]) === "done");
 
   return (
     <div className="flex flex-col h-full">
@@ -105,9 +116,8 @@ export function AgentWorkflowList({ stages, selectedAgent, onSelect }: Props) {
           const selected = selectedAgent === s.agent;
           const isLast = i === stages.length - 1;
           const isFirst = i === 0;
-          // 노드 상태 — 프런티어 기준으로 통일 (HIL 이 percent·processed 를 0 으로 남겨도
-          // 뒤 단계가 시작되면 "통과=완료"로 잡힘). 대기 단계는 회색.
-          const ownState = stageState(s);
+          // 노드 상태 — 프런티어 기준으로 통일 (현재 노드는 진행도 0 이어도 active).
+          const ownState = effState(s);
           const isActive = i === frontierIdx && ownState === "active";
           const isDone = i < frontierIdx || (i === frontierIdx && ownState === "done");
           const isPending = i > frontierIdx;
@@ -125,11 +135,11 @@ export function AgentWorkflowList({ stages, selectedAgent, onSelect }: Props) {
           // 우측 백분율 라벨
           const pctLabel = s.waiting_hil
             ? "검토 대기"
-            : s.percent === -1
-              ? "처리중"
-              : isPending
-                ? "대기"
-                : `${s.percent}%`;
+            : isPending
+              ? "대기"
+              : isActive && s.percent <= 0
+                ? "처리중" // 현재 노드인데 진행도 기록 전(0) — 숫자 대신 처리중
+                : `${Math.max(0, s.percent)}%`;
           const pctTone = s.waiting_hil
             ? "text-sun-text"
             : isDone
@@ -277,7 +287,7 @@ function RailSegment({ pos, dashed, done }: { pos: "above" | "below"; dashed: bo
       {/* 초록 채움 — done 시 height 0→100% 로 흘러내림 */}
       <span
         className={cn(
-          "absolute inset-x-0 top-0 rounded-full bg-mint transition-[height] duration-700 ease-out",
+          "absolute inset-x-0 top-0 rounded-full bg-mint transition-[height] duration-1000 ease-out",
           done ? "h-full" : "h-0",
         )}
       />

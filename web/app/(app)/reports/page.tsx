@@ -11,6 +11,7 @@ import { QuadrantScatter } from "@/app/components/charts/QuadrantScatter";
 import { diagnose } from "@/lib/diagnosis";
 import { toDiagnosisInput } from "@/lib/diagnosis-adapter";
 import { filterAndPickBars } from "@/lib/bar-filters";
+import { parseDelayDays } from "@/lib/wp-format";
 import type { ReportDaily, OptimizerOutput } from "@/lib/types";
 import type { ReportDetail } from "@/lib/fixtures";
 
@@ -140,9 +141,10 @@ export default function ReportPage() {
   };
   const wpStatusFilter = filterToStatus[filter];
   // spec §④ — 위 trade bar 매칭된 trade 만 + dead row (impact=0 AND prod=0) 제외.
-  const filteredWpRowsBase = detail.wp_summary.filter(
-    (w) => visibleTrades.has(w.trade) && (w.impact > 0 || w.productivity > 0),
-  );
+  const byWp = detail.optimizer?.by_wp ?? {};
+  const filteredWpRowsBase = detail.wp_summary
+    .filter((w) => visibleTrades.has(w.trade) && (w.impact > 0 || w.productivity > 0))
+    .map((w) => ({ ...w, delay_days: parseDelayDays(byWp[w.wp_id]?.details) }));
   const filteredWpRows =
     wpStatusFilter === "all"
       ? filteredWpRowsBase

@@ -111,17 +111,6 @@ export function ForecastChart({
 
       <div className="mb-4 flex flex-wrap items-end gap-x-10 gap-y-3">
         <div>
-          <div className="text-sm text-ink-mid">예상 공기</div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="font-display text-h3 font-semibold tracking-[-0.015em] text-ink">
-              {delayDays > 0 ? "D+" : delayDays < 0 ? "D−" : ""}{Math.abs(delayDays)}
-            </span>
-            <span className="text-base text-ink-mid">
-              일 {delayDays > 0 ? "지연 예상" : delayDays < 0 ? "단축 예상" : "계획 동일"}
-            </span>
-          </div>
-        </div>
-        <div>
           <div className="text-sm text-ink-mid">최적화 공기</div>
           <div className="mt-2 flex items-baseline gap-2">
             <span className="font-display text-h3 font-semibold tracking-[-0.015em] text-ink">
@@ -386,51 +375,6 @@ export function ForecastChart({
           )}
         </div>
 
-        {/* LLM 산출 권고사항 — 공기 단축 가능한 공종 + 조치 (Optimizer agent) */}
-        {aiAdvice && aiAdvice.length > 0 ? (
-          <div className="border-t border-border-soft pt-3">
-            <div className="mb-2 inline-flex items-center gap-1.5 text-[12px] font-semibold text-mint-text">
-              <span className="h-1.5 w-1.5 rounded-full" style={{ background: "#0ea76a" }} />
-              AI 권고 — 공기 단축 가능한 공종
-            </div>
-            {/* 2026-05-29 (2차): 카드 많으면 너무 길어지므로 max-h + 스크롤 (사용자 요청). */}
-            <ul className="max-h-[440px] space-y-2.5 overflow-y-auto pr-1 text-sm text-ink">
-              {aiAdvice.map((wp, idx) => (
-                <li key={idx} className="rounded bg-card px-3 py-2 ring-1 ring-border-soft">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="text-[12px] font-semibold text-ink">
-                        {wp.wp_name}
-                        <span className="ml-1.5 font-normal text-ink-light">({wp.trade})</span>
-                      </div>
-                      {wp.diagnosis && (
-                        <p className="mt-1 text-[12.5px] text-ink-mid">{wp.diagnosis}</p>
-                      )}
-                      {wp.recommendations.length > 0 && (
-                        <ul className="mt-1.5 ml-3 list-disc space-y-0.5 text-[12.5px] text-ink-mid">
-                          {wp.recommendations.slice(0, 2).map((r, ri) => (
-                            <li key={ri}>{r}</li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                    {typeof wp.recovery_days === "number" && (
-                      <span className="shrink-0 text-[16px] font-bold text-mint-text">
-                        {wp.recovery_days > 0 ? `−${wp.recovery_days}일 만회` : "0일 만회"}
-                      </span>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ul>
-            {scenarios && typeof scenarios.base_p50?.case_count === "number" && (
-              <p className="mt-2 text-[11px] text-ink-light">
-                * 권고는 과거 유사 상황 <b>{scenarios.base_p50.case_count}건</b> 의 회복 패턴
-                기반 LLM 산출. 적용 시 약 <b>{recoveryDays}일</b> 만에 plan 따라잡을 수 있습니다.
-              </p>
-            )}
-          </div>
-        ) : null}
       </div>
     </div>
   );

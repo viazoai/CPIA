@@ -27,6 +27,7 @@ const nodeTypes = { hier: HierNode, qty: QtyNode } as const;
 function BoardInner({ wbs, cards, onConfirm, onConfirmHighConf, onConfirmAll, onRemap }: Props) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [reviewOnly, setReviewOnly] = useState(true);
+  const [dragNonce, setDragNonce] = useState(0); // 드래그 종료 시 강제 재레이아웃(스냅백)
   const { getIntersectingNodes } = useReactFlow();
 
   const toggle = useCallback((id: string) => {
@@ -55,18 +56,18 @@ function BoardInner({ wbs, cards, onConfirm, onConfirmHighConf, onConfirmAll, on
       style: { stroke: e.review ? "#d97706" : "#cbd5e1", strokeWidth: e.review ? 2 : 1.5 },
     }));
     return { rfNodes, rfEdges };
-  }, [wbs, cards, collapsed, reviewOnly, onConfirm, toggle]);
+  }, [wbs, cards, collapsed, reviewOnly, onConfirm, toggle, dragNonce]);
 
   const onNodeDragStop = useCallback(
     (_e: MouseEvent | TouchEvent, node: Node) => {
       if (node.type !== "qty") return;
       const hits = getIntersectingNodes(node).filter((n) => (n.data as { isWp?: boolean }).isWp === true);
-      if (hits.length === 0) return;
-      const target = hits[0];
       const item = (node.data as { item: ReviewItem }).item;
-      if (target.id !== item.ai_mapped_wp_id) {
-        onRemap(item.id, target.id, (target.data as { label?: string }).label ?? "");
+      if (hits.length > 0 && hits[0].id !== item.ai_mapped_wp_id) {
+        onRemap(item.id, hits[0].id, (hits[0].data as { label?: string }).label ?? "");
       }
+      // 드롭 결과와 무관하게 재레이아웃 — 실패/제자리 드롭 시 노드가 떠있지 않고 스냅백.
+      setDragNonce((n) => n + 1);
     },
     [getIntersectingNodes, onRemap]
   );

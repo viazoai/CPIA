@@ -107,7 +107,7 @@ async def fetch_sheet_data(
     for _r in wa_rows:
         _by_co.setdefault(_r["company"], Counter())[_r["wa"]] += 1
     company_wa = {
-        co: max(cnt.items(), key=lambda kv: (kv[1], kv[0] == "FAB"))[0]
+        co: max(cnt.items(), key=lambda kv: (kv[1], kv[0] == "FAB", kv[0]))[0]
         for co, cnt in _by_co.items()
     }
 

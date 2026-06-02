@@ -18,7 +18,7 @@ export function HomeWorkSummaryCard({ rows, workSummary, brief }: Props) {
   // 인원 내림차순 정렬 (표시용 — 원본 불변)
   const sorted = [...rows].sort((a, b) => b.workers - a.workers);
   return (
-    <div>
+    <div className="flex flex-col xl:h-full">
       {/* 블록 밖 헤더 */}
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-3">
         <h2 className="font-display text-h5 text-ink">오늘 작업내용</h2>
@@ -50,8 +50,8 @@ export function HomeWorkSummaryCard({ rows, workSummary, brief }: Props) {
       </div>
 
       {/* 테이블 카드 — 내부 스크롤 (제출 업체 수만큼 행) */}
-      <div className="overflow-hidden rounded-card border border-border-soft bg-card shadow-xs">
-        <div className="max-h-[19rem] overflow-y-auto">
+      <div className="overflow-hidden rounded-card border border-border-soft bg-card shadow-xs xl:min-h-0 xl:flex-1">
+        <div className="max-h-[19rem] overflow-y-auto xl:max-h-none xl:h-full">
           <table className="w-full text-xs">
             <thead className="sticky top-0 z-10 bg-surface-soft">
               <tr>

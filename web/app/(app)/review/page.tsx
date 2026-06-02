@@ -5,6 +5,7 @@ import { CheckCheck } from "lucide-react";
 import { WBSTree } from "@/app/components/review/WBSTree";
 import { WpGroup } from "@/app/components/review/WpGroup";
 import { ReviewConnector } from "@/app/components/review/ReviewConnector";
+import { ReviewBoard } from "@/app/components/review/ReviewBoard";
 import { groupCardsByWp } from "@/lib/review-group";
 import { nodeToQuery } from "@/lib/review-node";
 import type { WBSNode, ReviewItem } from "@/lib/types";
@@ -98,6 +99,7 @@ export default function HumanReviewPage() {
   const connectorTone: "mint" | "sun" =
     selectedCard && selectedCard.status === "unconfirmed" && selectedCard.confidence < 0.8 ? "sun" : "mint";
   // 연결선 재드로잉 nonce — 모드·그룹수·선택노드(트리 펼침/스크롤) 변할 때 bump.
+  const [view, setView] = useState<"list" | "board">("list");
   const [redrawKey, setRedrawKey] = useState(0);
   useEffect(() => {
     setRedrawKey((k) => k + 1);
@@ -198,8 +200,25 @@ export default function HumanReviewPage() {
         <p className="mt-2 text-body-sm text-ink-mid">
           좌측 WBS 트리에서 공종을 선택하거나, 검색 입력·드래그앤드롭으로 매핑을 수정·확정합니다.
         </p>
+        <div className="mt-3 inline-flex rounded-lg border border-border-soft bg-surface-soft p-0.5">
+          <button
+            type="button"
+            onClick={() => setView("list")}
+            className={view === "list" ? "rounded-md bg-card px-3 py-1 text-xs font-semibold text-ink shadow-xs" : "px-3 py-1 text-xs text-ink-light"}
+          >
+            리스트
+          </button>
+          <button
+            type="button"
+            onClick={() => setView("board")}
+            className={view === "board" ? "rounded-md bg-card px-3 py-1 text-xs font-semibold text-ink shadow-xs" : "px-3 py-1 text-xs text-ink-light"}
+          >
+            보드
+          </button>
+        </div>
       </div>
 
+      {view === "list" && (
       <section className="mx-auto w-full max-w-screen-2xl px-6 pb-20 md:px-10">
         <div ref={gridRef} className="relative grid grid-cols-12 gap-4 items-stretch">
           <ReviewConnector
@@ -283,6 +302,22 @@ export default function HumanReviewPage() {
           </div>
         </div>
       </section>
+      )}
+
+      {view === "board" && (
+        <section className="mx-auto w-full max-w-screen-2xl px-6 pb-10 md:px-10" style={{ height: "calc(100vh - 220px)" }}>
+          <div className="h-full rounded-card border border-border-soft bg-card overflow-hidden">
+            <ReviewBoard
+              wbs={wbs}
+              cards={onlyUnconfirmed ? cards : registered}
+              onConfirm={handleConfirm}
+              onConfirmHighConf={handleConfirmHighConf}
+              onConfirmAll={handleConfirmAll}
+              onRemap={handleRemap}
+            />
+          </div>
+        </section>
+      )}
     </div>
   );
 }

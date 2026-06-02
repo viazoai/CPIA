@@ -45,13 +45,19 @@ export function WBSTree({ root, selectedId, onSelect, onDrop, revealNodeId }: Pr
     if (!revealNodeId) return;
     const anc = ancestorIds(root, revealNodeId);
     if (anc.length) setExpanded((prev) => new Set([...prev, ...anc]));
-    const raf = requestAnimationFrame(() => {
-      const el = scrollRef.current?.querySelector(`[data-wbs-node-id="${CSS.escape(revealNodeId)}"]`);
-      const fn = (el as any)?.scrollIntoView;
-      if (typeof fn === "function") fn.call(el, { block: "nearest", behavior: "smooth" });
+    // 펼침 state 가 commit·paint 된 다음 프레임에 스크롤 (single rAF 는 commit 전에 발화할 수 있음).
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        const el = scrollRef.current?.querySelector(`[data-wbs-node-id="${CSS.escape(revealNodeId)}"]`);
+        (el as HTMLElement | null)?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+      });
     });
-    return () => cancelAnimationFrame(raf);
-  }, [revealNodeId, root]);
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, [revealNodeId, root.id]);
 
   return (
     <div className="flex flex-col h-full text-sm">

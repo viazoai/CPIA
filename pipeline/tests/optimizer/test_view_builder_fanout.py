@@ -57,8 +57,13 @@ def test_fanout_multi_wa():
     keys = list(result["by_wp"].keys())
     assert "cub-cable-tray공사-창원기전" in keys
     assert "fab-cable-tray공사-창원기전" in keys
-    assert result["by_wp"]["cub-cable-tray공사-창원기전"]["diagnosis"] == "test"
-    assert result["by_wp"]["fab-cable-tray공사-창원기전"]["diagnosis"] == "test"
+    # fanout: 두 wa 가 같은 진단 복사. 진단 2줄째(LLM 현장여건="test") 보존.
+    # (1줄째는 2026-06 결정론 물량 현황 prefix — 픽스처에 qty 없어 placeholder, 형식은
+    #  test_status_line_qty 가 검증. 여기선 fanout 동일성 + LLM 라인 보존만 확인.)
+    cub_diag = result["by_wp"]["cub-cable-tray공사-창원기전"]["diagnosis"]
+    fab_diag = result["by_wp"]["fab-cable-tray공사-창원기전"]["diagnosis"]
+    assert cub_diag == fab_diag
+    assert cub_diag.endswith("test")
 
 
 def test_no_wa_lookup_fallback():

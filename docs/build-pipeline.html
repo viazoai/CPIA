@@ -1,0 +1,863 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CPIA — CI/CD 빌드 파이프라인</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,700;0,9..144,900;1,9..144,400&family=DM+Mono:wght@400;500&family=Onest:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg:          #F2EDE7;
+      --bg-alt:      #E9E3DB;
+      --surface:     #FDFCFA;
+      --surface-2:   #FFFFFF;
+      --ink:         #1C2B3A;
+      --ink-2:       #4D606F;
+      --ink-3:       #8FA0AD;
+      --orange:      #D94F04;
+      --orange-lt:   #FEF0E8;
+      --green:       #1A5C3A;
+      --green-lt:    #ECF7F1;
+      --blue:        #1E3A7A;
+      --blue-lt:     #EBF0FB;
+      --purple:      #4B2882;
+      --purple-lt:   #F2EDF9;
+      --gold:        #B07B2A;
+      --gold-lt:     #FBF5E6;
+      --border:      #DDD6CE;
+      --code-bg:     #1C2B3A;
+      --code-orange: #FFB347;
+      --code-green:  #6EE7B7;
+      --code-blue:   #93C5FD;
+      --code-gray:   #9BAFC0;
+      --shadow-sm: 0 1px 3px rgba(28,43,58,.06), 0 1px 2px rgba(28,43,58,.04);
+      --shadow-md: 0 4px 16px rgba(28,43,58,.08), 0 2px 6px rgba(28,43,58,.05);
+      --shadow-lg: 0 12px 40px rgba(28,43,58,.10), 0 4px 12px rgba(28,43,58,.06);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Onest', sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.65;
+      font-weight: 300;
+      min-height: 100vh;
+    }
+
+    /* ── Noise texture ── */
+    body::after {
+      content: '';
+      position: fixed; inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      opacity: .025; pointer-events: none; z-index: 9999;
+    }
+
+    /* ── Container ── */
+    .wrap { max-width: 820px; margin: 0 auto; padding: 0 24px; }
+
+    /* ── Hero ── */
+    .hero {
+      padding: 80px 0 72px;
+      border-bottom: 1px solid var(--border);
+    }
+    .hero-eyebrow {
+      display: inline-flex; align-items: center; gap: 8px;
+      font-family: 'DM Mono', monospace; font-size: 11px; font-weight: 500;
+      color: var(--orange); letter-spacing: .1em; text-transform: uppercase;
+      background: var(--orange-lt); border: 1px solid #F5C8AF;
+      padding: 4px 10px; border-radius: 4px;
+      margin-bottom: 24px;
+      opacity: 0; transform: translateY(8px);
+      animation: fade-up .4s ease forwards .05s;
+    }
+    .hero-eyebrow::before { content: '●'; font-size: 8px; }
+    .hero-title {
+      font-family: 'Fraunces', serif;
+      font-size: clamp(38px, 6vw, 60px);
+      font-weight: 900;
+      line-height: 1.05;
+      letter-spacing: -.02em;
+      color: var(--ink);
+      margin-bottom: 20px;
+      opacity: 0; transform: translateY(10px);
+      animation: fade-up .5s ease forwards .1s;
+    }
+    .hero-title em {
+      font-style: italic;
+      color: var(--orange);
+    }
+    .hero-desc {
+      font-size: 17px; font-weight: 300; color: var(--ink-2);
+      max-width: 540px; line-height: 1.7;
+      opacity: 0; transform: translateY(8px);
+      animation: fade-up .5s ease forwards .2s;
+    }
+    .hero-meta {
+      display: flex; gap: 20px; flex-wrap: wrap;
+      margin-top: 32px;
+      opacity: 0; animation: fade-up .5s ease forwards .3s;
+    }
+    .hero-badge {
+      display: flex; align-items: center; gap: 6px;
+      font-family: 'DM Mono', monospace; font-size: 12px;
+      color: var(--ink-3); font-weight: 400;
+    }
+    .hero-badge span { font-weight: 500; color: var(--ink-2); }
+
+    /* ── Section ── */
+    section { padding: 72px 0; border-bottom: 1px solid var(--border); }
+    section:last-child { border-bottom: none; padding-bottom: 100px; }
+    .section-label {
+      font-family: 'DM Mono', monospace; font-size: 11px; font-weight: 500;
+      color: var(--orange); letter-spacing: .12em; text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+    .section-title {
+      font-family: 'Fraunces', serif;
+      font-size: clamp(24px, 4vw, 32px); font-weight: 700;
+      line-height: 1.15; letter-spacing: -.015em;
+      margin-bottom: 8px;
+    }
+    .section-sub {
+      font-size: 15px; color: var(--ink-2); font-weight: 300;
+      margin-bottom: 40px; max-width: 500px;
+    }
+
+    /* ── Pipeline ── */
+    .pipeline { display: flex; flex-direction: column; align-items: center; gap: 0; }
+
+    .p-node {
+      width: 100%; max-width: 460px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 18px 22px;
+      display: flex; align-items: flex-start; gap: 14px;
+      box-shadow: var(--shadow-sm);
+      position: relative;
+      opacity: 0; transform: translateY(12px);
+      transition: box-shadow .2s ease, transform .15s ease;
+    }
+    .p-node:hover {
+      box-shadow: var(--shadow-md);
+      transform: translateY(-1px);
+    }
+    .p-node.visible { animation: fade-up .4s ease forwards; }
+
+    .p-node-icon {
+      width: 36px; height: 36px; border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px; flex-shrink: 0; margin-top: 1px;
+    }
+    .p-node-body { flex: 1; }
+    .p-node-title {
+      font-weight: 600; font-size: 15px; line-height: 1.3;
+      margin-bottom: 4px; color: var(--ink);
+    }
+    .p-node-desc {
+      font-size: 13px; color: var(--ink-2); font-weight: 300; line-height: 1.5;
+    }
+    .p-node-code {
+      font-family: 'DM Mono', monospace; font-size: 12px;
+      color: var(--orange); background: var(--orange-lt);
+      padding: 2px 7px; border-radius: 4px;
+      display: inline-block; margin-top: 6px;
+    }
+    .p-node-badge {
+      font-family: 'DM Mono', monospace; font-size: 11px;
+      padding: 2px 8px; border-radius: 20px;
+      font-weight: 500; align-self: flex-start; margin-top: 2px; flex-shrink: 0;
+    }
+
+    /* Node color variants */
+    .node-trigger .p-node-icon { background: var(--orange-lt); }
+    .node-gh     .p-node-icon { background: var(--blue-lt); }
+    .node-push   .p-node-icon { background: var(--purple-lt); }
+    .node-pull   .p-node-icon { background: var(--gold-lt); }
+    .node-ready  .p-node-icon { background: var(--green-lt); }
+
+    .node-trigger { border-left: 3px solid var(--orange); }
+    .node-gh      { border-left: 3px solid var(--blue); }
+    .node-push    { border-left: 3px solid var(--purple); }
+    .node-pull    { border-left: 3px solid var(--gold); }
+    .node-ready   { border-left: 3px solid var(--green); }
+
+    .badge-orange { background: var(--orange-lt); color: var(--orange); }
+    .badge-blue   { background: var(--blue-lt);   color: var(--blue); }
+    .badge-green  { background: var(--green-lt);  color: var(--green); }
+    .badge-purple { background: var(--purple-lt); color: var(--purple); }
+
+    /* Connector lines */
+    .p-conn {
+      width: 2px; height: 40px;
+      position: relative; flex-shrink: 0;
+      background-image: repeating-linear-gradient(
+        to bottom, var(--border) 0, var(--border) 5px, transparent 5px, transparent 9px
+      );
+      background-size: 2px 9px;
+      animation: flow-down .7s linear infinite;
+    }
+    .p-conn.orange { background-image: repeating-linear-gradient(to bottom, var(--orange) 0, var(--orange) 5px, transparent 5px, transparent 9px); }
+    .p-conn.blue   { background-image: repeating-linear-gradient(to bottom, var(--blue)   0, var(--blue)   5px, transparent 5px, transparent 9px); }
+    .p-conn.green  { background-image: repeating-linear-gradient(to bottom, var(--green)  0, var(--green)  5px, transparent 5px, transparent 9px); }
+
+    @keyframes flow-down {
+      0%   { background-position: 0 0; }
+      100% { background-position: 0 9px; }
+    }
+
+    /* Parallel build fork */
+    .p-fork {
+      width: 100%; max-width: 460px;
+      display: flex; flex-direction: column; align-items: center;
+      opacity: 0; transform: translateY(12px);
+    }
+    .p-fork.visible { animation: fade-up .4s ease forwards; }
+    .p-fork-label {
+      font-family: 'DM Mono', monospace; font-size: 11px; font-weight: 500;
+      color: var(--ink-3); letter-spacing: .08em; text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+    .p-fork-bar {
+      width: 60%; height: 1px; background: var(--border);
+      position: relative; margin-bottom: 0;
+    }
+    .p-fork-bar::before, .p-fork-bar::after {
+      content: '';
+      position: absolute; top: 0;
+      width: 1px; height: 28px; background: var(--border);
+    }
+    .p-fork-bar::before { left: 0; }
+    .p-fork-bar::after  { right: 0; }
+    .p-fork-cards {
+      display: flex; gap: 12px; width: 100%; margin-top: 28px;
+    }
+    .p-fork-card {
+      flex: 1; background: var(--surface-2);
+      border: 1px solid var(--border); border-radius: 10px;
+      padding: 16px 18px;
+      box-shadow: var(--shadow-sm);
+      transition: box-shadow .2s ease, transform .15s ease;
+    }
+    .p-fork-card:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
+    .p-fork-card-label {
+      font-family: 'DM Mono', monospace; font-size: 11px; font-weight: 500;
+      text-transform: uppercase; letter-spacing: .08em;
+      margin-bottom: 8px;
+    }
+    .p-fork-card-title { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+    .p-fork-card-desc  { font-size: 12px; color: var(--ink-2); font-weight: 300; line-height: 1.45; }
+    .p-fork-card-time {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-family: 'DM Mono', monospace; font-size: 11px;
+      color: var(--green); margin-top: 8px;
+      background: var(--green-lt); padding: 2px 8px; border-radius: 4px;
+    }
+    .fork-web      { border-left: 3px solid var(--blue); }
+    .fork-pipeline { border-left: 3px solid var(--purple); }
+    .fork-web .p-fork-card-label      { color: var(--blue); }
+    .fork-pipeline .p-fork-card-label { color: var(--purple); }
+
+    .p-merge {
+      display: flex; flex-direction: column; align-items: center; gap: 0;
+    }
+    .p-merge-bar {
+      width: 60%; height: 1px; background: var(--border);
+      position: relative; margin-top: 28px;
+    }
+    .p-merge-bar::before, .p-merge-bar::after {
+      content: '';
+      position: absolute; bottom: 0;
+      width: 1px; height: 28px; background: var(--border);
+    }
+    .p-merge-bar::before { left: 0; }
+    .p-merge-bar::after  { right: 0; }
+
+    /* ── Target cards ── */
+    .target-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px;
+    }
+    @media (max-width: 560px) { .target-grid { grid-template-columns: 1fr; } }
+
+    .target-card {
+      background: var(--surface-2); border: 1px solid var(--border);
+      border-radius: 12px; padding: 22px 20px;
+      box-shadow: var(--shadow-sm);
+      transition: box-shadow .2s ease, transform .15s ease;
+      cursor: default;
+    }
+    .target-card:hover { box-shadow: var(--shadow-md); transform: translateY(-2px); }
+    .target-card-icon { font-size: 24px; margin-bottom: 12px; }
+    .target-card-name {
+      font-family: 'DM Mono', monospace; font-size: 13px; font-weight: 500;
+      margin-bottom: 4px;
+    }
+    .target-card-desc { font-size: 13px; color: var(--ink-2); font-weight: 300; margin-bottom: 14px; }
+    .target-card-cmd {
+      font-family: 'DM Mono', monospace; font-size: 11px;
+      background: var(--code-bg); color: var(--code-orange);
+      padding: 8px 10px; border-radius: 6px;
+      white-space: pre-wrap; word-break: break-all; line-height: 1.6;
+    }
+    .target-card-cmd .cmd-gray  { color: var(--code-gray); }
+    .target-card-cmd .cmd-blue  { color: var(--code-blue); }
+    .target-card-cmd .cmd-green { color: var(--code-green); }
+
+    .target-all      { border-top: 3px solid var(--orange); }
+    .target-web      { border-top: 3px solid var(--blue); }
+    .target-pipeline { border-top: 3px solid var(--purple); }
+
+    /* ── CPU comparison ── */
+    .cpu-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    @media (max-width: 500px) { .cpu-grid { grid-template-columns: 1fr; } }
+
+    .cpu-card {
+      background: var(--surface-2); border: 1px solid var(--border);
+      border-radius: 12px; padding: 24px; box-shadow: var(--shadow-sm);
+    }
+    .cpu-card-header {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 20px;
+    }
+    .cpu-card-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .dot-red   { background: #E03535; }
+    .dot-green { background: var(--green); }
+    .cpu-card-title { font-size: 13px; font-weight: 600; }
+    .cpu-card-sub   { font-size: 12px; color: var(--ink-3); font-weight: 300; }
+
+    .cpu-bar-row { margin-bottom: 14px; }
+    .cpu-bar-label {
+      font-family: 'DM Mono', monospace; font-size: 11px; color: var(--ink-2);
+      display: flex; justify-content: space-between; margin-bottom: 5px;
+    }
+    .cpu-bar-track {
+      height: 8px; border-radius: 4px;
+      background: var(--bg-alt); overflow: hidden;
+    }
+    .cpu-bar-fill {
+      height: 100%; border-radius: 4px;
+      transition: width 1.2s cubic-bezier(.16,1,.3,1);
+      width: 0%;
+    }
+    .fill-red    { background: linear-gradient(90deg, #E03535, #FF6B6B); }
+    .fill-orange { background: linear-gradient(90deg, var(--orange), #FFB347); }
+    .fill-green  { background: linear-gradient(90deg, var(--green), #52B788); }
+    .fill-teal   { background: linear-gradient(90deg, #0D7E6B, #34D399); }
+
+    .cpu-note {
+      font-size: 12px; color: var(--ink-3); font-weight: 300;
+      margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);
+      line-height: 1.55;
+    }
+
+    /* ── Manual section ── */
+    .manual-table {
+      width: 100%; border-collapse: collapse;
+      font-size: 14px;
+    }
+    .manual-table th {
+      text-align: left; font-family: 'DM Mono', monospace;
+      font-size: 11px; font-weight: 500; letter-spacing: .06em;
+      text-transform: uppercase; color: var(--ink-3);
+      padding: 0 16px 12px 0; border-bottom: 1px solid var(--border);
+    }
+    .manual-table td {
+      padding: 14px 16px 14px 0; border-bottom: 1px solid var(--border);
+      vertical-align: top; font-weight: 300; color: var(--ink-2);
+    }
+    .manual-table td:first-child { font-weight: 500; color: var(--ink); }
+    .manual-table tr:last-child td { border-bottom: none; }
+    .tag-manual {
+      font-family: 'DM Mono', monospace; font-size: 11px; font-weight: 500;
+      padding: 2px 8px; border-radius: 4px;
+      background: var(--gold-lt); color: var(--gold);
+    }
+    .tag-auto {
+      font-family: 'DM Mono', monospace; font-size: 11px; font-weight: 500;
+      padding: 2px 8px; border-radius: 4px;
+      background: var(--green-lt); color: var(--green);
+    }
+
+    /* ── Quick Reference ── */
+    .ref-block {
+      background: var(--code-bg); border-radius: 12px;
+      padding: 28px 28px; margin-bottom: 16px;
+      box-shadow: var(--shadow-md);
+    }
+    .ref-block-title {
+      font-family: 'DM Mono', monospace; font-size: 11px; font-weight: 500;
+      color: var(--code-gray); text-transform: uppercase; letter-spacing: .1em;
+      margin-bottom: 16px;
+      padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,.06);
+    }
+    .ref-line {
+      display: flex; align-items: baseline; gap: 12px;
+      margin-bottom: 10px; line-height: 1.5;
+    }
+    .ref-line:last-child { margin-bottom: 0; }
+    .ref-prompt {
+      font-family: 'DM Mono', monospace; font-size: 12px;
+      color: var(--code-gray); flex-shrink: 0; user-select: none;
+    }
+    .ref-cmd {
+      font-family: 'DM Mono', monospace; font-size: 13px;
+      color: var(--code-orange); flex: 1;
+    }
+    .ref-comment {
+      font-family: 'DM Mono', monospace; font-size: 12px;
+      color: rgba(155,175,192,.55); flex-shrink: 0;
+    }
+    .ref-cmd .k { color: var(--code-blue); }
+    .ref-cmd .s { color: var(--code-green); }
+    .ref-cmd .f { color: #FDA4AF; }
+
+    /* ── Footer ── */
+    .footer {
+      padding: 32px 0 48px;
+      border-top: 1px solid var(--border);
+    }
+    .footer-inner {
+      display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 12px;
+    }
+    .footer-left {
+      font-family: 'DM Mono', monospace; font-size: 12px; color: var(--ink-3);
+    }
+    .footer-right {
+      display: flex; gap: 16px;
+    }
+    .footer-tag {
+      font-family: 'DM Mono', monospace; font-size: 11px;
+      padding: 3px 10px; border-radius: 20px;
+      border: 1px solid var(--border); color: var(--ink-3);
+    }
+
+    /* ── Animations ── */
+    @keyframes fade-up {
+      from { opacity: 0; transform: translateY(12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .reveal {
+      opacity: 0; transform: translateY(14px);
+      transition: opacity .5s ease, transform .5s ease;
+    }
+    .reveal.in-view { opacity: 1; transform: translateY(0); }
+  </style>
+</head>
+<body>
+
+<!-- ══ HERO ══ -->
+<div class="wrap">
+  <div class="hero">
+    <div class="hero-eyebrow">2026.06.01 구축 완료</div>
+    <h1 class="hero-title">
+      CI/CD<br><em>빌드 파이프라인</em>
+    </h1>
+    <p class="hero-desc">
+      서버에서 직접 이미지를 빌드하던 방식을 GitHub Actions로 이관했습니다.
+      <code style="font-family:'DM Mono',monospace;font-size:13px;color:var(--orange)">/build</code> 명령어 하나로
+      GitHub runner가 빌드하고, 서버는 완성된 이미지만 pull해서 재시작합니다.
+    </p>
+    <div class="hero-meta">
+      <div class="hero-badge">레지스트리 <span>ghcr.io/viazoai</span></div>
+      <div class="hero-badge">이미지 <span>cpia-web · cpia-pipeline</span></div>
+      <div class="hero-badge">트리거 <span>workflow_dispatch 전용</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ PIPELINE ══ -->
+<div class="wrap">
+  <section>
+    <div class="section-label">배포 흐름</div>
+    <h2 class="section-title">단계별 파이프라인</h2>
+    <p class="section-sub">
+      /build 호출부터 컨테이너 Ready까지 — 서버 CPU는 docker pull 단계에서만 최소한으로 개입합니다.
+    </p>
+
+    <div class="pipeline" id="pipeline">
+
+      <!-- Step 1 -->
+      <div class="p-node node-trigger reveal" data-delay="0">
+        <div class="p-node-icon">⌨️</div>
+        <div class="p-node-body">
+          <div class="p-node-title">Claude Code에서 /build 명령어</div>
+          <div class="p-node-desc">스킬이 git log를 보고 변경 범위(web / pipeline / all)를 파악합니다.</div>
+          <div class="p-node-code">claude code → /build</div>
+        </div>
+        <div class="p-node-badge badge-orange">TRIGGER</div>
+      </div>
+
+      <div class="p-conn orange"></div>
+
+      <!-- Step 2 -->
+      <div class="p-node node-gh reveal" data-delay="80">
+        <div class="p-node-icon">🐙</div>
+        <div class="p-node-body">
+          <div class="p-node-title">gh workflow run</div>
+          <div class="p-node-desc">GitHub CLI로 workflow_dispatch 이벤트를 발행합니다. push · merge 트리거는 없습니다.</div>
+          <div class="p-node-code">gh workflow run build-web.yml --ref main -f target=all</div>
+        </div>
+        <div class="p-node-badge badge-blue">GH CLI</div>
+      </div>
+
+      <div class="p-conn blue"></div>
+
+      <!-- Step 3: parallel fork -->
+      <div class="p-fork reveal" data-delay="160">
+        <div class="p-fork-label">병렬 빌드 — GitHub Actions Runner</div>
+        <div class="p-fork-bar"></div>
+        <div class="p-fork-cards">
+          <div class="p-fork-card fork-web">
+            <div class="p-fork-card-label">Web Image</div>
+            <div class="p-fork-card-title">cpia-web</div>
+            <div class="p-fork-card-desc">
+              <code style="font-family:'DM Mono',monospace;font-size:11px">web/Dockerfile</code><br>
+              Next.js standalone 빌드 (next build)<br>
+              GHA 캐시 적용 — 2차 빌드부터 30s↓
+            </div>
+            <div class="p-fork-card-time">⚡ ~30s (캐시 후)</div>
+          </div>
+          <div class="p-fork-card fork-pipeline">
+            <div class="p-fork-card-label">Pipeline Image</div>
+            <div class="p-fork-card-title">cpia-pipeline</div>
+            <div class="p-fork-card-desc">
+              <code style="font-family:'DM Mono',monospace;font-size:11px">pipeline/Dockerfile</code><br>
+              Python uv sync + FastAPI 서버<br>
+              GHA 캐시 적용 — 2차 빌드부터 20s↓
+            </div>
+            <div class="p-fork-card-time">⚡ ~21s (캐시 후)</div>
+          </div>
+        </div>
+        <div class="p-merge">
+          <div class="p-merge-bar"></div>
+        </div>
+      </div>
+
+      <div class="p-conn" style="margin-top:28px"></div>
+
+      <!-- Step 4 -->
+      <div class="p-node node-push reveal" data-delay="240">
+        <div class="p-node-icon">📦</div>
+        <div class="p-node-body">
+          <div class="p-node-title">ghcr.io 이미지 push</div>
+          <div class="p-node-desc">GITHUB_TOKEN 자동 인증으로 private 레지스트리에 push합니다.</div>
+          <div class="p-node-code">ghcr.io/viazoai/cpia-web:latest</div>
+        </div>
+        <div class="p-node-badge badge-purple">REGISTRY</div>
+      </div>
+
+      <div class="p-conn"></div>
+
+      <!-- Step 5 -->
+      <div class="p-node node-pull reveal" data-delay="320">
+        <div class="p-node-icon">🖥️</div>
+        <div class="p-node-body">
+          <div class="p-node-title">서버: docker pull</div>
+          <div class="p-node-desc">스킬이 gh run watch로 완료를 확인한 뒤 서버에서 pull합니다. CPU 사용률 &lt;2%.</div>
+          <div class="p-node-code">docker pull ghcr.io/viazoai/cpia-web:latest</div>
+        </div>
+        <div class="p-node-badge badge-orange">SERVER</div>
+      </div>
+
+      <div class="p-conn green"></div>
+
+      <!-- Step 6 -->
+      <div class="p-node node-ready reveal" data-delay="400">
+        <div class="p-node-icon">✅</div>
+        <div class="p-node-body">
+          <div class="p-node-title">컨테이너 재시작 → Ready</div>
+          <div class="p-node-desc">force-recreate로 새 이미지로 교체합니다. 기존 컨테이너 다운타임 수 초 이내.</div>
+          <div class="p-node-code">docker compose up -d --force-recreate web pipeline</div>
+        </div>
+        <div class="p-node-badge badge-green">DONE</div>
+      </div>
+
+    </div>
+  </section>
+</div>
+
+<!-- ══ TARGET ══ -->
+<div style="background:var(--bg-alt); border-top:1px solid var(--border); border-bottom:1px solid var(--border);">
+  <div class="wrap">
+    <section style="border-bottom:none">
+      <div class="section-label">빌드 대상 선택</div>
+      <h2 class="section-title">target 옵션</h2>
+      <p class="section-sub">변경된 서비스만 골라서 빌드할 수 있습니다. /build 시 Claude Code가 git log를 보고 자동 판단합니다.</p>
+      <div class="target-grid reveal">
+        <div class="target-card target-all">
+          <div class="target-card-icon">🔄</div>
+          <div class="target-card-name">all</div>
+          <div class="target-card-desc">두 이미지 모두 병렬 빌드. 변경 범위 불명확하거나 강제 재빌드 시.</div>
+          <div class="target-card-cmd"><span class="cmd-gray">$</span> gh workflow run build-web.yml \
+  --ref main \
+  <span class="cmd-blue">-f</span> <span class="cmd-green">target=all</span></div>
+        </div>
+        <div class="target-card target-web">
+          <div class="target-card-icon">🌐</div>
+          <div class="target-card-name">web</div>
+          <div class="target-card-desc">web/ 디렉토리 변경 시. Next.js 프론트엔드 이미지만 빌드.</div>
+          <div class="target-card-cmd"><span class="cmd-gray">$</span> gh workflow run build-web.yml \
+  --ref main \
+  <span class="cmd-blue">-f</span> <span class="cmd-green">target=web</span></div>
+        </div>
+        <div class="target-card target-pipeline">
+          <div class="target-card-icon">⚙️</div>
+          <div class="target-card-name">pipeline</div>
+          <div class="target-card-desc">pipeline/ 디렉토리 변경 시. FastAPI + LangGraph 이미지만 빌드.</div>
+          <div class="target-card-cmd"><span class="cmd-gray">$</span> gh workflow run build-web.yml \
+  --ref main \
+  <span class="cmd-blue">-f</span> <span class="cmd-green">target=pipeline</span></div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<!-- ══ CPU ══ -->
+<div class="wrap">
+  <section>
+    <div class="section-label">서버 CPU 영향</div>
+    <h2 class="section-title">빌드 전후 CPU 비교</h2>
+    <p class="section-sub">next build는 2 vCPU를 90초간 풀가동해 AWS CPU 크레딧을 소진합니다. GitHub Actions runner에서 실행하면 서버는 무관합니다.</p>
+    <div class="cpu-grid" id="cpu-grid">
+      <div class="cpu-card">
+        <div class="cpu-card-header">
+          <div class="cpu-card-dot dot-red"></div>
+          <div>
+            <div class="cpu-card-title">이전 — 서버 직접 빌드</div>
+            <div class="cpu-card-sub">docker compose build web</div>
+          </div>
+        </div>
+        <div class="cpu-bar-row">
+          <div class="cpu-bar-label"><span>next build (컴파일)</span><span>~95%</span></div>
+          <div class="cpu-bar-track"><div class="cpu-bar-fill fill-red" data-target="95"></div></div>
+        </div>
+        <div class="cpu-bar-row">
+          <div class="cpu-bar-label"><span>npm ci (패키지 설치)</span><span>~60%</span></div>
+          <div class="cpu-bar-track"><div class="cpu-bar-fill fill-orange" data-target="60"></div></div>
+        </div>
+        <div class="cpu-bar-row">
+          <div class="cpu-bar-label"><span>지속 시간</span><span>~90초</span></div>
+          <div class="cpu-bar-track"><div class="cpu-bar-fill fill-orange" data-target="75"></div></div>
+        </div>
+        <div class="cpu-note">2 vCPU t-class 인스턴스에서 CPU 크레딧이 소진되어 AWS 버스트 알람 발생.</div>
+      </div>
+
+      <div class="cpu-card">
+        <div class="cpu-card-header">
+          <div class="cpu-card-dot dot-green"></div>
+          <div>
+            <div class="cpu-card-title">이후 — GitHub Actions 빌드</div>
+            <div class="cpu-card-sub">workflow_dispatch → docker pull</div>
+          </div>
+        </div>
+        <div class="cpu-bar-row">
+          <div class="cpu-bar-label"><span>docker pull (네트워크 IO)</span><span>~2%</span></div>
+          <div class="cpu-bar-track"><div class="cpu-bar-fill fill-green" data-target="2"></div></div>
+        </div>
+        <div class="cpu-bar-row">
+          <div class="cpu-bar-label"><span>docker compose up</span><span>~3%</span></div>
+          <div class="cpu-bar-track"><div class="cpu-bar-fill fill-teal" data-target="3"></div></div>
+        </div>
+        <div class="cpu-bar-row">
+          <div class="cpu-bar-label"><span>지속 시간</span><span>~15초</span></div>
+          <div class="cpu-bar-track"><div class="cpu-bar-fill fill-green" data-target="8"></div></div>
+        </div>
+        <div class="cpu-note">빌드는 GitHub free runner에서 실행. 서버는 이미 완성된 이미지를 받기만 합니다.</div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- ══ MANUAL ══ -->
+<div style="background:var(--bg-alt); border-top:1px solid var(--border); border-bottom:1px solid var(--border);">
+  <div class="wrap">
+    <section style="border-bottom:none">
+      <div class="section-label">자동화 범위</div>
+      <h2 class="section-title">자동 vs 수동 작업</h2>
+      <p class="section-sub">이미지 빌드만 자동화합니다. 스키마 변경처럼 live DB에 직접 접근하는 작업은 의도적으로 수동 유지합니다.</p>
+      <table class="manual-table reveal">
+        <thead>
+          <tr>
+            <th>작업</th>
+            <th>방법</th>
+            <th>구분</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Web 이미지 빌드 · 배포</td>
+            <td>/build → gh workflow run -f target=web</td>
+            <td><span class="tag-auto">자동</span></td>
+          </tr>
+          <tr>
+            <td>Pipeline 이미지 빌드 · 배포</td>
+            <td>/build → gh workflow run -f target=pipeline</td>
+            <td><span class="tag-auto">자동</span></td>
+          </tr>
+          <tr>
+            <td>PostgreSQL 스키마 변경</td>
+            <td>docker exec cpia-postgres psql ... &lt; migration.sql</td>
+            <td><span class="tag-manual">수동</span></td>
+          </tr>
+          <tr>
+            <td>ChromaDB 컬렉션 관리</td>
+            <td>scripts/ 내 Python 스크립트 직접 실행</td>
+            <td><span class="tag-manual">수동</span></td>
+          </tr>
+          <tr>
+            <td>PostgreSQL / ChromaDB 재시작</td>
+            <td>docker compose restart postgres chroma</td>
+            <td><span class="tag-manual">수동</span></td>
+          </tr>
+          <tr>
+            <td>Synthetic 데이터 재시드</td>
+            <td>scripts/seed_dummy_year.py 직접 실행</td>
+            <td><span class="tag-manual">수동</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  </div>
+</div>
+
+<!-- ══ QUICK REF ══ -->
+<div class="wrap">
+  <section>
+    <div class="section-label">빠른 참조</div>
+    <h2 class="section-title">명령어 치트시트</h2>
+    <p class="section-sub">복사해서 바로 쓸 수 있는 핵심 명령어입니다.</p>
+
+    <div class="ref-block reveal">
+      <div class="ref-block-title">// 빌드 트리거</div>
+      <div class="ref-line">
+        <div class="ref-prompt">$</div>
+        <div class="ref-cmd"><span class="k">gh</span> workflow run build-web.yml --ref main <span class="f">-f</span> target=<span class="s">all</span></div>
+        <div class="ref-comment"># 전체 빌드</div>
+      </div>
+      <div class="ref-line">
+        <div class="ref-prompt">$</div>
+        <div class="ref-cmd"><span class="k">gh</span> workflow run build-web.yml --ref main <span class="f">-f</span> target=<span class="s">web</span></div>
+        <div class="ref-comment"># 웹만</div>
+      </div>
+      <div class="ref-line">
+        <div class="ref-prompt">$</div>
+        <div class="ref-cmd"><span class="k">gh</span> workflow run build-web.yml --ref main <span class="f">-f</span> target=<span class="s">pipeline</span></div>
+        <div class="ref-comment"># 파이프라인만</div>
+      </div>
+    </div>
+
+    <div class="ref-block reveal">
+      <div class="ref-block-title">// 빌드 상태 확인 · 대기</div>
+      <div class="ref-line">
+        <div class="ref-prompt">$</div>
+        <div class="ref-cmd"><span class="k">gh</span> run list --workflow=build-web.yml --limit=<span class="s">3</span></div>
+        <div class="ref-comment"># 최근 실행 목록</div>
+      </div>
+      <div class="ref-line">
+        <div class="ref-prompt">$</div>
+        <div class="ref-cmd"><span class="k">gh</span> run watch <span class="s">&lt;run-id&gt;</span> --interval <span class="s">10</span></div>
+        <div class="ref-comment"># 완료 대기</div>
+      </div>
+      <div class="ref-line">
+        <div class="ref-prompt">$</div>
+        <div class="ref-cmd"><span class="k">gh</span> run view <span class="s">&lt;run-id&gt;</span> --log-failed</div>
+        <div class="ref-comment"># 실패 로그</div>
+      </div>
+    </div>
+
+    <div class="ref-block reveal">
+      <div class="ref-block-title">// 서버 배포</div>
+      <div class="ref-line">
+        <div class="ref-prompt">$</div>
+        <div class="ref-cmd"><span class="k">docker</span> pull ghcr.io/viazoai/cpia-web:<span class="s">latest</span></div>
+        <div class="ref-comment"># 이미지 pull</div>
+      </div>
+      <div class="ref-line">
+        <div class="ref-prompt">$</div>
+        <div class="ref-cmd"><span class="k">docker</span> pull ghcr.io/viazoai/cpia-pipeline:<span class="s">latest</span></div>
+      </div>
+      <div class="ref-line">
+        <div class="ref-prompt">$</div>
+        <div class="ref-cmd"><span class="k">docker</span> compose up -d --force-recreate web pipeline</div>
+        <div class="ref-comment"># 재시작</div>
+      </div>
+      <div class="ref-line">
+        <div class="ref-prompt">$</div>
+        <div class="ref-cmd"><span class="k">docker</span> logs cpia-web --tail <span class="s">10</span></div>
+        <div class="ref-comment"># Ready 확인</div>
+      </div>
+    </div>
+
+    <div class="ref-block reveal">
+      <div class="ref-block-title">// 스키마 마이그레이션 (수동)</div>
+      <div class="ref-line">
+        <div class="ref-prompt">$</div>
+        <div class="ref-cmd"><span class="k">docker</span> exec -i cpia-postgres psql -U cpia -d cpia \
+  &lt; infra/postgres/migrations/<span class="s">&lt;파일명&gt;</span>.sql</div>
+      </div>
+    </div>
+
+  </section>
+</div>
+
+<!-- ══ FOOTER ══ -->
+<div class="wrap">
+  <div class="footer">
+    <div class="footer-inner">
+      <div class="footer-left">CPIA · CI/CD Pipeline · 2026.06.01</div>
+      <div class="footer-right">
+        <div class="footer-tag">ghcr.io/viazoai</div>
+        <div class="footer-tag">workflow_dispatch only</div>
+        <div class="footer-tag">GHA cache enabled</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── Reveal on scroll ──
+  const revealEls = document.querySelectorAll('.reveal');
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        e.target.classList.add('in-view');
+        io.unobserve(e.target);
+      }
+    });
+  }, { threshold: 0.12 });
+  revealEls.forEach(el => io.observe(el));
+
+  // ── Pipeline nodes staggered reveal ──
+  const nodes = document.querySelectorAll('#pipeline .p-node, #pipeline .p-fork');
+  const nodeObs = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        const delay = parseInt(e.target.dataset.delay || 0);
+        setTimeout(() => e.target.classList.add('visible'), delay);
+        nodeObs.unobserve(e.target);
+      }
+    });
+  }, { threshold: 0.2 });
+  nodes.forEach(n => nodeObs.observe(n));
+
+  // ── CPU bars animate on view ──
+  const cpuSection = document.getElementById('cpu-grid');
+  const cpuObs = new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting) {
+      document.querySelectorAll('.cpu-bar-fill').forEach(bar => {
+        const target = bar.dataset.target;
+        setTimeout(() => { bar.style.width = target + '%'; }, 200);
+      });
+      cpuObs.disconnect();
+    }
+  }, { threshold: 0.3 });
+  cpuObs.observe(cpuSection);
+</script>
+</body>
+</html>

@@ -45,7 +45,7 @@ from pipeline.agents.optimizer.view_builder import (
     _build_productivity_views_v2,
     _build_scenarios,
 )
-from pipeline.db import PGClient
+from pipeline.db import PGClient, upsert_agent_progress
 
 logger = logging.getLogger(__name__)
 
@@ -182,6 +182,7 @@ async def _process_one_v10_with_retry(
     azure: AzureOpenAI,
     sem: asyncio.Semaphore,
     failed_wps: list,
+    pg,
     max_retries: int = 3,
 ):
     """V10 2단계 + scenarios 병렬 + retry 3회.
@@ -232,7 +233,11 @@ async def _process_one_v10_with_retry(
                 "diagnosis": diag_out.get("diagnosis"),
                 "recommendations": recs_out.get("recommendations") or [],
             }
-            return _compose_row(r, cases, merged_llm_output, run_id, scenarios=scen_out)
+            # PG write 는 sem 밖 (위 async with sem 블록 종료 후) — card streaming:
+            # advice 를 task 별로 즉시 insert 하여 대시보드가 점진적으로 카드를 받음.
+            _row = _compose_row(r, cases, merged_llm_output, run_id, scenarios=scen_out)
+            await pg.insert_optimizer_advice(_row)
+            return _row
 
         except (openai.APIError, asyncio.TimeoutError, json.JSONDecodeError, KeyError) as e:
             if attempt == max_retries - 1:
@@ -305,37 +310,50 @@ async def optimize(
     # 2026-05-27 Task 13: V10 2단계 (recs ‖ scenarios 병렬 + diag 순차) + retry 3회.
     # cold case 절대 금지 — cases<3 도 LLM 호출. 실패만 failed_wps 에 모아서 종합 retry batch (Task 30) 가 처리.
     failed_wps: list[dict] = []
-    tasks = []
-    for r in forecast:
-        key = f"{r['company']}|{r['l6_main']}"
-        if key not in hil_2_selection:
-            continue
-        cases = pre_optimizer_cases.get(key, [])
-        tasks.append(
-            _process_one_v10_with_retry(
-                r, cases, run_id, today, cfg, azure, sem, failed_wps, max_retries=3
-            )
-        )
 
-    results = list(await asyncio.gather(*tasks)) if tasks else []
-    advice_rows = [row for row in results if row is not None]
-
-    # 실패 wp 로깅 (Task 30 종합 retry batch 가 처리)
-    if failed_wps:
-        logger.warning(
-            "Day %s: %d wp failed after 3 retries — failed_wps_today=%s. "
-            "To be retried in batch (Task 30).",
-            today.isoformat(),
-            len(failed_wps),
-            failed_wps,
-        )
-
+    # B3 card streaming: pg 를 gather 전에 한 번 open. 각 task 가 _compose_row 직후
+    # insert_optimizer_advice 로 advice 를 즉시 영속 (per-task) → 대시보드가 점진 수신.
+    # 동일 pg try-block 안에서 gather 후 view-build 가 SELECT 하므로 (asyncpg autocommit)
+    # per-task insert 가 view-build 에 보임. 단일 finally 로 close.
     pg = PGClient(cfg.postgres_url)
     await pg.connect()
     try:
-        for row in advice_rows:
-            await pg.insert_optimizer_advice(row)
+        tasks = []
+        for r in forecast:
+            key = f"{r['company']}|{r['l6_main']}"
+            if key not in hil_2_selection:
+                continue
+            cases = pre_optimizer_cases.get(key, [])
+            tasks.append(
+                _process_one_v10_with_retry(
+                    r, cases, run_id, today, cfg, azure, sem, failed_wps, pg, max_retries=3
+                )
+            )
 
+        # progress emit: total = len(tasks). as_completed 로 완료마다 processed 증가.
+        _ap_total = len(tasks)
+        _ap_done = 0
+        await upsert_agent_progress(cfg.postgres_url, run_id, "optimizer", 0, _ap_total)
+        results = []
+        for fut in asyncio.as_completed(tasks):
+            _r = await fut
+            results.append(_r)
+            _ap_done += 1
+            _local = _ap_done
+            await upsert_agent_progress(cfg.postgres_url, run_id, "optimizer", _local, _ap_total)
+        advice_rows = [row for row in results if row is not None]
+
+        # 실패 wp 로깅 (Task 30 종합 retry batch 가 처리)
+        if failed_wps:
+            logger.warning(
+                "Day %s: %d wp failed after 3 retries — failed_wps_today=%s. "
+                "To be retried in batch (Task 30).",
+                today.isoformat(),
+                len(failed_wps),
+                failed_wps,
+            )
+
+        # advice 는 task 별로 이미 insert_optimizer_advice 완료 (per-task card streaming).
         # view builder 9 jsonb 산출 + daily_reports partial UPSERT
         # 2026-05-27 Task 15 (#N19): v2 일원화 — backfill_v2 와 동일 산식 source.
         # v2 가 kpi/productivity/contractor_bars/trade_bars/quadrant/wp_summary/
@@ -344,6 +362,21 @@ async def optimize(
         # 로 advice 재조회하여 optimizer_view/scenarios 산출 (deterministic).
         if site_id:
             try:
+                # 2026-06-02 fix(recovery race): LLM scenarios 를 v2 호출 "전에" 산출·저장한다.
+                # 그래야 v2 내부의 scenarios SELECT 가 LLM(예: base_p50=2/site=32)을 읽어
+                # wp_summary.recovery_days·kpi.recovery_days 를 LLM 값으로 채운다. (기존엔 v2 가
+                # 먼저 돌 때 scenarios_jsonb=NULL 이라 deterministic(30/213)으로 채운 뒤, 직후
+                # LLM(2/32)을 별도 저장해 한 run 안에서 두 컬럼이 서로 다른 스냅샷으로 어긋났다.)
+                scenarios_obj = _build_scenarios(advice_rows, forecast)
+                try:
+                    await pg.upsert_daily_report_view_col(
+                        run_id, site_id, today, "scenarios_jsonb", scenarios_obj
+                    )
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(
+                        "pre-v2 scenarios_jsonb upsert fail: %s. v2 가 deterministic fallback 가능.",
+                        e,
+                    )
                 v2_result = await _build_productivity_views_v2(pg, site_id, today)
                 view_jsonbs = {
                     "productivity_jsonb": v2_result.get("productivity", {}),
@@ -354,9 +387,8 @@ async def optimize(
                     "wp_summary_jsonb": v2_result.get("wp_summary", []),
                     "s_curve_jsonb": v2_result.get("s_curve", []),
                     "optimizer_view_jsonb": v2_result.get("optimizer_view", {}),
-                    # 2026-05-27 Task 15 fix: scenarios 는 LLM rich rationale 보존 (G8 trade_frame
-                    # 고유 회복 전략). 다른 8 jsonb 는 v2 deterministic (#N19 일원화).
-                    "scenarios_jsonb": _build_scenarios(advice_rows, forecast),
+                    # scenarios 는 LLM rich rationale 보존 — 위에서 pre-write 한 동일 객체 재사용.
+                    "scenarios_jsonb": scenarios_obj,
                 }
                 for col, val in view_jsonbs.items():
                     try:

@@ -53,16 +53,21 @@ def mock_graph() -> MagicMock:
 
 
 # ---------------------------------------------------------------------------
-# 테스트 1: 정상 corrections — 200 + next_node 반환
+# 테스트 1 (C5-4): 정상 corrections — 200 + {ok, run_id} 즉시 ack 반환
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_hil1_resume_returns_next_node(
+async def test_hil1_resume_returns_ack(
     mock_pg: MagicMock,
     mock_graph: MagicMock,
 ) -> None:
-    """corrections {str→dict} 전달 시 200 + {"next_node": "<node>"} 반환."""
+    """corrections {str→dict} 전달 시 200 + {"ok": True, "run_id": ...} ack 반환.
+
+    C5-4: resume 는 백그라운드 실행 — 동기 next_node 반환 폐기.
+    """
+    import asyncio as _asyncio
+
     run_id = str(uuid.uuid4())
     corrections = {"0": {"wa": "WA-A", "l6_main": "구조 타설"}}
 
@@ -77,12 +82,60 @@ async def test_hil1_resume_returns_next_node(
                     f"/api/runs/{run_id}/hil_1/resume",
                     json={"corrections": corrections},
                 )
+                # 백그라운드 task 가 실행되도록 yield (cleanup 전 ainvoke 호출 보장)
+                await _asyncio.sleep(0.05)
 
     assert res.status_code == 200
     body = res.json()
-    assert "next_node" in body
-    assert isinstance(body["next_node"], str)
-    assert body["next_node"] == "atomizer"
+    assert body["ok"] is True
+    assert body["run_id"] == run_id
+    assert "next_node" not in body
+
+
+# ---------------------------------------------------------------------------
+# 테스트 1b (C5-4): 즉시 반환 — 느린 ainvoke 가 끝나기 전에 200 ack 반환되고,
+#                  백그라운드 task 가 스케줄돼 나중에 완료된다.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_hil1_resume_returns_immediately_and_schedules_bg(mock_pg: MagicMock) -> None:
+    """resume 응답이 ainvoke 완료를 기다리지 않고 즉시 반환됨 (FE 170s 타임아웃 회피)."""
+    import asyncio as _asyncio
+
+    started = _asyncio.Event()
+    finished = _asyncio.Event()
+
+    async def _slow_invoke(*a: object, **k: object) -> dict:
+        started.set()
+        await _asyncio.sleep(0.2)
+        finished.set()
+        return {"current_node": "atomizer"}
+
+    slow_graph = MagicMock()
+    slow_graph.ainvoke = _slow_invoke
+    run_id = str(uuid.uuid4())
+    corrections = {"0": {"wa": "WA-A", "l6_main": "구조"}}
+
+    with (
+        patch.object(api_module, "PGClient", return_value=mock_pg),
+        patch.object(api_module, "build_graph", return_value=slow_graph),
+        patch.object(api_module, "_build_prod_graph_config", return_value=MagicMock()),
+    ):
+        async with api_module.lifespan(app):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                res = await client.post(
+                    f"/api/runs/{run_id}/hil_1/resume",
+                    json={"corrections": corrections},
+                )
+                assert res.status_code == 200
+                # ainvoke 가 아직 끝나지 않았는데도 응답이 돌아왔다 = 즉시 반환
+                assert finished.is_set() is False
+                body = res.json()
+                assert body["ok"] is True
+                assert body["run_id"] == run_id
+                # 백그라운드 task 는 결국 완료된다
+                await _asyncio.wait_for(finished.wait(), timeout=2.0)
 
 
 # ---------------------------------------------------------------------------
@@ -130,7 +183,12 @@ async def test_hil1_resume_passes_thread_id(
     mock_pg: MagicMock,
     mock_graph: MagicMock,
 ) -> None:
-    """graph.ainvoke 가 config={"configurable": {"thread_id": str(run_id)}} 로 호출됨."""
+    """graph.ainvoke 가 config={"configurable": {"thread_id": str(run_id)}} 로 호출됨.
+
+    C5-4: ainvoke 가 백그라운드 task 에서 실행되므로 assert 전 task 를 실행시킨다.
+    """
+    import asyncio as _asyncio
+
     run_id = str(uuid.uuid4())
     corrections = {"1": {"wa": "WA-B", "l6_main": "방수 공사"}}
 
@@ -145,6 +203,8 @@ async def test_hil1_resume_passes_thread_id(
                     f"/api/runs/{run_id}/hil_1/resume",
                     json={"corrections": corrections},
                 )
+                # 스케줄된 백그라운드 task 가 실행되도록 yield
+                await _asyncio.sleep(0.05)
 
     # ainvoke 호출 여부 + config 인자 확인
     mock_graph.ainvoke.assert_called_once()
@@ -168,7 +228,11 @@ async def test_hil1_resume_preserves_string_key_in_command_resume(
 ) -> None:
     """drift #N5: JSON corrections string key 가 Command(resume=) 의 resume payload
     에 string 그대로 전달돼야 함. int 변환은 hil_1_node (graph.py:128) 책임.
+
+    C5-4: ainvoke 가 백그라운드 task 에서 실행되므로 assert 전 task 를 실행시킨다.
     """
+    import asyncio as _asyncio
+
     run_id = str(uuid.uuid4())
     corrections = {"5": {"wa": "WA-Z", "l6_main": "전기 공사"}}
 
@@ -183,6 +247,8 @@ async def test_hil1_resume_preserves_string_key_in_command_resume(
                     f"/api/runs/{run_id}/hil_1/resume",
                     json={"corrections": corrections},
                 )
+                # 스케줄된 백그라운드 task 가 실행되도록 yield
+                await _asyncio.sleep(0.05)
 
     # ainvoke 첫 positional 인자 = Command(resume=...)
     cmd = mock_graph.ainvoke.call_args.args[0]
@@ -198,57 +264,35 @@ async def test_hil1_resume_preserves_string_key_in_command_resume(
 
 
 # ---------------------------------------------------------------------------
-# 테스트 5 (Q1): graph.ainvoke 결과에 current_node 누락 시 500 + 상세 detail
+# 테스트 5 (C5-4): graph.ainvoke 가 EmptyChannelError (checkpoint 없음) 면
+#                 백그라운드에서 set_run_status(..., "failed") 호출.
+#                 동기 404 검출은 즉시반환으로 불가 — accepted tradeoff.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_hil1_resume_500_when_current_node_missing(
+async def test_hil1_resume_bg_marks_failed_on_empty_channel(
     mock_pg: MagicMock,
 ) -> None:
-    """graph 가 current_node 없는 state 반환 시 500 raise (silent "unknown" 금지)."""
-    bad_graph = MagicMock()
-    bad_graph.ainvoke = AsyncMock(return_value={"other_key": "value"})  # current_node 누락
+    """존재하지 않는 run_id → 백그라운드 EmptyChannelError → set_run_status failed.
 
-    run_id = str(uuid.uuid4())
-    corrections = {"0": {"wa": "WA-A", "l6_main": "구조"}}
+    C5-4: 즉시 200 ack 반환 후, 백그라운드 task 에서 예외 발생 시
+    set_run_status(postgres_url, run_id, "failed") 로 마킹된다.
+    """
+    import asyncio as _asyncio
 
-    with (
-        patch.object(api_module, "PGClient", return_value=mock_pg),
-        patch.object(api_module, "build_graph", return_value=bad_graph),
-        patch.object(api_module, "_build_prod_graph_config", return_value=MagicMock()),
-    ):
-        async with api_module.lifespan(app):
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                res = await client.post(
-                    f"/api/runs/{run_id}/hil_1/resume",
-                    json={"corrections": corrections},
-                )
-
-    assert res.status_code == 500
-    assert "current_node" in res.json()["detail"]
-
-
-# ---------------------------------------------------------------------------
-# 테스트 6 (Q2-a): EmptyChannelError → 404 (run_id 없음)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_hil1_resume_404_when_checkpoint_missing(
-    mock_pg: MagicMock,
-) -> None:
-    """존재하지 않는 run_id (checkpoint 없음) → EmptyChannelError → 404."""
     failing_graph = MagicMock()
     failing_graph.ainvoke = AsyncMock(side_effect=EmptyChannelError("no checkpoint"))
 
     run_id = str(uuid.uuid4())
     corrections = {"0": {"wa": "WA-A", "l6_main": "구조"}}
+    set_status_mock = AsyncMock()
 
     with (
         patch.object(api_module, "PGClient", return_value=mock_pg),
         patch.object(api_module, "build_graph", return_value=failing_graph),
         patch.object(api_module, "_build_prod_graph_config", return_value=MagicMock()),
+        patch.object(api_module, "set_run_status", set_status_mock),
     ):
         async with api_module.lifespan(app):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -256,31 +300,46 @@ async def test_hil1_resume_404_when_checkpoint_missing(
                     f"/api/runs/{run_id}/hil_1/resume",
                     json={"corrections": corrections},
                 )
+                # 즉시 200 ack
+                assert res.status_code == 200
+                # 백그라운드 task 가 실행되도록 yield
+                await _asyncio.sleep(0.05)
 
-    assert res.status_code == 404
-    assert run_id in res.json()["detail"]
+    set_status_mock.assert_awaited_once()
+    args = set_status_mock.await_args.args
+    assert run_id in args
+    assert "failed" in args
 
 
 # ---------------------------------------------------------------------------
-# 테스트 7 (Q2-b): InvalidUpdateError → 409 (interrupt 상태 아님)
+# 테스트 6 (C5-4): graph.ainvoke 가 InvalidUpdateError (interrupt 상태 아님) 면
+#                 백그라운드에서 set_run_status(..., "failed") 호출.
+#                 동기 409 검출은 즉시반환으로 불가 — accepted tradeoff.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_hil1_resume_409_when_not_in_interrupt(
+async def test_hil1_resume_bg_marks_failed_on_invalid_update(
     mock_pg: MagicMock,
 ) -> None:
-    """interrupt 대기 상태 아닌 graph 에 Command(resume) → InvalidUpdateError → 409."""
+    """interrupt 대기 상태 아닌 graph → 백그라운드 InvalidUpdateError → failed 마킹.
+
+    C5-4: 즉시 200 ack 반환 후, 백그라운드 예외는 set_run_status failed 처리.
+    """
+    import asyncio as _asyncio
+
     failing_graph = MagicMock()
     failing_graph.ainvoke = AsyncMock(side_effect=InvalidUpdateError("not interrupted"))
 
     run_id = str(uuid.uuid4())
     corrections = {"0": {"wa": "WA-A", "l6_main": "구조"}}
+    set_status_mock = AsyncMock()
 
     with (
         patch.object(api_module, "PGClient", return_value=mock_pg),
         patch.object(api_module, "build_graph", return_value=failing_graph),
         patch.object(api_module, "_build_prod_graph_config", return_value=MagicMock()),
+        patch.object(api_module, "set_run_status", set_status_mock),
     ):
         async with api_module.lifespan(app):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -288,6 +347,12 @@ async def test_hil1_resume_409_when_not_in_interrupt(
                     f"/api/runs/{run_id}/hil_1/resume",
                     json={"corrections": corrections},
                 )
+                # 즉시 200 ack
+                assert res.status_code == 200
+                # 백그라운드 task 가 실행되도록 yield
+                await _asyncio.sleep(0.05)
 
-    assert res.status_code == 409
-    assert "interrupt" in res.json()["detail"]
+    set_status_mock.assert_awaited_once()
+    args = set_status_mock.await_args.args
+    assert run_id in args
+    assert "failed" in args

@@ -93,11 +93,25 @@ export interface AgentStageProgress {
   waiting_hil: boolean;
 }
 
-export interface AgentTaskItem {
-  id: string;                   // "RPT-20260515-001"
-  trade: string;                // "철근공사"
-  contractor: string;           // "(주)A건설"
-  status: "done" | "processing" | "received" | "hil_pending" | "blocked";
+// 단계(Agent)별 카드는 행 단위·컬럼이 다르다 (파일/업체/활동/WP) — 고정 4필드 대신
+// per-step 컬럼 정의(AgentColumn) + generic row(AgentTaskRow). 컬럼 단일 source:
+// lib/agent-task-schema.ts. 컬럼은 API 응답(columns)으로 전달된다.
+export type AgentItemTone =
+  | "done" | "processing" | "received" | "hil_pending" | "blocked"  // 처리 상태
+  | "normal" | "caution" | "risk";                                  // 진단 톤
+
+export interface AgentColumn {
+  key: string;                 // row.values 의 키
+  label: string;               // 헤더 표시명
+  align?: "left" | "right";
+  mono?: boolean;
+}
+
+export interface AgentTaskRow {
+  id: string;
+  values: Record<string, string>;  // column.key → 표시값
+  statusLabel: string;
+  statusTone: AgentItemTone;
 }
 
 export interface ChatMessage {
@@ -249,6 +263,84 @@ export interface RawDataRow {
   equipment: string;
 }
 
+// ────── /home — 구성원 운영 홈 (단일 현장) ──────
+// spec: docs/superpowers/specs/2026-06-01-cpia-home-member-redesign-design.md
+export interface HomeWeather {
+  /** lucide 아이콘 키 (sun / cloud / cloud-rain …) */
+  icon: string;
+  label: string;
+  temp_c: number;
+}
+
+export interface HomeSiteInfo {
+  id: string;
+  name: string;
+  /** 시연 고정 날짜 (YYYY-MM-DD) — report.details 키와 일치 */
+  date: string;
+  location?: string;
+  weather: HomeWeather;
+}
+
+/**
+ * 협력업체 일보 처리/제출 지표.
+ *  - 제출 현황(오늘): expected / submitted / unsubmitted
+ *  - Agent 처리 현황(최근 1년 누적): completed_cum / hours_saved_cum (+ 일평균 rate)
+ */
+export interface HomeProcessing {
+  /** 오늘 예정 업체 수 */
+  expected: number;
+  /** 오늘 제출 업체 수 */
+  submitted: number;
+  /** 오늘 미제출 업체 수 */
+  unsubmitted: number;
+  /** 최근 1년 누적 처리완료 건수 */
+  completed_cum: number;
+  /** 최근 1년 누적 절감 시간(h) — 일평균 절감 × 가동일 */
+  hours_saved_cum: number;
+  /** 일 평균 절감 시간(h) — 설명용 (M15X 월 ~221h ÷ 가동일 기준) */
+  hours_saved_per_day: number;
+}
+
+export interface HomeUnsubmittedCompany {
+  trade: string;
+  name: string;
+}
+
+export interface HomeWorkSummary {
+  /** Σ work_rows.workers */
+  total_workers: number;
+  /** Σ work_rows.equipment */
+  total_equipment: number;
+}
+
+/** 제출 업체별 작업 행 — 통합작업일보(실제 데이터 기반) */
+export interface HomeWorkRow {
+  work_area: string;    // Work Area (FAB / CUB)
+  trade: string;        // 공종 (공통가설·토목·건축·설비·UT·전기·제어·소방설비·소방전기)
+  bp_name: string;      // 협력업체
+  work_content: string; // 금일 작업사항 요약
+  workers: number;      // 투입 인원
+  equipment: number;    // 투입 장비 대수
+}
+
+/** FAB·CUB 동별 작업 요약 (LLM 생성) */
+export interface HomeWorkBrief {
+  fab: string;
+  cub: string;
+}
+
+export interface HomeFixture {
+  site: HomeSiteInfo;
+  user: { name: string };
+  processing: HomeProcessing;
+  unsubmitted_companies: HomeUnsubmittedCompany[];
+  work_summary: HomeWorkSummary;
+  /** FAB·CUB 동별 LLM 작업 요약 */
+  work_brief: HomeWorkBrief;
+  /** 제출 업체 작업 행 (스크롤 테이블) */
+  work_rows: HomeWorkRow[];
+}
+
 // ────── /reports § 5 — WP 단위 요약 (작업일보 상세의 컨텍스트) ──────
 export interface WPSummaryRow {
   wp_id: string;
@@ -266,6 +358,7 @@ export interface WPSummaryRow {
   perperson?: number;
   perperson_unit?: string;
   recovery_days?: number;  // 2026-05-29 BE 단일 source (scenarios.by_wp base_p50). FE 결정론 폐기.
+  delay_days?: number;     // FE-augment (reports/page.tsx 가 optimizer 에서 주입, B3). BE jsonb 아님.
   units_detail?: UnitDetail[];  // 2026-05-29 Task 4.3: 혼재 WP 단위별 분리
 }
 

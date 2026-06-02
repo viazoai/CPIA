@@ -39,7 +39,7 @@ export async function GET() {
       AND ma.requires_review = TRUE
       AND ma.is_mock = ${useMock}
     ORDER BY ma.mapping_conf ASC NULLS FIRST
-    LIMIT 300
+    LIMIT 500
   `,
   ])) as [
     Awaited<ReturnType<typeof wbsTreeBuild>>,

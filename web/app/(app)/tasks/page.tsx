@@ -6,7 +6,7 @@ import { AgentWorkflowList } from "@/app/components/tasks/AgentWorkflowList";
 import { AgentTaskItemList } from "@/app/components/tasks/AgentTaskItemList";
 import { UploadDailyReportDialog } from "@/app/components/tasks/UploadDailyReportDialog";
 import { Button } from "@/components/ui/button";
-import type { DailyTask, AgentStageProgress, AgentTaskItem } from "@/lib/types";
+import type { DailyTask, AgentStageProgress, AgentColumn, AgentTaskRow } from "@/lib/types";
 import {
   useSimStore,
   useSimTick,
@@ -17,7 +17,7 @@ import {
 
 interface DetailData {
   stages: AgentStageProgress[];
-  items: Record<string, AgentTaskItem[]>;
+  items: Record<string, { columns: AgentColumn[]; rows: AgentTaskRow[] }>;
 }
 
 interface ProgressData {
@@ -32,11 +32,10 @@ interface ProgressData {
 }
 
 function pickCurrentAgent(stages: AgentStageProgress[]): string | null {
-  // percent=-1: DB "진행중" sentinel (received=0 이어도 선택)
+  // -1 sentinel 폐기. waiting_hil 우선 → 진행중(received>0 && 미완료) → 마지막 done.
   const current =
     stages.find((s) => s.waiting_hil) ??
-    stages.find((s) => s.percent === -1) ??
-    stages.find((s) => s.received > 0 && s.percent > 0 && s.percent < 100) ??
+    stages.find((s) => s.received > 0 && s.percent < 100 && s.processed !== s.received) ??
     stages.filter((s) => s.percent === 100).at(-1);
   return current?.agent ?? null;
 }
@@ -54,24 +53,10 @@ export default function AgentTasksPage() {
   // 있으면 sim/detail 보다 최우선 사용.
   const [progress, setProgress] = useState<ProgressData | null>(null);
 
-  // DB progress 게이지 애니메이션 — percent=-1 (진행중) 단계를 0→90% 부드럽게 채움.
-  // 각 단계가 "진행중" 으로 처음 감지된 시각을 기록, 60초에 걸쳐 90% 까지 선형 증가.
-  const stageActiveAtRef = useRef<Map<string, number>>(new Map());
-  const [animTick, setAnimTick] = useState(0);
-
-  // selectedDate 변경 시 stage 타이머 + items 초기화.
+  // selectedDate 변경 시 items 초기화.
   useEffect(() => {
-    stageActiveAtRef.current.clear();
-    setDbItems([]);
+    setDbItems({ columns: [], rows: [] });
   }, [selectedDate]);
-
-  // progress 가 running 상태일 때만 250ms 틱.
-  useEffect(() => {
-    const isRunning = progress?.status === "running" || progress?.status === "waiting_hil_1";
-    if (!isRunning) return;
-    const id = setInterval(() => setAnimTick((t) => t + 1), 250);
-    return () => clearInterval(id);
-  }, [progress?.status]);
 
   // H1 — 시뮬레이션 상태. useSimTick 이 250ms 마다 re-render + phase 자동 전환.
   const sim = useSimStore();
@@ -88,7 +73,7 @@ export default function AgentTasksPage() {
   }, []);
 
   // DB items — hasProgress 시 선택된 agent 의 실제 아이템 조회.
-  const [dbItems, setDbItems] = useState<AgentTaskItem[]>([]);
+  const [dbItems, setDbItems] = useState<{ columns: AgentColumn[]; rows: AgentTaskRow[] }>({ columns: [], rows: [] });
 
   // 2) selectedDate 변경 시에만 detail fetch.
   //    실 progress(hasProgress) 또는 sim 활성 시 mock detail 건너뜀.
@@ -168,7 +153,7 @@ export default function AgentTasksPage() {
   //    current_node 바뀌면 즉시 재시작 (stage 전환 시 아이템 목록 즉시 갱신).
   useEffect(() => {
     if (!progress?.run_id || !selectedAgent) {
-      setDbItems([]);
+      setDbItems({ columns: [], rows: [] });
       return;
     }
     const runId = progress.run_id;
@@ -183,9 +168,9 @@ export default function AgentTasksPage() {
           `/api/runs/items?run_id=${runId}&agent=${encodeURIComponent(selectedAgent)}`,
         );
         if (cancelled || !res.ok) return;
-        const d = (await res.json()) as { ok: boolean; items?: AgentTaskItem[] };
+        const d = (await res.json()) as { ok: boolean; columns?: AgentColumn[]; items?: AgentTaskRow[] };
         if (cancelled || !d.ok) return;
-        setDbItems(d.items ?? []);
+        setDbItems({ columns: d.columns ?? [], rows: d.items ?? [] });
       } catch {
         // 네트워크 오류 무시
       }
@@ -277,31 +262,22 @@ export default function AgentTasksPage() {
     );
   }
 
-  // 화면용 stages 결정 우선순위: DB progress > sim > mock detail.
-  // DB progress 의 percent=-1 (진행중) 단계는 로컬 타이머로 0→90% 애니메이션.
-  const ANIM_DURATION_MS = 60_000; // 60초에 걸쳐 90% 까지 (실 파이프라인 속도 반영)
+  // 화면용 stages 결정 우선순위: DB progress(서버 percent 직접) > sim > mock detail.
   const rawProgressStages = hasProgress ? (progress as ProgressData).stages : null;
-  const animatedProgressStages: AgentStageProgress[] | null = rawProgressStages
-    ? rawProgressStages.map((s) => {
-        if (s.percent !== -1) return s;
-        const now = Date.now();
-        if (!stageActiveAtRef.current.has(s.agent)) {
-          stageActiveAtRef.current.set(s.agent, now);
-        }
-        const elapsed = now - stageActiveAtRef.current.get(s.agent)!;
-        const pct = Math.min(90, Math.round((elapsed / ANIM_DURATION_MS) * 90));
-        return { ...s, percent: pct, processed: Math.floor((s.received * pct) / 100) };
-      })
-    : null;
 
-  const stages: AgentStageProgress[] = animatedProgressStages
+  const stages: AgentStageProgress[] = rawProgressStages
     ?? (isSimSelected ? (simStages as AgentStageProgress[]) : detail?.stages ?? []);
 
   // 아이템 우선순위: DB 실 데이터(hasProgress) > mock detail
-  const itemsForAgent: AgentTaskItem[] = hasProgress
-    ? dbItems
+  const rowsForAgent: AgentTaskRow[] = hasProgress
+    ? dbItems.rows
     : selectedAgent
-      ? (detail?.items ?? {})[selectedAgent] ?? []
+      ? (detail?.items ?? {})[selectedAgent]?.rows ?? []
+      : [];
+  const columnsForAgent: AgentColumn[] = hasProgress
+    ? dbItems.columns
+    : selectedAgent
+      ? (detail?.items ?? {})[selectedAgent]?.columns ?? []
       : [];
   const selectedStage = selectedAgent ? stages.find((s) => s.agent === selectedAgent) ?? null : null;
 
@@ -314,7 +290,7 @@ export default function AgentTasksPage() {
               / 02 — Agent Tasks
             </span>
             <h1 className="mt-3 font-display text-h3 text-ink">
-              CPIA 작업 현황
+              작업일보 처리 현황
             </h1>
             <p className="mt-2 text-body-sm text-ink-mid">
               매일 이메일로 접수되는 업체별 작업일보를 7개 Agent를 통해 업무를 처리하여 Middle Office 업무를 지원합니다.
@@ -372,7 +348,8 @@ export default function AgentTasksPage() {
               <AgentTaskItemList
                 selectedAgent={selectedAgent}
                 stage={selectedStage}
-                items={itemsForAgent}
+                columns={columnsForAgent}
+                rows={rowsForAgent}
               />
             ) : (
               <div className="flex h-full items-center justify-center text-xs text-ink-light">

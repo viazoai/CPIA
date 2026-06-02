@@ -15,20 +15,25 @@ services:
     image: node:22-alpine
     container_name: cpia-web-dev
     working_dir: /app
-    volumes:
-      - ../web:/app             # 소스 실시간 마운트
-      - web_dev_modules:/app/node_modules   # node_modules 는 named volume (host 와 분리)
     environment:
       NODE_ENV: development
       TZ: Asia/Seoul
-      POSTGRES_URL: postgresql://${POSTGRES_USER:-cpia}:${POSTGRES_PASSWORD:-cpia}@cpia-postgres:5432/${POSTGRES_DB:-cpia}
+      # 기본은 로컬 compose postgres. 외부(AWS) DB 를 보려면 DEV_DB_URL 로 override.
+      # (POSTGRES_URL 이 아닌 전용 변수 — .env 의 localhost 용 POSTGRES_URL 과 충돌 방지)
+      #   예: DEV_DB_URL='postgresql://USER:PASS@AWS_HOST:5432/cpia?sslmode=require' make dev2
+      POSTGRES_URL: ${DEV_DB_URL:-postgresql://${POSTGRES_USER:-cpia}:${POSTGRES_PASSWORD:-cpia}@cpia-postgres:5432/${POSTGRES_DB:-cpia}}
       CHROMA_HOST: cpia-chroma
       CHROMA_PORT: "8000"
       FASTAPI_URL: http://cpia-pipeline:8000
       NEXT_PUBLIC_DEMO_RESET: "1"
+      DATA_DIR: /app/data
       WATCHPACK_POLLING: "true"
     ports:
       - "0.0.0.0:${DEV_PORT:-5537}:${DEV_PORT:-5537}"
+    volumes:
+      - ../web:/app
+      - ../data:/app/data
+      - web_dev_modules:/app/node_modules
     command: sh -c "npm install --prefer-offline && npm run ${DEV_CMD:-dev2:docker}"
     depends_on:
       postgres:

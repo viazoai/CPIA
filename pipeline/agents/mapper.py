@@ -512,7 +512,9 @@ async def map_activity(
         chosen_wa=chosen_key[0],
     )
 
-    requires_review = confidence < cfg.conf_threshold or wa_result.source == "hil_required"
+    # 2026-06-02 (C5-1): 전건 HIL — 점수 무관 모든 매핑이 review UI 를 거치도록 강제.
+    # mapping_conf 는 confidence 원본 그대로 반환(FE 표시). Spec §5.1 #1.
+    requires_review = True
 
     return {
         **activity,

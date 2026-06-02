@@ -1,0 +1,81 @@
+name: Build & Push Images
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Build target'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - web
+          - pipeline
+
+jobs:
+  build-web:
+    name: Web Image
+    if: inputs.target == 'all' || inputs.target == 'web'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: web/Dockerfile
+          push: true
+          tags: ghcr.io/viazoai/cpia-web:latest
+          build-args: |
+            NEXT_PUBLIC_DEMO_RESET=1
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+
+  build-pipeline:
+    name: Pipeline Image
+    if: inputs.target == 'all' || inputs.target == 'pipeline'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: pipeline/Dockerfile
+          push: true
+          tags: ghcr.io/viazoai/cpia-pipeline:latest
+          cache-from: type=gha,scope=pipeline
+          cache-to: type=gha,mode=max,scope=pipeline

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from pipeline.agents.parser import parse_daily_report  # 내부 변경 0
+from pipeline.db import upsert_agent_progress
 from pipeline.state import CPIAState, ParsedDailyReport
 
 log = logging.getLogger("cpia.parser_node")
@@ -49,9 +50,22 @@ async def parser_node(state: CPIAState) -> dict[str, Any]:
         raise RuntimeError("parser_node: input_files 비어있음")
     sem = asyncio.Semaphore(_PARSE_CONCURRENCY)
 
+    # B3 진행도 — run_id/postgres_url 는 exporter 와 동일하게 state 에서 추출.
+    run_id = state["run_id"]
+    pg_url = state["postgres_url"]
+    total = len(files)
+    await upsert_agent_progress(pg_url, run_id, "parser", 0, total)
+
+    _done = 0  # plain int — sync 증가 후 local 캡쳐, 그 다음 await upsert (read-modify-write 사이 await X)
+
     async def _parse_one(p: Path) -> ParsedDailyReport:
+        nonlocal _done
         async with sem:
-            return await asyncio.to_thread(parse_daily_report, p)
+            r = await asyncio.to_thread(parse_daily_report, p)
+        _done += 1
+        _local = _done
+        await upsert_agent_progress(pg_url, run_id, "parser", _local, total)
+        return r
 
     reports = list(await asyncio.gather(*[_parse_one(p) for p in files]))
     merged = _merge_reports(reports)

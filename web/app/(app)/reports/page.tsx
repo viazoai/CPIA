@@ -13,7 +13,7 @@ import { toDiagnosisInput } from "@/lib/diagnosis-adapter";
 import { filterAndPickBars } from "@/lib/bar-filters";
 import type { ReportDaily, OptimizerOutput } from "@/lib/types";
 import type { ReportDetail } from "@/lib/fixtures";
-import { wpRowsForStatus } from "@/lib/wp-rows";
+import { wpRowsForStatus, type WPStatusFilter } from "@/lib/wp-rows";
 
 type Filter = "all" | "risk" | "caution" | "safe";
 
@@ -133,7 +133,7 @@ export default function ReportPage() {
   }
 
   // § 3 4분면 필터 → WP 리스트 필터 (safe ↔ normal 매핑)
-  const filterToStatus: Record<Filter, "normal" | "caution" | "risk" | "all"> = {
+  const filterToStatus: Record<Filter, WPStatusFilter> = {
     all: "all",
     risk: "risk",
     caution: "caution",

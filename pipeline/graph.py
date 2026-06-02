@@ -38,11 +38,15 @@ from pipeline.db import (
     set_run_status,
     update_site_hours_saved_cum,
     update_site_last_run,
+    upsert_agent_progress,
 )
 from pipeline.state import Activity, CPIAState, ParsedDailyReport
 
 # Mapper LLM rerank 병렬도 — Azure rate-limit 고려해 기본 4. env 로 조정.
 _MAPPER_CONCURRENCY = int(os.environ.get("CPIA_MAPPER_CONCURRENCY", "4"))
+
+# B3 카드 점진 — mapper 매핑완료 K건마다 mapper_activities chunk INSERT + progress emit.
+_MAPPER_PROGRESS_CHUNK = int(os.environ.get("CPIA_MAPPER_PROGRESS_CHUNK", "20"))
 
 
 @dataclass
@@ -93,30 +97,30 @@ async def mapper_node(state: CPIAState, cfg: GraphConfig) -> dict:
 
     sem = asyncio.Semaphore(_MAPPER_CONCURRENCY)
 
-    async def _map_one(a: Activity) -> Activity:
+    async def _map_one(idx: int, a: Activity) -> tuple[int, Activity]:
         async with sem:
-            return await map_activity(
+            m = await map_activity(
                 a,
                 parsed_report=parsed,
                 cfg=cfg.mapper,
                 bp_cand_lookup=bp_cand_lookup,
             )
-
-    mapped: list[Activity] = list(await asyncio.gather(*[_map_one(a) for a in parsed["activities"]]))
+            return idx, m
 
     import sys as _sys
 
     def _dbg(msg: str) -> None:
         print(f"[mapper_node:{run_id}] {msg}", file=_sys.stderr, flush=True)
 
-    _dbg(f"mapped len={len(mapped)} BEFORE prorate/INSERT")
+    total = len(parsed["activities"])
+    pg_url = cfg.mapper.postgres_url
+    await upsert_agent_progress(pg_url, state["run_id"], "mapper", 0, total)
+
     pg = PGClient(cfg.mapper.postgres_url)
     await pg.connect()
     _dbg(f"PG connected DSN={cfg.mapper.postgres_url[:40]}...")
     try:
-        mapped = await _prorate_mh(mapped, parsed, pg)
-        _dbg(f"prorate done, mapped len={len(mapped)}")
-
+        # B3: parser rows BEFORE gather — items Mapper 카드가 매핑 끝나기 전부터 received.
         await pg.insert_parser_report(
             run_id=run_id,
             report_date=today,
@@ -152,17 +156,46 @@ async def mapper_node(state: CPIAState, cfg: GraphConfig) -> dict:
             f"insert_parser_equipment_allocations_batch OK ({len(parsed.get('equipment_allocations') or [])} rows)"
         )
 
-        # company 정규화 (㈜ prefix / 괄호 sub-context 제거) — A.6 와 일관
-        # `or ""` — 빈 회사는 ''(NOT NULL 안전) 보존 (line 77 과 동일 이유).
+        # B3: idx-carrying mapping — as_completed 로 완료순 수집, K건마다 chunk INSERT + progress emit.
+        results: dict[int, Activity] = {}
+        chunk_buf: list[tuple[int, Activity]] = []
+        _done = 0  # plain int — sync 증가 후 local 캡쳐, await 사이 X
+        coros = [_map_one(i, a) for i, a in enumerate(parsed["activities"])]
+        for fut in asyncio.as_completed(coros):
+            idx, m = await fut
+            # company 정규화 (㈜ prefix / 괄호 sub-context 제거) — A.6 와 일관.
+            # `or ""` — 빈 회사는 ''(NOT NULL 안전) 보존.
+            m["company"] = normalize_company(m.get("company")) or ""
+            results[idx] = m
+            chunk_buf.append((idx, m))
+            _done += 1
+            _local = _done
+            if len(chunk_buf) >= _MAPPER_PROGRESS_CHUNK or _local == total:
+                _chunk_acts = [ca for _, ca in chunk_buf]
+                _chunk_idxs = [ci for ci, _ in chunk_buf]
+                # chunk 는 ORIGINAL idx 로 INSERT (ON CONFLICT (run_id, idx) 멱등).
+                await pg.insert_mapper_activities_batch(
+                    run_id=run_id,
+                    report_date=today,
+                    activities=_chunk_acts,
+                    idxs=_chunk_idxs,
+                )
+                await upsert_agent_progress(pg_url, state["run_id"], "mapper", _local, total)
+                _dbg(f"mapper chunk INSERT ({len(_chunk_acts)}) progress={_local}/{total}")
+                chunk_buf = []
+
+        # idx 순서 복원 → prorate → company 정규화 → FINAL full re-INSERT (plan_mh 등 갱신).
+        mapped: list[Activity] = [results[i] for i in range(total)]
+        mapped = await _prorate_mh(mapped, parsed, pg)
+        _dbg(f"prorate done, mapped len={len(mapped)}")
         for a in mapped:
             a["company"] = normalize_company(a.get("company")) or ""
-
         await pg.insert_mapper_activities_batch(
             run_id=run_id,
             report_date=today,
             activities=mapped,
         )
-        _dbg(f"insert_mapper_activities_batch OK ({len(mapped)} rows)")
+        _dbg(f"insert_mapper_activities_batch (final) OK ({len(mapped)} rows)")
 
         # 같은 transaction 안에서 SELECT 로 즉시 검증 (silent fail 진단)
         n_pr = await pg.fetch_all("SELECT count(*) AS n FROM parser_reports WHERE run_id=$1", run_id)

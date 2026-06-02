@@ -649,11 +649,15 @@ class PGClient:
         run_id: uuid.UUID,
         report_date: _date,
         activities: list[dict],
+        idxs: list[int] | None = None,
     ) -> None:
         """mapper_activities batch INSERT — Activity[] enriched (wa/l6_main/conf).
 
         (run_id, idx) 멱등. _prorate_mh 적용 후 호출. conditions 는 jsonb list.
         2026-05-19 확장: parser 산출 풀 컬럼 (zone/scope/누적/F%/잔여/note/work_location/WBS) 보존.
+
+        idxs: chunk 적재 시 각 row 의 ORIGINAL idx (run_id, idx) 매핑. None 이면
+        enumerate 순서(0..n-1) 사용 — 기존 호출자(full list)와 동일 동작.
         """
         import json as _json
 
@@ -732,7 +736,7 @@ class PGClient:
                     (
                         run_id,
                         report_date,
-                        i,
+                        (idxs[k] if idxs is not None else k),
                         a["company"],
                         a.get("trade"),
                         a.get("unit"),
@@ -768,7 +772,7 @@ class PGClient:
                         a.get("l7_5_activity"),
                         a.get("sub_work_area"),
                     )
-                    for i, a in enumerate(activities)
+                    for k, a in enumerate(activities)
                 ],
             )
 

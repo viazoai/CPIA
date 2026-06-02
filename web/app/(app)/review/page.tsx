@@ -31,6 +31,7 @@ export default function HumanReviewPage() {
   const [registeredError, setRegisteredError] = useState(false);
   const [confirmedNotice, setConfirmedNotice] = useState<string | null>(null);
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+  const [view, setView] = useState<"list" | "board">("list");
   const gridRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -99,7 +100,6 @@ export default function HumanReviewPage() {
   const connectorTone: "mint" | "sun" =
     selectedCard && selectedCard.status === "unconfirmed" && selectedCard.confidence < 0.8 ? "sun" : "mint";
   // 연결선 재드로잉 nonce — 모드·그룹수·선택노드(트리 펼침/스크롤) 변할 때 bump.
-  const [view, setView] = useState<"list" | "board">("list");
   const [redrawKey, setRedrawKey] = useState(0);
   useEffect(() => {
     setRedrawKey((k) => k + 1);
@@ -305,7 +305,7 @@ export default function HumanReviewPage() {
       )}
 
       {view === "board" && (
-        <section className="mx-auto w-full max-w-screen-2xl px-6 pb-10 md:px-10" style={{ height: "calc(100vh - 220px)" }}>
+        <section className="mx-auto w-full max-w-screen-2xl px-6 pb-10 md:px-10 h-[calc(100vh-220px)]">
           <div className="h-full rounded-card border border-border-soft bg-card overflow-hidden">
             <ReviewBoard
               wbs={wbs}

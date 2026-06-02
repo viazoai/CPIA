@@ -13,6 +13,7 @@ import { toDiagnosisInput } from "@/lib/diagnosis-adapter";
 import { filterAndPickBars } from "@/lib/bar-filters";
 import type { ReportDaily, OptimizerOutput } from "@/lib/types";
 import type { ReportDetail } from "@/lib/fixtures";
+import { wpRowsForStatus } from "@/lib/wp-rows";
 
 type Filter = "all" | "risk" | "caution" | "safe";
 
@@ -148,6 +149,8 @@ export default function ReportPage() {
     wpStatusFilter === "all"
       ? filteredWpRowsBase
       : filteredWpRowsBase.filter((w) => w.status === wpStatusFilter);
+  // WP목록 표 = 전체 wp_summary (status 4분면 필터만). headline Σ(wp_summary) 와 정합.
+  const wpListRows = wpRowsForStatus(detail.wp_summary ?? [], wpStatusFilter);
 
   return (
     <div className="flex flex-col">
@@ -208,7 +211,7 @@ export default function ReportPage() {
                   {/* WP 목록 — 약 8개 행 (header 48 + thead 30 + 8 × ~26 ≈ 286, 여유 포함 352) */}
                   <div className="h-[352px] shrink-0">
                     <WPSummaryTable
-                      rows={filteredWpRows}
+                      rows={wpListRows}
                       selectedWpId={selectedWpId}
                       onSelect={setSelectedWpId}
                     />

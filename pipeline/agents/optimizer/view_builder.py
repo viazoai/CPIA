@@ -1613,6 +1613,18 @@ def _group_perperson_unit(items: list[dict]) -> tuple[float | None, str | None]:
     return avg, unit
 
 
+def _wp_summary_dates(it: dict, today: date) -> tuple[str, str]:
+    """wp_summary 시작/종료일 = 온고잉 plan 의 실 기간 (placeholder 폐기).
+
+    2026-06-02 B2.5(C6): 이전엔 당월1일/오늘 placeholder 라 진단 inconsistent.
+    grouped_items 의 plan_start/plan_finish (활동마스터 plan) 사용. 둘 중
+    하나라도 None/누락이면 today 로 fallback (디자인 불가침 — 데이터-only).
+    """
+    ps = it.get("plan_start") or today
+    pf = it.get("plan_finish") or today
+    return str(ps), str(pf)
+
+
 _VIEWS_V2_EMPTY = {
     "kpi": {},
     "productivity": {},
@@ -1666,6 +1678,47 @@ async def _build_productivity_views_v2(
         site_id,
     )
     if not rows:
+        # 2026-06-02 fallback: 실 prod run 은 parser.py:445 가 l7_5_activity=None 하드코딩이라
+        # 위 (company,l6,l7_5) 매칭이 0행 → wp_summary 등 전부 빔(더미 시드만 l7_5 보유).
+        # l7_5 없이 (wa,l6_main,company,unit) 로 실적 집계 + activity_master (company,l6,unit)
+        # plan 매칭(1회). 다운스트림은 그대로(wp_id 그룹핑). dummy 경로는 위 쿼리가 잡으므로 불변.
+        rows = await pg.fetch_all(
+            """
+            WITH actual AS (
+                SELECT pr.site_id, ma.company, ma.l6_main, ma.unit, ma.wa,
+                       SUM(COALESCE(ma.today_qty, 0))::float AS today_qty,
+                       SUM(COALESCE(ma.assigned_workers, 0))::float AS assigned_workers,
+                       MAX(ma.trade) AS trade
+                FROM mapper_activities ma
+                JOIN pipeline_runs pr USING (run_id)
+                WHERE ma.report_date = $1
+                  AND pr.site_id = $2
+                  AND ma.trade IN ('건축', '토목')
+                  AND ma.unit IS NOT NULL
+                GROUP BY pr.site_id, ma.company, ma.l6_main, ma.unit, ma.wa
+            ),
+            plan AS (
+                SELECT company, l6_main, unit,
+                       MIN(plan_start) AS ps, MAX(plan_finish) AS pf,
+                       SUM(plan_total_qty) AS qty, SUM(plan_mh_rev2) AS mh
+                FROM activity_master
+                WHERE site_id = $2
+                GROUP BY company, l6_main, unit
+            )
+            SELECT (row_number() OVER ())::int AS id, a.site_id, NULL::uuid AS run_id,
+                   a.company, a.l6_main, NULL::text AS l7_5_activity,
+                   a.unit, NULL::text AS zone, a.wa,
+                   a.today_qty, a.assigned_workers, a.trade,
+                   p.ps AS plan_start, p.pf AS plan_finish,
+                   p.qty AS plan_total_qty, p.mh AS plan_mh
+            FROM actual a
+            JOIN plan p ON p.company = a.company AND p.l6_main = a.l6_main AND p.unit = a.unit
+            WHERE p.ps IS NOT NULL AND $1 BETWEEN p.ps AND p.pf
+            """,
+            today,
+            site_id,
+        )
+    if not rows:
         return dict(_VIEWS_V2_EMPTY)
 
     # 2026-05-29 SSOT: forecasts.risk_level lookup — wp_summary·분포도·카드 status 단일 source.
@@ -1699,9 +1752,16 @@ async def _build_productivity_views_v2(
         # 2026-05-29 Task 4.1: _simulate_today_qty 폐기 — 실 seeded today_qty/workers 사용.
         # 이전엔 마스터 daily × random noise 로 재생성해 r["today_qty"]/assigned_workers 를
         # 버려서 condition-blind + forecaster 와 불일치. 이제 실 실적값으로 직접 산정.
+        # 2026-06-02: assigned_workers 가 실 작업일보(통합)에서 mh-누계 단위(수만)로 들어와
+        # perperson 왜곡 → productivity 7.9%/150 들쭉. _sanitize_workers (≤50 그대로, 그 외
+        # master±10% / ÷8) 로 headcount 정상화. dummy(≤50)는 불변.
+        _seed_w = f"{r['wa']}|{r['company']}|{r['l6_main']}|{r['unit']}"
+        _workers_n = float(_sanitize_workers(
+            float(r["assigned_workers"] or 0.0), daily_workers_master, _seed_w
+        ))
         rp = _row_productivity(
             float(r["today_qty"] or 0.0),
-            float(r["assigned_workers"] or 0.0),
+            _workers_n,
             daily_qty_master,
             daily_workers_master,
         )
@@ -1719,9 +1779,9 @@ async def _build_productivity_views_v2(
                 "unit": r["unit"],
                 "wa": r["wa"],
                 "actual_trade": r["trade"],
-                "assigned_workers": r["assigned_workers"],
+                "assigned_workers": _workers_n,
                 "today_qty": r["today_qty"],
-                "workers": r["assigned_workers"],
+                "workers": _workers_n,
                 "plan_total_qty": plan_qty,
                 "plan_mh": plan_mh,
                 "perperson": perperson,
@@ -1732,6 +1792,8 @@ async def _build_productivity_views_v2(
                 "risk_level": risk_lookup.get((r["wa"], r["company"], r["l6_main"])),
                 "productivity": productivity,
                 "impact_raw": impact_raw,
+                "plan_start": r["plan_start"],
+                "plan_finish": r["plan_finish"],
             }
         )
 
@@ -1937,8 +1999,9 @@ async def _build_productivity_views_v2(
                 "wp_name": _wp_name_with_wa(it),
                 "trade": it["l6_main"],
                 "bp_name": it["company"],
-                "start_date": str(today.replace(day=1)),  # placeholder
-                "end_date": str(today),
+                # 2026-06-02 B2.5(C6): 당월1일/오늘 placeholder → 온고잉 plan 실 기간.
+                "start_date": _wp_summary_dates(it, today)[0],
+                "end_date": _wp_summary_dates(it, today)[1],
                 "progress_pct": round(
                     min(100, (it["today_qty"] / max(it["plan_total_qty"], 1)) * 100), 1
                 ),
@@ -2179,20 +2242,36 @@ async def _build_productivity_views_v2(
     # 2026-05-29: wp_summary.recovery_days = scenarios.by_wp[wp].base_p50 (단일 source).
     # FE WPSummaryTable 의 결정론 recoveryDays() 폐기 — site=Σ(wp recovery_days) 와 정합.
     scen_by_wp = scenarios.get("by_wp") or {}
+    # 2026-06-02: per-WP 진짜 지연일 = forecasts.delay_days (= 예측완료일 − 계획완료일, 현황 슬립).
+    # recovery(AI 공기단축)와 별개 데이터 — forecasts 를 같은 _wp_id_of 키로 매핑. (매칭 없거나
+    # NULL = 0 = 일정 충족.) wp_summary 와 optimizer 카드 둘 다 이 진짜 지연을 쓴다.
+    _delay_by_wp = {
+        _wp_id_of(f.get("wa"), f.get("l6_main"), f.get("company")): f.get("delay_days")
+        for f in forecast_rows
+    }
     for w in wp_summary:
         wp_scen = scen_by_wp.get(w["wp_id"]) or {}
         w_bp50 = wp_scen.get("base_p50") or {}
         w["recovery_days"] = int(w_bp50.get("recovery_days") or 0)
+        _dd = _delay_by_wp.get(w["wp_id"])
+        w["delay_days"] = int(_dd) if _dd is not None else 0
 
-    # 2026-05-29 (2차) 사용자 결정: per-WP 카드 '일정 영향' = 그 WP 의 공기단축 일수(scenarios.by_wp)
-    # 기준. 카드 안에서 '지연 N일 ↔ 공기단축 -N일' 정합 + site = Σ 와 일관. (forecaster point-in-time
-    # delay 는 orphan 누적 cum 으로 0 이라 카드용으로 부적합 — 모든 카드 '일정 충족' 모순 해소.)
+    # 2026-06-02: per-WP 카드 '일정 영향' = 그 WP 의 진짜 지연일(forecasts.delay_days). 산출근거에
+    # 회복(AI 공기단축) 가능일을 병기. (기존엔 recovery 를 "N일 지연"으로 라벨해 지연=회복으로
+    # 오인됐다 — forecaster delay 가 실제로 채워져 있어 정정.)
     _ov_by_wp = optimizer_view.get("by_wp") or {}
     for _wp_id, _ov in _ov_by_wp.items():
         _rec = int(((scen_by_wp.get(_wp_id) or {}).get("base_p50") or {}).get("recovery_days") or 0)
-        if _rec > 0:
-            _sched_val = f"{_rec}일 지연"
-            _basis = f"AI 분석상 약 {_rec}일치 작업량이 밀려, 만회 시 {_rec}일 단축 가능"
+        _dly_raw = _delay_by_wp.get(_wp_id)
+        _dly = int(_dly_raw) if _dly_raw is not None else 0
+        if _dly > 0:
+            _sched_val = f"{_dly}일 지연"
+            _basis = f"현황 페이스 기준 완공이 약 {_dly}일 지연 예상" + (
+                f" — AI 만회 시 {_rec}일 단축 가능" if _rec > 0 else ""
+            )
+        elif _rec > 0:
+            _sched_val = "일정 충족"
+            _basis = f"현 진도는 일정 충족 — AI 적용 시 {_rec}일 추가 단축 가능"
         else:
             _sched_val = "일정 충족"
             _basis = "계획한 진도를 맞춰 진행 중 (지연 없음)"

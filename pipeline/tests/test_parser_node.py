@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
@@ -16,9 +18,14 @@ SAMPLE_XLSX = (
 )
 
 
-def test_parser_node_returns_parsed_report() -> None:
-    state = {"input_files": [str(SAMPLE_XLSX)]}
-    out = parser_node(state)
+@pytest.mark.asyncio
+async def test_parser_node_returns_parsed_report() -> None:
+    state = {
+        "input_files": [str(SAMPLE_XLSX)],
+        "run_id": str(uuid4()),
+        "postgres_url": os.environ.get("POSTGRES_URL", "postgresql://x"),
+    }
+    out = await parser_node(state)
     # mapper 가 state["parsed"] (singular, dict) 로 읽음 — D-12 + 기존 mapper contract
     assert "parsed" in out
     report = out["parsed"]
@@ -27,6 +34,7 @@ def test_parser_node_returns_parsed_report() -> None:
     assert report["activities"]
 
 
-def test_parser_node_raises_on_missing_input_files() -> None:
+@pytest.mark.asyncio
+async def test_parser_node_raises_on_missing_input_files() -> None:
     with pytest.raises((KeyError, IndexError)):
-        parser_node({})
+        await parser_node({})

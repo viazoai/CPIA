@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 from pipeline.agents._concurrency import get_llm_semaphore
 from pipeline.chroma_client import ChromaClient
-from pipeline.db import PGClient
+from pipeline.db import PGClient, upsert_agent_progress
 from pipeline.state import Activity
 
 from .aggregate import (
@@ -377,9 +377,15 @@ async def forecast(
             key = (a.get("wa"), a["company"], a["l6_main"])
             groups.setdefault(key, []).append(a)
 
+        # B3 진행도 — total 은 forecast 그룹 수.
+        _ap_total = len(groups)
+        await upsert_agent_progress(cfg.postgres_url, run_id, "forecaster", 0, _ap_total)
+        _ap_done = 0  # plain int — closure 안에서 sync 증가 후 local 캡쳐
+
         sem = get_llm_semaphore()  # 함수 entry 에서 한 번 — closure 로 공유
 
         async def _one(key: tuple[str | None, str, str], activities: list[Activity]) -> dict[str, Any]:
+            nonlocal _ap_done
             wa, company, l6_main = key
             async with sem:  # LLM 호출 부분만 Semaphore 안
                 row = await _forecast_one_group(
@@ -395,6 +401,9 @@ async def forecast(
                 )
             row["wa"] = wa
             await pg.insert_forecast(row)  # asyncpg pool 이 thread-safe — sem 밖
+            _ap_done += 1
+            _local = _ap_done
+            await upsert_agent_progress(cfg.postgres_url, run_id, "forecaster", _local, _ap_total)
             return row
 
         tasks = [_one(k, v) for k, v in groups.items()]

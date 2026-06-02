@@ -649,11 +649,15 @@ class PGClient:
         run_id: uuid.UUID,
         report_date: _date,
         activities: list[dict],
+        idxs: list[int] | None = None,
     ) -> None:
         """mapper_activities batch INSERT — Activity[] enriched (wa/l6_main/conf).
 
         (run_id, idx) 멱등. _prorate_mh 적용 후 호출. conditions 는 jsonb list.
         2026-05-19 확장: parser 산출 풀 컬럼 (zone/scope/누적/F%/잔여/note/work_location/WBS) 보존.
+
+        idxs: chunk 적재 시 각 row 의 ORIGINAL idx (run_id, idx) 매핑. None 이면
+        enumerate 순서(0..n-1) 사용 — 기존 호출자(full list)와 동일 동작.
         """
         import json as _json
 
@@ -732,7 +736,7 @@ class PGClient:
                     (
                         run_id,
                         report_date,
-                        i,
+                        (idxs[k] if idxs is not None else k),
                         a["company"],
                         a.get("trade"),
                         a.get("unit"),
@@ -768,7 +772,7 @@ class PGClient:
                         a.get("l7_5_activity"),
                         a.get("sub_work_area"),
                     )
-                    for i, a in enumerate(activities)
+                    for k, a in enumerate(activities)
                 ],
             )
 
@@ -1336,4 +1340,43 @@ async def set_run_status(postgres_url: str, run_id: str | uuid.UUID, status: str
         finally:
             await conn.close()
     except Exception:
+        pass
+
+
+async def upsert_agent_progress(
+    postgres_url: str,
+    run_id: str | uuid.UUID,
+    agent: str,
+    processed: int,
+    total: int,
+) -> None:
+    """agent_progress (run_id, agent) UPSERT — B3 per-item 진행도.
+
+    Web UI (tasks/page) 가 polling 으로 processed/total 을 읽어 게이지 표시.
+    GREATEST = out-of-order concurrent upsert 에서 processed 단조 보장
+    (작은 값이 와도 후퇴 안 함). total 은 항상 EXCLUDED 로 갱신.
+    실패 시 silent — pipeline 본 동작 막지 않음 (progress 표시는 secondary).
+    """
+    rid = uuid.UUID(run_id) if isinstance(run_id, str) else run_id
+    try:
+        conn = await asyncpg.connect(postgres_url)
+        try:
+            await conn.execute(
+                """
+                INSERT INTO agent_progress (run_id, agent, processed, total, updated_at)
+                VALUES ($1, $2, $3, $4, now())
+                ON CONFLICT (run_id, agent) DO UPDATE SET
+                    processed  = GREATEST(agent_progress.processed, EXCLUDED.processed),
+                    total      = EXCLUDED.total,
+                    updated_at = now()
+                """,
+                rid,
+                agent,
+                processed,
+                total,
+            )
+        finally:
+            await conn.close()
+    except Exception:
+        # progress write 실패는 본 동작 영향 X.
         pass

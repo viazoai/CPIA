@@ -358,6 +358,7 @@ export interface WPSummaryRow {
   perperson?: number;
   perperson_unit?: string;
   recovery_days?: number;  // 2026-05-29 BE 단일 source (scenarios.by_wp base_p50). FE 결정론 폐기.
+  delay_days?: number;     // FE-augment (reports/page.tsx 가 optimizer 에서 주입, B3). BE jsonb 아님.
   units_detail?: UnitDetail[];  // 2026-05-29 Task 4.3: 혼재 WP 단위별 분리
 }
 

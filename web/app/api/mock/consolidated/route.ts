@@ -127,9 +127,11 @@ export async function GET(req: Request) {
 
   const acts = (await (sql as any)`
     SELECT pa.zone, pa.trade, pa.bp_code, pa.company, pa.scope,
-           pa.work_content, pa.unit, pa.plan_total_qty, pa.yesterday_cum_qty, pa.today_qty
+           pa.work_content, pa.unit, pa.plan_total_qty, pa.yesterday_cum_qty, pa.today_qty,
+           ma.wa AS mapper_wa
     FROM parser_activities pa
     JOIN pipeline_runs pr USING (run_id)
+    LEFT JOIN mapper_activities ma USING (run_id, idx)
     WHERE pr.report_date = ${date}
       AND pa.is_mock = ${useMock}
   `) as Array<{
@@ -143,12 +145,44 @@ export async function GET(req: Request) {
     plan_total_qty: number | string | null;
     yesterday_cum_qty: number | string | null;
     today_qty: number | string | null;
+    mapper_wa: string | null;
   }>;
+
+  // 시트1 zone 소스: mapper_activities.wa 를 회사별 최빈값으로 집계.
+  // bp_summaries jsonb 에는 idx 가 없어 직접 JOIN 불가 → company 기준 대표 wa 사용.
+  const waRows = (await (sql as any)`
+    SELECT ma.company, ma.wa, COUNT(*)::int AS cnt
+    FROM mapper_activities ma
+    JOIN pipeline_runs pr USING (run_id)
+    WHERE pr.report_date = ${date}
+      AND ma.is_mock = ${useMock}
+      AND COALESCE(ma.wa, '') <> ''
+    GROUP BY ma.company, ma.wa
+  `) as Array<{ company: string; wa: string; cnt: number }>;
+
+  // 회사별 최빈 wa: 동점 시 FAB 우선, 그 외는 사전순 역순(결정론적).
+  const companyWa: Record<string, string> = {};
+  const waByCo: Record<string, Array<{ wa: string; cnt: number }>> = {};
+  for (const r of waRows) {
+    if (!waByCo[r.company]) waByCo[r.company] = [];
+    waByCo[r.company].push({ wa: r.wa, cnt: r.cnt });
+  }
+  for (const [company, entries] of Object.entries(waByCo)) {
+    const maxCnt = Math.max(...entries.map((e) => e.cnt));
+    const tied = entries.filter((e) => e.cnt === maxCnt);
+    if (tied.some((e) => e.wa === "FAB")) {
+      companyWa[company] = "FAB";
+    } else {
+      // 사전순 역순 중 첫 번째 (결정론적)
+      tied.sort((a, b) => b.wa.localeCompare(a.wa));
+      companyWa[company] = tied[0].wa;
+    }
+  }
 
   // 시트1 — 출력인원: parser_reports.bp_summaries jsonb 펼침.
   const output_manpower: OutputManpowerRow[] = bp_summaries.map((s: any) => ({
     pjt: PJT,
-    zone: String(s.zone ?? ""),
+    zone: String(companyWa[s.company] ?? s.zone ?? ""),
     trade: String(s.disc_abbrev ?? ""),
     bp_code: String(s.bp_code ?? s.company ?? ""),
     scope: String(s.scope ?? ""),
@@ -193,9 +227,9 @@ export async function GET(req: Request) {
     cum_t: Number(e.count_cum_t ?? 0),
   }));
 
-  // 시트4 — 물량: parser_activities.
+  // 시트4 — 물량: mapper_activities.wa 우선, 없으면 parser_activities.zone 폴백.
   const quantity: QuantityRow[] = acts.map((a) => ({
-    zone: a.zone ?? "",
+    zone: a.mapper_wa ?? a.zone ?? "",
     trade: a.trade ?? "",
     bp_code: a.bp_code ?? "",
     bp_name: a.company ?? "",

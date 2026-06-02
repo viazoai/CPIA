@@ -13,6 +13,7 @@ import { toDiagnosisInput } from "@/lib/diagnosis-adapter";
 import { filterAndPickBars } from "@/lib/bar-filters";
 import type { ReportDaily, OptimizerOutput } from "@/lib/types";
 import type { ReportDetail } from "@/lib/fixtures";
+import { wpRowsForStatus, type WPStatusFilter } from "@/lib/wp-rows";
 
 type Filter = "all" | "risk" | "caution" | "safe";
 
@@ -132,7 +133,7 @@ export default function ReportPage() {
   }
 
   // § 3 4분면 필터 → WP 리스트 필터 (safe ↔ normal 매핑)
-  const filterToStatus: Record<Filter, "normal" | "caution" | "risk" | "all"> = {
+  const filterToStatus: Record<Filter, WPStatusFilter> = {
     all: "all",
     risk: "risk",
     caution: "caution",
@@ -142,12 +143,13 @@ export default function ReportPage() {
   // spec §④ — 위 trade bar 매칭된 trade 만 + dead row (impact=0 AND prod=0) 제외.
   // 지연일(delay_days)·AI단축(recovery_days)은 BE(view_builder)가 wp_summary 에 직접 주입 —
   // 지연일=forecasts.delay_days(현황 완료일 슬립), 단축=scenarios.by_wp recovery. FE 파싱 폐기.
+  // QuadrantCountKpi 용 — visibleTrades + 활성(impact/productivity>0) 필터.
   const filteredWpRowsBase = detail.wp_summary
     .filter((w) => visibleTrades.has(w.trade) && (w.impact > 0 || w.productivity > 0));
-  const filteredWpRows =
-    wpStatusFilter === "all"
-      ? filteredWpRowsBase
-      : filteredWpRowsBase.filter((w) => w.status === wpStatusFilter);
+  // WP목록 표 = 전체 wp_summary (status 4분면 필터만). headline Σ(wp_summary) 와 정합.
+  const wpListRows = wpRowsForStatus(detail.wp_summary ?? [], wpStatusFilter);
+  // 선택 WP — OptimizerResult 진단/만회방안 괄호(지연·AI단축) prop source (wp_summary SSOT).
+  const selectedWp = detail.wp_summary.find((w) => w.wp_id === selectedWpId);
 
   return (
     <div className="flex flex-col">
@@ -212,7 +214,7 @@ export default function ReportPage() {
                   {/* WP 목록 — 약 8개 행 (header 48 + thead 30 + 8 × ~26 ≈ 286, 여유 포함 352) */}
                   <div className="h-[352px] shrink-0">
                     <WPSummaryTable
-                      rows={filteredWpRows}
+                      rows={wpListRows}
                       selectedWpId={selectedWpId}
                       onSelect={setSelectedWpId}
                     />
@@ -265,6 +267,8 @@ export default function ReportPage() {
                         ?? detail.optimizer?.by_wp?.[detail.optimizer?.default_wp_id ?? ""]
                         ?? EMPTY_OPTIMIZER
                       }
+                      delayDays={selectedWp?.delay_days}
+                      recoveryDays={selectedWp?.recovery_days}
                     />
                   </div>
                 </div>

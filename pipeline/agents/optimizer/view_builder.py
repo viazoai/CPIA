@@ -1087,8 +1087,10 @@ def _recovery_distribution_text(degradation_cases: list[dict]) -> str:
 
 
 def _diagnosis_prefix(prod_info: Optional[dict], conditions: str) -> str:
-    """진단 첫 줄 — '{조건} 조건에서 생산성 X {unit} (정상 페이스 대비 Z%)'.
+    """DEAD (2026-06) — _status_line_qty(물량 현황)로 대체. 호출부 없음. 정상대비% 는 forecast
+    생산성 basis 불일치로 헛값이라 폐기. (보존만 — 안전한 별도 cleanup 대상.)
 
+    진단 첫 줄 — '{조건} 조건에서 생산성 X {unit} (정상 페이스 대비 Z%)'.
     prod_info: {perperson, unit, productivity_pct}. None 이면 "" (LLM diagnosis 그대로).
     """
     if not prod_info:
@@ -1101,6 +1103,47 @@ def _diagnosis_prefix(prod_info: Optional[dict], conditions: str) -> str:
         return ""
     dev = round(pct - 100)
     return f"{cond} 조건에서 생산성 {pp:.2f} {unit} (정상 페이스 대비 {dev:+d}%)."
+
+
+def _num(v):
+    """Decimal/str/None 안전 float 변환."""
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _unit_qty(raw, unit):
+    """JSONB 가 str 로 올 수 있어 defensive — {unit: qty} dict 에서 unit 값."""
+    import json as _json  # noqa: PLC0415 — 모듈 패턴: late import (autoflake 방지)
+
+    if isinstance(raw, str):
+        try:
+            raw = _json.loads(raw)
+        except (ValueError, TypeError):
+            return None
+    return _num((raw or {}).get(unit)) if isinstance(raw, dict) else None
+
+
+def _status_line_qty(fr: dict) -> str:
+    """진단 1줄(현황) — 결정론 물량 기준. '{조건} 조건 · 금일 {qty} {unit} (계획 일평균 {plan} {unit})'.
+
+    per-person % 는 forecast 생산성 basis 불일치로 미사용(스펙 caveat). 소수 1자리, 아라비아 숫자.
+    실 PG: today_qty_by_unit/plan_total_qty_by_unit 는 JSONB→str, plan_mh_* 는 Decimal → 전부 coerce.
+    """
+    cond = (fr.get("today_conditions") or "정상").split(",")[0].strip() or "정상"
+    unit = fr.get("main_unit") or ""
+    tq = _unit_qty(fr.get("today_qty_by_unit"), unit)
+    pt = _unit_qty(fr.get("plan_total_qty_by_unit"), unit)
+    pmh, pmh_d = _num(fr.get("plan_mh_sum")), _num(fr.get("plan_mh_per_day"))
+    total_days = (pmh / pmh_d) if (pmh and pmh_d) else None
+    plan_daily = (pt / total_days) if (pt is not None and total_days) else None
+    tq_s = f"{tq:.1f}" if tq is not None else "—"
+    pd_s = f"{plan_daily:.1f}" if plan_daily is not None else "—"
+    u = f" {unit}" if unit else ""  # main_unit 없으면(인원만 투입 0물량일) double-space 회피
+    return f"{cond} 조건 · 금일 {tq_s}{u} (계획 일평균 {pd_s}{u})"
 
 
 def _build_optimizer_view(
@@ -1189,13 +1232,12 @@ def _build_optimizer_view(
                     recommendations.append(str(r))
             else:
                 recommendations.append(str(r))
-        # 2026-05-28: LLM 우회 (4건 출력) 차단 — wp 당 최대 3건 trim (사용자 의도: 1-2건 default, 복잡 시 3건).
-        recommendations = recommendations[:3]
+        # 2026-06: 만회방안 wp 당 최대 2건 trim (재설계 — 권고사항→만회방안, 3→2건).
+        recommendations = recommendations[:2]
 
         # 6칸 details
-        # 2026-05-29 (2차) 사용자: UI 가 3건만 표시하므로 회복 요약도 "표시되는 3건" 기준 +
-        # 평균 회복일수 편입. (이전엔 5건 집계라 "5건 중 3건"처럼 보여 불일치.)
-        cases_for_dist = (advice.get("degradation_cases") or [])[:3]
+        # 2026-06: UI 가 유사사례 2건 표시 → 회복 요약도 "표시되는 2건" 기준 + 평균 회복일수 편입.
+        cases_for_dist = (advice.get("degradation_cases") or [])[:2]
         rdist_text = _recovery_distribution_text(cases_for_dist)
         rd_vals = [
             (c.get("recovery") or {}).get("recovery_days")
@@ -1207,11 +1249,12 @@ def _build_optimizer_view(
         if avg_rd is not None and rdist_text and "없음" not in rdist_text:
             rdist_text = f"{rdist_text} · 평균 {avg_rd:.1f}일 회복"
 
-        # 2026-05-29: 진단 prefix (정상 페이스 대비 %) + LLM 패턴 판단 합성. (그룹 narrative)
+        # 2026-06: 진단 1줄 = 결정론 물량 현황 (정상대비% 폐기 — basis 불일치). 2줄째 = LLM 현장여건.
+        status_line = _status_line_qty(matched_f)
+        llm_diag = advice.get("diagnosis") or ""  # 새 프롬프트 = 현장여건 1줄
+        diagnosis = f"{status_line}\n{llm_diag}".strip()
+        # prod_info: details 카드(계획/금일 생산성·공사기간)에서 계속 사용 — 진단 prefix 만 폐기.
         prod_info = prod_lookup.get((advice.get("company"), advice.get("l6_main")))
-        prefix = _diagnosis_prefix(prod_info, matched_f.get("today_conditions") or "")
-        llm_diag = advice.get("diagnosis") or ""
-        diagnosis = f"{prefix}\n{llm_diag}".strip() if prefix else llm_diag
 
         # 2026-05-29 SSOT: per-wa 숫자 (위험평가·생산성·일정영향·산출근거)는 그 wa 의 forecast 에서.
         # 이전엔 matched_f (company,l6 첫 행) 를 모든 wa 에 broadcast → 같은 (company,l6)에 wp 2개면
@@ -1470,6 +1513,23 @@ def _build_scenarios(advice_rows: list[dict], forecast: list[dict]) -> dict:
 # Phase 1 (2026-05-21) v2 helper: 4단 산식 + display_label
 # ─────────────────────────────────────────────────────────────────
 
+
+
+def reconcile_site_recovery(wp_summary: list[dict], kpi: dict, scenarios: dict) -> None:
+    """site recovery SSOT = Σ(wp_summary recovery_days). 화면 WP목록 합과 headline 정합.
+
+    site.base_p50.recovery_days 한 키만 갱신 — by_wp·rationale·expected_completion 등
+    기존 필드는 보존. recovery_days 가 None/str/float 로 와도 안전 coerce(비숫자=0)."""
+
+    def _rd(v: object) -> int:
+        try:
+            return int(float(v))  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return 0
+
+    total = sum(_rd(w.get("recovery_days")) for w in wp_summary)
+    kpi["recovery_days"] = total
+    scenarios.setdefault("site", {}).setdefault("base_p50", {})["recovery_days"] = total
 
 
 def _compute_daily_quota(plan_total_qty: float, total_days: int) -> float:
@@ -2255,6 +2315,9 @@ async def _build_productivity_views_v2(
         w["recovery_days"] = int(w_bp50.get("recovery_days") or 0)
         _dd = _delay_by_wp.get(w["wp_id"])
         w["delay_days"] = int(_dd) if _dd is not None else 0
+
+    # 2026-06-02: site recovery SSOT = Σ(wp_summary recovery_days) — headline·WP목록 합 정합.
+    reconcile_site_recovery(wp_summary, kpi, scenarios)
 
     # 2026-06-02: per-WP 카드 '일정 영향' = 그 WP 의 진짜 지연일(forecasts.delay_days). 산출근거에
     # 회복(AI 공기단축) 가능일을 병기. (기존엔 recovery 를 "N일 지연"으로 라벨해 지연=회복으로

@@ -103,30 +103,29 @@ def test_recs_prompt_has_keyword_schema():
 
 
 def test_diag_prompt_g6_enhanced():
-    """G6 강화 — risk_level=이상 시 '정상범주' 금지 명시."""
+    """G6 강화 — 위험도 '이상' 시 '정상범주' 금지 명시 (2026-06: 현장여건 1줄 재설계)."""
     assert "정상범주" in DIAG_PROMPT_V10  # 금지 표현 명시
-    assert "risk_level" in DIAG_PROMPT_V10
-    assert "절대 금지" in DIAG_PROMPT_V10 or "절대 룰" in DIAG_PROMPT_V10
+    assert "위험도" in DIAG_PROMPT_V10
 
 
-def test_diag_prompt_delay_two_dimensions():
-    """delay 두 차원 인용 강제."""
-    assert "forward_delay_days" in DIAG_PROMPT_V10
-    assert "point_in_time_delay_days" in DIAG_PROMPT_V10
-    assert "두 차원" in DIAG_PROMPT_V10
+def test_diag_prompt_forbids_manhour_absolute():
+    """2026-06 재설계: delay 두 차원은 결정론 line 1 로 이관 — LLM 현장여건엔 인시 절대수치 금지."""
+    assert "인시" in DIAG_PROMPT_V10
+    assert "절대수치" in DIAG_PROMPT_V10
 
 
 def test_diag_prompt_recovery_pattern():
-    """2026-05-29: 개조식 진단 — 회복 패턴 판단 + 분기점 (수치 prefix 는 view_builder 가 붙임)."""
+    """2026-06 재설계: 개조식 현장여건 1줄 — 회복 패턴·분기점·만회방안 금지 명시."""
     assert "개조식" in DIAG_PROMPT_V10
-    assert "회복 패턴" in DIAG_PROMPT_V10
-    assert "분기점" in DIAG_PROMPT_V10
+    assert "회복 패턴" in DIAG_PROMPT_V10  # 금지어로 명시
+    assert "분기점" in DIAG_PROMPT_V10  # 금지어로 명시
+    assert "만회방안" in DIAG_PROMPT_V10  # 금지어로 명시
 
 
 def test_diag_prompt_g8_trade_frame():
-    """G8 공종 고유 가드."""
+    """G8 공종 고유 신호 가드 — trade_frame 제약 연결 요구."""
     assert "trade_frame" in DIAG_PROMPT_V10
-    assert "공종" in DIAG_PROMPT_V10
+    assert "trade_frame 제약" in DIAG_PROMPT_V10
 
 
 def test_diag_prompt_no_kanji():

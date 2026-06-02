@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid as _uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date as _date
 from datetime import datetime as _dt
 
@@ -26,6 +26,7 @@ class SheetData:
     occupation_manpower: list[dict]  # 시트2
     equipment: list[dict]  # 시트3
     quantity: list[dict]  # 시트4
+    company_wa: dict = field(default_factory=dict)  # 시트1 Zone 용 company→최빈 wa 맵
 
 
 def _coerce(row) -> dict:
@@ -76,11 +77,22 @@ async def fetch_sheet_data(
         )
         act_rows = await con.fetch(
             """
-            SELECT pa.*
+            SELECT pa.*, ma.wa AS mapper_wa
             FROM parser_activities pa
             JOIN pipeline_runs pr USING (run_id)
+            LEFT JOIN mapper_activities ma USING (run_id, idx)
             WHERE pr.site_id = $1 AND pa.report_date = $2
             ORDER BY pa.run_id, pa.idx
+            """,
+            site_id,
+            report_date,
+        )
+        wa_rows = await con.fetch(
+            """
+            SELECT ma.company, ma.wa
+            FROM mapper_activities ma
+            JOIN pipeline_runs pr USING (run_id)
+            WHERE pr.site_id = $1 AND ma.report_date = $2 AND COALESCE(ma.wa, '') <> ''
             """,
             site_id,
             report_date,
@@ -89,11 +101,22 @@ async def fetch_sheet_data(
     if not (bp_rows or job_rows or eq_rows or act_rows):
         raise NoDataError(f"해당 ({site_id}, {report_date.isoformat()}) 데이터 없음")
 
+    from collections import Counter
+
+    _by_co: dict[str, Counter] = {}
+    for _r in wa_rows:
+        _by_co.setdefault(_r["company"], Counter())[_r["wa"]] += 1
+    company_wa = {
+        co: max(cnt.items(), key=lambda kv: (kv[1], kv[0] == "FAB", kv[0]))[0]
+        for co, cnt in _by_co.items()
+    }
+
     return SheetData(
         output_manpower=[_coerce(r) for r in bp_rows],
         occupation_manpower=[_coerce(r) for r in job_rows],
         equipment=[_coerce(r) for r in eq_rows],
         quantity=[dict(r) for r in act_rows],
+        company_wa=company_wa,
     )
 
 
@@ -221,11 +244,12 @@ def _fill_timeshift(ws, row: int, col_start: int, ts: dict | None) -> None:
         _safe_set(ws, row, col_start + i, ts.get(key, 0))
 
 
-def _fill_output_manpower(ws, rows: list[dict], report_date: _date) -> None:
+def _fill_output_manpower(ws, rows: list[dict], report_date: _date, *, company_wa: dict | None = None) -> None:
     C = COL_OUTPUT_MANPOWER
+    company_wa = company_wa or {}
     for i, row in enumerate(rows):
         r = DATA_START_ROW + i
-        _safe_set(ws, r, C["zone"], row.get("zone"))
+        _safe_set(ws, r, C["zone"], company_wa.get(row.get("company")) or row.get("zone"))
         _safe_set(ws, r, C["trade"], row.get("disc_abbrev"))
         # col 5 는 bp_code 와 company 가 동일 칸 — bp_code 우선 (실제 시트가 BP_CODE 박힘).
         # company 는 별도 컬럼 없음. 시트1 헤더 r3='BP사' / r4='협력업체' 가 같은 칸.
@@ -286,7 +310,7 @@ def _fill_quantity(ws, rows: list[dict], report_date: _date) -> None:
     C = COL_QUANTITY
     for i, row in enumerate(rows):
         r = DATA_START_ROW + i
-        _safe_set(ws, r, C["zone"], row.get("zone"))
+        _safe_set(ws, r, C["zone"], (row.get("mapper_wa") or row.get("zone")))
         _safe_set(ws, r, C["trade"], row.get("trade") or row.get("disc_abbrev"))
         _safe_set(ws, r, C["bp_code"], row.get("bp_code"))
         _safe_set(ws, r, C["company"], row.get("company"))
@@ -315,7 +339,7 @@ def render_xlsx(sheet_data: SheetData, report_date: _date, project: str) -> byte
     if not TEMPLATE_PATH.exists():
         raise FileNotFoundError(f"template not found: {TEMPLATE_PATH}")
     wb = load_workbook(TEMPLATE_PATH)
-    _fill_output_manpower(wb["1.출력인원 현황"], sheet_data.output_manpower, report_date)
+    _fill_output_manpower(wb["1.출력인원 현황"], sheet_data.output_manpower, report_date, company_wa=sheet_data.company_wa)
     _fill_occupation(wb["2.직종별 인원현황"], sheet_data.occupation_manpower, report_date)
     _fill_equipment(wb["3.장비현황"], sheet_data.equipment, report_date)
     _fill_quantity(wb["4.물량"], sheet_data.quantity, report_date)

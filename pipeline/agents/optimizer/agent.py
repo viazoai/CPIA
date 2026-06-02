@@ -44,6 +44,7 @@ from pipeline.agents.optimizer.prompt import (
 from pipeline.agents.optimizer.view_builder import (
     _build_productivity_views_v2,
     _build_scenarios,
+    reconcile_site_recovery,
 )
 from pipeline.db import PGClient, upsert_agent_progress
 
@@ -378,6 +379,12 @@ async def optimize(
                         e,
                     )
                 v2_result = await _build_productivity_views_v2(pg, site_id, today)
+                # site recovery SSOT = Σ(wp_summary) 를 LLM-rich scenarios_obj 에도 반영.
+                # scenarios_jsonb 는 build_scenarios 본 유지(race-fix·rationale 보존)하되 site
+                # headline 의 recovery_days 만 kpi·wp_summary 와 정합하도록 패치 (객체 교체 X).
+                reconcile_site_recovery(
+                    v2_result.get("wp_summary", []), v2_result.get("kpi", {}), scenarios_obj
+                )
                 view_jsonbs = {
                     "productivity_jsonb": v2_result.get("productivity", {}),
                     "kpi_jsonb": v2_result.get("kpi", {}),
@@ -388,6 +395,7 @@ async def optimize(
                     "s_curve_jsonb": v2_result.get("s_curve", []),
                     "optimizer_view_jsonb": v2_result.get("optimizer_view", {}),
                     # scenarios 는 LLM rich rationale 보존 — 위에서 pre-write 한 동일 객체 재사용.
+                    # (site.base_p50.recovery_days 는 위 v2 직후 reconcile 로 Σ wp_summary 정합 완료.)
                     "scenarios_jsonb": scenarios_obj,
                 }
                 for col, val in view_jsonbs.items():

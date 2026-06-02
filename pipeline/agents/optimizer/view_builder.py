@@ -1473,8 +1473,18 @@ def _build_scenarios(advice_rows: list[dict], forecast: list[dict]) -> dict:
 
 
 def reconcile_site_recovery(wp_summary: list[dict], kpi: dict, scenarios: dict) -> None:
-    """site recovery SSOT = Σ(wp_summary recovery_days). 화면 WP목록 합과 headline 정합."""
-    total = sum(int(float(w.get("recovery_days") or 0)) for w in wp_summary)
+    """site recovery SSOT = Σ(wp_summary recovery_days). 화면 WP목록 합과 headline 정합.
+
+    site.base_p50.recovery_days 한 키만 갱신 — by_wp·rationale·expected_completion 등
+    기존 필드는 보존. recovery_days 가 None/str/float 로 와도 안전 coerce(비숫자=0)."""
+
+    def _rd(v: object) -> int:
+        try:
+            return int(float(v))  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return 0
+
+    total = sum(_rd(w.get("recovery_days")) for w in wp_summary)
     kpi["recovery_days"] = total
     scenarios.setdefault("site", {}).setdefault("base_p50", {})["recovery_days"] = total
 

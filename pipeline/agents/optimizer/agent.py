@@ -395,7 +395,7 @@ async def optimize(
                     "s_curve_jsonb": v2_result.get("s_curve", []),
                     "optimizer_view_jsonb": v2_result.get("optimizer_view", {}),
                     # scenarios 는 LLM rich rationale 보존 — 위에서 pre-write 한 동일 객체 재사용.
-                    # (단 site.base_p50.recovery_days 는 아래서 reconcile 로 Σ wp_summary 정합.)
+                    # (site.base_p50.recovery_days 는 위 v2 직후 reconcile 로 Σ wp_summary 정합 완료.)
                     "scenarios_jsonb": scenarios_obj,
                 }
                 for col, val in view_jsonbs.items():

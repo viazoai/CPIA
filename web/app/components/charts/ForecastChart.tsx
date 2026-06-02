@@ -96,7 +96,18 @@ export function ForecastChart({
   const lastIdx = firstUndef === -1 ? data.length - 1 : firstUndef - 1;
   const lastPoint = lastIdx >= 0 ? data[lastIdx] : null;
 
+  // 최신 view/defStart/defEnd/allData.length 를 ref 로 보관 — onWheel 이 stale 없이 읽음
+  const viewRef = useRef<{ s: number; e: number } | null>(null);
+  const defStartRef = useRef(defStart);
+  const defEndRef = useRef(defEnd);
+  const allDataLenRef = useRef(allData.length);
+  viewRef.current = view;
+  defStartRef.current = defStart;
+  defEndRef.current = defEnd;
+  allDataLenRef.current = allData.length;
+
   // 차트 래퍼 ref — 스크롤 줌 (passive:false 필수, React 합성 onWheel 은 passive no-op)
+  // deps [] — ref 로 최신값을 읽으므로 이벤트 재등록 불필요
   const zoomRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     const el = zoomRef.current;
@@ -105,20 +116,22 @@ export function ForecastChart({
       ev.preventDefault();
       const rect = el.getBoundingClientRect();
       const frac = rect.width ? (ev.clientX - rect.left) / rect.width : 0.5;
-      const cs = view?.s ?? defStart, ce = view?.e ?? defEnd;
+      const cs = viewRef.current?.s ?? defStartRef.current;
+      const ce = viewRef.current?.e ?? defEndRef.current;
+      const totalLen = allDataLenRef.current;
       const width = ce - cs;
       const factor = ev.deltaY > 0 ? 1.15 : 0.87;          // down=축소(넓힘), up=확대(좁힘)
       let nw = Math.round(width * factor);
-      nw = Math.max(14, Math.min(allData.length, nw));     // clamp: 최소 14, 최대 전체
+      nw = Math.max(14, Math.min(totalLen, nw));             // clamp: 최소 14, 최대 전체
       const pivot = cs + Math.round(width * frac);
       let ns = Math.max(0, pivot - Math.round(nw * frac));
-      let ne = Math.min(allData.length, ns + nw);
+      let ne = Math.min(totalLen, ns + nw);
       ns = Math.max(0, ne - nw);
       setView({ s: ns, e: ne });
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [view, defStart, defEnd, allData.length]);
+  }, []);
 
   // ReferenceDot 마커 — BE 산출 ec 직접 사용 (FE 차트 좌표와 일치).
   // planned 100% 도달은 s_curve 안에서 찾고, 시나리오들은 scenarios prop 에서 가져옴.

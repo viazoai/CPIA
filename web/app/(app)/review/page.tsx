@@ -9,7 +9,7 @@ import { groupCardsByWp } from "@/lib/review-group";
 import { nodeToQuery } from "@/lib/review-node";
 import type { WBSNode, ReviewItem } from "@/lib/types";
 
-// WBS 트리에서 id 로 노드 탐색. visibleCards useMemo 와 registered lazy fetch effect 가 공용.
+// WBS 트리에서 id 로 노드 탐색. registered lazy fetch effect 와 drag onDrop 핸들러가 사용.
 const find = (n: WBSNode | null, id: string): WBSNode | null => {
   if (!n) return null;
   if (n.id === id) return n;
@@ -104,14 +104,14 @@ export default function HumanReviewPage() {
   }, [onlyUnconfirmed, groups.length, selectedNodeId, selectedCardId]);
 
   // HIL: 트리 노드 선택 시 해당 WP 그룹으로 우측 스크롤 (필터 아님).
+  //   deps 를 selectedNodeId 로 한정 — groups 참조 변경(확정 등)에 재발화하지 않게.
+  //   그룹 DOM(data-wp-group) 을 직접 쿼리하므로 groups 클로저가 필요 없다.
   useEffect(() => {
     if (!onlyUnconfirmed || !selectedNodeId || !gridRef.current) return;
-    const target = groups.find((g) => g.wpId === selectedNodeId);
-    if (!target) return;
-    const el = gridRef.current.querySelector(`[data-wp-group="${CSS.escape(target.wpId)}"]`);
+    const el = gridRef.current.querySelector(`[data-wp-group="${CSS.escape(selectedNodeId)}"]`);
     const fn = (el as HTMLElement | null)?.scrollIntoView;
     if (typeof fn === "function") fn.call(el, { block: "nearest", behavior: "smooth" });
-  }, [onlyUnconfirmed, selectedNodeId, groups]);
+  }, [onlyUnconfirmed, selectedNodeId]);
 
   // work_package wp_id → {wa, l6_main} 룩업. wp_id=safe(wa)-safe(l6_main) 는 역변환 lossy 라
   // remap 시 WBS 노드가 들고 있는 원 wa/l6_main 을 찾아 BE corrections 로 정확히 전달한다.

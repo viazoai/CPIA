@@ -25,6 +25,7 @@ import path from "node:path";
 import { NextResponse } from "next/server";
 import sql from "@/lib/pg";
 import type { AgentStageProgress } from "@/lib/types";
+import { computeProgressStages } from "@/lib/progress-stages";
 
 const DATA_DIR = process.env.DATA_DIR ?? path.join(process.cwd(), "data");
 
@@ -38,31 +39,6 @@ async function countInputFiles(dateCompact: string): Promise<number> {
   }
 }
 
-const STAGE_ORDER: Array<{
-  step: number;
-  agent: string;
-  currentNode: string;
-  is_hil: boolean;
-}> = [
-  { step: 1, agent: "Collector", currentNode: "collector", is_hil: false },
-  { step: 2, agent: "Parser", currentNode: "parser", is_hil: false },
-  { step: 3, agent: "Mapper", currentNode: "mapper", is_hil: false },
-  { step: 3.5, agent: "Human Review", currentNode: "hil_1", is_hil: true },
-  { step: 4, agent: "Atomizer", currentNode: "atomizer", is_hil: false },
-  { step: 5, agent: "Exporter", currentNode: "exporter", is_hil: false },
-  { step: 6, agent: "Forecaster", currentNode: "forecaster", is_hil: false },
-  { step: 7, agent: "Optimizer", currentNode: "optimizer", is_hil: false },
-];
-
-// hil_2 / reporter / null 도 atomizer 이후 단계로 처리 (UI 표기상 Atomizer 이후 자동).
-const POST_HIL1_NODES = new Set([
-  "atomizer",
-  "exporter",
-  "forecaster",
-  "hil_2",
-  "optimizer",
-  "reporter",
-]);
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
@@ -96,91 +72,46 @@ export async function GET(req: Request) {
   }
 
   const run = rows[0];
-  const isCompleted = run.status === "completed";
-  const isWaitingHil = run.status === "waiting_hil_1";
 
-  // 단계별 실제 카운트 조회.
+  // 단계별 실제 카운트 + agent_progress 조회.
   // Collector = data/input/YYYYMMDD/ 파일 수 (DB 보다 먼저 존재)
   // Parser    = parser_activities 행 수
   // Mapper    = mapper_activities 행 수
-  // Atomizer  = pipeline_runs.atomized_count
+  // Atomizer+ = agent_progress per-(run,agent) 행 기반
   const dateCompact = String(run.report_date ?? "").replace(/-/g, "").slice(0, 8);
-  const [fileCount, countRows] = await Promise.all([
+  const [fileCount, countRows, progressRows] = await Promise.all([
     countInputFiles(dateCompact),
     (sql as any)`
       SELECT
         (SELECT COUNT(*)::int FROM parser_activities WHERE run_id = ${run.run_id}) AS parser_rows,
         (SELECT COUNT(*)::int FROM mapper_activities WHERE run_id = ${run.run_id}) AS mapper_rows
     ` as Promise<Array<{ parser_rows: number; mapper_rows: number }>>,
+    (sql as any)`
+      SELECT agent, processed, total
+      FROM agent_progress
+      WHERE run_id = ${run.run_id}
+    ` as Promise<Array<{ agent: string; processed: number; total: number }>>,
   ]);
   const parserRows    = countRows[0]?.parser_rows ?? 0;
   const mapperRows    = countRows[0]?.mapper_rows ?? 0;
   const atomizedCount = run.atomized_count ?? 0;
 
-  // 단계별 "total received" 기준 — 각 단계가 처리하는 단위 수.
-  // Exporter/Forecaster/Optimizer 는 mapper_rows 를 입력 단위로 간주.
-  const STAGE_TOTAL: Record<string, number> = {
-    Collector:      fileCount,
-    Parser:         parserRows,
-    Mapper:         mapperRows,
-    "Human Review": mapperRows,
-    Atomizer:       atomizedCount,
-    Exporter:       mapperRows,
-    Forecaster:     mapperRows,
-    Optimizer:      mapperRows,
-  };
-
-  // 단계 진행 위치 결정.
-  // null (시작 직후) 이면 collector 진행중으로 간주.
-  const cn = run.current_node ?? "collector";
-  let activeIdx = STAGE_ORDER.findIndex((s) => s.currentNode === cn);
-  if (activeIdx < 0) {
-    activeIdx = POST_HIL1_NODES.has(cn) ? STAGE_ORDER.length - 1 : 0;
+  const agentProgress: Record<string, { processed: number; total: number }> = {};
+  for (const r of progressRows) {
+    agentProgress[r.agent] = {
+      processed: Math.max(0, Number(r.processed) || 0),
+      total: Math.max(0, Number(r.total) || 0),
+    };
   }
 
-  const stages: AgentStageProgress[] = STAGE_ORDER.map((def, i) => {
-    const total = STAGE_TOTAL[def.agent] ?? parserRows;
-    let percent: number;
-    let received: number;
-    let processed: number;
-    let waiting_hil = false;
-
-    if (isCompleted) {
-      percent = 100;
-      received = total;
-      processed = total;
-    } else if (i < activeIdx) {
-      percent = 100;
-      received = total;
-      processed = total;
-    } else if (i === activeIdx) {
-      if (def.is_hil && isWaitingHil) {
-        percent = 0;
-        received = total;
-        processed = 0;
-        waiting_hil = true;
-      } else {
-        // "진행 중" — percent 는 클라이언트 타이머가 애니메이션으로 채움.
-        // API 는 -1 을 sentinel 로 반환 → 클라이언트가 로컬 elapsed 기반 0→90% 계산.
-        percent = -1;
-        received = total;
-        processed = 0;
-      }
-    } else {
-      percent = 0;
-      received = 0;
-      processed = 0;
-    }
-
-    return {
-      step: def.step,
-      agent: def.agent,
-      is_hil: def.is_hil,
-      received,
-      processed,
-      percent,
-      waiting_hil,
-    };
+  const stages: AgentStageProgress[] = computeProgressStages({
+    status: run.status,
+    current_node: run.current_node,
+    fileCount,
+    parserRows,
+    mapperRows,
+    atomizedCount,
+    agentProgress,
   });
 
   return NextResponse.json({

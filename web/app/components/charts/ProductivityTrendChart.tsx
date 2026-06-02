@@ -78,7 +78,7 @@ export function ProductivityTrendChart({ trend, todayValue, endDate }: Props) {
         </div>
       </div>
 
-      <ResponsiveContainer width="100%" height={220}>
+      <ResponsiveContainer width="100%" height={185}>
         <ComposedChart data={data} margin={{ top: 16, right: 32, left: 0, bottom: 0 }}>
           <defs>
             <linearGradient id="cpiaProdFill" x1="0" y1="0" x2="0" y2="1">

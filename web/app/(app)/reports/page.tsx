@@ -173,7 +173,11 @@ export default function ReportPage() {
 
           <div className="col-span-12 flex flex-col gap-10 md:col-span-9">
 
-            <Section eyebrow="/ 01 — 생산성 지표" title="현장 생산성 진단">
+            <Section
+              eyebrow="/ 01 — 생산성 지표"
+              title="현장 생산성 진단"
+              subtitle={buildProductivityIssueText(detail)}
+            >
               <ProductivityTrendChart
                 trend={trend90}
                 todayValue={detail.kpi.productivity_today}
@@ -334,6 +338,109 @@ export default function ReportPage() {
   );
 }
 
+/** 압축 조건 태그 → 표시용(띄어쓰기). */
+const CAUSE_LABEL: Record<string, string> = {
+  자재미입고: "자재 미입고",
+  인력부족: "인력 부족",
+  사양변경: "사양 변경",
+  병행작업: "병행작업",
+};
+
+/** optimizer WP 출력에서 오늘의 원인(조건) 추출 — diagnosis 선두 "○○ 조건 ·",
+ *  없으면 similar_cases 최빈 비-정상 condition. 원인 못 찾으면 null. */
+function extractWpCause(o: any): string | null {
+  const dg = String(o?.diagnosis ?? "");
+  let c = dg.includes("조건") ? dg.split("조건")[0].trim() : "";
+  if (!c || c === "정상") {
+    const conds: string[] = (o?.similar_cases ?? [])
+      .map((x: any) => x?.condition)
+      .filter((x: any) => x && x !== "정상");
+    c =
+      conds.sort(
+        (a, b) => conds.filter((v) => v === b).length - conds.filter((v) => v === a).length,
+      )[0] ?? "";
+  }
+  if (!c || c === "정상") return null;
+  return CAUSE_LABEL[c] ?? c;
+}
+
+function fmtPct(v: number): string {
+  return (Math.round(v * 10) / 10).toString();
+}
+
+/**
+ * 현장 생산성 진단 2줄 (맥락 인식형). 날짜별 데이터로 자동 생성.
+ * 1줄: 사이트 전체 성과 — 이력 평균 대비 잘하는 날/저조한 날 규정.
+ * 2줄: 저조 공종(담당 업체 N%, 원인)을 짚되,
+ *   - 잘하는 날 → "개선하면 더 끌어올릴 수 있다" (기회 프레이밍)
+ *   - 저조한 날 → "보완하면 약 N일 내 만회 가능" (회복 프레이밍, recovery_days)
+ * 원인을 가진 저조 공종이 없으면 전체 흐름만으로 마무리.
+ */
+function buildProductivityIssueText(detail: ReportDetail): string {
+  const kpi = detail.kpi;
+  const trades = detail.trade_bars ?? [];
+  // 저조 공종 후보: risk 우선, 없으면 목표 미달 중 최저 — 생산성 오름차순.
+  let worst = [...trades].filter((t) => t.status === "risk").sort((a, b) => a.value - b.value);
+  if (worst.length === 0) {
+    const tgt = kpi.target_productivity ?? 100;
+    worst = [...trades].filter((t) => t.value < tgt).sort((a, b) => a.value - b.value);
+  }
+  const byWp = detail.optimizer?.by_wp ?? {};
+  const seen = new Set<string>();
+  const wpRows = (detail.wp_summary ?? []).filter((w) => {
+    if (!w.wp_id || seen.has(w.wp_id)) return false;
+    seen.add(w.wp_id);
+    return true;
+  });
+
+  // 공종별: 해당 공종 WP 중 생산성 최저 + 원인 추출 가능한 것 → {공종, 업체, 공종값, 원인}.
+  const parts: { trade: string; bp: string; value: number; cause: string }[] = [];
+  for (const t of worst) {
+    if (parts.length >= 2) break;
+    if (parts.some((p) => p.trade === t.label)) continue;
+    const cand = wpRows
+      .filter((w) => w.trade === t.label)
+      .sort((a, b) => a.productivity - b.productivity);
+    for (const w of cand) {
+      const cause = extractWpCause(byWp[w.wp_id]);
+      if (cause) {
+        parts.push({ trade: t.label, bp: w.bp_name, value: t.value, cause });
+        break;
+      }
+    }
+  }
+
+  // 전체 성과 리드 — 오늘 사이트 생산성이 이력 평균을 웃돌면 '잘하는 날',
+  // 밑돌면 '저조한 날' 로 규정해 2줄째 톤(개선 기회 vs 만회)을 가른다.
+  const today = kpi.productivity_today;
+  const target = kpi.target_productivity ?? 100;
+  const gap = today - target;
+  const good = gap >= 0;
+  const line1 = good
+    ? gap > 0
+      ? `현재 현장 생산성은 ${fmtPct(today)}%로 이력 평균(${fmtPct(target)}%)을 ${fmtPct(gap)}%p 웃도는 양호한 흐름입니다.`
+      : `현재 현장 생산성은 ${fmtPct(today)}%로 이력 평균(${fmtPct(target)}%)과 동일한 안정적 수준입니다.`
+    : `현재 현장 생산성은 ${fmtPct(today)}%로 이력 평균(${fmtPct(target)}%) 대비 ${fmtPct(Math.abs(gap))}%p 낮은 상황입니다.`;
+
+  // 저조 공종을 못 찾으면 전체 흐름만으로 마무리.
+  if (parts.length === 0) {
+    const line2 = good
+      ? `전 공종이 고르게 진행되고 있어, 현 흐름을 유지하면 계획을 앞당길 여지가 있습니다.`
+      : `현 추세가 이어지면 준공 지연이 우려되어 공종별 점검이 필요합니다.`;
+    return `${line1}\n${line2}`;
+  }
+
+  // 공종 이슈 — 잘하는 날: 개선 기회 / 저조한 날: 만회 방향.
+  const issues = parts
+    .map((p) => `${p.trade}(${p.bp} ${fmtPct(p.value)}%, ${p.cause})`)
+    .join("·");
+  const recovery = Math.round(kpi.recovery_days ?? 0);
+  const line2 = good
+    ? `다만 ${issues} 등이 평균을 밑돌고 있어, 이 부분을 개선하면 생산성을 더 끌어올릴 수 있습니다.`
+    : `특히 ${issues} 등이 생산성을 끌어내리고 있어, 우선 보완하면 ${recovery > 0 ? `약 ${recovery}일 내 ` : ""}만회가 가능합니다.`;
+  return `${line1}\n${line2}`;
+}
+
 function Section({
   eyebrow,
   title,
@@ -353,7 +460,7 @@ function Section({
         </span>
         <h2 className="mt-1 font-display text-h5 text-ink">{title}</h2>
         {subtitle && (
-          <p className="mt-0.5 text-body-sm text-ink-mid">{subtitle}</p>
+          <p className="mt-0.5 whitespace-pre-line text-body-sm text-ink-mid">{subtitle}</p>
         )}
       </div>
       {children}

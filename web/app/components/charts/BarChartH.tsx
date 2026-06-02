@@ -9,6 +9,7 @@ import {
   Tooltip,
   ReferenceLine,
   Label,
+  CartesianGrid,
 } from "recharts";
 import { useId } from "react";
 import type { BarItem } from "@/lib/types";
@@ -37,11 +38,6 @@ interface Props {
    *  - "vertical": 세로 막대 (라벨 X축, 값 Y축). 수십 개 항목용.
    */
   orientation?: "horizontal" | "vertical";
-  /**
-   * 그룹 경계로 둘 라벨 값들 — 그 항목 좌측에 vertical divider 표시.
-   * vertical 모드 전용. (예: building 단위로 묶을 때)
-   */
-  groupBoundaries?: string[];
 }
 
 export function BarChartH({
@@ -52,13 +48,12 @@ export function BarChartH({
   showBaseline,
   bare,
   orientation = "horizontal",
-  groupBoundaries,
 }: Props) {
   const avg = items.length
     ? items.reduce((sum, it) => sum + it.value, 0) / items.length
     : 0;
   const isVertical = orientation === "vertical";
-  const height = isVertical ? 280 : items.length * 36 + 20;
+  const height = isVertical ? 235 : items.length * 36 + 20;
   /* 막대 그라데이션 — 랜딩 LandingHero 의 bg-gradient-to-t from-brand-light to-brand 패턴 차용.
    * SVG <linearGradient> 가 컴포넌트마다 unique id 가 필요해 useId 사용. */
   const gradId = useId().replace(/:/g, "");
@@ -88,6 +83,8 @@ export function BarChartH({
             <stop offset="100%" stopColor="#fee2e2" />
           </linearGradient>
         </defs>
+        {/* 가로줄만 — 우측 생산성 차트와 동일(세로 그리드·구분선 없음). */}
+        <CartesianGrid stroke="#eef0f4" vertical={false} />
         {isVertical ? (
           <>
             <XAxis
@@ -135,15 +132,6 @@ export function BarChartH({
             return <Cell key={i} fill={fill} />;
           })}
         </Bar>
-        {isVertical && groupBoundaries && groupBoundaries.map((label) => (
-          <ReferenceLine
-            key={`grp-${label}`}
-            x={label}
-            stroke="#cbd2dc"
-            strokeWidth={1.5}
-            strokeDasharray="2 3"
-          />
-        ))}
         {showAverage && items.length > 0 && (
           <ReferenceLine
             {...(isVertical ? { y: avg } : { x: avg })}

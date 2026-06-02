@@ -4,17 +4,19 @@ import {
   ResponsiveContainer,
   ComposedChart,
   Area,
-  Line,
   XAxis,
   YAxis,
   Tooltip,
   ReferenceLine,
-  ReferenceDot,
   Label,
   CartesianGrid,
 } from "recharts";
 import { generateSiteTrend, buildFleetTrend } from "@/lib/fleet-trend-mock";
 import type { Site, FleetTrendPoint } from "@/lib/types";
+
+/* 진입 연출 — 생산성 차트와 동일: 선/밴드가 좌→우로 그려진 뒤 이력 평균선 페이드인. */
+const DRAW_BEGIN_MS = 150;
+const DRAW_DURATION_MS = 1400;
 
 interface Props {
   sites: Site[];
@@ -49,6 +51,11 @@ export function FleetProductivityTrendChart({
 
   const todayMean = data.length > 0 ? data[data.length - 1].mean : 0;
   const chartData = data.map((p) => ({ ...p, label: p.date.slice(5) }));
+  // 세로축 0~최대치 — 평균 시계열·이력 평균 중 가장 큰 값에 여유를 두고 10 단위 올림.
+  const yMax = useMemo(() => {
+    const peak = Math.max(0, historyMean, todayMean, ...chartData.map((p) => p.mean ?? 0));
+    return Math.ceil((peak + 5) / 10) * 10;
+  }, [chartData, historyMean, todayMean]);
 
   return (
     <div className="rounded-card border border-border-soft bg-card p-4 shadow-xs">
@@ -72,6 +79,12 @@ export function FleetProductivityTrendChart({
 
       <ResponsiveContainer width="100%" height={220}>
         <ComposedChart data={chartData} margin={{ top: 16, right: 32, left: 0, bottom: 0 }}>
+          <defs>
+            <linearGradient id="cpiaFleetFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#1a56db" stopOpacity={0.28} />
+              <stop offset="100%" stopColor="#1a56db" stopOpacity={0.02} />
+            </linearGradient>
+          </defs>
           <CartesianGrid stroke="#eef0f4" vertical={false} />
           <XAxis
             dataKey="label"
@@ -79,7 +92,7 @@ export function FleetProductivityTrendChart({
             interval={Math.max(1, Math.floor(chartData.length / 8))}
           />
           <YAxis
-            domain={[70, 105]}
+            domain={[0, yMax]}
             tick={{ fontSize: 10, fill: "#7a8494" }}
             tickFormatter={(v) => `${v}%`}
           />
@@ -87,45 +100,37 @@ export function FleetProductivityTrendChart({
             contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid #e2e6ed" }}
             formatter={(v, key) => [`${v}%`, key === "mean" ? "평균" : key === "max" ? "최고" : "최저"]}
           />
-          {/* 분포 밴드: max area 채우고 min area 를 흰색으로 덮어 min~max 영역만 보이게. */}
-          <Area dataKey="max" stroke="none" fill="#e8eeff" fillOpacity={0.6} isAnimationActive={false} />
-          <Area dataKey="min" stroke="none" fill="#ffffff" fillOpacity={1} isAnimationActive={false} />
-          {/* 평균선 */}
-          <Line
+          {/* 평균선 + 선 아래 그라데이션 area — 생산성 차트와 1:1 동일 표현. 좌→우 그리기. */}
+          <Area
             dataKey="mean"
             stroke="#1a56db"
             strokeWidth={2.5}
+            fill="url(#cpiaFleetFill)"
             dot={false}
-            isAnimationActive={false}
+            isAnimationActive
+            animationBegin={DRAW_BEGIN_MS}
+            animationDuration={DRAW_DURATION_MS}
+            animationEasing="ease-out"
           />
-          {/* 이력 평균 ReferenceLine */}
+          {/* 이력 평균 ReferenceLine — 회색 점선, 그리기 완료 후 페이드인, 가운데 라벨 */}
           <ReferenceLine
             y={historyMean}
-            stroke="#ef4444"
+            stroke="#9ca3af"
             strokeWidth={2}
             strokeDasharray="5 4"
             ifOverflow="extendDomain"
+            className="cpia-ref-fade"
           >
             <Label
               value={`이력 평균 ${historyMean}%`}
               position="top"
               offset={6}
-              fill="#b91c1c"
-              fontSize={13}
+              fill="#6b7280"
+              fontSize={14}
+              fontFamily='"Inter Tight", Pretendard, "Noto Sans KR", system-ui, sans-serif'
               fontWeight={700}
             />
           </ReferenceLine>
-          {/* 오늘 평균 dot */}
-          {chartData.length > 0 && (
-            <ReferenceDot
-              x={chartData[chartData.length - 1].label}
-              y={todayMean}
-              r={5}
-              fill="#0d1117"
-              stroke="#1a56db"
-              strokeWidth={2}
-            />
-          )}
         </ComposedChart>
       </ResponsiveContainer>
     </div>

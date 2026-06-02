@@ -8,11 +8,14 @@ import {
   YAxis,
   Tooltip,
   ReferenceLine,
-  ReferenceDot,
   Label,
   CartesianGrid,
 } from "recharts";
 import { cn } from "@/lib/utils";
+
+/* 진입 연출 타이밍 — 선이 좌→우로 그려지는 시간. 끝점/평균선은 이 뒤에 등장. */
+const DRAW_BEGIN_MS = 150;
+const DRAW_DURATION_MS = 1400;
 
 interface Props {
   /** [{date, value}] 90일 시계열 — 호출 측이 PG daily 에서 잘라 전달. */
@@ -38,6 +41,11 @@ export function ProductivityTrendChart({ trend, todayValue, endDate }: Props) {
     () => (data.length ? data.reduce((s, p) => s + p.value, 0) / data.length : 0),
     [data],
   );
+  // 세로축 0~최대치 — 데이터 최대값에 여유를 두고 10 단위로 올림.
+  const yMax = useMemo(() => {
+    const peak = Math.max(0, todayValue, avg, ...data.map((p) => p.value));
+    return Math.ceil((peak + 5) / 10) * 10;
+  }, [data, todayValue, avg]);
   const gap = todayValue - avg;
   const gapSign = gap >= 0 ? "+" : "";
   const gapChipTone =
@@ -72,6 +80,12 @@ export function ProductivityTrendChart({ trend, todayValue, endDate }: Props) {
 
       <ResponsiveContainer width="100%" height={220}>
         <ComposedChart data={data} margin={{ top: 16, right: 32, left: 0, bottom: 0 }}>
+          <defs>
+            <linearGradient id="cpiaProdFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#1a56db" stopOpacity={0.28} />
+              <stop offset="100%" stopColor="#1a56db" stopOpacity={0.02} />
+            </linearGradient>
+          </defs>
           <CartesianGrid stroke="#eef0f4" vertical={false} />
           <XAxis
             dataKey="label"
@@ -79,7 +93,7 @@ export function ProductivityTrendChart({ trend, todayValue, endDate }: Props) {
             interval={Math.max(1, Math.floor(data.length / 8))}
           />
           <YAxis
-            domain={[70, 105]}
+            domain={[0, yMax]}
             tick={{ fontSize: 10, fill: "#7a8494" }}
             tickFormatter={(v) => `${v}%`}
           />
@@ -91,38 +105,31 @@ export function ProductivityTrendChart({ trend, todayValue, endDate }: Props) {
             dataKey="value"
             stroke="#1a56db"
             strokeWidth={2}
-            fill="#e8eeff"
-            fillOpacity={0.5}
+            fill="url(#cpiaProdFill)"
             dot={false}
-            isAnimationActive={false}
+            isAnimationActive
+            animationBegin={DRAW_BEGIN_MS}
+            animationDuration={DRAW_DURATION_MS}
+            animationEasing="ease-out"
           />
           <ReferenceLine
             y={avg}
-            stroke="#ef4444"
+            stroke="#9ca3af"
             strokeWidth={2}
             strokeDasharray="5 4"
             ifOverflow="extendDomain"
+            className="cpia-ref-fade"
           >
             <Label
               value={`현장 평균 ${avg.toFixed(1)}%`}
               position="top"
               offset={6}
-              fill="#b91c1c"
+              fill="#6b7280"
               fontSize={14}
               fontFamily='"Inter Tight", Pretendard, "Noto Sans KR", system-ui, sans-serif'
               fontWeight={700}
             />
           </ReferenceLine>
-          {data.length > 0 && (
-            <ReferenceDot
-              x={data[data.length - 1].label}
-              y={todayValue}
-              r={6}
-              fill="#0d1117"
-              stroke="#1a56db"
-              strokeWidth={2}
-            />
-          )}
         </ComposedChart>
       </ResponsiveContainer>
     </div>

@@ -189,6 +189,17 @@ body::after {
   animation: cpiaNodeLit 1.6s ease-in-out 1s infinite backwards;
 }
 
+/* 생산성 차트 진입 연출 — 선이 좌→우로 그려진(recharts native draw) 뒤
+   현장 평균선이 페이드인. */
+@keyframes cpiaRefFade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+/* recharts ReferenceLine 은 <g> 로 렌더 — group 전체를 페이드인.
+   delay 1550ms = 선 그리기(begin 150 + duration 1400) 완료 시점.
+   animation-fill-mode both → delay 동안 0% 프레임(opacity 0)으로 숨김. */
+.cpia-ref-fade { animation: cpiaRefFade 600ms ease-out 1550ms both; }
+
 /* active 슬라이드 내부의 1차 레벨 요소 — h1~h3 / p / [data-anim] 가 부드럽게 진입 */
 .slide[data-active="true"] h1,
 .slide[data-active="true"] h2,

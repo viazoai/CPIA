@@ -3,7 +3,6 @@ import {
   ResponsiveContainer,
   ComposedChart,
   Bar,
-  Line,
   XAxis,
   YAxis,
   Cell,
@@ -24,9 +23,11 @@ const STATUS_COLOR = {
 interface Props {
   items: BarItem[];
   title?: string;
-  /** 그룹 평균선 (단일 ReferenceLine). 다른 사용처용 — ProductivityBarToggle 은 showBaseline 사용. */
+  /** 그룹 평균선 (단일 ReferenceLine, 차트 끝~끝 가로선). */
   showAverage?: boolean;
-  /** 각 항목의 baseline 값을 Line 시리즈로 연결. items 가 baseline 필드를 가져야 함. */
+  /** 평균선 라벨 접두어 (예: "업체별 평균"). 기본 "평균". */
+  averageLabel?: string;
+  /** 각 막대를 baseline 미만(rose)/이상(blue) 으로 색 구분. items 가 baseline 필드를 가져야 함. */
   showBaseline?: boolean;
   /** true 면 카드 chrome·title 없이 차트만 렌더 — 다른 컴포넌트 안에 임베드용. */
   bare?: boolean;
@@ -47,6 +48,7 @@ export function BarChartH({
   items,
   title,
   showAverage,
+  averageLabel = "평균",
   showBaseline,
   bare,
   orientation = "horizontal",
@@ -76,10 +78,10 @@ export function BarChartH({
         }
       >
         <defs>
-          {/* 세로 막대: 위 → 짙은 / 아래 → 옅은 */}
+          {/* 세로 막대: 위 → 짙은 / 아래 → 옅은. 생산성 라인차트(#1a56db)와 동일 톤. */}
           <linearGradient id={blueId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%"   stopColor="#3b82f6" />
-            <stop offset="100%" stopColor="#dbeafe" />
+            <stop offset="0%"   stopColor="#1a56db" />
+            <stop offset="100%" stopColor="#e8eeff" />
           </linearGradient>
           <linearGradient id={roseId} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%"   stopColor="#f87171" />
@@ -112,13 +114,16 @@ export function BarChartH({
         )}
         <Tooltip
           contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid #e2e6ed" }}
-          formatter={(v, name) => [`${v}%`, name === "baseline" ? "이력 평균" : "생산성"]}
+          formatter={(v) => [`${v}%`, "생산성"]}
         />
         <Bar
           dataKey="value"
           radius={isVertical ? [8, 8, 0, 0] : [0, 6, 6, 0]}
           maxBarSize={isVertical ? 22 : undefined}
-          isAnimationActive={false}
+          isAnimationActive
+          animationBegin={150}
+          animationDuration={900}
+          animationEasing="ease-out"
         >
           {items.map((it, i) => {
             /* showBaseline 모드: baseline 미만이면 rose 그라데이션, 이상이면 blue.
@@ -130,19 +135,6 @@ export function BarChartH({
             return <Cell key={i} fill={fill} />;
           })}
         </Bar>
-        {showBaseline && items.some((it) => typeof it.baseline === "number") && (
-          <Line
-            dataKey="baseline"
-            type="monotone"
-            stroke="#ef4444"
-            strokeWidth={2.5}
-            strokeDasharray="5 4"
-            dot={false}
-            activeDot={{ r: 5, fill: "#ef4444", stroke: "#ffffff", strokeWidth: 2 }}
-            isAnimationActive={false}
-            connectNulls
-          />
-        )}
         {isVertical && groupBoundaries && groupBoundaries.map((label) => (
           <ReferenceLine
             key={`grp-${label}`}
@@ -155,16 +147,17 @@ export function BarChartH({
         {showAverage && items.length > 0 && (
           <ReferenceLine
             {...(isVertical ? { y: avg } : { x: avg })}
-            stroke="#1a56db"
-            strokeWidth={1.5}
-            strokeDasharray="3 3"
+            stroke="#9ca3af"
+            strokeWidth={2}
+            strokeDasharray="5 4"
             ifOverflow="extendDomain"
+            className="cpia-ref-fade"
           >
             <Label
-              value={`평균 ${avg.toFixed(1)}%`}
+              value={`${averageLabel} ${avg.toFixed(1)}%`}
               position="top"
               offset={6}
-              fill="#1243a8"
+              fill="#6b7280"
               fontSize={14}
               fontFamily='"Inter Tight", Pretendard, "Noto Sans KR", system-ui, sans-serif'
               fontWeight={700}

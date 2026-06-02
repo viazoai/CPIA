@@ -121,6 +121,8 @@ export function ProductivityBarToggle({ contractorBars, tradeBars, historyMean, 
       <BarChartH
         items={items}
         showBaseline
+        showAverage
+        averageLabel={`${modeLabel} 평균`}
         bare
         orientation="vertical"
         groupBoundaries={mode === "trade" ? deriveBuildingBoundaries(items) : undefined}

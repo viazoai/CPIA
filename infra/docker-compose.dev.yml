@@ -47,5 +47,12 @@ services:
       - npm
     restart: unless-stopped
 
+  # dev 워크플로에서는 파이프라인도 web 과 같은 DB(DEV_DB_URL)를 보게 통일.
+  # → make dev/dev2 시 DEV_DB_URL 하나로 web·pipeline 이 같은 DB 를 바라봄 (split-brain 방지).
+  #   DEV_DB_URL 미설정이면 로컬 cpia-postgres(컨테이너) 사용.
+  pipeline:
+    environment:
+      POSTGRES_URL: ${DEV_DB_URL:-postgresql://${POSTGRES_USER:-cpia}:${POSTGRES_PASSWORD:-cpia}@cpia-postgres:5432/${POSTGRES_DB:-cpia}}
+
 volumes:
   web_dev_modules:

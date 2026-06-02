@@ -27,4 +27,15 @@ describe("OptimizerResult 권고 마커", () => {
     expect(getByText(/\(지연 \+31일\)/)).toBeTruthy();
     expect(getByText(/\(AI 단축 -2일\)/)).toBeTruthy();
   });
+
+  it("지연 0일(일정 충족)이면 진단 괄호 미노출 — recovery 0 도 미노출", () => {
+    const { queryByText, getByText } = render(
+      <OptimizerResult output={out} delayDays={0} recoveryDays={0} />
+    );
+    // 진단/만회방안 괄호 미노출 (라벨은 순수 텍스트). out.diagnosis="진단" 본문과 겹쳐
+    // getByText("진단") 은 ambiguous → 괄호 부재로 검증.
+    expect(queryByText(/\(지연/)).toBeNull();
+    expect(queryByText(/AI 단축/)).toBeNull();
+    expect(getByText("만회방안")).toBeTruthy(); // 괄호 없는 순수 "만회방안"
+  });
 });

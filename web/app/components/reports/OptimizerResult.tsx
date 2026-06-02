@@ -19,7 +19,7 @@ export function OptimizerResult({
       <Row
         icon={<Brain className="h-4 w-4" />}
         tone="brand"
-        title={`진단${typeof delayDays === "number" ? `  (지연 +${delayDays}일)` : ""}`}
+        title={`진단${typeof delayDays === "number" && delayDays > 0 ? `  (지연 +${delayDays}일)` : ""}`}
       >
         <p className="text-sm text-ink-mid leading-relaxed whitespace-pre-line">
           {output.diagnosis || "진단 데이터 없음 (Optimizer 미실행 또는 cold_start)"}

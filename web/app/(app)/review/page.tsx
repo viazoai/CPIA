@@ -77,10 +77,10 @@ export default function HumanReviewPage() {
     };
   }, [onlyUnconfirmed, selectedNodeId, wbs]);
 
-  // 노드 선택 또는 토글 전환 시 직전 확정 알림을 비운다.
+  // 노드 선택 시 직전 확정 알림을 비운다 (onlyUnconfirmed 토글은 deps 에서 제외 — handleConfirmAll 이 토글과 알림을 동시에 세트하므로 토글 변경으로 알림을 즉시 지우면 알림이 flash 없이 사라짐).
   useEffect(() => {
     setConfirmedNotice(null);
-  }, [selectedNodeId, onlyUnconfirmed]);
+  }, [selectedNodeId]);
 
   const visibleCards = useMemo(() => {
     // 베이스: HIL 모드면 신규 카드, 등록 모드면 서버 노드-스코프 registered.

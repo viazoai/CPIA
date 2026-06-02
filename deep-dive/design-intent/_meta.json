@@ -1,9 +1,9 @@
 {
   "generated_at": "2026-05-26T00:00:00Z",
-  "updated_at": "2026-05-26T00:00:00Z",
-  "git_sha": "1ba783f",
-  "git_branch": "A_Track",
-  "previous_snapshot_sha": "ef7c6cd",
+  "updated_at": "2026-06-01T00:00:00Z",
+  "git_sha": "d317be9",
+  "git_branch": "main",
+  "previous_snapshot_sha": "1ba783f",
   "commits_since_previous": 70,
   "files_changed": 204,
   "lines_inserted": 30151,
@@ -13,7 +13,7 @@
   "test_count_previous": 392,
   "test_count_current_collected_plus_new": 401,
   "scope": "pipeline 전체 (9 active subsystem + 신규 exporter + collector IDLE worker + scripts 20+). Web/B_Track 제외.",
-  "cycle_note": "Mock 재설계 PR #40 + AWS 마이그 + view_builder MEDIAN + backfill_v2 --with-summary + ForecastChart catch-up + site_summary LLM cycle. 70+ commits 누적, view_builder 752 → 1,882 LOC (2.5x), site_summary 141 LOC 신규.",
+  "cycle_note": "Mock 재설계 PR #40 + AWS 마이그 + view_builder MEDIAN + backfill_v2 --with-summary + ForecastChart catch-up + site_summary LLM cycle. 70+ commits 누적, view_builder 752 → 1,882 LOC (2.5x), site_summary 141 LOC 신규. 2026-06-01 d317be9: parser 헤더기반 다포맷 + graph multi-file + hil_1 resume falsy-fix + FE-BE 승인 배선 main 직접 머지.",
   "subsystems": [
     {
       "name": "orchestration",
@@ -30,11 +30,11 @@
         "pipeline/collector/filename_parser.py",
         "pipeline/collector/config.py"
       ],
-      "loc": 1545,
+      "loc": 1610,
       "t1_count": 33,
-      "t2_count": 21,
+      "t2_count": 24,
       "t1_coverage_pct": 100,
-      "design_intent_md_loc": 868,
+      "design_intent_md_loc": 947,
       "code_changed": true,
       "cycle_changes": [
         "55cad90 + 6b9db7c: collector_node + parser_node 신설 (D-12 graph 진입점 이동 mapper → collector)",
@@ -42,7 +42,9 @@
         "ef95e02: build_atomized_demo_graph (15일 backfill 표준)",
         "1e24dc6: get_llm_semaphore() + CPIA_LLM_CONCURRENCY (default 4) — forecaster/optimizer/atomizer 공용",
         "4b8a955: api.py lifespan 안에 collector task + app.include_router(exporter_router)",
-        "Critical 2: #C1 (CPIA_HIL_AUTO_BYPASS prod 가드 부재), #C2 (CPIAState.parsed annotation drift list[Activity] vs ParsedDailyReport)"
+        "Critical 2: #C1 (CPIA_HIL_AUTO_BYPASS prod 가드 부재), #C2 (CPIAState.parsed annotation drift list[Activity] vs ParsedDailyReport)",
+        "d317be9 (a8d17e4): parser_node sync 단일파일 래퍼 → async N병렬 multi-file merge (_merge_reports concat) + build_graph 의 _parser_p wrapper 가 return await _parser(state) 로 await (graph.py:595~598)",
+        "d317be9 (a8d17e4): hil_1 langgraph 1.2.0 falsy-resume fix — api.py 가 항상 truthy 래퍼 Command(resume={\"corrections\": payload}) (api.py:328~331), hil_1_node 가 set(corrections_raw)=={\"corrections\"} 분기로 언랩 (graph.py:263~264). T2 신규 1 (hil_1_node — falsy-resume fix) + 갱신 3 (hil_1_node 본체 / parser_node / build_graph)"
       ]
     },
     {
@@ -84,17 +86,20 @@
         "pipeline/collector/idle_worker.py",
         "pipeline/collector/config.py"
       ],
-      "loc": 2106,
+      "loc": 2114,
       "t1_count": 30,
-      "t2_count": 13,
+      "t2_count": 17,
       "t1_coverage_pct": 100,
-      "design_intent_md_loc": 517,
-      "code_changed": false,
+      "design_intent_md_loc": 610,
+      "code_changed": true,
       "cycle_changes": [
-        "parser.py + parser_post.py + parser_llm.py 자체 변경 0 (이전 cycle 흡수)",
+        "parser_post.py + parser_llm.py 자체 변경 0 (이전 cycle 흡수)",
         "6b9db7c: parser_node.py 25 LOC 신설 — state-key drift fix (parsed_reports → parsed, report_date → date)",
         "55cad90: collector_node.py 63 LOC 신설 — graph 진입점",
         "85155eb + c1cba0f: filename_parser.py 64 + idle_worker.py 260 + config.py 68 신설 — IMAP IDLE listener",
+        "d317be9 (65a8027~ac0a8c5): parser.py 헤더기반 다포맷 7-task — 신규 _BP_PATTERNS (parser.py:97) / _norm_header (:353) / _resolve_sheet4_columns (:357) / _build_activity (:403), _DATE_PATTERN (:589) .xlsm+8자리 수용, 시트2/3 has_final_flag 조건부 게이트, 무력 LLM 검증 wrapper 완전 제거 (LLM 0 호출). parser.py 760 → 664 LOC ('parser.py 변경 0' 이전 라벨 무효). issue#52 업체작업일보 컬럼시프트 garbage 해소. 골든 고정: 통합 byte-identical act=1193/bp=99/job=975/equip=1111 + 업체 act=33/bp=1/job=76/equip=68",
+        "d317be9 (a8d17e4): parser_node.py 25 LOC sync 단일파일 래퍼 → 64 LOC async N병렬 multi-file merge (_merge_reports :18 신규, async parser_node :40). 10 업체파일 → activities 330",
+        "T2 신규 5: _resolve_sheet4_columns, _build_activity, _BP_PATTERNS/_is_bp_code, _DATE_PATTERN, _merge_reports. 이슈 = issue#52 업체작업일보 컬럼시프트 + multi-file 통합",
         "이슈 9 → 15: parser_warning PG 영속화 미구현, parser_llm 회귀 env flag 미구현, Activity 4 필드 항상 None, LLM 비용 cap 자동 차단 없음, 시트2 zone 손실, BP work_text 미분리, 다른 사이트 양식 미지원, Mm## hardcoded, Semaphore(2) bottleneck"
       ]
     },
@@ -230,10 +235,11 @@
     {"file": "pipeline/api_helpers/", "loc": 0, "drift_backlog_priority": "low", "note": "__pycache__ only — empty dir 의심"}
   ],
   "totals": {
-    "t1_count_approx": 229,
-    "t2_count_approx": 117,
-    "loc_approx": 12124,
-    "design_intent_md_loc_total": 4048
+    "t1_count_approx": 232,
+    "t2_count_approx": 124,
+    "loc_approx": 12200,
+    "design_intent_md_loc_total": 4220,
+    "totals_note": "d317be9: parser t2 13→17 (신규 T2 카드 5, 1 재편 net +4), orchestration t2 21→24 (+3). t2 117 → 124 (+7). 그 외 6개 서브시스템 미변경."
   },
   "audit_drift_backlog_reference": "docs/audit/2026-05-17-cpia-drift-backlog.md",
   "pair_deep_dive": "deep-dive/architecture_overview.md + deep-dive/deep_dive_*.md × 8 (5705 줄, 2026-05-26)",
@@ -286,7 +292,7 @@
   "claude_md_rule_added": true,
   "claude_md_rule_location": "CPIA/CLAUDE.md:364 (## 작업 규칙 섹션, 기존)",
   "index_path": "deep-dive/design-intent/INDEX.md",
-  "last_checked_at": "2026-05-26T00:00:00Z",
+  "last_checked_at": "2026-06-01T00:00:00Z",
   "skill_used": ["deep-dive", "design-intent"],
   "demo_deadline": "2026-06-05",
   "working_tree_status": {

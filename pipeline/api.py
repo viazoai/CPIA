@@ -288,6 +288,13 @@ async def run_pipeline(body: RunRequest) -> RunResponse:
                 config={"configurable": {"thread_id": str(run_id)}},
             )
         except Exception:
+            import traceback as _tb
+
+            print(
+                f"[run _bg FAILED:{run_id}]\n{_tb.format_exc()}",
+                file=__import__("sys").stderr,
+                flush=True,
+            )
             await set_run_status(postgres_url, run_id, "failed")
 
     asyncio.create_task(_bg())

@@ -6,7 +6,7 @@ import { AgentWorkflowList } from "@/app/components/tasks/AgentWorkflowList";
 import { AgentTaskItemList } from "@/app/components/tasks/AgentTaskItemList";
 import { UploadDailyReportDialog } from "@/app/components/tasks/UploadDailyReportDialog";
 import { Button } from "@/components/ui/button";
-import type { DailyTask, AgentStageProgress, AgentTaskItem } from "@/lib/types";
+import type { DailyTask, AgentStageProgress, AgentColumn, AgentTaskRow } from "@/lib/types";
 import {
   useSimStore,
   useSimTick,
@@ -17,7 +17,7 @@ import {
 
 interface DetailData {
   stages: AgentStageProgress[];
-  items: Record<string, AgentTaskItem[]>;
+  items: Record<string, { columns: AgentColumn[]; rows: AgentTaskRow[] }>;
 }
 
 interface ProgressData {
@@ -62,7 +62,7 @@ export default function AgentTasksPage() {
   // selectedDate 변경 시 stage 타이머 + items 초기화.
   useEffect(() => {
     stageActiveAtRef.current.clear();
-    setDbItems([]);
+    setDbItems({ columns: [], rows: [] });
   }, [selectedDate]);
 
   // progress 가 running 상태일 때만 250ms 틱.
@@ -88,7 +88,7 @@ export default function AgentTasksPage() {
   }, []);
 
   // DB items — hasProgress 시 선택된 agent 의 실제 아이템 조회.
-  const [dbItems, setDbItems] = useState<AgentTaskItem[]>([]);
+  const [dbItems, setDbItems] = useState<{ columns: AgentColumn[]; rows: AgentTaskRow[] }>({ columns: [], rows: [] });
 
   // 2) selectedDate 변경 시에만 detail fetch.
   //    실 progress(hasProgress) 또는 sim 활성 시 mock detail 건너뜀.
@@ -168,7 +168,7 @@ export default function AgentTasksPage() {
   //    current_node 바뀌면 즉시 재시작 (stage 전환 시 아이템 목록 즉시 갱신).
   useEffect(() => {
     if (!progress?.run_id || !selectedAgent) {
-      setDbItems([]);
+      setDbItems({ columns: [], rows: [] });
       return;
     }
     const runId = progress.run_id;
@@ -183,9 +183,9 @@ export default function AgentTasksPage() {
           `/api/runs/items?run_id=${runId}&agent=${encodeURIComponent(selectedAgent)}`,
         );
         if (cancelled || !res.ok) return;
-        const d = (await res.json()) as { ok: boolean; items?: AgentTaskItem[] };
+        const d = (await res.json()) as { ok: boolean; columns?: AgentColumn[]; items?: AgentTaskRow[] };
         if (cancelled || !d.ok) return;
-        setDbItems(d.items ?? []);
+        setDbItems({ columns: d.columns ?? [], rows: d.items ?? [] });
       } catch {
         // 네트워크 오류 무시
       }
@@ -298,10 +298,15 @@ export default function AgentTasksPage() {
     ?? (isSimSelected ? (simStages as AgentStageProgress[]) : detail?.stages ?? []);
 
   // 아이템 우선순위: DB 실 데이터(hasProgress) > mock detail
-  const itemsForAgent: AgentTaskItem[] = hasProgress
-    ? dbItems
+  const rowsForAgent: AgentTaskRow[] = hasProgress
+    ? dbItems.rows
     : selectedAgent
-      ? (detail?.items ?? {})[selectedAgent] ?? []
+      ? (detail?.items ?? {})[selectedAgent]?.rows ?? []
+      : [];
+  const columnsForAgent: AgentColumn[] = hasProgress
+    ? dbItems.columns
+    : selectedAgent
+      ? (detail?.items ?? {})[selectedAgent]?.columns ?? []
       : [];
   const selectedStage = selectedAgent ? stages.find((s) => s.agent === selectedAgent) ?? null : null;
 
@@ -372,7 +377,8 @@ export default function AgentTasksPage() {
               <AgentTaskItemList
                 selectedAgent={selectedAgent}
                 stage={selectedStage}
-                items={itemsForAgent}
+                columns={columnsForAgent}
+                rows={rowsForAgent}
               />
             ) : (
               <div className="flex h-full items-center justify-center text-xs text-ink-light">

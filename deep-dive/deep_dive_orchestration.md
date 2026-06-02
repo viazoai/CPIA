@@ -1,7 +1,7 @@
 # Deep Dive — orchestration 서브시스템
 
-- **Generated**: 2026-05-26 (D-12 collector_node 진입 + IDLE worker + build_atomized_demo_graph 신설 cycle 갱신)
-- **Git SHA**: `1ba783f` (A_Track HEAD, origin sync). Baseline `ef7c6cd` 대비 202 commits, orchestration LOC 962 → 1605 (+667).
+- **Generated**: 2026-06-01 (`d317be9`) — parser_node async multi-file merge + hil_1 resume falsy-fix 반영 (이전 baseline 2026-05-26 `1ba783f`).
+- **Git SHA**: `1ba783f → d317be9` (A_Track HEAD, origin sync). Baseline `ef7c6cd` 대비 orchestration LOC 962 → 1605 (+667). 본 surgical 갱신은 `a8d17e4` (multi-file async parser merge + hil_1 resume falsy-fix) 2개 변경만 반영 — 그 외 §은 1ba783f 기준 유지.
 - **Branch**: `A_Track` (조형준 main 머지는 PR 리뷰 후 결정).
 - **Range (9 파일, 1605 LOC)**:
   - `pipeline/graph.py` (628 LOC)
@@ -9,7 +9,7 @@
   - `pipeline/checkpointer.py` (94 LOC)
   - `pipeline/constants.py` (5 LOC)
   - `pipeline/agents/collector_node.py` (63 LOC, D-12 신설)
-  - `pipeline/agents/parser_node.py` (25 LOC, D-12 신설)
+  - `pipeline/agents/parser_node.py` (64 LOC, D-12 신설; `a8d17e4` 에서 async N병렬 multi-file concat merge 로 확장)
   - `pipeline/agents/_concurrency.py` (18 LOC, 신설)
   - `pipeline/collector/filename_parser.py` (64 LOC, 신설)
   - `pipeline/collector/idle_worker.py` (260 LOC, 신설)
@@ -47,7 +47,7 @@ Orchestration 서브시스템은 LangGraph `StateGraph` 위에 7~9 노드 (colle
 | `pipeline/checkpointer.py` | 94 | `_LazyAsyncPostgresSaver` (AsyncConnectionPool lazy open) + `build_checkpointer` (env 분기) | 변경 없음 |
 | `pipeline/constants.py` | 5 | `WORK_HOURS_PER_DAY=8` 1 상수 | 변경 없음 |
 | `pipeline/agents/collector_node.py` | 63 | D-12 graph 진입 노드 — 파일 존재 검증 + `parse_filename` 분해 + `collector_inbox` UPDATE | 신설 |
-| `pipeline/agents/parser_node.py` | 25 | rule-based `parse_daily_report` 의 1줄 graph wrapper | 신설 |
+| `pipeline/agents/parser_node.py` | 64 | `input_files` 전체를 async N병렬 (`to_thread` Semaphore 4) 파싱 → `_merge_reports` concat merge → 1 통합 `ParsedDailyReport` | `a8d17e4` async multi-file merge |
 | `pipeline/agents/_concurrency.py` | 18 | `get_llm_semaphore()` event-loop 별 Semaphore (env `CPIA_LLM_CONCURRENCY`, 기본 4) | 신설 |
 | `pipeline/agents/collector.py` | 70 | (legacy) `discover_daily_reports` + `collect_and_parse` (dir scan + Semaphore 4) | 변경 없음 |
 | `pipeline/collector/filename_parser.py` | 64 | 첨부 파일명 정규식 → `ParsedFilename(kind, project, bp_name, trade, zone, date)` | 신설 |
@@ -68,7 +68,7 @@ Orchestration 서브시스템은 LangGraph `StateGraph` 위에 7~9 노드 (colle
 | `mapper_node` | graph.py:50 | `async (state, cfg: GraphConfig) -> dict` | Parser 정규화 + BP cand_pool batch + Semaphore(4) map_activity + `_prorate_mh` + 5 PG INSERT + 같은 트랜잭션 SELECT 검증 |
 | `_build_review_needed` | graph.py:170 | `(mapped) -> list[dict]` | requires_review=True 행만 9 필드 추출 |
 | `_apply_corrections` | graph.py:191 | `(mapped, corrections: dict[int, dict]) -> list[Activity]` | corrections 적용 + `mapping_source="user_corrected"` + `requires_review=False` 강제 |
-| `hil_1_node` | graph.py:226 | `async (state, cfg) -> dict` | review_needed 1건 이상 → `interrupt`; `CPIA_HIL_AUTO_BYPASS` env 우회; PG `insert_mapping_correction` 반복 |
+| `hil_1_node` | graph.py:233 | `async (state, cfg) -> dict` | review_needed 1건 이상 → `interrupt`; `CPIA_HIL_AUTO_BYPASS` env 우회; resume payload 가 `{"corrections": {...}}` truthy 래퍼면 언랩 (graph.py:263~264, langgraph 1.2.0 falsy-resume gotcha); PG `insert_mapping_correction` 반복 |
 | `atomizer_node` | graph.py:294 | `async (state, cfg) -> dict` | Chroma daily_activities 적재 + atomized_ids 반환 |
 | `forecaster_node` | graph.py:301 | `async (state, cfg) -> dict` | 그룹별 진단 (RAG + Plan fallback) |
 | `hil_2_node` | graph.py:308 | `async (state, cfg) -> dict` | risky 그룹별 Chroma `coll.get` 1회 (F5) + cross-company baseline (F7) + `interrupt({risky_groups})` |
@@ -118,7 +118,8 @@ Orchestration 서브시스템은 LangGraph `StateGraph` 위에 7~9 노드 (colle
 
 | Name | file:line | Signature | 역할 |
 |---|---|---|---|
-| `parser_node` | parser_node.py:15 | `(state: CPIAState) -> dict[str, Any]` | `parse_daily_report(path)` (rule-based) 호출 후 `{"parsed": ParsedDailyReport}` 반환 |
+| `parser_node` | parser_node.py:40 | `async (state: CPIAState) -> dict[str, Any]` | `input_files` 전체 → `_parse_one` async (`to_thread(parse_daily_report)` Semaphore 4) → `_merge_reports` concat → `{"parsed": ParsedDailyReport}` 반환 |
+| `_merge_reports` | parser_node.py:18 | `(reports: list[ParsedDailyReport]) -> ParsedDailyReport` | N개 ParsedDailyReport → 1 통합 (activities/bp_summaries/job/equip/worker_outputs concat, report_meta 는 첫 업체 것) |
 
 ### agents/_concurrency.py
 
@@ -186,9 +187,10 @@ Orchestration 서브시스템은 LangGraph `StateGraph` 위에 7~9 노드 (colle
             └──────────────────────────┬─────────────────────────┘
                                        ▼
             ┌────────────────────────────────────────────────────┐
-            │  parser_node                     (graph.py:606)   │
-            │  • parse_daily_report(Path(input_files[0]))       │
-            │  • rule-based + LLM 검증 wrapper                   │
+            │  parser_node (async)             (graph.py:635)   │
+            │  • input_files 전체 → to_thread(parse_daily_      │
+            │    report) Semaphore(4) async N병렬 파싱           │
+            │  • _merge_reports → 1 concat ParsedDailyReport     │
             │  • return {parsed: ParsedDailyReport}             │
             └──────────────────────────┬─────────────────────────┘
                                        ▼
@@ -208,16 +210,18 @@ Orchestration 서브시스템은 LangGraph `StateGraph` 위에 7~9 노드 (colle
                                        ▼
             ┌────────────────────────────────────────────────────┐
             │  hil_1_node          ◀══════════ interrupt #1     │
-            │  (graph.py:226)                                    │
+            │  (graph.py:233)                                    │
             │  • _build_review_needed (requires_review=True 9    │
             │    필드)                                            │
             │  • if review_needed == 0: pass-through             │
             │  • elif CPIA_HIL_AUTO_BYPASS in {1,true,on,yes}:   │
             │      stderr 로그 + 빈 corrections 통과              │
             │  • else: interrupt({"review_needed": [...]})       │
+            │  • resume 래퍼 언랩: {"corrections": {...}} →       │
+            │    corrections_raw["corrections"] or {} (g.py:263) │
             │  • _apply_corrections                              │
             │  • insert_mapping_correction × corrections.len     │
-            │  ──────────────  Command(resume={idx: {wa, l6_main}})
+            │  ───  Command(resume={"corrections": {idx: {wa, l6_main}}})  (truthy 래퍼)
             └──────────────────────────┬─────────────────────────┘
                                        ▼
             ┌────────────────────────────────────────────────────┐
@@ -322,7 +326,7 @@ START → atomizer → forecaster → hil_2 ─┬─(selection)──→ optimi
 
 | 지점 | 노드 | 트리거 | resume payload |
 |---|---|---|---|
-| HIL 1 | hil_1_node (graph.py:250) | `len(review_needed) >= 1` 이고 `CPIA_HIL_AUTO_BYPASS` 미설정 | `Command(resume={idx: {"wa", "l6_main"}, ...})` |
+| HIL 1 | hil_1_node (graph.py:257) | `len(review_needed) >= 1` 이고 `CPIA_HIL_AUTO_BYPASS` 미설정 | `Command(resume={"corrections": {idx: {"wa","l6_main"}, ...}})` — truthy 래퍼 필수 (langgraph 1.2.0 falsy-resume gotcha). 래퍼 없는 직접 dict 는 하위호환 통과 |
 | HIL 2 | hil_2_node (graph.py:411) | `len(risky) >= 1` (주의/이상 그룹) | `Command(resume=[group_key, ...])` |
 
 ---
@@ -352,7 +356,7 @@ START → atomizer → forecaster → hil_2 ─┬─(selection)──→ optimi
 | 19 | `message_id` | `str` (D-12) | listener invoke 시 박힘 (CLI 진입 시 absent) | collector_node (`collector_inbox` UPDATE 조건) |
 | 20 | `postgres_url` | `str` (D-12) | listener invoke 시 박힘 | collector_node (`PGClient` 생성) |
 
-**Drift 주의**: state.py:237 의 `parsed: list[Activity]` 는 실제로 `ParsedDailyReport` 가 들어간다 (parser_node.py:25 return + mapper_node 의 graph.py:62 `parsed: ParsedDailyReport = state["parsed"]` 캐스팅). 타입 annotation 갱신 필요 (Critical issue #C2 — 아래 §13 참조).
+**Drift 주의**: state.py:237 의 `parsed: list[Activity]` 는 실제로 `ParsedDailyReport` 가 들어간다 (parser_node.py:64 `return {"parsed": merged}` — merged 는 `_merge_reports` 의 통합 `ParsedDailyReport` + mapper_node 의 graph.py:62 `parsed: ParsedDailyReport = state["parsed"]` 캐스팅). 타입 annotation 갱신 필요 (Critical issue #C2 — 아래 §13 참조).
 
 ---
 
@@ -456,25 +460,36 @@ async def collector_node(state: CPIAState) -> dict[str, Any]:
 
 - **에러 핸들링**: 3 fail-fast — `RuntimeError` (input_files 빈), `FileNotFoundError` (경로 부재), `ValueError` (파일명 규약 불일치). dead_letter 처리는 listener (`idle_worker._to_dead_letter`) 측 책임 — graph 진입 전에 거름.
 
-### 7.2 `parser_node` (parser_node.py:15, D-12 신설)
+### 7.2 `parser_node` (parser_node.py:40, D-12 신설; `a8d17e4` async multi-file merge)
 
-- **진입 line**: parser_node.py:15
-- **입력 state 키**: `input_files[0]`
+- **진입 line**: parser_node.py:40 (`async def`)
+- **입력 state 키**: `input_files` (전체 — 1번째만 아님)
 - **출력 state 키**: `parsed`
-- **핵심 코드** (parser_node.py:15~25):
+- **핵심 코드** (parser_node.py:40~64):
 
 ```python
-def parser_node(state: CPIAState) -> dict[str, Any]:
-    path = Path(state["input_files"][0])
-    report = parse_daily_report(path)
+async def parser_node(state: CPIAState) -> dict[str, Any]:
+    files = [Path(f) for f in state["input_files"]]
+    if not files:
+        raise RuntimeError("parser_node: input_files 비어있음")
+    sem = asyncio.Semaphore(_PARSE_CONCURRENCY)  # = 4
+
+    async def _parse_one(p: Path) -> ParsedDailyReport:
+        async with sem:
+            return await asyncio.to_thread(parse_daily_report, p)
+
+    reports = list(await asyncio.gather(*[_parse_one(p) for p in files]))
+    merged = _merge_reports(reports)
     log.info(
-        "parser_node: %s 파싱 완료 (bp_summaries=%d, activities=%d)",
-        path.name, len(report["bp_summaries"]), len(report["activities"]),
+        "parser_node: %d개 파일 병렬 병합 (bp_summaries=%d, activities=%d)",
+        len(files), len(merged["bp_summaries"]), len(merged["activities"]),
     )
-    return {"parsed": report}
+    return {"parsed": merged}
 ```
 
-- **에러 핸들링**: 없음 (parse_daily_report 가 자체 raise). LangGraph 가 미처리 시 status='failed'.
+- **multi-file merge (`a8d17e4`)**: 이전엔 `input_files[0]` 단일 파일만 sync 파싱했으나, 이제 `input_files` 전체를 async N병렬로 파싱하고 `_merge_reports` (parser_node.py:18) 로 concat 통합한다. 각 업체가 다른 작업을 한다는 전제로 activities/bp_summaries/job/equip/worker_outputs 를 단순 이어붙이고, report_meta 는 첫 업체(site 대표) 것을 쓴다. `report_date` 불일치 시 WARN 로그만 (graph 흐름은 계속).
+- **async + to_thread**: sync `parse_daily_report` 를 `asyncio.to_thread` 로 wrap (Semaphore 4) — 이벤트 루프를 block 하지 않아 mapper~ 진행 중에도 FastAPI 의 다른 요청(게이지 polling 등)이 응답한다. `build_graph` 의 wrapper `_parser_p` (graph.py:595~598) 가 `return await _parser(state)` 로 await 한다.
+- **에러 핸들링**: `input_files` 빈 → `RuntimeError`. 그 외는 `parse_daily_report` 자체 raise (LangGraph 미처리 시 status='failed').
 
 ### 7.3 `mapper_node` (graph.py:50)
 
@@ -516,12 +531,12 @@ mapped = list(await asyncio.gather(*[_map_one(a) for a in parsed["activities"]])
 - **PG 영속 (graph.py:108~154)**: `insert_parser_report` + `insert_parser_activities_batch` + `insert_parser_job_allocations_batch` (G24 — 이전 호출 누락 row=0 버그) + `insert_parser_equipment_allocations_batch` (G24) + `insert_mapper_activities_batch` + 같은 트랜잭션 SELECT COUNT 검증 (graph.py:157~162).
 - **에러 핸들링**: try/finally 로 PG pool close 보장. INSERT 실패 시 raise (atomic transaction 아님 — 부분 적재 위험 — Medium issue #M3 — §13 참조).
 
-### 7.4 `hil_1_node` (graph.py:226)
+### 7.4 `hil_1_node` (graph.py:233)
 
-- **진입 line**: graph.py:226
+- **진입 line**: graph.py:233
 - **입력 state 키**: `mapped`, `run_id`, `date`
 - **출력 state 키**: `mapped` (corrections 적용), `hil_1_corrections`, `current_node`
-- **핵심 코드** (graph.py:235~291):
+- **핵심 코드** (graph.py:242~291):
 
 ```python
 mapped = state["mapped"]
@@ -536,6 +551,12 @@ if os.environ.get("CPIA_HIL_AUTO_BYPASS", "").lower() in ("1", "true", "on", "ye
 
 corrections_raw = interrupt({"review_needed": review_needed})
 corrections_raw = corrections_raw or {}
+# langgraph 1.2.0: Command(resume=<falsy>) (예: 보정 0건 → {}) 는 그래프에 전달되지
+# 않아 interrupt 가 재발생, hil_1 에 영구히 갇힌다. endpoint(api.py)가 빈 보정에도
+# 항상 truthy 한 {"corrections": {...}} 래퍼로 resume 하므로 여기서 언랩한다.
+# 래퍼 없는 직접 dict 호출(테스트/구버전 호환)은 그대로 통과.
+if isinstance(corrections_raw, dict) and set(corrections_raw) == {"corrections"}:
+    corrections_raw = corrections_raw["corrections"] or {}
 corrections = {int(k): v for k, v in corrections_raw.items()}
 
 corrected = _apply_corrections(mapped, corrections)
@@ -550,7 +571,8 @@ if cfg is not None and corrections:
 ```
 
 - **AUTO_BYPASS 로직**: env `CPIA_HIL_AUTO_BYPASS` ∈ `{1, true, on, yes}` 시 stderr 로그 + 빈 corrections 통과. dev/검증 path (cycle 1~4 의 interrupt 무한 루프 회피).
-- **resume key 변환**: `int(k) for k in corrections_raw.items()` — LangGraph `Command(resume=dict)` 의 key 가 str 로 직렬화되므로 int 복원. (drift #N5 명문화 미흡 — design-intent 이슈)
+- **falsy-resume 언랩 (`a8d17e4`, graph.py:263~264)**: langgraph 1.2.0 은 `Command(resume=<falsy>)` (보정 0건 → 빈 `{}`) 를 그래프에 전달하지 않아 interrupt 가 재발생 → hil_1 에 영구히 갇힌다. 해결: endpoint(`api.py:hil_1_resume`)가 보정 유무와 무관하게 항상 truthy 한 `Command(resume={"corrections": corrections_payload})` 래퍼로 호출하고, hil_1_node 가 `set(corrections_raw) == {"corrections"}` 인 경우만 한 겹 언랩(`corrections_raw["corrections"] or {}`)한다. 래퍼 없는 직접 dict resume(테스트/구버전)은 분기를 타지 않고 그대로 통과 (하위호환). 상세는 Issues §13 #M5 참조.
+- **resume key 변환**: 언랩 후 `int(k) for k in corrections_raw.items()` — LangGraph `Command(resume=dict)` 의 key 가 str 로 직렬화되므로 int 복원. (drift #N5 명문화 미흡 — design-intent 이슈)
 
 ### 7.5 `atomizer_node` (graph.py:294)
 
@@ -711,12 +733,15 @@ review_needed 0   review_needed≥1   review_needed≥1
    │      통과               trade, wa, l6_main, mapping_conf,
    │                          mapping_source}, ...]})
    │              │                 │
-   │              │                 │  ◀── FastAPI /resume
-   │              │                 │     Command(resume={
+   │              │                 │  ◀── FastAPI /resume (api.py:hil_1_resume)
+   │              │                 │     Command(resume={"corrections": {
    │              │                 │       "0": {"wa":"X","l6_main":"Y"},
-   │              │                 │       "3": {"wa":"Z","l6_main":"W"}})
+   │              │                 │       "3": {"wa":"Z","l6_main":"W"}}})
+   │              │                 │     ↑ 항상 truthy 래퍼 (보정 0건도 전달)
    │              │                 ▼
    │              │         corrections_raw = {} or {...}
+   │              │         if set(corrections_raw)=={"corrections"}:
+   │              │             corrections_raw = ...["corrections"] or {}
    │              │         corrections = {int(k): v for k,v in ...}
    │              │         _apply_corrections(mapped, corrections)
    │              │         insert_mapping_correction × corrections.len
@@ -729,10 +754,28 @@ review_needed 0   review_needed≥1   review_needed≥1
                           atomizer
 ```
 
-- **interrupt payload schema (graph.py:175~187)**: 9 필드 (idx, work_content, company, trade, wa, l6_main, mapping_conf, mapping_source — FE Modal input 최소화).
-- **resume payload**: `Command(resume={idx_str: {wa, l6_main}})`. key 는 str (JSON 직렬화 결과), `int(k)` 로 복원.
-- **답 안 한 row 처리 (graph.py:215~219)**: review_needed 였으나 corrections 에 없으면 Mapper 추천 그대로 수용 + `mapping_source="user_corrected"` + `requires_review=False`.
-- **AUTO_BYPASS env 우회 (graph.py:240~248)**: `CPIA_HIL_AUTO_BYPASS in {1, true, on, yes}` → interrupt 건너뛰고 빈 corrections 통과.
+- **interrupt payload schema (graph.py:182~191)**: 8 필드 (idx, work_content, company, trade, wa, l6_main, mapping_conf, mapping_source — FE Modal input 최소화).
+- **resume payload (`a8d17e4`)**: `Command(resume={"corrections": {idx_str: {wa, l6_main}}})` — `api.py:hil_1_resume` (api.py:328~331) 가 truthy 래퍼로 감싼다. hil_1_node 가 `set(corrections_raw)=={"corrections"}` 분기로 언랩 (graph.py:263~264) 후, 내부 idx key 는 str (JSON 직렬화 결과) → `int(k)` 로 복원. **이 래퍼가 langgraph 1.2.0 의 falsy-resume gotcha (보정 0건 → 빈 dict 미전달 → interrupt 재발생) 를 막는다.** 래퍼 없는 직접 dict resume 은 분기를 타지 않고 그대로 통과 (테스트/구버전 호환).
+- **답 안 한 row 처리 (graph.py:208~219)**: review_needed 였으나 corrections 에 없으면 Mapper 추천 그대로 수용 + `mapping_source="user_corrected"` + `requires_review=False`.
+- **AUTO_BYPASS env 우회 (graph.py:247~255)**: `CPIA_HIL_AUTO_BYPASS in {1, true, on, yes}` → interrupt 건너뛰고 빈 corrections 통과.
+
+**api.py 래퍼 (`a8d17e4`, api.py:320~331)** — endpoint 가 항상 truthy 래퍼로 resume:
+
+```python
+# corrections dict[str, CorrectionItem] → dict[str, dict] (JSON serializable)
+corrections_payload: dict[str, dict] = {
+    k: {"wa": v.wa, "l6_main": v.l6_main} for k, v in body.corrections.items()
+}
+# langgraph 1.2.0: Command(resume=<falsy>) (보정 0건 → {}) 는 전달되지 않아
+# hil_1 interrupt 가 재발생한다. 항상 truthy 한 {"corrections": ...} 래퍼로 감싸
+# 보정 유무와 무관하게 resume 가 전달되도록 한다 (hil_1_node 가 언랩).
+result = await graph.ainvoke(
+    Command(resume={"corrections": corrections_payload}),
+    config={"configurable": {"thread_id": run_id}},
+)
+```
+
+- `body.corrections` 가 빈 dict 여도 `{"corrections": {}}` 는 truthy → langgraph 가 그래프에 전달 → hil_1_node 가 interrupt 를 한 번만 통과시킨다. 이 래퍼가 없으면 빈 보정 resume 이 interrupt 를 재발생시켜 hil_1 에 영구히 갇힌다 (§13 #M5).
 
 ### 8.2 HIL 2 — Forecaster risky 검토
 
@@ -790,7 +833,7 @@ risky 0       risky ≥ 1            risky ≥ 1
 | `1`, `true`, `on`, `yes` (대소문자 무관) | stderr 로그 + 빈 corrections 통과 → atomizer 진입 |
 | 그 외 (예: `0`, `false`) | interrupt 정상 발생 |
 
-- 비교: `os.environ.get("CPIA_HIL_AUTO_BYPASS", "").lower() in ("1", "true", "on", "yes")` (graph.py:240).
+- 비교: `os.environ.get("CPIA_HIL_AUTO_BYPASS", "").lower() in ("1", "true", "on", "yes")` (graph.py:247).
 - 의도: cycle 1~4 의 interrupt 무한 루프 (resume={} → re-raise) 해결 — dev/검증 path 만.
 
 ---
@@ -991,7 +1034,7 @@ atomizer.py            # batch embedding
 | api.py:170 | `build_graph(cfg)` | lifespan app.state.graph |
 | api.py:180~183 | `asyncio.create_task(idle_loop(collector_cfg))` | startup collector task |
 | api.py:188~194 | `request_shutdown() + task.cancel()` | shutdown graceful |
-| api.py:223~ | `/api/runs/{run_id}/hil_1/resume` | HIL 1 resume endpoint (Command resume key str→int 변환은 hil_1_node 책임) |
+| api.py:297~ | `/api/runs/{run_id}/hil_1/resume` | HIL 1 resume endpoint. `Command(resume={"corrections": payload})` truthy 래퍼 (api.py:328~331) — langgraph 1.2.0 falsy-resume gotcha 회피. key str→int 변환 + 래퍼 언랩은 hil_1_node 책임 (graph.py:263~265) |
 
 ### 12.3 각 agent 모듈 import 위치 (graph.py)
 
@@ -1051,6 +1094,7 @@ from pipeline.state import CPIAState
 | #M2 | CollectorConfig 명명 충돌 | agents/collector.py:23 + collector/config.py:15 | 같은 이름 클래스 2개. 향후 import 충돌 위험. legacy agents/collector.py 가 prod 흐름 밖이라 당장 문제 없음 | legacy `agents/collector.py` 의 `CollectorConfig` → `LegacyDirCollectorConfig` rename 또는 폐기 (현재 prod 미사용) |
 | #M3 | atomized_demo_graph 호출자 책임 분산 | graph.py:531~572 | `mapped` hydrate + `pipeline_runs` INSERT 모두 호출자 책임 (atomizer 의 `assert_pipeline_run_exists` fail-fast). 백필 스크립트마다 boilerplate 반복 | helper `prepare_atomized_run(run_id, site_id, date, mapped_rows)` 신설 (PG INSERT + state assembly 한 곳에) |
 | #M4 | HIL 2 AUTO_BYPASS 없음 | graph.py:308~416 | HIL 1 에는 `CPIA_HIL_AUTO_BYPASS` 있으나 HIL 2 는 없음. scripts/run_one_cycle.py 가 자체 auto-select 로 우회 — 실 production listener (idle_worker) path 에서는 interrupt 멈춤 | 대칭성 위해 `CPIA_HIL_AUTO_BYPASS` 가 HIL 2 도 우회 (모든 risky key 자동 선택) 또는 별도 `CPIA_HIL2_AUTO_SELECT` env 추가 |
+| #M5 ✅ fixed (`a8d17e4`) | langgraph 1.2.0 falsy-resume gotcha | api.py:328~331 + graph.py:259~264 | langgraph 1.2.0 은 `Command(resume=<falsy>)` (보정 0건 → 빈 `{}`) 를 그래프에 전달하지 않아 hil_1 interrupt 가 재발생 → hil_1 에 영구히 갇힌다 (HIL 1 "전부 승인" 케이스가 무한 루프). **이미 fix됨**: `api.py:hil_1_resume` 가 항상 truthy `Command(resume={"corrections": payload})` 래퍼로 호출, `hil_1_node` 가 `set(corrections_raw)=={"corrections"}` 분기로 언랩. 래퍼 없는 직접 dict resume 은 하위호환 통과 | (완료) 향후 langgraph 버전업 시 falsy-resume 동작 회귀 테스트 유지. 동일 패턴을 HIL 2 재도입 시에도 적용 |
 
 ### 13.3 Low (백로그)
 
@@ -1060,7 +1104,7 @@ from pipeline.state import CPIAState
 | #L2 | `update_collector_inbox_status` 중복 | collector_node.py:44 + idle_worker.py:105 | listener 가 한 번, collector_node 가 다시 한 번 UPDATE (running). idempotent 라 functional 영향 없으나 PG round-trip 1회 낭비 | listener UPDATE 제거 (collector_node 가 single source of truth) 또는 collector_node UPDATE 제거 (listener 만) |
 | #L3 | Command(resume) key 변환 룰 미명문화 | graph.py:252 | `corrections = {int(k): v for k, v in corrections_raw.items()}` — JSON 직렬화로 key 가 str 되는 룰 docstring 만 (api.py:227 주석). spec 문서화 미흡 | docs/architecture/api-contract.md 에 명시 |
 | #L4 | LLM Semaphore 분리 | graph.py:38 + _concurrency.py:15 | mapper 는 `CPIA_MAPPER_CONCURRENCY`, 그 외 agents 는 `CPIA_LLM_CONCURRENCY` — 운영자 두 env 외워야 함 | 통합 또는 명명 정합 (예: `CPIA_AGENT_LLM_CONCURRENCY_<MAPPER\|GENERIC>`) |
-| #L5 | parser_node sync wrapper | parser_node.py:15 | `def parser_node(...)` sync — LangGraph 가 sync 노드를 별도 thread 에 던지나 graph 의 다른 노드 (collector/mapper) 는 async. 통일성 부재 | `async def parser_node(...)` 로 async wrap + `await asyncio.to_thread(parse_daily_report, path)` 로 호출 |
+| #L5 ✅ resolved (`a8d17e4`) | parser_node sync wrapper | parser_node.py:40 | (해소) 이전 `def parser_node(...)` sync 였으나 multi-file merge 도입과 함께 `async def parser_node(...)` 로 전환 — `to_thread(parse_daily_report)` Semaphore 4 비동기 병렬. graph 의 다른 노드(collector/mapper) 와 async 통일 | (완료) — |
 | #L6 | `_LazyAsyncPostgresSaver._opened` race | checkpointer.py:52 | `if not self._opened: await pool.open(); self._opened = True` — `asyncio.Lock` 없음. 첫 호출이 2 concurrent 면 pool.open() 2회 호출 가능 (psycopg_pool 이 자체 idempotent 하지만 contract 보장 X) | `asyncio.Lock` 으로 `_ensure_open` 보호 |
 | #L7 | dead_letter race | idle_worker.py:81~87 | 같은 첨부가 동시 처리 시 file path uuid suffix 로 충돌 회피하나, dedup 은 message_id 단위라 sub_message_id 같으면 race 가능. 현실 빈도 매우 낮음 | `INSERT collector_inbox ON CONFLICT (message_id) DO NOTHING` 이미 race-safe — file write 만 추가 lock 검토 |
 | #L8 | IDLE shutdown timing | idle_worker.py:188~194 | lifespan shutdown 시 `request_shutdown() → task.cancel()` 즉시 cancel — `idle_done()` 후처리 미완료 가능 | `asyncio.wait_for(task, timeout=5)` 로 graceful 5초 대기 후 cancel |
@@ -1077,13 +1121,15 @@ from pipeline.state import CPIAState
 
 ---
 
-## 15. 검증 상태 (1ba783f)
+## 15. 검증 상태 (d317be9)
 
 | 항목 | 측정 | 상태 |
 |---|---|---|
 | build_graph topology | 9 노드 (collector → parser → mapper → hil_1 → atomizer → forecaster → hil_2 → optimizer\|reporter → END) | ✅ |
+| parser_node async multi-file merge (`a8d17e4`) | `input_files` 전체 to_thread Semaphore 4 병렬 파싱 + `_merge_reports` concat. `_parser_p` 가 `return await _parser(state)` (graph.py:595~598) | ✅ |
+| hil_1 falsy-resume fix (`a8d17e4`) | api.py truthy 래퍼 `Command(resume={"corrections": payload})` (api.py:328~331) + hil_1_node 언랩 분기 (graph.py:263~264). 보정 0건 resume 시 interrupt 재발생 없이 통과 | ✅ |
 | collector_node 단위 테스트 | `pipeline/tests/test_collector_node.py` 70 LOC | ✅ |
-| parser_node 단위 테스트 | `pipeline/tests/test_parser_node.py` 29 LOC | ✅ |
+| parser_node 단위 테스트 | `pipeline/tests/test_parser_node.py` | ✅ |
 | idle_worker 단위 테스트 | `c1cba0f` test commit | ✅ |
 | CPIAState D-12 필드 | bp_name/project/message_id/postgres_url 4 신규 키 정식 정의 | ✅ |
 | HIL 2 cross-company retrieve | 합성 3사 외 75사 cold_start fallback 해소 | ✅ |
@@ -1093,4 +1139,4 @@ from pipeline.state import CPIAState
 
 ---
 
-*최종 수정: 2026-05-26 (1ba783f)*
+*최종 수정: 2026-06-01 (`d317be9`) — parser_node async multi-file merge + hil_1 falsy-resume fix surgical 갱신. 이전: 2026-05-26 (`1ba783f`)*

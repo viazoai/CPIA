@@ -93,11 +93,25 @@ export interface AgentStageProgress {
   waiting_hil: boolean;
 }
 
-export interface AgentTaskItem {
-  id: string;                   // "RPT-20260515-001"
-  trade: string;                // "철근공사"
-  contractor: string;           // "(주)A건설"
-  status: "done" | "processing" | "received" | "hil_pending" | "blocked";
+// 단계(Agent)별 카드는 행 단위·컬럼이 다르다 (파일/업체/활동/WP) — 고정 4필드 대신
+// per-step 컬럼 정의(AgentColumn) + generic row(AgentTaskRow). 컬럼 단일 source:
+// lib/agent-task-schema.ts. 컬럼은 API 응답(columns)으로 전달된다.
+export type AgentItemTone =
+  | "done" | "processing" | "received" | "hil_pending" | "blocked"  // 처리 상태
+  | "normal" | "caution" | "risk";                                  // 진단 톤
+
+export interface AgentColumn {
+  key: string;                 // row.values 의 키
+  label: string;               // 헤더 표시명
+  align?: "left" | "right";
+  mono?: boolean;
+}
+
+export interface AgentTaskRow {
+  id: string;
+  values: Record<string, string>;  // column.key → 표시값
+  statusLabel: string;
+  statusTone: AgentItemTone;
 }
 
 export interface ChatMessage {

@@ -39,7 +39,7 @@ export function WPSummaryTable({ rows, selectedWpId, onSelect }: Props) {
               <th className="px-3 py-1.5 font-medium">공종</th>
               <th className="px-3 py-1.5 font-medium">BP사</th>
               <th className="px-3 py-1.5 font-medium">지연일</th>
-              <th className="px-3 py-1.5 font-medium">단축 가능일</th>
+              <th className="px-3 py-1.5 font-medium">AI 단축</th>
               <th className="px-3 py-1.5 font-medium">Status</th>
             </tr>
           </thead>
@@ -71,7 +71,7 @@ export function WPSummaryTable({ rows, selectedWpId, onSelect }: Props) {
                       const d = row.delay_days ?? 0;
                       return d > 0
                         ? <span className="font-semibold text-rose-text">+{d}일</span>
-                        : <span className="text-ink-light">0일</span>;
+                        : <span className="text-ink-light">일정 충족</span>;
                     })()}
                   </td>
                   <td className="px-3 py-1 text-[12px] tabular-nums">

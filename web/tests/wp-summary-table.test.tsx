@@ -11,13 +11,13 @@ const row: WPSummaryRow = {
 };
 
 describe("WPSummaryTable", () => {
-  it("Impact·Productivity 헤더 없음, Work Area·지연일·단축 가능일 헤더 있음", () => {
+  it("Impact·Productivity 헤더 없음, Work Area·지연일·AI 단축 헤더 있음", () => {
     render(<WPSummaryTable rows={[row]} selectedWpId={null} onSelect={() => {}} />);
     expect(screen.queryByText("Impact")).toBeNull();
     expect(screen.queryByText("Productivity")).toBeNull();
     expect(screen.getByText("Work Area")).toBeTruthy();
     expect(screen.getByText("지연일")).toBeTruthy();
-    expect(screen.getByText("단축 가능일")).toBeTruthy();
+    expect(screen.getByText("AI 단축")).toBeTruthy();
   });
   it("맨 왼쪽 셀이 WA 코드(CUB), 지연일 +5일", () => {
     render(<WPSummaryTable rows={[row]} selectedWpId={null} onSelect={() => {}} />);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { waCode, parseDelayDays } from "@/lib/wp-format";
+import { waCode } from "@/lib/wp-format";
 
 describe("waCode", () => {
   it("wp_name '{trade} · {WA}' 에서 WA 추출", () => {
@@ -8,16 +8,5 @@ describe("waCode", () => {
   });
   it("wp_name 에 ' · ' 없으면 wp_id 첫 세그먼트 대문자 폴백", () => {
     expect(waCode({ wp_name: "이상한이름", wp_id: "fab-x-y" })).toBe("FAB");
-  });
-});
-
-describe("parseDelayDays", () => {
-  it("'N일 지연' → N", () => {
-    expect(parseDelayDays([{ label: "일정 영향", value: "5일 지연" }])).toBe(5);
-  });
-  it("'일정 충족' / 라벨없음 / undefined → 0", () => {
-    expect(parseDelayDays([{ label: "일정 영향", value: "일정 충족" }])).toBe(0);
-    expect(parseDelayDays([{ label: "다른", value: "3일 지연" }])).toBe(0);
-    expect(parseDelayDays(undefined)).toBe(0);
   });
 });

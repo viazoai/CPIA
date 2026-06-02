@@ -143,12 +143,9 @@ export default function ReportPage() {
   // spec §④ — 위 trade bar 매칭된 trade 만 + dead row (impact=0 AND prod=0) 제외.
   // 지연일(delay_days)·AI단축(recovery_days)은 BE(view_builder)가 wp_summary 에 직접 주입 —
   // 지연일=forecasts.delay_days(현황 완료일 슬립), 단축=scenarios.by_wp recovery. FE 파싱 폐기.
+  // QuadrantCountKpi 용 — visibleTrades + 활성(impact/productivity>0) 필터.
   const filteredWpRowsBase = detail.wp_summary
     .filter((w) => visibleTrades.has(w.trade) && (w.impact > 0 || w.productivity > 0));
-  const filteredWpRows =
-    wpStatusFilter === "all"
-      ? filteredWpRowsBase
-      : filteredWpRowsBase.filter((w) => w.status === wpStatusFilter);
   // WP목록 표 = 전체 wp_summary (status 4분면 필터만). headline Σ(wp_summary) 와 정합.
   const wpListRows = wpRowsForStatus(detail.wp_summary ?? [], wpStatusFilter);
   // 선택 WP — OptimizerResult 진단/만회방안 괄호(지연·AI단축) prop source (wp_summary SSOT).

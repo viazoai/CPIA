@@ -393,3 +393,27 @@ def test_synth_v4_format_flip(tmp_path, monkeypatch):
     got = parse_with_recipe(str(out))
     for key in _SYNTH_ENTITY_KEYS:
         assert len(got[key]) == len(canon[key]), f"V4 {key} 건수 불일치"
+
+
+def test_capture_exactness_vs_golden():
+    """recipe 경로 집계 == golden(parse_daily_report) 경로 집계.
+
+    - JobAllocation.workers_today_incr["total"]: TimeShiftCounts.total (금일 투입 합계)
+    - BPSummary.today_incr_total: 편의 int 필드 (시트1 금일 투입 합계)
+    - EquipmentAllocation.count_today_cum["total"]: TimeShiftCounts.total (금일 투입누계 합계)
+
+    주의: Σ(job) != Σ(bp) 는 의도된 차이 (_is_admin_job 제외 = 21 차이). 여기서 검증하는 것은
+    recipe 경로 vs golden 경로 간 동일성이지, 시트 간 교차 동일성이 아니다.
+    """
+    for path in (UNI, BP):
+        rep = parse_with_recipe(path)
+        gold = parse_daily_report(path)
+        assert sum(j["workers_today_incr"]["total"] for j in rep["job_allocations"]) == sum(
+            j["workers_today_incr"]["total"] for j in gold["job_allocations"]
+        ), f"{path}: job workers_today_incr total 불일치"
+        assert sum(b["today_incr_total"] for b in rep["bp_summaries"]) == sum(
+            b["today_incr_total"] for b in gold["bp_summaries"]
+        ), f"{path}: bp today_incr_total 불일치"
+        assert sum(e["count_today_cum"]["total"] for e in rep["equipment_allocations"]) == sum(
+            e["count_today_cum"]["total"] for e in gold["equipment_allocations"]
+        ), f"{path}: equipment count_today_cum total 불일치"

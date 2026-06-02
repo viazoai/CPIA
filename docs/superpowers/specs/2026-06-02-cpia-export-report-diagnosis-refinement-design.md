@@ -27,7 +27,7 @@
 
 ### 변경
 1. **시트4 (물량)** — `pipeline/agents/exporter.py` 의 `fetch_sheet_data`(:37 부근, 시트4 = `parser_activities` SELECT) 가 `mapper_activities` 를 `(run_id, idx)` LEFT JOIN 해서 `wa` 를 함께 가져오고, `_fill_quantity`(:285 부근)의 Zone 셀을 `mapper.wa` 로 채움. `mapper.wa` 가 빈 경우만 `parser.zone` fallback.
-2. **시트1 (출력인원)** — `parser_reports.bp_summaries`(jsonb, BP 단위 집계)라 per-activity wa 가 없음. `mapper_activities.wa` 를 `(company)` 기준 최빈값/대표값으로 집계해 `_fill_output_manpower`(:224 부근) Zone 에 주입. (BP 가 FAB·CUB 양쪽이면 대표 1개 또는 콤마 — 플랜에서 확정)
+2. **시트1 (출력인원)** — `parser_reports.bp_summaries`(jsonb, BP 단위 집계)라 per-activity wa 가 없음. `mapper_activities.wa` 를 `(company)` 기준 최빈값/대표값으로 집계해 `_fill_output_manpower`(:224 부근) Zone 에 주입. **[플랜 필수 결정]** BP 가 FAB·CUB 양쪽 걸치면 대표 1개(최빈) vs 콤마 병기 — 플랜에서 확정(silent drop 금지).
 3. **web `/export` 그리드** — `web/app/api/mock/consolidated/route.ts` 의 zone 매핑을 동일 소스(`mapper.wa` 우선)로 정렬.
 
 ### 검증 (Done 정의)
@@ -48,8 +48,8 @@
 **`wp_summary[*].recovery_days` 를 단일 진실(SSOT)** 로 삼고, "최적화 공기" headline = `Σ(wp_summary recovery_days)`. status 4분면 필터 클릭과 무관하게 고정.
 
 ### 변경
-1. **BE** — `view_builder.py` 에서 `site.base_p50.recovery_days` 를 `Σ(wp_summary[*].recovery_days)` 로 명시 산출(전체 by_wp 23 집합 기반 `_site_slot` 대신 wp_summary 집합 기준). `kpi.recovery_days`(`:2216`)도 동일 값. 쓰기 순서 보장으로 stale 제거.
-2. **FE** — `ForecastChart` 의 "최적화 공기"(`recoveryDays` prop, `reports/page.tsx:275` 부근) = 위 SSOT 값(= `detail.wp_summary` 의 recovery_days 합과 동일). WP목록은 **전체 wp_summary 노출**(`visibleTrades`/`impact>0` reduce-filter 완화) — 표 합과 headline 이 보이게 일치. status 4분면 필터는 강조용(합산 모집단 불변).
+1. **BE** — `view_builder.py` 에서 `site.base_p50.recovery_days` 를 `Σ(wp_summary[*].recovery_days)` 로 명시 산출. **주의: 새 source 추가가 아니라 집계 모집단 교체** — `wp_summary[*].recovery_days` 는 이미 `scenarios.by_wp[wp].base_p50` 에서 파생됨(`:2255`). 현재 `_site_slot`/`kpi.recovery_days`(`:2216`)는 by_wp **23 집합**을 합산 → 이를 wp_summary **13 집합** 합산으로 swap. 쓰기 순서 보장으로 stale 제거. (redundant 산식 신규 추가 금지)
+2. **FE** — `ForecastChart` 의 "최적화 공기"(`recoveryDays` prop, `reports/page.tsx:275` 부근) = 위 SSOT 값(= `detail.wp_summary` 의 recovery_days 합과 동일). WP목록은 **전체 wp_summary 노출** — `reports/page.tsx:146` 의 `filteredWpRowsBase` 에서 `visibleTrades.has(w.trade)` **와** `(w.impact>0||w.productivity>0)` **두 predicate 모두 제거**(표가 trade 를 숨기면 headline 과 재차 어긋남). status 4분면 필터만 강조용 유지(합산 모집단 불변).
 
 ### 검증 (Done 정의)
 - 결정론: `site.base_p50.recovery_days == Σ(wp_summary recovery_days)` (실 daily_report JSON).
@@ -65,7 +65,7 @@
 ### POC 로 확정된 프레임 (실 LLM 출력 검증, 09-24 3 WP)
 진단 2줄:
 1. **현황 (결정론, 물량 기준)** — `{조건} 조건 · 금일 {today_qty} {unit} (계획 일평균 {plan_daily} {unit})`. 숫자 소수 1자리, 아라비아 숫자.
-   - `plan_daily = plan_total_qty[main_unit] / (plan_mh_sum / plan_mh_per_day)` (forecasts 필드).
+   - `plan_daily = plan_total_qty[main_unit] / (plan_mh_sum / plan_mh_per_day)`. **단 이 값은 forecaster 의 기존 `plan_per_day_qty`(`pipeline/agents/forecaster/aggregate.py:183`)와 동일** — mh round-trip 재계산 말고 기존 값 재사용/노출 우선.
    - **per-person "정상 대비 %" 는 사용 금지** — 실측 결과 forecast 생산성(today 17.5)이 과거 baseline(1.6)·계획과 다른 basis 라 "정상 대비 1061%" 같은 헛값이 나옴(아래 caveat). 그래서 물량 페이스로 표기.
 2. **현장여건 (LLM 1줄)** — 새 진단 프롬프트. "회복패턴/분기점" 폐기, "그 날 진척을 만든/막은 현장 조건(자재·인력·기상·간섭·양중)을 trade_frame 제약과 연결한 1가지 신호". 조건="정상"이면 없는 장애 지어내기 금지. 아라비아 숫자만, 인시 절대수치(mh_gap) 금지, 한자·영어약어 금지, 위험도 "이상"이면 "정상범주" 금지.
 

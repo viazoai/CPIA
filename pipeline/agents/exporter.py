@@ -76,9 +76,10 @@ async def fetch_sheet_data(
         )
         act_rows = await con.fetch(
             """
-            SELECT pa.*
+            SELECT pa.*, ma.wa AS mapper_wa
             FROM parser_activities pa
             JOIN pipeline_runs pr USING (run_id)
+            LEFT JOIN mapper_activities ma USING (run_id, idx)
             WHERE pr.site_id = $1 AND pa.report_date = $2
             ORDER BY pa.run_id, pa.idx
             """,
@@ -286,7 +287,7 @@ def _fill_quantity(ws, rows: list[dict], report_date: _date) -> None:
     C = COL_QUANTITY
     for i, row in enumerate(rows):
         r = DATA_START_ROW + i
-        _safe_set(ws, r, C["zone"], row.get("zone"))
+        _safe_set(ws, r, C["zone"], (row.get("mapper_wa") or row.get("zone")))
         _safe_set(ws, r, C["trade"], row.get("trade") or row.get("disc_abbrev"))
         _safe_set(ws, r, C["bp_code"], row.get("bp_code"))
         _safe_set(ws, r, C["company"], row.get("company"))

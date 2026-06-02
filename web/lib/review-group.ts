@@ -28,7 +28,7 @@ export function groupCardsByWp(cards: ReviewItem[]): WpGroup[] {
   }
 
   const groups: WpGroup[] = [];
-  for (const [wpId, raw] of byId) {
+  byId.forEach((raw, wpId) => {
     const unconfirmed = raw
       .filter((c) => c.status === "unconfirmed")
       .sort((a, b) => a.confidence - b.confidence);
@@ -44,7 +44,7 @@ export function groupCardsByWp(cards: ReviewItem[]): WpGroup[] {
       minUnconfirmedConfidence: unconfirmed.length ? unconfirmed[0].confidence : null,
       allConfirmed: unconfirmed.length === 0,
     });
-  }
+  });
 
   return groups.sort((a, b) => {
     if (a.allConfirmed !== b.allConfirmed) return a.allConfirmed ? 1 : -1;

@@ -44,7 +44,12 @@ export function WBSTree({ root, selectedId, onSelect, onDrop, revealNodeId }: Pr
   useEffect(() => {
     if (!revealNodeId) return;
     const anc = ancestorIds(root, revealNodeId);
-    if (anc.length) setExpanded((prev) => new Set([...prev, ...anc]));
+    if (anc.length)
+      setExpanded((prev) => {
+        const next = new Set(prev);
+        anc.forEach((id) => next.add(id));
+        return next;
+      });
     // 펼침 state 가 commit·paint 된 다음 프레임에 스크롤 (single rAF 는 commit 전에 발화할 수 있음).
     let raf2 = 0;
     const raf1 = requestAnimationFrame(() => {

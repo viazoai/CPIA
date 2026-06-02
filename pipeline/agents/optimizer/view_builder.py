@@ -1472,6 +1472,13 @@ def _build_scenarios(advice_rows: list[dict], forecast: list[dict]) -> dict:
 
 
 
+def reconcile_site_recovery(wp_summary: list[dict], kpi: dict, scenarios: dict) -> None:
+    """site recovery SSOT = Σ(wp_summary recovery_days). 화면 WP목록 합과 headline 정합."""
+    total = sum(int(float(w.get("recovery_days") or 0)) for w in wp_summary)
+    kpi["recovery_days"] = total
+    scenarios.setdefault("site", {}).setdefault("base_p50", {})["recovery_days"] = total
+
+
 def _compute_daily_quota(plan_total_qty: float, total_days: int) -> float:
     """마스터 plan_total_qty 를 일일 quota 로 환산."""
     if total_days <= 0 or plan_total_qty <= 0:
@@ -2255,6 +2262,9 @@ async def _build_productivity_views_v2(
         w["recovery_days"] = int(w_bp50.get("recovery_days") or 0)
         _dd = _delay_by_wp.get(w["wp_id"])
         w["delay_days"] = int(_dd) if _dd is not None else 0
+
+    # 2026-06-02: site recovery SSOT = Σ(wp_summary recovery_days) — headline·WP목록 합 정합.
+    reconcile_site_recovery(wp_summary, kpi, scenarios)
 
     # 2026-06-02: per-WP 카드 '일정 영향' = 그 WP 의 진짜 지연일(forecasts.delay_days). 산출근거에
     # 회복(AI 공기단축) 가능일을 병기. (기존엔 recovery 를 "N일 지연"으로 라벨해 지연=회복으로

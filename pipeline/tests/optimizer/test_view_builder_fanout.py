@@ -66,6 +66,21 @@ def test_fanout_multi_wa():
     assert cub_diag.endswith("test")
 
 
+def test_recommendations_trimmed_to_2():
+    """만회방안(recommendations) wp 당 최대 2건 trim (2026-06 재설계 3→2)."""
+    advice = _advice()
+    advice["recommendations"] = [{"keyword": f"k{i}", "action": f"a{i}", "reason": f"r{i}"} for i in range(4)]
+    result = _build_optimizer_view(
+        [advice],
+        [_forecast(wa="CUB")],
+        mapped=[],
+        wa_lookup={("CABLE TRAY공사", "창원기전"): ["CUB"]},
+    )
+    recs = result["by_wp"]["cub-cable-tray공사-창원기전"]["recommendations"]
+    assert len(recs) == 2
+    assert [r["keyword"] for r in recs] == ["k0", "k1"]
+
+
 def test_no_wa_lookup_fallback():
     """wa_lookup 비어있으면 forecasts.wa 기반 단일 key (기존 동작 보존)."""
     result = _build_optimizer_view(

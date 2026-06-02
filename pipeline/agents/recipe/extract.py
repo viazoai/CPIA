@@ -183,9 +183,7 @@ def extract_sheet2(ws, sheet_recipe: SheetRecipe) -> list[JobAllocation]:
     # 원본 _parse_sheet2_job_allocations 와 동일하게 런타임 'O' 스캔으로 게이트 활성 여부 결정.
     # recipe 는 컬럼(ff)만 주입 — ff 가 캐시/LLM 으로 설정됐어도 실제 'O' 가 없으면 게이트 비활성
     # (구조적 ff!=None 만으로 게이트하면 'O' 없는 변형 파일에서 전 row 조용히 drop → 오염).
-    has_final_flag = ff is not None and any(
-        ws.cell(r, ff).value == "O" for r in range(6, (ws.max_row or 0) + 1)
-    )
+    has_final_flag = ff is not None and any(ws.cell(r, ff).value == "O" for r in range(6, ws.max_row + 1))
     disc_code_col = cols["disc_code"]
     trade_col = cols["trade"]
     bp_col = cols["bp_company"]
@@ -277,9 +275,7 @@ def extract_sheet3(ws, sheet_recipe: SheetRecipe) -> list[EquipmentAllocation]:
     blocks = sheet_recipe.timeshift_blocks
     ff = sheet_recipe.final_flag_col
     # 원본 _parse_sheet3_equipment_allocations 와 동일하게 런타임 'O' 스캔으로 게이트 활성 여부 결정.
-    has_final_flag = ff is not None and any(
-        ws.cell(r, ff).value == "O" for r in range(6, (ws.max_row or 0) + 1)
-    )
+    has_final_flag = ff is not None and any(ws.cell(r, ff).value == "O" for r in range(6, ws.max_row + 1))
     trade_col = cols["trade"]
     bp_col = cols["bp_company"]
     equip_big_col = cols["equip_big"]

@@ -17,7 +17,7 @@ from typing import Any
 from openai import AzureOpenAI
 
 from pipeline.chroma_client import ChromaClient
-from pipeline.db import PGClient
+from pipeline.db import PGClient, upsert_agent_progress
 from pipeline.state import Activity, ParsedDailyReport
 
 
@@ -131,6 +131,9 @@ async def atomize(
             seen[doc_id] = i  # 같은 id 면 뒤 index 가 덮어쓴다 (Chroma upsert semantics 와 동일).
 
         ids = list(seen.keys())
+        # B3 진행도 — total 은 dedup 후 실 적재 doc 수.
+        _ap_total = len(ids)
+        await upsert_agent_progress(cfg.postgres_url, run_id, "atomizer", 0, _ap_total)
         # Phase 1: 가독 형식 (C6). live 호출이라 perperson/productivity_pct None.
         documents = [_format_document(dict(valid[i]), date) for i in seen.values()]
         metadatas = [_build_metadata(valid[i], date, str(run_id)) for i in seen.values()]
@@ -167,6 +170,8 @@ async def atomize(
                 documents=documents[_j : _j + _CHROMA_UPSERT_BATCH],
                 metadatas=metadatas[_j : _j + _CHROMA_UPSERT_BATCH],
             )
+            _ap_done = min(_j + _CHROMA_UPSERT_BATCH, _ap_total)
+            await upsert_agent_progress(cfg.postgres_url, run_id, "atomizer", _ap_done, _ap_total)
 
         # mapped_history INSERT (wa + l6_main 둘 다 not None 활동만 — Phase 3 결정)
         # Chroma 적재 대상(valid) 은 l6_main is not None 만 — 기존 유지.

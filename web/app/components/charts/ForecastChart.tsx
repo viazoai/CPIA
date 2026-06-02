@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -62,6 +62,9 @@ export function ForecastChart({
     noaction: true,
   });
 
+  // 마우스 스크롤 줌 — 슬라이스 경계 override
+  const [view, setView] = useState<{ s: number; e: number } | null>(null);
+
   const showOptimistic = toggles.optimistic || recoveryActive;
 
   // X 축 범위 — 720일 그대로면 마지막 1~2주가 압축돼 spike 처럼 보임.
@@ -84,11 +87,38 @@ export function ForecastChart({
   if (todayIdx < 0) todayIdx = allData.length - 1;
   const windowStart = Math.max(0, todayIdx - 90);
   const windowEnd   = Math.min(allData.length, todayIdx + 240);
-  const data = allData.slice(windowStart, windowEnd);
+  const defStart = windowStart, defEnd = windowEnd;
+  const vs = view?.s ?? defStart;
+  const ve = view?.e ?? defEnd;
+  const data = allData.slice(vs, ve);
 
   const firstUndef = data.findIndex((d) => d.actual === undefined);
   const lastIdx = firstUndef === -1 ? data.length - 1 : firstUndef - 1;
   const lastPoint = lastIdx >= 0 ? data[lastIdx] : null;
+
+  // 차트 래퍼 ref — 스크롤 줌 (passive:false 필수, React 합성 onWheel 은 passive no-op)
+  const zoomRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = zoomRef.current;
+    if (!el) return;
+    const onWheel = (ev: WheelEvent) => {
+      ev.preventDefault();
+      const rect = el.getBoundingClientRect();
+      const frac = rect.width ? (ev.clientX - rect.left) / rect.width : 0.5;
+      const cs = view?.s ?? defStart, ce = view?.e ?? defEnd;
+      const width = ce - cs;
+      const factor = ev.deltaY > 0 ? 1.15 : 0.87;          // down=축소(넓힘), up=확대(좁힘)
+      let nw = Math.round(width * factor);
+      nw = Math.max(14, Math.min(allData.length, nw));     // clamp: 최소 14, 최대 전체
+      const pivot = cs + Math.round(width * frac);
+      let ns = Math.max(0, pivot - Math.round(nw * frac));
+      let ne = Math.min(allData.length, ns + nw);
+      ns = Math.max(0, ne - nw);
+      setView({ s: ns, e: ne });
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [view, defStart, defEnd, allData.length]);
 
   // ReferenceDot 마커 — BE 산출 ec 직접 사용 (FE 차트 좌표와 일치).
   // planned 100% 도달은 s_curve 안에서 찾고, 시나리오들은 scenarios prop 에서 가져옴.
@@ -178,8 +208,10 @@ export function ForecastChart({
           <span className="h-0.5 w-4 border-t-2 border-dashed" style={{ borderColor: "#0ea76a" }} />
           AI 시나리오
         </span>
+        <span className="ml-auto text-[11px] text-ink-light/60">스크롤 확대 · 더블클릭 초기화</span>
       </div>
 
+      <div ref={zoomRef} onDoubleClick={() => setView(null)}>
       <ResponsiveContainer width="100%" height={340}>
         <ComposedChart data={data} margin={{ top: 28, right: 24, left: 0, bottom: 0 }}>
           <CartesianGrid stroke="#eef0f4" vertical={false} />
@@ -284,6 +316,7 @@ export function ForecastChart({
 
         </ComposedChart>
       </ResponsiveContainer>
+      </div>
 
       {/* 3선 요약 — 현황 / 플랜 / AI 시나리오 */}
       {scenarios && (

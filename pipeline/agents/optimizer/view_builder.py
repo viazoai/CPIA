@@ -1087,8 +1087,10 @@ def _recovery_distribution_text(degradation_cases: list[dict]) -> str:
 
 
 def _diagnosis_prefix(prod_info: Optional[dict], conditions: str) -> str:
-    """진단 첫 줄 — '{조건} 조건에서 생산성 X {unit} (정상 페이스 대비 Z%)'.
+    """DEAD (2026-06) — _status_line_qty(물량 현황)로 대체. 호출부 없음. 정상대비% 는 forecast
+    생산성 basis 불일치로 헛값이라 폐기. (보존만 — 안전한 별도 cleanup 대상.)
 
+    진단 첫 줄 — '{조건} 조건에서 생산성 X {unit} (정상 페이스 대비 Z%)'.
     prod_info: {perperson, unit, productivity_pct}. None 이면 "" (LLM diagnosis 그대로).
     """
     if not prod_info:
@@ -1140,7 +1142,8 @@ def _status_line_qty(fr: dict) -> str:
     plan_daily = (pt / total_days) if (pt is not None and total_days) else None
     tq_s = f"{tq:.1f}" if tq is not None else "—"
     pd_s = f"{plan_daily:.1f}" if plan_daily is not None else "—"
-    return f"{cond} 조건 · 금일 {tq_s} {unit} (계획 일평균 {pd_s} {unit})"
+    u = f" {unit}" if unit else ""  # main_unit 없으면(인원만 투입 0물량일) double-space 회피
+    return f"{cond} 조건 · 금일 {tq_s}{u} (계획 일평균 {pd_s}{u})"
 
 
 def _build_optimizer_view(

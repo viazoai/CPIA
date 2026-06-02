@@ -2242,20 +2242,36 @@ async def _build_productivity_views_v2(
     # 2026-05-29: wp_summary.recovery_days = scenarios.by_wp[wp].base_p50 (단일 source).
     # FE WPSummaryTable 의 결정론 recoveryDays() 폐기 — site=Σ(wp recovery_days) 와 정합.
     scen_by_wp = scenarios.get("by_wp") or {}
+    # 2026-06-02: per-WP 진짜 지연일 = forecasts.delay_days (= 예측완료일 − 계획완료일, 현황 슬립).
+    # recovery(AI 공기단축)와 별개 데이터 — forecasts 를 같은 _wp_id_of 키로 매핑. (매칭 없거나
+    # NULL = 0 = 일정 충족.) wp_summary 와 optimizer 카드 둘 다 이 진짜 지연을 쓴다.
+    _delay_by_wp = {
+        _wp_id_of(f.get("wa"), f.get("l6_main"), f.get("company")): f.get("delay_days")
+        for f in forecast_rows
+    }
     for w in wp_summary:
         wp_scen = scen_by_wp.get(w["wp_id"]) or {}
         w_bp50 = wp_scen.get("base_p50") or {}
         w["recovery_days"] = int(w_bp50.get("recovery_days") or 0)
+        _dd = _delay_by_wp.get(w["wp_id"])
+        w["delay_days"] = int(_dd) if _dd is not None else 0
 
-    # 2026-05-29 (2차) 사용자 결정: per-WP 카드 '일정 영향' = 그 WP 의 공기단축 일수(scenarios.by_wp)
-    # 기준. 카드 안에서 '지연 N일 ↔ 공기단축 -N일' 정합 + site = Σ 와 일관. (forecaster point-in-time
-    # delay 는 orphan 누적 cum 으로 0 이라 카드용으로 부적합 — 모든 카드 '일정 충족' 모순 해소.)
+    # 2026-06-02: per-WP 카드 '일정 영향' = 그 WP 의 진짜 지연일(forecasts.delay_days). 산출근거에
+    # 회복(AI 공기단축) 가능일을 병기. (기존엔 recovery 를 "N일 지연"으로 라벨해 지연=회복으로
+    # 오인됐다 — forecaster delay 가 실제로 채워져 있어 정정.)
     _ov_by_wp = optimizer_view.get("by_wp") or {}
     for _wp_id, _ov in _ov_by_wp.items():
         _rec = int(((scen_by_wp.get(_wp_id) or {}).get("base_p50") or {}).get("recovery_days") or 0)
-        if _rec > 0:
-            _sched_val = f"{_rec}일 지연"
-            _basis = f"AI 분석상 약 {_rec}일치 작업량이 밀려, 만회 시 {_rec}일 단축 가능"
+        _dly_raw = _delay_by_wp.get(_wp_id)
+        _dly = int(_dly_raw) if _dly_raw is not None else 0
+        if _dly > 0:
+            _sched_val = f"{_dly}일 지연"
+            _basis = f"현황 페이스 기준 완공이 약 {_dly}일 지연 예상" + (
+                f" — AI 만회 시 {_rec}일 단축 가능" if _rec > 0 else ""
+            )
+        elif _rec > 0:
+            _sched_val = "일정 충족"
+            _basis = f"현 진도는 일정 충족 — AI 적용 시 {_rec}일 추가 단축 가능"
         else:
             _sched_val = "일정 충족"
             _basis = "계획한 진도를 맞춰 진행 중 (지연 없음)"

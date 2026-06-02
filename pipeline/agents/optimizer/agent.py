@@ -362,6 +362,21 @@ async def optimize(
         # 로 advice 재조회하여 optimizer_view/scenarios 산출 (deterministic).
         if site_id:
             try:
+                # 2026-06-02 fix(recovery race): LLM scenarios 를 v2 호출 "전에" 산출·저장한다.
+                # 그래야 v2 내부의 scenarios SELECT 가 LLM(예: base_p50=2/site=32)을 읽어
+                # wp_summary.recovery_days·kpi.recovery_days 를 LLM 값으로 채운다. (기존엔 v2 가
+                # 먼저 돌 때 scenarios_jsonb=NULL 이라 deterministic(30/213)으로 채운 뒤, 직후
+                # LLM(2/32)을 별도 저장해 한 run 안에서 두 컬럼이 서로 다른 스냅샷으로 어긋났다.)
+                scenarios_obj = _build_scenarios(advice_rows, forecast)
+                try:
+                    await pg.upsert_daily_report_view_col(
+                        run_id, site_id, today, "scenarios_jsonb", scenarios_obj
+                    )
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(
+                        "pre-v2 scenarios_jsonb upsert fail: %s. v2 가 deterministic fallback 가능.",
+                        e,
+                    )
                 v2_result = await _build_productivity_views_v2(pg, site_id, today)
                 view_jsonbs = {
                     "productivity_jsonb": v2_result.get("productivity", {}),
@@ -372,9 +387,8 @@ async def optimize(
                     "wp_summary_jsonb": v2_result.get("wp_summary", []),
                     "s_curve_jsonb": v2_result.get("s_curve", []),
                     "optimizer_view_jsonb": v2_result.get("optimizer_view", {}),
-                    # 2026-05-27 Task 15 fix: scenarios 는 LLM rich rationale 보존 (G8 trade_frame
-                    # 고유 회복 전략). 다른 8 jsonb 는 v2 deterministic (#N19 일원화).
-                    "scenarios_jsonb": _build_scenarios(advice_rows, forecast),
+                    # scenarios 는 LLM rich rationale 보존 — 위에서 pre-write 한 동일 객체 재사용.
+                    "scenarios_jsonb": scenarios_obj,
                 }
                 for col, val in view_jsonbs.items():
                     try:

@@ -77,6 +77,19 @@ def built_files(tmp_path_factory):
 
 
 @pytest.mark.parametrize("out_company", list(EXPECTED))
+def test_sheet1_rollup_nonzero_when_jobs_present(built_files, out_company):
+    """job 이 있으면 시트1 BP행 금일누계 총계 > 0 (롤업 반영)."""
+
+    _, rp = built_files[out_company]
+    sums = rp.get("bp_summaries", [])
+    # 동신패널은 src sum=0 이라 과거엔 빈 시트 → 이제 job 롤업으로 채워져야 함
+    if EXPECTED[out_company][3] > 0:  # job count > 0
+        assert sums, f"{out_company} 시트1 bp_summaries 비어있음 (job 롤업 실패)"
+        total_cum = sum(int(s.get("today_cum_total") or 0) for s in sums)
+        assert total_cum > 0, f"{out_company} 시트1 금일누계 총계 0"
+
+
+@pytest.mark.parametrize("out_company", list(EXPECTED))
 def test_sheet3_equip_count_roundtrip(built_files, out_company):
     exp_eq = EXPECTED[out_company][4]
     _, rp = built_files[out_company]

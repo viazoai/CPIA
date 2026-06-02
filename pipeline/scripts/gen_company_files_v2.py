@@ -130,40 +130,49 @@ def _fill_sheet4(ws, acts: list[dict], out_company: str):
 
 
 def _fill_sheet1(ws, summaries: list[dict], jobs: list[dict], company: str, trade: str):
-    """출력인원: r5=BP코드행, r6=회사명행. c4=공종,c5=BP/회사,c7/8/9=작업텍스트,
-    c24-29=금일투입 shift, c30=금일투입총, c31-36=금일누적 shift, c37=금일누적총,
-    c10-15 전일투입, c17-22 전일누적. 병합셀(헤더 r3-4)은 보존.
-    jobs 파라미터: Task 3 에서 직종별 rollup 로직 구현 예정 (현재 미사용)."""
+    """출력인원 시트1 BP행 롤업. bp_summaries 있으면 우선, 없으면 job_allocations
+    교대별 workers_today_incr/cum + yesterday 합산. c24-29=금일투입/c30=총,
+    c31-36=금일누계/c37=총, c10-15=전일투입, c17-22=전일누계."""
     CMAX = 37
     DATA0 = 5
     style_row = 5
-    # 데이터행만 클리어 (헤더 r1-4 보존)
     _clear_rows(ws, DATA0, ws.max_row, CMAX)
-    if not summaries:
-        # 워커 합산 row 1개라도 — bp_summaries 없으면 skip
-        return
-    # 회사 단위 1 그룹으로 합산 (BP행 + 회사행)
-    bp = summaries[0].get("bp_code") or "PH_X-000"
-    work_today = " | ".join(s.get("work_text_today") or "" for s in summaries if s.get("work_text_today"))[
-        :200
-    ]
 
-    # shift 합산
-    def _sum_shift(key):
+    def _agg_shift(rows, key):
         agg = {k: 0 for k in SHIFT_KEYS}
-        for s in summaries:
-            d = s.get(key) or {}
+        for x in rows:
+            d = x.get(key) or {}
             for k in SHIFT_KEYS:
                 agg[k] += int(d.get(k) or 0)
         return agg
 
-    ti = _sum_shift("workers_today_incr")
-    tc = _sum_shift("workers_today_cum")
-    yi = _sum_shift("workers_yesterday_incr")
-    yc = _sum_shift("workers_yesterday_cum")
-    today_incr_total = sum(int(s.get("today_incr_total") or 0) for s in summaries) or ti["total"]
-    today_cum_total = sum(int(s.get("today_cum_total") or 0) for s in summaries) or tc["total"]
-    # r5: BP코드행 (공종 c4, BP c5, 작업텍스트, 워커)
+    if summaries:
+        src = summaries
+        bp = summaries[0].get("bp_code") or "PH_X-000"
+        work_today = " | ".join(
+            s.get("work_text_today") or "" for s in summaries if s.get("work_text_today")
+        )[:200]
+        ti = _agg_shift(src, "workers_today_incr")
+        tc = _agg_shift(src, "workers_today_cum")
+        yi = _agg_shift(src, "workers_yesterday_incr")
+        yc = _agg_shift(src, "workers_yesterday_cum")
+        today_incr_total = (
+            sum(int(s.get("today_incr_total") or 0) for s in summaries) or ti["total"] or tc["total"]
+        )
+        today_cum_total = sum(int(s.get("today_cum_total") or 0) for s in summaries) or tc["total"]
+    elif jobs:
+        bp = jobs[0].get("bp_code") or "PH_X-000"
+        work_today = ""
+        ti = _agg_shift(jobs, "workers_today_incr")
+        tc = _agg_shift(jobs, "workers_today_cum")
+        yi = {k: 0 for k in SHIFT_KEYS}
+        yc = _agg_shift(jobs, "workers_yesterday_cum")
+        today_incr_total = ti["total"] or tc["total"]
+        today_cum_total = tc["total"]
+    else:
+        return
+
+    # r5: BP코드행
     _copy_style_row(ws, style_row, DATA0, CMAX)
     _set(ws, DATA0, 4, trade)
     _set(ws, DATA0, 5, bp)

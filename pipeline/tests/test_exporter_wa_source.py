@@ -20,3 +20,14 @@ def test_fill_quantity_prefers_mapper_wa():
     assert ws.cell(DATA_START_ROW + 0, zcol).value == "FAB"  # mapper_wa
     assert ws.cell(DATA_START_ROW + 1, zcol).value == "CUB"  # fallback parser zone
     assert ws.cell(DATA_START_ROW + 2, zcol).value == "FAB"  # 빈 mapper_wa -> parser zone
+
+
+def test_fill_output_manpower_company_wa():
+    import openpyxl
+    from pipeline.agents.exporter import _fill_output_manpower, COL_OUTPUT_MANPOWER, DATA_START_ROW
+
+    ws = openpyxl.Workbook().active
+    rows = [{"company": "글로벌유명", "zone": None, "disc_abbrev": "건축"}]
+    company_wa = {"글로벌유명": "FAB"}
+    _fill_output_manpower(ws, rows, __import__("datetime").date(2025, 9, 24), company_wa=company_wa)
+    assert ws.cell(DATA_START_ROW, COL_OUTPUT_MANPOWER["zone"]).value == "FAB"

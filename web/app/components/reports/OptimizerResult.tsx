@@ -5,10 +5,22 @@ import type { OptimizerOutput } from "@/lib/types";
  * 진단·유사사례·권고·상세 4 섹션을 단일 박스 + 항목별 구분선.
  * 본문 텍스트는 모두 진단 디스크립션과 동일한 text-sm sans + leading-relaxed.
  */
-export function OptimizerResult({ output }: { output: OptimizerOutput }) {
+export function OptimizerResult({
+  output,
+  delayDays,
+  recoveryDays,
+}: {
+  output: OptimizerOutput;
+  delayDays?: number;
+  recoveryDays?: number;
+}) {
   return (
     <div className="h-full overflow-y-auto rounded-card border border-border-soft bg-card shadow-xs">
-      <Row icon={<Brain className="h-4 w-4" />} tone="brand" title="진단">
+      <Row
+        icon={<Brain className="h-4 w-4" />}
+        tone="brand"
+        title={`진단${typeof delayDays === "number" ? `  (지연 +${delayDays}일)` : ""}`}
+      >
         <p className="text-sm text-ink-mid leading-relaxed whitespace-pre-line">
           {output.diagnosis || "진단 데이터 없음 (Optimizer 미실행 또는 cold_start)"}
         </p>
@@ -23,7 +35,7 @@ export function OptimizerResult({ output }: { output: OptimizerOutput }) {
               </div>
             ) : null}
             <ul className="space-y-2">
-              {output.similar_cases.slice(0, 3).map((c, i) => (
+              {output.similar_cases.slice(0, 2).map((c, i) => (
                 <li key={i} className="text-sm text-ink-mid leading-relaxed">
                   <span className="font-semibold text-ink">{c.date}</span>
                   {c.condition ? `  [${c.condition}]` : ""}
@@ -44,10 +56,10 @@ export function OptimizerResult({ output }: { output: OptimizerOutput }) {
           <p className="text-sm text-ink-light leading-relaxed">유사 사례 없음 — 데이터 누적 후 갱신</p>
         )}
       </Row>
-      <Row icon={<Lightbulb className="h-4 w-4" />} tone="sun" title="권고사항" topBorder>
+      <Row icon={<Lightbulb className="h-4 w-4" />} tone="sun" title={`만회방안${typeof recoveryDays === "number" && recoveryDays > 0 ? `  (AI 단축 -${recoveryDays}일)` : ""}`} topBorder>
         {output.recommendations?.length ? (
           <ul className="space-y-1.5 list-decimal list-inside marker:text-sun-text marker:font-semibold">
-            {output.recommendations.map((r, i) => {
+            {output.recommendations.slice(0, 2).map((r, i) => {
               if (typeof r === "string") {
                 return <li key={i} className="text-sm text-ink-mid leading-relaxed">{r}</li>;
               }
@@ -69,7 +81,7 @@ export function OptimizerResult({ output }: { output: OptimizerOutput }) {
             })}
           </ul>
         ) : (
-          <p className="text-sm text-ink-light leading-relaxed">권고 미산출 — cold_start</p>
+          <p className="text-sm text-ink-light leading-relaxed">만회방안 미산출 — cold_start</p>
         )}
       </Row>
       <Row icon={<Database className="h-4 w-4" />} tone="mint" title="상세 현황" topBorder>

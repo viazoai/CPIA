@@ -18,4 +18,13 @@ describe("OptimizerResult 권고 마커", () => {
     const firstEl = li!.querySelector(":scope > *");
     expect(firstEl?.tagName).toBe("SPAN");
   });
+
+  it("권고사항 라벨이 '만회방안' + 괄호에 지연/AI단축", () => {
+    const { getByText } = render(
+      <OptimizerResult output={out} delayDays={31} recoveryDays={2} />
+    );
+    expect(getByText(/만회방안/)).toBeTruthy();
+    expect(getByText(/\(지연 \+31일\)/)).toBeTruthy();
+    expect(getByText(/\(AI 단축 -2일\)/)).toBeTruthy();
+  });
 });

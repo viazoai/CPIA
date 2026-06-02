@@ -15,6 +15,7 @@ import asyncio
 import copy
 import os
 import re
+import statistics
 import sys
 import warnings
 from collections import defaultdict
@@ -56,6 +57,14 @@ TARGETS = [
 
 SHIFT_KEYS = ("morning", "daytime", "overtime", "night", "all_night", "total")
 
+# 단위 정규화 테이블 (단위 기호 → 공통 키). ㎡/㎥ 는 단위 기호이며 한자 아님.
+_UNIT_NORM: dict[str, str] = {"㎡": "m2", "m²": "m2", "㎥": "m3", "m³": "m3"}
+
+
+def _norm_unit(u: str) -> str:
+    u = (u or "").strip()
+    return _UNIT_NORM.get(u, u)
+
 
 # ---------------------------------------------------------------------------
 # DB load helper — gen-time, 1회 호출
@@ -96,14 +105,15 @@ async def _load_ongoing_am(out_companies: list[str]) -> dict[str, list[dict]]:
 
 
 def _match_plan(a: dict, am_rows: list[dict]) -> dict | None:
-    """unit 일치 + work_content↔(l6_main+l7_5_activity) 토큰 overlap 최고."""
-    unit = (a.get("unit") or "").strip()
+    """unit 일치(정규화) + work_content↔(l6_main+l7_5_activity) 토큰 overlap 최고.
+    진단 l6 결정에만 사용(수량 산정엔 안 씀)."""
+    unit = _norm_unit(a.get("unit"))
     wc = a.get("work_content") or ""
     wt = _tokens(wc)
     best: dict | None = None
     best_score = 0
     for am in am_rows:
-        if (am.get("unit") or "").strip() != unit:
+        if _norm_unit(am.get("unit")) != unit:
             continue
         score = len(wt & _tokens(am.get("l6_main") or "", am.get("l7_5_activity") or ""))
         if score > best_score:
@@ -111,32 +121,35 @@ def _match_plan(a: dict, am_rows: list[dict]) -> dict | None:
     return best if best_score > 0 else None
 
 
-def _reverse_fill_today_qty(a: dict, out_company: str, am_rows: list[dict], nominal: int) -> float:
-    """today_qty>0 → 원본 보존. 0/None → activity_master plan 역산."""
+def _reverse_fill_today_qty(
+    a: dict,
+    out_company: str,
+    am_rows: list[dict],
+    wbs_daily: float,
+    weight_sum: float,
+    n_acts: int,
+    median_days: int,
+) -> float:
+    """today_qty>0 보존. 0/None 은 두 실데이터 기반 일일률의 max:
+      (1) per-activity: 활동 자체 plan_total_qty / (매칭 plan행 기간 or 회사 median 기간)
+      (2) company-alloc: 회사 WBS 일일계획물량(wbs_daily) × (활동 plan_total / Σ)
+    × 생산성 factor. 둘 중 비-degenerate 쪽 채택(작은 WBS 회사·granularity 불일치 양쪽 방어).
+    임의 상수 없음 — wbs_daily/기간/비율 전부 실 activity_master·파일값. floor max(1.0)."""
     tq = a.get("today_qty")
     if tq is not None and float(tq) > 0:
         return float(tq)
     wc = a.get("work_content") or "x"
     seed = f"2025-09-25|{out_company}|{wc}"
-    am = _match_plan(a, am_rows)
-    if am is not None:
-        diag = _pick_diagnosis(
-            "2025-09-25",
-            a.get("bp_code") or wc,
-            out_company,
-            am.get("l6_main") or "",
-        )
-        cond = diag["conditions"][0] if diag["conditions"] else "정상"
-        factor = factor_for(cond, seed)
-        plan_total = float(am.get("plan_total_qty") or 0)
-        total_days = max(1, int(am.get("total_days") or 1))
-        return max(1.0, round(factor * plan_total / total_days, 1))
-    # 미매칭 fallback: 파일총물량 / nominal 기간
-    diag = _pick_diagnosis("2025-09-25", wc, out_company, "")
+    m = _match_plan(a, am_rows)
+    l6 = (m or {}).get("l6_main") or (am_rows[0].get("l6_main") if am_rows else "") or ""
+    diag = _pick_diagnosis("2025-09-25", a.get("bp_code") or wc, out_company, l6)
     cond = diag["conditions"][0] if diag["conditions"] else "정상"
     factor = factor_for(cond, seed)
-    plan = float(a.get("plan_total_qty") or 0)
-    return max(1.0, round(factor * plan / max(1, nominal), 1))
+    weight = float(a.get("plan_total_qty") or 0)
+    days = int((m or {}).get("total_days") or median_days or 1)
+    per_act = weight / max(1, days)
+    alloc = wbs_daily * (weight / weight_sum) if weight_sum > 0 else wbs_daily / max(1, n_acts)
+    return max(1.0, round(factor * max(per_act, alloc), 1))
 
 
 # ---------------------------------------------------------------------------
@@ -170,11 +183,11 @@ def _clear_rows(ws, r_from, r_to, cmax):
             cell.value = None
 
 
-def _fill_sheet4(ws, acts: list[dict], out_company: str, am_rows: list[dict], nominal: int):
+def _fill_sheet4(ws, acts: list[dict], out_company: str, am_rows: list[dict]):
     """업체포맷 시트4: r5=BP코드행(공종 c4 포함), r6=회사명행, 이후 활동행.
     c4=공종, c5=BP/회사, c6=Scope, c7=작업내용, c8=단위, c9=총물량, c10=전일누적,
     c11=금일실적, c12=금일누적, c13=F%, c14=잔여, c16=위치, c17=중공종, c18=소공종, c19=세공종.
-    out_company 로 회사명 오버라이드. am_rows/nominal 로 today_qty 역산."""
+    out_company 로 회사명 오버라이드. am_rows 로 today_qty 역산 (회사 WBS 배분 + per-activity max)."""
     CMAX = 19
     DATA0 = 5
     style_row = 7  # 활동행 스타일 src (병합 없는 일반 데이터행)
@@ -184,6 +197,14 @@ def _fill_sheet4(ws, acts: list[dict], out_company: str, am_rows: list[dict], no
         return
     company = out_company  # Task 4: out_company 오버라이드
     bp = acts[0].get("bp_code") or "PH_X-000"
+    # 회사 단위 집계 (역산 공식 분모/분자) — 실 activity_master 값만 사용
+    wbs_daily = sum(
+        float(r.get("plan_total_qty") or 0) / max(1, int(r.get("total_days") or 1)) for r in am_rows
+    )
+    weight_sum = sum(float(a.get("plan_total_qty") or 0) for a in acts)
+    days_list = sorted(int(r["total_days"]) for r in am_rows) if am_rows else []
+    median_days = int(statistics.median(days_list)) if days_list else 1
+    n_acts = len(acts)
     r = DATA0
     for i, a in enumerate(acts):
         _copy_style_row(ws, style_row, r, CMAX)
@@ -195,7 +216,7 @@ def _fill_sheet4(ws, acts: list[dict], out_company: str, am_rows: list[dict], no
             _set(ws, r, 5, company)
         plan = float(a.get("plan_total_qty") or 0)
         yest = float(a.get("yesterday_cum_qty") or 0)
-        tq = _reverse_fill_today_qty(a, out_company, am_rows, nominal)
+        tq = _reverse_fill_today_qty(a, out_company, am_rows, wbs_daily, weight_sum, n_acts, median_days)
         cum = yest + tq
         _set(ws, r, 6, a.get("scope") or "")  # Scope
         _set(ws, r, 7, a.get("work_content") or "")  # 작업내용
@@ -265,9 +286,9 @@ def _fill_sheet1(ws, summaries: list[dict], jobs: list[dict], company: str, trad
         _set(ws, DATA0, 10 + i, yi[k] or None)  # 전일투입 c10-15
         _set(ws, DATA0, 17 + i, yc[k] or None)  # 전일누적 c17-22
         _set(ws, DATA0, 24 + i, ti[k] or None)  # 금일투입 c24-29
-        _set(ws, DATA0, 31 + i, tc[k] or None)  # 금일누적 c31-36
+        _set(ws, DATA0, 31 + i, tc[k] or None)  # 금일누계 c31-36
     _set(ws, DATA0, 30, today_incr_total or None)  # 금일투입 총
-    _set(ws, DATA0, 37, today_cum_total or None)  # 금일누적 총
+    _set(ws, DATA0, 37, today_cum_total or None)  # 금일누계 총
     # r6: 회사명행
     _copy_style_row(ws, 6, DATA0 + 1, CMAX)
     _set(ws, DATA0 + 1, 5, company)
@@ -378,9 +399,7 @@ def build_one(
     eqs = by_co_eq.get(src_company, [])
     trade = acts[0].get("trade") if acts else "건축"
     am_rows = am_by_co.get(out_company, [])
-    days = sorted(int(r["total_days"]) for r in am_rows) if am_rows else []
-    nominal = max(1, days[len(days) // 2]) if days else 1
-    _fill_sheet4(wb["4.물량"], acts, out_company, am_rows, nominal)
+    _fill_sheet4(wb["4.물량"], acts, out_company, am_rows)
     _fill_sheet1(wb["1.출력인원 현황"], sums, jobs, out_company, trade)
     _fill_sheet2(wb["2.직종별 인원현황"], jobs, out_company, trade)
     _fill_sheet3(wb["3.장비현황"], eqs, out_company, trade)

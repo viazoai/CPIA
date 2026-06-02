@@ -123,3 +123,12 @@ def test_sheet4_company_is_out_company(built_files, out_company):
     _, rp = built_files[out_company]
     cos = {a.get("company") for a in rp["activities"]}
     assert cos == {out_company}, f"{out_company}: {cos}"
+
+
+@pytest.mark.parametrize("out_company", list(EXPECTED))
+def test_sheet4_not_all_floored(built_files, out_company):
+    """역산 활동이 전부 1.0 floor 가 아님 — 회사 단위 degenerate 방지 (option1 배분)."""
+    _, rp = built_files[out_company]
+    tqs = [float(a["today_qty"]) for a in rp["activities"] if a.get("today_qty") is not None]
+    assert tqs, f"{out_company} today_qty 없음"
+    assert any(q > 1.0 for q in tqs), f"{out_company} 전 활동 today_qty<=1.0 (degenerate)"

@@ -70,4 +70,11 @@ describe("buildBoardGraph", () => {
     const wpNode = nodes.find((n) => n.id === "fab-기둥")!;
     expect(wpNode.reviewCount).toBe(1); // c1 미확정 1건
   });
+
+  it("WP 노드만 isWp=true, 상위 위계는 false", () => {
+    const { nodes } = buildBoardGraph(wbs, cards, { collapsed: new Set(), reviewOnly: false });
+    expect(nodes.find((n) => n.id === "fab-기둥")!.isWp).toBe(true);
+    expect(nodes.find((n) => n.id === "FAB::골조")!.isWp).toBe(false);
+    expect(nodes.find((n) => n.id === "M15X")!.isWp).toBe(false);
+  });
 });

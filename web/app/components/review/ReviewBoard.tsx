@@ -48,7 +48,7 @@ function BoardInner({ wbs, cards, onConfirm, onConfirmHighConf, onConfirmAll, on
       data:
         n.kind === "qty"
           ? { item: n.item!, onConfirm }
-          : { label: n.label, reviewCount: n.reviewCount, hasChildren: n.hasChildren, collapsed: collapsed.has(n.id), onToggle: toggle },
+          : { label: n.label, reviewCount: n.reviewCount, hasChildren: n.hasChildren, collapsed: collapsed.has(n.id), onToggle: toggle, isWp: n.isWp },
     }));
     const rfEdges: Edge[] = edges.map((e) => ({
       id: e.id, source: e.source, target: e.target, type: "default",
@@ -60,7 +60,7 @@ function BoardInner({ wbs, cards, onConfirm, onConfirmHighConf, onConfirmAll, on
   const onNodeDragStop = useCallback(
     (_e: MouseEvent | TouchEvent, node: Node) => {
       if (node.type !== "qty") return;
-      const hits = getIntersectingNodes(node).filter((n) => n.type === "hier");
+      const hits = getIntersectingNodes(node).filter((n) => (n.data as { isWp?: boolean }).isWp === true);
       if (hits.length === 0) return;
       const target = hits[0];
       const item = (node.data as { item: ReviewItem }).item;

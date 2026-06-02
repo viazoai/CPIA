@@ -8,6 +8,7 @@ export interface BoardNode {
   parentId: string | null;    // 그래프상 부모(hier=트리부모, qty=ai_mapped_wp_id)
   hasChildren: boolean;       // hier 전용 — 접기 캐럿 표시
   reviewCount: number;        // hier: 하위 미확정 수(WP 직속), qty: 0
+  isWp?: boolean;            // hier 노드가 work_package 인지 (보드 드롭 타깃 판정용)
   item?: ReviewItem;          // qty 전용 원본
   review?: boolean;           // qty 가 검토 대상(미확정)인지
 }
@@ -48,6 +49,7 @@ export function buildBoardGraph(wbs: WBSNode | null, cards: ReviewItem[], opts: 
       parentId: node.parent_id,
       hasChildren: children.length > 0 || wpCards.length > 0,
       reviewCount: isWP ? wpCards.filter((c) => c.status === "unconfirmed").length : node.review_count,
+      isWp: isWP,
     });
     if (node.parent_id) {
       edges.push({ id: `${node.parent_id}->${node.id}`, source: node.parent_id, target: node.id, review: false });

@@ -39,3 +39,11 @@ def test_status_line_qty_missing_plan():
     # 계획 필드 없으면 '계획 일평균 —'
     assert "계획 일평균 —" in _status_line_qty(
         {"today_conditions": "정상", "main_unit": "m2", "today_qty_by_unit": {"m2": 10.0}})
+
+
+def test_status_line_qty_empty_unit_no_double_space():
+    """main_unit 없으면(인원만 투입 0물량일) double-space 없이 — 경영진 UI 깨짐 방지."""
+    out = _status_line_qty(
+        {"today_conditions": "정상", "main_unit": None, "today_qty_by_unit": {}})
+    assert "  " not in out  # double space 없음
+    assert out == "정상 조건 · 금일 — (계획 일평균 —)"

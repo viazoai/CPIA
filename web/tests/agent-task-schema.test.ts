@@ -3,7 +3,7 @@ import { AGENT_COLUMNS, PARSER_COLUMNS_FULL, PARSER_COLUMNS_AGG, statusHeaderFor
 
 describe("AGENT_COLUMNS", () => {
   it("8단계 키가 모두 존재", () => {
-    for (const a of ["Collector", "Mapper", "Human Review", "Atomizer", "Exporter", "Forecaster", "Optimizer"]) {
+    for (const a of ["Collector", "Parser", "Mapper", "Human Review", "Atomizer", "Exporter", "Forecaster", "Optimizer"]) {
       expect(AGENT_COLUMNS[a], a).toBeDefined();
     }
   });

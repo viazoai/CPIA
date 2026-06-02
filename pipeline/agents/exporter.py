@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import date as _date
 from datetime import datetime as _dt
 
-from pipeline.db import PGClient, fetch_site_by_id, upsert_consolidated_report
+from pipeline.db import PGClient, fetch_site_by_id, upsert_agent_progress, upsert_consolidated_report
 from pipeline.state import CPIAState
 
 
@@ -331,6 +331,7 @@ async def consolidated_xlsx_node(state: CPIAState) -> dict[str, Any]:
 
     pg = PGClient(state["postgres_url"])
     await pg.connect()
+    await upsert_agent_progress(state["postgres_url"], state["run_id"], "exporter", 0, 1)
     try:
         try:
             data = await fetch_sheet_data(pg, site_id, report_date)
@@ -352,6 +353,7 @@ async def consolidated_xlsx_node(state: CPIAState) -> dict[str, Any]:
                 xlsx_bytes=xlsx_bytes,
                 run_id=run_id,
             )
+            await upsert_agent_progress(state["postgres_url"], state["run_id"], "exporter", 1, 1)
             log.info(
                 "consolidated_xlsx_node: UPSERT site=%s date=%s bytes=%d run=%s",
                 site_id,

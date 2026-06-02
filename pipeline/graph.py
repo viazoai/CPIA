@@ -303,7 +303,7 @@ async def hil_1_node(state: CPIAState, cfg) -> dict:
 
     corrected = _apply_corrections(mapped, corrections)
 
-    if cfg is not None and corrections:
+    if cfg is not None:
         pg = PGClient(cfg.mapper.postgres_url)
         await pg.connect()
         try:
@@ -331,6 +331,14 @@ async def hil_1_node(state: CPIAState, cfg) -> dict:
                         "correction_type": "replace",
                     },
                 )
+            # 2026-06-02 (C5-2): resume 후 mapper_activities 재persist.
+            # corrected 는 전건 requires_review=False + wa/l6/source 갱신.
+            # ON CONFLICT (run_id, idx) upsert 로 DB 컬럼 갱신 → Human Review done 표시.
+            await pg.insert_mapper_activities_batch(
+                run_id=run_id,
+                report_date=today,
+                activities=corrected,
+            )
         finally:
             await pg.close()
 

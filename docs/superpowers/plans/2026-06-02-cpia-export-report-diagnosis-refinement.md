@@ -196,9 +196,12 @@ git commit -m "fix(exporter): 시트1 Zone=company 최빈 mapper.wa 주입"
 - Modify: `web/app/api/mock/consolidated/route.ts` (zone 매핑 — 시트4 `a.zone`, 시트1 `s.zone`)
 - Test: 수동 (web 그리드는 BFF SELECT — Part A1/A2 의 BE 데이터에 의존). 가능하면 route 의 매핑 순수함수 추출 후 vitest.
 
-- [ ] **Step 1: route.ts 가 mapper.wa 를 우선 노출**
+- [ ] **Step 1: route.ts zone 소스 정렬 (두 시트 비대칭 주의)**
 
-`consolidated/route.ts` 의 PG SELECT 가 `parser_activities` 만 읽으면, A1 과 동일하게 `mapper_activities` LEFT JOIN 추가하고 zone 매핑을 `a.mapper_wa ?? a.zone` 으로. (route 의 실제 쿼리 구조 확인 후 적용 — `pa.*` 면 JOIN 추가, view/RPC 면 해당 소스 수정.)
+`consolidated/route.ts` 는 `parser_activities pa` 를 SQL tagged-template 으로 직접 읽음(`:128-134`). 시트별로 경로가 다름:
+- **시트4(물량, `:198` `a.zone ?? ""`)** — A1 과 동일하게 `LEFT JOIN mapper_activities ma USING(run_id, idx)` 추가 후 `(a.mapper_wa ?? a.zone) ?? ""`.
+- **시트1(출력인원, `:151` `s.zone`)** — `parser_reports.bp_summaries` jsonb 라 `idx` join 불가. A2 처럼 **company→wa 별도 조회**(`SELECT company, wa FROM mapper_activities ... COALESCE(wa,'')<>''` 최빈 집계) 후 `companyWa[s.company] ?? s.zone`.
+- (PoC 우선순위: 시트4 먼저. 시트1 은 BE xlsx(A2)에서 이미 해결되므로 web 그리드는 시간 되면.)
 
 - [ ] **Step 2: 실 검증**
 
@@ -323,15 +326,18 @@ export function wpRowsForStatus(
 
 - [ ] **Step 4: 통과 확인** — `cd web && npx vitest run tests/wp-rows.test.ts` PASS
 
-- [ ] **Step 5: page.tsx 배선 (145-150 교체)**
+- [ ] **Step 5: page.tsx 배선 — WP목록 표 전용 변수 분리 (side-effect 회피)**
+
+⚠️ `filteredWpRowsBase`(145-146)는 `QuadrantCountKpi`(`:198`)에도 쓰임. 재정의하면 4분면 카운트 모집단까지 바뀜. → **`filteredWpRowsBase` 는 그대로 두고**(QuadrantCountKpi 유지), WP목록 표 전용 변수만 신설:
 
 ```typescript
-// visibleTrades useMemo (108-111) 는 trade_bars 차트용이면 유지, WP목록 필터에선 미사용.
-// filteredWpRowsBase 의 visibleTrades + impact 필터 제거 → 전체 wp_summary.
-const filteredWpRowsBase = detail.wp_summary;
-const filteredWpRows = wpRowsForStatus(filteredWpRowsBase, wpStatusFilter);
+import { wpRowsForStatus } from "@/lib/wp-rows";
+// (filteredWpRowsBase / filteredWpRows 는 QuadrantCountKpi 용으로 유지)
+
+// WP목록 표 = 전체 wp_summary (status 4분면 필터만 적용). headline Σ(wp_summary) 와 정합.
+const wpListRows = wpRowsForStatus(detail.wp_summary, wpStatusFilter);
 ```
-(import { wpRowsForStatus } from "@/lib/wp-rows" 추가. `visibleTrades` 가 WP목록에서만 쓰였으면 unused 정리.)
+그리고 `<WPSummaryTable rows={...}>` 의 rows 를 `filteredWpRows` → **`wpListRows`** 로 교체. (QuadrantCountKpi 는 `filteredWpRowsBase` 그대로.)
 
 - [ ] **Step 6: 실 검증 (dev 5537)** — /reports 에서 WP목록 합(AI단축 컬럼) == "최적화 공기" headline, 4분면 클릭해도 headline 불변.
 
@@ -398,23 +404,33 @@ git commit -m "feat(optimizer): DIAG_PROMPT_V10 현장여건 1줄 — 회복패�
 
 ```python
 # pipeline/tests/test_status_line_qty.py
+from decimal import Decimal
 from pipeline.agents.optimizer.view_builder import _status_line_qty
 
 def test_status_line_qty_basic():
+    # 실 today_qty 3.2545 → f"{:.1f}"="3.3" (3.25 정확값은 banker's rounding 으로 "3.2" 가 되므로 실값 사용)
     fr = {
         "today_conditions": "자재미입고", "main_unit": "m",
-        "today_qty_by_unit": {"m": 3.25}, "plan_total_qty_by_unit": {"m": 1038.0},
+        "today_qty_by_unit": {"m": 3.2545}, "plan_total_qty_by_unit": {"m": 1038.0},
         "plan_mh_sum": 52166.0, "plan_mh_per_day": 98.43,
     }
-    # total_days=52166/98.43≈530 → plan_daily≈1.96 → 소수1자리
+    # total_days=52166/98.43≈530 → plan_daily≈1.96 → "2.0"
     assert _status_line_qty(fr) == "자재미입고 조건 · 금일 3.3 m (계획 일평균 2.0 m)"
 
-def test_status_line_qty_normal_and_missing():
-    assert _status_line_qty({"today_conditions": "", "main_unit": "m2",
-        "today_qty_by_unit": {"m2": 142.7}, "plan_total_qty_by_unit": {"m2": 39202.0},
-        "plan_mh_sum": 430736.0, "plan_mh_per_day": 1216.77}) == "정상 조건 · 금일 142.7 m2 (계획 일평균 110.7 m2)"
-    # 계획 필드 없으면 '계획 —'
-    assert "계획 —" in _status_line_qty({"today_conditions": "정상", "main_unit": "m2", "today_qty_by_unit": {"m2": 10.0}})
+def test_status_line_qty_realistic_pg_types():
+    """실 PG: JSONB 컬럼은 str, plan_mh_* 는 Decimal 로 옴 — 크래시 없이 처리."""
+    fr = {
+        "today_conditions": "정상", "main_unit": "m2",
+        "today_qty_by_unit": '{"m2": 142.7}',          # JSONB → str
+        "plan_total_qty_by_unit": '{"m2": 39202.0}',   # JSONB → str
+        "plan_mh_sum": Decimal("430736"), "plan_mh_per_day": Decimal("1216.77"),  # numeric → Decimal
+    }
+    assert _status_line_qty(fr) == "정상 조건 · 금일 142.7 m2 (계획 일평균 110.7 m2)"
+
+def test_status_line_qty_missing_plan():
+    # 계획 필드 없으면 '계획 일평균 —'
+    assert "계획 일평균 —" in _status_line_qty(
+        {"today_conditions": "정상", "main_unit": "m2", "today_qty_by_unit": {"m2": 10.0}})
 ```
 
 - [ ] **Step 2: 실패 확인** — `_status_line_qty` 미정의.
@@ -422,18 +438,39 @@ def test_status_line_qty_normal_and_missing():
 - [ ] **Step 3: 헬퍼 작성 (view_builder.py)**
 
 ```python
+import json as _json  # 파일 상단에 이미 있으면 재사용
+
+def _num(v):
+    """Decimal/str/None 안전 float 변환."""
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+def _unit_qty(raw, unit):
+    """JSONB 가 str 로 올 수 있어 defensive — {unit: qty} dict 에서 unit 값."""
+    if isinstance(raw, str):
+        try:
+            raw = _json.loads(raw)
+        except (ValueError, TypeError):
+            return None
+    return _num((raw or {}).get(unit)) if isinstance(raw, dict) else None
+
 def _status_line_qty(fr: dict) -> str:
     """진단 1줄(현황) — 결정론 물량 기준. '{조건} 조건 · 금일 {qty} {unit} (계획 일평균 {plan} {unit})'.
-    per-person % 는 forecast 생산성 basis 불일치로 미사용(스펙 caveat). 소수 1자리, 아라비아 숫자."""
+    per-person % 는 forecast 생산성 basis 불일치로 미사용(스펙 caveat). 소수 1자리, 아라비아 숫자.
+    실 PG: today_qty_by_unit/plan_total_qty_by_unit 는 JSONB→str, plan_mh_* 는 Decimal 로 옴 → 전부 coerce."""
     cond = (fr.get("today_conditions") or "정상").split(",")[0].strip() or "정상"
     unit = fr.get("main_unit") or ""
-    tq = (fr.get("today_qty_by_unit") or {}).get(unit)
-    pt = (fr.get("plan_total_qty_by_unit") or {}).get(unit)
-    pmh, pmh_d = fr.get("plan_mh_sum"), fr.get("plan_mh_per_day")
+    tq = _unit_qty(fr.get("today_qty_by_unit"), unit)
+    pt = _unit_qty(fr.get("plan_total_qty_by_unit"), unit)
+    pmh, pmh_d = _num(fr.get("plan_mh_sum")), _num(fr.get("plan_mh_per_day"))
     total_days = (pmh / pmh_d) if (pmh and pmh_d) else None
-    plan_daily = (pt / total_days) if (pt and total_days) else None
-    tq_s = f"{tq:.1f}" if isinstance(tq, (int, float)) else "—"
-    pd_s = f"{plan_daily:.1f}" if isinstance(plan_daily, (int, float)) else "—"
+    plan_daily = (pt / total_days) if (pt is not None and total_days) else None
+    tq_s = f"{tq:.1f}" if tq is not None else "—"
+    pd_s = f"{plan_daily:.1f}" if plan_daily is not None else "—"
     return f"{cond} 조건 · 금일 {tq_s} {unit} (계획 일평균 {pd_s} {unit})"
 ```
 
@@ -470,9 +507,9 @@ git commit -m "feat(view_builder): 진단 1줄=결정론 물량 현황 (정상�
 
 - [ ] **Step 1: 실 위치 확인 + 2건으로 변경**
 
-- `view_builder.py:1198` `cases_for_dist = (advice.get("degradation_cases") or [])[:3]` → `[:2]`
-- `similar_cases` 빌드 시 `[:3]` 또는 OptimizerResult slice 의존이면 BE 에서 `[:2]` 로 명시.
-- recommendations trim (investigation 상 `:1193` 부근 `[:3]`) → `[:2]`.
+- `view_builder.py:1193` `recommendations = recommendations[:3]` → `[:2]` (만회방안 건수)
+- `view_builder.py:1198` `cases_for_dist = (advice.get("degradation_cases") or [])[:3]` → `[:2]` (회복분포 텍스트 기준)
+- **similar_cases 표시 cap 은 BE 에 slice 없음** — 표시 3건 제한은 FE `OptimizerResult.tsx:26` `.slice(0,3)` 이며 **Task C4 에서 `slice(0,2)` 로 변경**. BE `similar_cases` 빌드부(`:1158-1174`)는 건드리지 않음 (이중 trim 금지).
 
 - [ ] **Step 2: 회귀 — optimizer view 테스트**
 

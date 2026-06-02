@@ -31,7 +31,7 @@ export function HomeProcessingSection({ processing, unsubmitted }: Props) {
           협력업체 일보 단위
         </span>
       </div>
-      <div>
+      <div className="flex-1 max-h-[12rem]">
         <KpiStrip items={submission} columns={2} fill />
       </div>
 
@@ -68,7 +68,7 @@ export function HomeProcessingSection({ processing, unsubmitted }: Props) {
           최근 1년
         </span>
       </div>
-      <div>
+      <div className="flex-1 max-h-[12rem]">
         <KpiStrip items={processed} columns={2} fill />
       </div>
     </div>

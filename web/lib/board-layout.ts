@@ -19,7 +19,10 @@ export function layoutBoard(nodes: BoardNode[], edges: BoardEdge[]): Map<string,
   const roots = nodes.filter((nd) => nd.parentId === null || !has.has(nd.parentId)).map((nd) => nd.id);
 
   let nextLeafY = 0;
+  const visited = new Set<string>();
   const place = (id: string): number => {
+    if (visited.has(id)) return pos.get(id)?.y ?? 0; // cycle/다중경로 방어 — 재방문 시 캐시 y
+    visited.add(id);
     const x = (depthOf.get(id) ?? 0) * COL_GAP;
     const kids = childrenOf.get(id) ?? [];
     let y: number;

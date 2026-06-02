@@ -32,4 +32,14 @@ describe("layoutBoard", () => {
     expect(pos.get("A")!.y).toBe((pos.get("L1")!.y + pos.get("L2")!.y) / 2);
     expect(pos.get("root")!.y).toBe(pos.get("A")!.y);
   });
+
+  it("빈 입력 → 빈 Map", () => {
+    expect(layoutBoard([], []).size).toBe(0);
+  });
+
+  it("parentId 가 노드 집합에 없으면 루트로 취급해 배치", () => {
+    const orphan = [n("X", "hier", 0, "missing")];
+    const pos = layoutBoard(orphan, []);
+    expect(pos.get("X")).toEqual({ x: 0, y: 0 });
+  });
 });

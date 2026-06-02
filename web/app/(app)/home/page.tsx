@@ -19,7 +19,7 @@ export default async function HomePage() {
 
       <section className="mx-auto grid w-full max-w-screen-2xl grid-cols-1 items-start gap-6 px-6 pb-10 pt-6 md:px-10 md:pt-8 xl:grid-cols-12 xl:grid-rows-1 xl:flex-1 xl:items-stretch xl:min-h-0">
         {/* 좌 — 처리현황 2×2 + 미제출 (FHD 크기 고정, 상단 정렬) */}
-        <div className="xl:col-span-5 xl:min-h-0 xl:self-start">
+        <div className="xl:col-span-5 xl:min-h-0">
           <HomeProcessingSection
             processing={home.processing}
             unsubmitted={home.unsubmitted_companies}

@@ -454,16 +454,15 @@ def main():
             am_by_co,
         )
         rp = parse_daily_report(str(out))
-        pa = rp["activities"]
-        pj = rp["job_allocations"]
-        trades = sorted({x.get("trade") for x in pa})
+        pa, pj = rp["activities"], rp["job_allocations"]
+        pe = rp.get("equipment_allocations", [])
         cos = sorted({x.get("company") for x in pa})
-        jw = sum((j.get("workers_today_cum") or {}).get("total", 0) for j in pj)
-        print(f"  {out.name}")
-        print(f"     src: act={na} job={nj} sum={ns} eq={ne}")
-        print(
-            f"     parsed: act={len(pa)} trades={trades} companies={cos} | job={len(pj)} 금일누계워커합={jw}"
-        )
+        zero_tq = [a for a in pa if not (a.get("today_qty") and float(a["today_qty"]) > 0)]
+        assert len(pa) == na, f"{out_company} act {len(pa)} != src {na}"
+        assert len(pe) == ne, f"{out_company} eq {len(pe)} != src {ne}"
+        assert cos == [out_company], f"{out_company} company {cos}"
+        assert not zero_tq, f"{out_company} today_qty 0행 {len(zero_tq)}건"
+        print(f"  OK {out.name}: act={len(pa)}={na} eq={len(pe)}={ne} job={len(pj)} co={cos} zero_tq=0")
 
 
 if __name__ == "__main__":

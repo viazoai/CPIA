@@ -27,7 +27,6 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
 from fastapi import FastAPI, HTTPException
-from langgraph.errors import EmptyChannelError, InvalidUpdateError
 from langgraph.types import Command
 from pydantic import BaseModel
 
@@ -63,6 +62,13 @@ class Hil1ResumeResponse(BaseModel):
     """resume 후 진행된 노드명."""
 
     next_node: str
+
+
+class Hil1ResumeAck(BaseModel):
+    """C5-4: resume 는 백그라운드 실행 — 즉시 ack. next_node 동기 반환 폐기."""
+
+    ok: bool
+    run_id: str
 
 
 class RunRequest(BaseModel):
@@ -301,66 +307,58 @@ async def run_pipeline(body: RunRequest) -> RunResponse:
     return RunResponse(run_id=str(run_id))
 
 
-@app.post("/api/runs/{run_id}/hil_1/resume", response_model=Hil1ResumeResponse)
-async def hil_1_resume(run_id: str, body: Hil1ResumeRequest) -> Hil1ResumeResponse:
-    """HIL 1 interrupt 재개 — corrections 적용 후 다음 노드 반환.
+@app.post("/api/runs/{run_id}/hil_1/resume", response_model=Hil1ResumeAck)
+async def hil_1_resume(run_id: str, body: Hil1ResumeRequest) -> Hil1ResumeAck:
+    """HIL 1 interrupt 재개 — corrections 를 백그라운드로 적용하고 즉시 ack.
+
+    C5-4: 기존 동기 ainvoke (atomizer..optimizer 완주까지 블록, ~170s) 가 FE
+    프록시의 170s 타임아웃을 유발했다. /run 과 동일한 백그라운드 패턴으로 전환:
+    Command(resume) ainvoke 를 asyncio.create_task 로 백그라운드 실행하고
+    {"ok": True, "run_id": ...} 를 즉시 반환한다. FE 는 tasks 화면 polling 으로
+    진행을 관전한다 (next_node 동기 반환 폐기 — FE 프록시는 ?? null 가드됨).
 
     corrections key 는 string 필수 (drift #N5):
       hil_1_node 가 int(k) 변환 처리 (graph.py:128).
     mapping_corrections PG INSERT 는 hil_1_node 내부에서 자동 처리
       (graph.py:132~161) — endpoint 에서 별도 INSERT X.
 
-    예외 분류 (Q2):
-      EmptyChannelError  → 404 (thread_id 에 해당하는 checkpoint 없음)
-      InvalidUpdateError → 409 (interrupt 상태 아님 — Command(resume) 부적합)
-      그 외              → 500
+    예외 처리 (C5-4 tradeoff):
+      즉시 반환이라 동기 404 (EmptyChannelError) / 409 (InvalidUpdateError) 검출
+      불가. 백그라운드 task 에서 예외 발생 시 stderr 로그 + set_run_status failed
+      로 마킹한다 (/run 의 _bg 패턴 동일).
 
-    next_node 추출 (Q1):
-      모든 *_node 함수가 current_node 키를 반환하므로 정상 경로에서는 항상 존재.
-      None 인 경우(비정상) 는 명시적 500 raise — "unknown" silent fallback 제거.
-
-    Response: {"next_node": "<resumed_node>"}
+    Response: {"ok": true, "run_id": "<run_id>"}
     """
     graph = app.state.graph
+    cfg: GraphConfig = app.state.cfg
+    postgres_url: str = cfg.atomizer.postgres_url
 
     # corrections dict[str, CorrectionItem] → dict[str, dict] (JSON serializable)
     corrections_payload: dict[str, dict] = {
         k: {"wa": v.wa, "l6_main": v.l6_main} for k, v in body.corrections.items()
     }
 
-    try:
-        # langgraph 1.2.0: Command(resume=<falsy>) (보정 0건 → {}) 는 전달되지 않아
-        # hil_1 interrupt 가 재발생한다. 항상 truthy 한 {"corrections": ...} 래퍼로 감싸
-        # 보정 유무와 무관하게 resume 가 전달되도록 한다 (hil_1_node 가 언랩).
-        result = await graph.ainvoke(
-            Command(resume={"corrections": corrections_payload}),
-            config={"configurable": {"thread_id": run_id}},
-        )
-    except EmptyChannelError as exc:
-        # thread_id 에 해당하는 checkpoint 없음 → 404
-        raise HTTPException(status_code=404, detail=f"run_id '{run_id}' 에 해당하는 checkpoint 없음") from exc
-    except InvalidUpdateError as exc:
-        # interrupt 상태가 아님 — Command(resume) 호출 부적합 → 409
-        raise HTTPException(status_code=409, detail=f"graph 가 interrupt 대기 상태 아님: {exc}") from exc
-    except Exception as exc:  # noqa: BLE001
-        import traceback as _tb
+    async def _bg() -> None:
+        try:
+            # langgraph 1.2.0: Command(resume=<falsy>) (보정 0건 → {}) 는 전달되지 않아
+            # hil_1 interrupt 가 재발생한다. 항상 truthy 한 {"corrections": ...} 래퍼로 감싸
+            # 보정 유무와 무관하게 resume 가 전달되도록 한다 (hil_1_node 가 언랩).
+            await graph.ainvoke(
+                Command(resume={"corrections": corrections_payload}),
+                config={"configurable": {"thread_id": run_id}},
+            )
+        except Exception:  # noqa: BLE001  (EmptyChannelError 등 포함 — 즉시반환이라 동기 404/409 검출 불가)
+            import traceback as _tb
 
-        print(
-            f"[hil_1_resume FAILED:{run_id}]\n{_tb.format_exc()}",
-            file=__import__("sys").stderr,
-            flush=True,
-        )
-        raise HTTPException(status_code=500, detail=f"graph resume 실패: {exc}") from exc
+            print(
+                f"[hil_1_resume bg FAILED:{run_id}]\n{_tb.format_exc()}",
+                file=__import__("sys").stderr,
+                flush=True,
+            )
+            await set_run_status(postgres_url, run_id, "failed")
 
-    # Q1: current_node 가 None 이면 graph 반환 state 이상 — 명시적 500
-    if not isinstance(result, dict) or result.get("current_node") is None:
-        raise HTTPException(
-            status_code=500,
-            detail=f"graph 가 current_node 를 반환하지 않음. state keys: {list(result.keys()) if isinstance(result, dict) else type(result).__name__}",
-        )
-
-    next_node: str = result["current_node"]
-    return Hil1ResumeResponse(next_node=next_node)
+    asyncio.create_task(_bg())
+    return Hil1ResumeAck(ok=True, run_id=run_id)
 
 
 # ---------------------------------------------------------------------------

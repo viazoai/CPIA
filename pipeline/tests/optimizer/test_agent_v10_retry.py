@@ -13,7 +13,7 @@ import asyncio
 import json
 import uuid
 from datetime import date
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import openai
 import pytest
@@ -118,6 +118,9 @@ async def test_retry_succeeds_on_third_attempt(cfg, sample_forecast_row):
     azure.chat.completions.create.side_effect = fake_chat_completions_create
     sem = asyncio.Semaphore(1)
     failed_wps: list[dict] = []
+    # B3 card streaming: 성공 row 는 _process_one_v10_with_retry 안에서 pg.insert_optimizer_advice 호출.
+    pg = MagicMock()
+    pg.insert_optimizer_advice = AsyncMock()
 
     # asyncio.sleep 우회 (exponential backoff 대기 제거) — async no-op
     async def _noop_sleep(_delay):
@@ -136,10 +139,13 @@ async def test_retry_succeeds_on_third_attempt(cfg, sample_forecast_row):
             azure,
             sem,
             failed_wps,
+            pg,
             max_retries=3,
         )
 
     assert out is not None, f"성공 row 기대, failed_wps={failed_wps}"
+    # per-task insert 가 호출됐는지 검증 (card streaming)
+    pg.insert_optimizer_advice.assert_awaited_once()
     assert failed_wps == [], f"실패 wp 없어야 함, got {failed_wps}"
     # 첫 2회 실패 + 3회째 성공 = recs 총 3회 호출
     assert call_count["recs"] == 3, f"recs call_count={call_count['recs']}"
@@ -167,6 +173,8 @@ async def test_retry_all_fail_appends_to_failed_wps(cfg, sample_forecast_row):
     azure.chat.completions.create.side_effect = always_fail
     sem = asyncio.Semaphore(1)
     failed_wps: list[dict] = []
+    pg = MagicMock()
+    pg.insert_optimizer_advice = AsyncMock()
 
     async def _noop_sleep(_delay):
         return None
@@ -184,10 +192,13 @@ async def test_retry_all_fail_appends_to_failed_wps(cfg, sample_forecast_row):
             azure,
             sem,
             failed_wps,
+            pg,
             max_retries=3,
         )
 
     assert out is None, "3회 모두 실패 시 None 반환"
+    # 실패 시 insert 호출 안 됨 (None 반환 전 insert 없음)
+    pg.insert_optimizer_advice.assert_not_awaited()
     assert len(failed_wps) == 1, f"failed_wps 에 1건 append 기대, got {len(failed_wps)}"
     assert failed_wps[0]["company"] == "남웅건설"
     assert failed_wps[0]["l6_main"] == "철근콘크리트공사"

@@ -55,10 +55,10 @@ export function OptimizerResult({ output }: { output: OptimizerOutput }) {
                 // 2026-05-29 (2차) 개조식 — sample optimizer-output-design.md 준용.
                 // [키워드] 괄호 보이게(bold mint) + action 자연 줄바꿈(inline text) + 이유는 ← 흐린 텍스트.
                 <li key={i} className="mb-2.5 text-sm leading-relaxed">
-                  <div className="text-ink">
+                  <span className="text-ink">
                     <span className="font-semibold text-mint-text">[{r.keyword}]</span>{" "}
                     <span>{r.action}</span>
-                  </div>
+                  </span>
                   {r.reason ? (
                     <div className="mt-0.5 ml-3 text-[12.5px] leading-relaxed text-ink-light">
                       ← {r.reason}

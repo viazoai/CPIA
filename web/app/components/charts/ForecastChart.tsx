@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -62,6 +62,15 @@ export function ForecastChart({
     noaction: true,
   });
 
+  // AI 시나리오 라인 클릭 강조 (C4)
+  const [activeLine, setActiveLine] = useState<"base" | null>(null);
+
+  // cold_start 가드 — base 커브 데이터가 실제로 있는지 확인
+  const hasBase = (diagnosis.scenarios?.base?.curve ?? []).some((v) => v != null);
+
+  // 마우스 스크롤 줌 — 슬라이스 경계 override
+  const [view, setView] = useState<{ s: number; e: number } | null>(null);
+
   const showOptimistic = toggles.optimistic || recoveryActive;
 
   // X 축 범위 — 720일 그대로면 마지막 1~2주가 압축돼 spike 처럼 보임.
@@ -73,8 +82,8 @@ export function ForecastChart({
     forecast: (p as any).forecast,  // BE _extend_forecast 산출 — 현 추세 연장 (격차 유지)
     band_low:  diagnosis.band_p25[i],
     band_high: diagnosis.band_p75[i],
-    base:      diagnosis.scenarios.base.curve[i],
-    optimistic:  diagnosis.scenarios.optimistic.curve[i],
+    base:      diagnosis.scenarios?.base?.curve?.[i],
+    optimistic:  diagnosis.scenarios?.optimistic?.curve?.[i],
   }));
   // todayIdx = actual 마지막 점 (역순 탐색 — sparse hole 회피)
   let todayIdx = -1;
@@ -84,11 +93,51 @@ export function ForecastChart({
   if (todayIdx < 0) todayIdx = allData.length - 1;
   const windowStart = Math.max(0, todayIdx - 90);
   const windowEnd   = Math.min(allData.length, todayIdx + 240);
-  const data = allData.slice(windowStart, windowEnd);
+  const defStart = windowStart, defEnd = windowEnd;
+  const vs = view?.s ?? defStart;
+  const ve = view?.e ?? defEnd;
+  const data = allData.slice(vs, ve);
 
   const firstUndef = data.findIndex((d) => d.actual === undefined);
   const lastIdx = firstUndef === -1 ? data.length - 1 : firstUndef - 1;
   const lastPoint = lastIdx >= 0 ? data[lastIdx] : null;
+
+  // 최신 view/defStart/defEnd/allData.length 를 ref 로 보관 — onWheel 이 stale 없이 읽음
+  const viewRef = useRef<{ s: number; e: number } | null>(null);
+  const defStartRef = useRef(defStart);
+  const defEndRef = useRef(defEnd);
+  const allDataLenRef = useRef(allData.length);
+  viewRef.current = view;
+  defStartRef.current = defStart;
+  defEndRef.current = defEnd;
+  allDataLenRef.current = allData.length;
+
+  // 차트 래퍼 ref — 스크롤 줌 (passive:false 필수, React 합성 onWheel 은 passive no-op)
+  // deps [] — ref 로 최신값을 읽으므로 이벤트 재등록 불필요
+  const zoomRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = zoomRef.current;
+    if (!el) return;
+    const onWheel = (ev: WheelEvent) => {
+      ev.preventDefault();
+      const rect = el.getBoundingClientRect();
+      const frac = rect.width ? (ev.clientX - rect.left) / rect.width : 0.5;
+      const cs = viewRef.current?.s ?? defStartRef.current;
+      const ce = viewRef.current?.e ?? defEndRef.current;
+      const totalLen = allDataLenRef.current;
+      const width = ce - cs;
+      const factor = ev.deltaY > 0 ? 1.15 : 0.87;          // down=축소(넓힘), up=확대(좁힘)
+      let nw = Math.round(width * factor);
+      nw = Math.max(14, Math.min(totalLen, nw));             // clamp: 최소 14, 최대 전체
+      const pivot = cs + Math.round(width * frac);
+      let ns = Math.max(0, pivot - Math.round(nw * frac));
+      let ne = Math.min(totalLen, ns + nw);
+      ns = Math.max(0, ne - nw);
+      setView({ s: ns, e: ne });
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
 
   // ReferenceDot 마커 — BE 산출 ec 직접 사용 (FE 차트 좌표와 일치).
   // planned 100% 도달은 s_curve 안에서 찾고, 시나리오들은 scenarios prop 에서 가져옴.
@@ -100,8 +149,8 @@ export function ForecastChart({
   })();
   const noActionEnd = scenarios?.no_action?.expected_completion ?? null;
   // catch-up intersection 마커 — FE 산출 (recoveryDays 만에 plan 따라잡는 점)
-  const baseCatchUp = diagnosis.scenarios.base.catch_up;
-  const optCatchUp = diagnosis.scenarios.optimistic.catch_up;
+  const baseCatchUp = diagnosis.scenarios?.base?.catch_up ?? null;
+  const optCatchUp = diagnosis.scenarios?.optimistic?.catch_up ?? null;
 
   return (
     <div className="rounded-card border border-border-soft bg-card p-5 shadow-xs">
@@ -110,17 +159,6 @@ export function ForecastChart({
       </div>
 
       <div className="mb-4 flex flex-wrap items-end gap-x-10 gap-y-3">
-        <div>
-          <div className="text-sm text-ink-mid">예상 공기</div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="font-display text-h3 font-semibold tracking-[-0.015em] text-ink">
-              {delayDays > 0 ? "D+" : delayDays < 0 ? "D−" : ""}{Math.abs(delayDays)}
-            </span>
-            <span className="text-base text-ink-mid">
-              일 {delayDays > 0 ? "지연 예상" : delayDays < 0 ? "단축 예상" : "계획 동일"}
-            </span>
-          </div>
-        </div>
         <div>
           <div className="text-sm text-ink-mid">최적화 공기</div>
           <div className="mt-2 flex items-baseline gap-2">
@@ -185,12 +223,18 @@ export function ForecastChart({
           <span className="h-0.5 w-4" style={{ background: "#94a3b8" }} />
           플랜 (계획)
         </span>
-        <span className="inline-flex items-center gap-1.5">
+        <span
+          className="inline-flex items-center gap-1.5"
+          onClick={() => hasBase && setActiveLine((a) => (a === "base" ? null : "base"))}
+          style={{ cursor: hasBase ? "pointer" : "default" }}
+        >
           <span className="h-0.5 w-4 border-t-2 border-dashed" style={{ borderColor: "#0ea76a" }} />
           AI 시나리오
         </span>
+        <span className="ml-auto text-[11px] text-ink-light/60">스크롤 확대 · 더블클릭 초기화</span>
       </div>
 
+      <div ref={zoomRef} onDoubleClick={() => setView(null)}>
       <ResponsiveContainer width="100%" height={340}>
         <ComposedChart data={data} margin={{ top: 28, right: 24, left: 0, bottom: 0 }}>
           <CartesianGrid stroke="#eef0f4" vertical={false} />
@@ -209,20 +253,31 @@ export function ForecastChart({
             labelFormatter={(v) => String(v)}
           />
 
-          <Area dataKey="band_high" stroke="none" fill="#e8eeff" fillOpacity={0.4} activeDot={false} isAnimationActive={false} />
+          <Area dataKey="band_high" stroke="none" fill="#e8eeff" fillOpacity={activeLine === "base" ? 0.15 : 0.4} activeDot={false} isAnimationActive={false} />
           <Area dataKey="band_low"  stroke="none" fill="#ffffff" fillOpacity={1}   activeDot={false} isAnimationActive={false} />
 
           {/* 플랜 (계획) — 회색 실선 */}
-          <Line dataKey="planned" stroke="#94a3b8" strokeWidth={2} dot={false} isAnimationActive={false} />
+          <Line dataKey="planned" stroke="#94a3b8" strokeWidth={2} strokeOpacity={activeLine === "base" ? 0.25 : 1} dot={false} isAnimationActive={false} />
 
-          {/* 현황 (실적) — 검정 굵은 실선 */}
-          <Line dataKey="actual" stroke="#0d1117" strokeWidth={3} dot={false} isAnimationActive={false} />
+          {/* 현황 (실적) — 검정 굵은 실선 (항상 full) */}
+          <Line dataKey="actual" stroke="#0d1117" strokeWidth={3} strokeOpacity={1} dot={false} isAnimationActive={false} />
 
           {/* 현황 (예측) — 빨강 dashed (BE forecast — actual trend 연장, plan 과 평행 격차 유지) */}
-          <Line dataKey="forecast" stroke="#ef4444" strokeWidth={2} strokeDasharray="6 5" dot={false} isAnimationActive={false} connectNulls={false} />
+          <Line dataKey="forecast" stroke="#ef4444" strokeWidth={2} strokeDasharray="6 5" strokeOpacity={activeLine === "base" ? 0.25 : 1} dot={false} isAnimationActive={false} connectNulls={false} />
 
-          {/* AI 시나리오 — mint 점선. catch-up + plan 동행 (catch-up 까지만 라인 그림). */}
-          <Line dataKey="base" stroke="#0ea76a" strokeWidth={2.5} strokeDasharray="5 4" dot={false} isAnimationActive={false} connectNulls={false} />
+          {/* AI 시나리오 — mint 점선. catch-up + plan 동행. 클릭 토글 강조 */}
+          <Line
+            dataKey="base"
+            stroke="#0ea76a"
+            strokeWidth={2.5}
+            strokeDasharray="5 4"
+            strokeOpacity={1}
+            dot={false}
+            isAnimationActive={false}
+            connectNulls={false}
+            onClick={() => hasBase && setActiveLine((a) => (a === "base" ? null : "base"))}
+            style={{ cursor: hasBase ? "pointer" : "default" }}
+          />
 
           {lastPoint && lastPoint.actual !== undefined && (
             <ReferenceDot
@@ -295,6 +350,37 @@ export function ForecastChart({
 
         </ComposedChart>
       </ResponsiveContainer>
+
+      {/* 컴팩트 카드 — AI 시나리오 라인/범례 클릭 시 표시 (C4) */}
+      {activeLine === "base" && (
+        <div className="mt-3 max-w-md rounded-md bg-mint-light/40 px-3 py-2 text-[12.5px] ring-1 ring-mint/30">
+          <div className="font-semibold text-mint-text">AI 시나리오 · {recoveryDays > 0 ? `${recoveryDays}일 만에 plan 따라잡음` : "회복 제한적"}</div>
+          {(() => {
+            const top = (aiAdvice ?? [])
+              .filter((w) => typeof w.recovery_days === "number")
+              .sort((a, b) => (b.recovery_days ?? 0) - (a.recovery_days ?? 0))[0];
+            const recs = top?.recommendations?.slice(0, 2) ?? [];
+            if (recs.length)
+              return (
+                <ul className="mt-1 ml-3 list-disc space-y-0.5 text-ink-mid">
+                  {recs.map((r, i) => (
+                    <li key={i}>{r}</li>
+                  ))}
+                </ul>
+              );
+            if (aiSummaryText) return <p className="mt-1 text-ink-mid line-clamp-2">{aiSummaryText}</p>;
+            return null;
+          })()}
+          <button
+            type="button"
+            onClick={() => setActiveLine(null)}
+            className="mt-1 text-[11px] text-ink-light hover:text-ink-mid"
+          >
+            닫기
+          </button>
+        </div>
+      )}
+      </div>
 
       {/* 3선 요약 — 현황 / 플랜 / AI 시나리오 */}
       {scenarios && (
@@ -386,51 +472,6 @@ export function ForecastChart({
           )}
         </div>
 
-        {/* LLM 산출 권고사항 — 공기 단축 가능한 공종 + 조치 (Optimizer agent) */}
-        {aiAdvice && aiAdvice.length > 0 ? (
-          <div className="border-t border-border-soft pt-3">
-            <div className="mb-2 inline-flex items-center gap-1.5 text-[12px] font-semibold text-mint-text">
-              <span className="h-1.5 w-1.5 rounded-full" style={{ background: "#0ea76a" }} />
-              AI 권고 — 공기 단축 가능한 공종
-            </div>
-            {/* 2026-05-29 (2차): 카드 많으면 너무 길어지므로 max-h + 스크롤 (사용자 요청). */}
-            <ul className="max-h-[440px] space-y-2.5 overflow-y-auto pr-1 text-sm text-ink">
-              {aiAdvice.map((wp, idx) => (
-                <li key={idx} className="rounded bg-card px-3 py-2 ring-1 ring-border-soft">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="text-[12px] font-semibold text-ink">
-                        {wp.wp_name}
-                        <span className="ml-1.5 font-normal text-ink-light">({wp.trade})</span>
-                      </div>
-                      {wp.diagnosis && (
-                        <p className="mt-1 text-[12.5px] text-ink-mid">{wp.diagnosis}</p>
-                      )}
-                      {wp.recommendations.length > 0 && (
-                        <ul className="mt-1.5 ml-3 list-disc space-y-0.5 text-[12.5px] text-ink-mid">
-                          {wp.recommendations.slice(0, 2).map((r, ri) => (
-                            <li key={ri}>{r}</li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                    {typeof wp.recovery_days === "number" && (
-                      <span className="shrink-0 text-[16px] font-bold text-mint-text">
-                        {wp.recovery_days > 0 ? `−${wp.recovery_days}일 만회` : "0일 만회"}
-                      </span>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ul>
-            {scenarios && typeof scenarios.base_p50?.case_count === "number" && (
-              <p className="mt-2 text-[11px] text-ink-light">
-                * 권고는 과거 유사 상황 <b>{scenarios.base_p50.case_count}건</b> 의 회복 패턴
-                기반 LLM 산출. 적용 시 약 <b>{recoveryDays}일</b> 만에 plan 따라잡을 수 있습니다.
-              </p>
-            )}
-          </div>
-        ) : null}
       </div>
     </div>
   );

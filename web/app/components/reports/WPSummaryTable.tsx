@@ -1,6 +1,7 @@
 "use client";
 import { cn } from "@/lib/utils";
 import type { WPSummaryRow } from "@/lib/types";
+import { waCode } from "@/lib/wp-format";
 
 interface Props {
   rows: WPSummaryRow[];
@@ -34,12 +35,11 @@ export function WPSummaryTable({ rows, selectedWpId, onSelect }: Props) {
         <table className="w-full border-collapse">
           <thead className="sticky top-0 z-10 bg-surface-soft/95 text-[11px] text-ink-mid backdrop-blur-sm">
             <tr className="border-b border-border-soft text-left">
-              <th className="px-3 py-1.5 font-medium">WP명</th>
+              <th className="px-3 py-1.5 font-medium">Work Area</th>
               <th className="px-3 py-1.5 font-medium">공종</th>
               <th className="px-3 py-1.5 font-medium">BP사</th>
-              <th className="px-3 py-1.5 font-medium">Impact</th>
-              <th className="px-3 py-1.5 font-medium">Productivity</th>
-              <th className="px-3 py-1.5 font-medium">공기 단축</th>
+              <th className="px-3 py-1.5 font-medium">지연일</th>
+              <th className="px-3 py-1.5 font-medium">AI 단축</th>
               <th className="px-3 py-1.5 font-medium">Status</th>
             </tr>
           </thead>
@@ -62,15 +62,17 @@ export function WPSummaryTable({ rows, selectedWpId, onSelect }: Props) {
                         "before:absolute before:inset-y-0 before:left-0 before:w-1 before:bg-brand",
                     )}
                   >
-                    {row.wp_name}
+                    {waCode(row)}
                   </td>
                   <td className="px-3 py-1 text-[12px] text-ink">{row.trade}</td>
                   <td className="px-3 py-1 text-[12px] text-ink-mid">{row.bp_name}</td>
-                  <td className="px-3 py-1 text-[12px] font-semibold text-ink tabular-nums">
-                    {row.impact}%
-                  </td>
-                  <td className="px-3 py-1 text-[12px] font-semibold text-ink tabular-nums">
-                    {`${row.productivity.toFixed(1)}%`}
+                  <td className="px-3 py-1 text-[12px] tabular-nums">
+                    {(() => {
+                      const d = row.delay_days ?? 0;
+                      return d > 0
+                        ? <span className="font-semibold text-rose-text">+{d}일</span>
+                        : <span className="text-ink-light">일정 충족</span>;
+                    })()}
                   </td>
                   <td className="px-3 py-1 text-[12px] tabular-nums">
                     {(() => {

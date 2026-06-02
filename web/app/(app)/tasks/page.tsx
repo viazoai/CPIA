@@ -32,11 +32,10 @@ interface ProgressData {
 }
 
 function pickCurrentAgent(stages: AgentStageProgress[]): string | null {
-  // percent=-1: DB "진행중" sentinel (received=0 이어도 선택)
+  // -1 sentinel 폐기. waiting_hil 우선 → 진행중(received>0 && 미완료) → 마지막 done.
   const current =
     stages.find((s) => s.waiting_hil) ??
-    stages.find((s) => s.percent === -1) ??
-    stages.find((s) => s.received > 0 && s.percent > 0 && s.percent < 100) ??
+    stages.find((s) => s.received > 0 && s.percent < 100 && s.processed !== s.received) ??
     stages.filter((s) => s.percent === 100).at(-1);
   return current?.agent ?? null;
 }
@@ -54,24 +53,10 @@ export default function AgentTasksPage() {
   // 있으면 sim/detail 보다 최우선 사용.
   const [progress, setProgress] = useState<ProgressData | null>(null);
 
-  // DB progress 게이지 애니메이션 — percent=-1 (진행중) 단계를 0→90% 부드럽게 채움.
-  // 각 단계가 "진행중" 으로 처음 감지된 시각을 기록, 60초에 걸쳐 90% 까지 선형 증가.
-  const stageActiveAtRef = useRef<Map<string, number>>(new Map());
-  const [animTick, setAnimTick] = useState(0);
-
-  // selectedDate 변경 시 stage 타이머 + items 초기화.
+  // selectedDate 변경 시 items 초기화.
   useEffect(() => {
-    stageActiveAtRef.current.clear();
     setDbItems({ columns: [], rows: [] });
   }, [selectedDate]);
-
-  // progress 가 running 상태일 때만 250ms 틱.
-  useEffect(() => {
-    const isRunning = progress?.status === "running" || progress?.status === "waiting_hil_1";
-    if (!isRunning) return;
-    const id = setInterval(() => setAnimTick((t) => t + 1), 250);
-    return () => clearInterval(id);
-  }, [progress?.status]);
 
   // H1 — 시뮬레이션 상태. useSimTick 이 250ms 마다 re-render + phase 자동 전환.
   const sim = useSimStore();
@@ -277,24 +262,10 @@ export default function AgentTasksPage() {
     );
   }
 
-  // 화면용 stages 결정 우선순위: DB progress > sim > mock detail.
-  // DB progress 의 percent=-1 (진행중) 단계는 로컬 타이머로 0→90% 애니메이션.
-  const ANIM_DURATION_MS = 60_000; // 60초에 걸쳐 90% 까지 (실 파이프라인 속도 반영)
+  // 화면용 stages 결정 우선순위: DB progress(서버 percent 직접) > sim > mock detail.
   const rawProgressStages = hasProgress ? (progress as ProgressData).stages : null;
-  const animatedProgressStages: AgentStageProgress[] | null = rawProgressStages
-    ? rawProgressStages.map((s) => {
-        if (s.percent !== -1) return s;
-        const now = Date.now();
-        if (!stageActiveAtRef.current.has(s.agent)) {
-          stageActiveAtRef.current.set(s.agent, now);
-        }
-        const elapsed = now - stageActiveAtRef.current.get(s.agent)!;
-        const pct = Math.min(90, Math.round((elapsed / ANIM_DURATION_MS) * 90));
-        return { ...s, percent: pct, processed: Math.floor((s.received * pct) / 100) };
-      })
-    : null;
 
-  const stages: AgentStageProgress[] = animatedProgressStages
+  const stages: AgentStageProgress[] = rawProgressStages
     ?? (isSimSelected ? (simStages as AgentStageProgress[]) : detail?.stages ?? []);
 
   // 아이템 우선순위: DB 실 데이터(hasProgress) > mock detail

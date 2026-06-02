@@ -1666,6 +1666,47 @@ async def _build_productivity_views_v2(
         site_id,
     )
     if not rows:
+        # 2026-06-02 fallback: 실 prod run 은 parser.py:445 가 l7_5_activity=None 하드코딩이라
+        # 위 (company,l6,l7_5) 매칭이 0행 → wp_summary 등 전부 빔(더미 시드만 l7_5 보유).
+        # l7_5 없이 (wa,l6_main,company,unit) 로 실적 집계 + activity_master (company,l6,unit)
+        # plan 매칭(1회). 다운스트림은 그대로(wp_id 그룹핑). dummy 경로는 위 쿼리가 잡으므로 불변.
+        rows = await pg.fetch_all(
+            """
+            WITH actual AS (
+                SELECT pr.site_id, ma.company, ma.l6_main, ma.unit, ma.wa,
+                       SUM(COALESCE(ma.today_qty, 0))::float AS today_qty,
+                       SUM(COALESCE(ma.assigned_workers, 0))::float AS assigned_workers,
+                       MAX(ma.trade) AS trade
+                FROM mapper_activities ma
+                JOIN pipeline_runs pr USING (run_id)
+                WHERE ma.report_date = $1
+                  AND pr.site_id = $2
+                  AND ma.trade IN ('건축', '토목')
+                  AND ma.unit IS NOT NULL
+                GROUP BY pr.site_id, ma.company, ma.l6_main, ma.unit, ma.wa
+            ),
+            plan AS (
+                SELECT company, l6_main, unit,
+                       MIN(plan_start) AS ps, MAX(plan_finish) AS pf,
+                       SUM(plan_total_qty) AS qty, SUM(plan_mh_rev2) AS mh
+                FROM activity_master
+                WHERE site_id = $2
+                GROUP BY company, l6_main, unit
+            )
+            SELECT (row_number() OVER ())::int AS id, a.site_id, NULL::uuid AS run_id,
+                   a.company, a.l6_main, NULL::text AS l7_5_activity,
+                   a.unit, NULL::text AS zone, a.wa,
+                   a.today_qty, a.assigned_workers, a.trade,
+                   p.ps AS plan_start, p.pf AS plan_finish,
+                   p.qty AS plan_total_qty, p.mh AS plan_mh
+            FROM actual a
+            JOIN plan p ON p.company = a.company AND p.l6_main = a.l6_main AND p.unit = a.unit
+            WHERE p.ps IS NOT NULL AND $1 BETWEEN p.ps AND p.pf
+            """,
+            today,
+            site_id,
+        )
+    if not rows:
         return dict(_VIEWS_V2_EMPTY)
 
     # 2026-05-29 SSOT: forecasts.risk_level lookup — wp_summary·분포도·카드 status 단일 source.
@@ -1699,9 +1740,16 @@ async def _build_productivity_views_v2(
         # 2026-05-29 Task 4.1: _simulate_today_qty 폐기 — 실 seeded today_qty/workers 사용.
         # 이전엔 마스터 daily × random noise 로 재생성해 r["today_qty"]/assigned_workers 를
         # 버려서 condition-blind + forecaster 와 불일치. 이제 실 실적값으로 직접 산정.
+        # 2026-06-02: assigned_workers 가 실 작업일보(통합)에서 mh-누계 단위(수만)로 들어와
+        # perperson 왜곡 → productivity 7.9%/150 들쭉. _sanitize_workers (≤50 그대로, 그 외
+        # master±10% / ÷8) 로 headcount 정상화. dummy(≤50)는 불변.
+        _seed_w = f"{r['wa']}|{r['company']}|{r['l6_main']}|{r['unit']}"
+        _workers_n = float(_sanitize_workers(
+            float(r["assigned_workers"] or 0.0), daily_workers_master, _seed_w
+        ))
         rp = _row_productivity(
             float(r["today_qty"] or 0.0),
-            float(r["assigned_workers"] or 0.0),
+            _workers_n,
             daily_qty_master,
             daily_workers_master,
         )
@@ -1719,9 +1767,9 @@ async def _build_productivity_views_v2(
                 "unit": r["unit"],
                 "wa": r["wa"],
                 "actual_trade": r["trade"],
-                "assigned_workers": r["assigned_workers"],
+                "assigned_workers": _workers_n,
                 "today_qty": r["today_qty"],
-                "workers": r["assigned_workers"],
+                "workers": _workers_n,
                 "plan_total_qty": plan_qty,
                 "plan_mh": plan_mh,
                 "perperson": perperson,

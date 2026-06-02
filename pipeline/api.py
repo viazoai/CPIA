@@ -343,6 +343,13 @@ async def hil_1_resume(run_id: str, body: Hil1ResumeRequest) -> Hil1ResumeRespon
         # interrupt 상태가 아님 — Command(resume) 호출 부적합 → 409
         raise HTTPException(status_code=409, detail=f"graph 가 interrupt 대기 상태 아님: {exc}") from exc
     except Exception as exc:  # noqa: BLE001
+        import traceback as _tb
+
+        print(
+            f"[hil_1_resume FAILED:{run_id}]\n{_tb.format_exc()}",
+            file=__import__("sys").stderr,
+            flush=True,
+        )
         raise HTTPException(status_code=500, detail=f"graph resume 실패: {exc}") from exc
 
     # Q1: current_node 가 None 이면 graph 반환 state 이상 — 명시적 500

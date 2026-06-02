@@ -1,9 +1,11 @@
 "use client";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { Switch } from "@/components/ui/switch";
 import { CheckCheck } from "lucide-react";
 import { WBSTree } from "@/app/components/review/WBSTree";
-import { ReviewCard } from "@/app/components/review/ReviewCard";
+import { WpGroup } from "@/app/components/review/WpGroup";
+import { ReviewConnector } from "@/app/components/review/ReviewConnector";
+import { groupCardsByWp } from "@/lib/review-group";
 import { nodeToQuery } from "@/lib/review-node";
 import type { WBSNode, ReviewItem } from "@/lib/types";
 
@@ -27,6 +29,8 @@ export default function HumanReviewPage() {
   const [registeredTotal, setRegisteredTotal] = useState(0);
   const [registeredError, setRegisteredError] = useState(false);
   const [confirmedNotice, setConfirmedNotice] = useState<string | null>(null);
+  const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetch("/api/mock/review")
@@ -82,25 +86,32 @@ export default function HumanReviewPage() {
     setConfirmedNotice(null);
   }, [selectedNodeId]);
 
-  const visibleCards = useMemo(() => {
-    // 베이스: HIL 모드면 신규 카드, 등록 모드면 서버 노드-스코프 registered.
-    let filtered = onlyUnconfirmed ? cards : registered;
-    // selectedNode wp_id 필터는 HIL 모드에서만 — registered 는 서버가 노드 스코프로 줘서 중복 필터 X.
-    if (onlyUnconfirmed) {
-      filtered = filtered.filter((c) => c.status === "unconfirmed");
-      if (selectedNodeId) {
-        const collect = (n: WBSNode | null): string[] => {
-          if (!n) return [];
-          if (n.type === "work_package") return [n.id];
-          return (n.children || []).flatMap(collect);
-        };
-        const node = find(wbs, selectedNodeId);
-        const wpIds = collect(node);
-        if (wpIds.length > 0) filtered = filtered.filter((c) => wpIds.includes(c.ai_mapped_wp_id));
-      }
-    }
-    return filtered;
-  }, [cards, registered, wbs, selectedNodeId, onlyUnconfirmed]);
+  // HIL 은 cards 전체(확정 포함)를 그룹핑해 집계 노출. 등록은 registered.
+  const groups = useMemo(
+    () => groupCardsByWp(onlyUnconfirmed ? cards : registered),
+    [onlyUnconfirmed, cards, registered]
+  );
+  const selectedCard = useMemo(
+    () => (onlyUnconfirmed ? cards : registered).find((c) => c.id === selectedCardId) ?? null,
+    [onlyUnconfirmed, cards, registered, selectedCardId]
+  );
+  const connectorTone: "mint" | "sun" =
+    selectedCard && selectedCard.status === "unconfirmed" && selectedCard.confidence < 0.8 ? "sun" : "mint";
+  // 연결선 재드로잉 nonce — 모드·그룹수·선택노드(트리 펼침/스크롤) 변할 때 bump.
+  const [redrawKey, setRedrawKey] = useState(0);
+  useEffect(() => {
+    setRedrawKey((k) => k + 1);
+  }, [onlyUnconfirmed, groups.length, selectedNodeId, selectedCardId]);
+
+  // HIL: 트리 노드 선택 시 해당 WP 그룹으로 우측 스크롤 (필터 아님).
+  useEffect(() => {
+    if (!onlyUnconfirmed || !selectedNodeId || !gridRef.current) return;
+    const target = groups.find((g) => g.wpId === selectedNodeId);
+    if (!target) return;
+    const el = gridRef.current.querySelector(`[data-wp-group="${CSS.escape(target.wpId)}"]`);
+    const fn = (el as HTMLElement | null)?.scrollIntoView;
+    if (typeof fn === "function") fn.call(el, { block: "nearest", behavior: "smooth" });
+  }, [onlyUnconfirmed, selectedNodeId, groups]);
 
   // work_package wp_id → {wa, l6_main} 룩업. wp_id=safe(wa)-safe(l6_main) 는 역변환 lossy 라
   // remap 시 WBS 노드가 들고 있는 원 wa/l6_main 을 찾아 BE corrections 로 정확히 전달한다.
@@ -158,6 +169,21 @@ export default function HumanReviewPage() {
       .catch((e) => console.error("[hil/resume] 실패", e));
   };
 
+  // 카드 선택 → 연결선 + 트리 자동 펼침/스크롤(해당 WP 노드).
+  const handleSelectCard = (id: string) => {
+    setSelectedCardId(id);
+    const card = (onlyUnconfirmed ? cards : registered).find((c) => c.id === id);
+    if (card) setSelectedNodeId(card.ai_mapped_wp_id);
+  };
+  // 확신도 0.8↑ 미확정만 일괄 확정 (저확신은 남김 → resume 보류).
+  const handleConfirmHighConf = () => {
+    setCards((cs) =>
+      cs.map((c) =>
+        c.status === "unconfirmed" && c.confidence >= 0.8 ? { ...c, status: "confirmed" as const } : c
+      )
+    );
+  };
+
   if (!wbs) return <div className="px-6 py-10 text-ink-light">Loading...</div>;
 
   return (
@@ -175,9 +201,16 @@ export default function HumanReviewPage() {
       </div>
 
       <section className="mx-auto w-full max-w-screen-2xl px-6 pb-20 md:px-10">
-        <div className="grid grid-cols-12 gap-4 items-stretch">
+        <div ref={gridRef} className="relative grid grid-cols-12 gap-4 items-stretch">
+          <ReviewConnector
+            containerRef={gridRef}
+            selectedCardId={selectedCardId}
+            targetNodeId={selectedCard?.ai_mapped_wp_id ?? null}
+            tone={connectorTone}
+            redrawKey={redrawKey}
+          />
           <div className="col-span-12 md:col-span-4 rounded-card border border-border-soft bg-card shadow-xs overflow-hidden flex flex-col lg:h-[calc(100vh-260px)]">
-            <WBSTree root={wbs} selectedId={selectedNodeId} onSelect={setSelectedNodeId} onDrop={(cardId, wpId) => {
+            <WBSTree root={wbs} selectedId={selectedNodeId} onSelect={setSelectedNodeId} revealNodeId={selectedCard?.ai_mapped_wp_id ?? null} onDrop={(cardId, wpId) => {
               const collectPath = (n: WBSNode | null, id: string, path: string[] = []): string[] | null => {
                 if (!n) return null;
                 const next = [...path, n.name];
@@ -187,6 +220,7 @@ export default function HumanReviewPage() {
               };
               const path = collectPath(wbs, wpId)?.join(" > ") || "";
               handleRemap(cardId, wpId, path);
+              setSelectedCardId(cardId);
             }} />
           </div>
 
@@ -204,10 +238,19 @@ export default function HumanReviewPage() {
             </div>
 
             <div className="flex flex-col gap-3 p-4 flex-1 overflow-y-auto">
-              {visibleCards.map((c) => (
-                <ReviewCard key={c.id} item={c} wbsRoot={wbs} onConfirm={handleConfirm} onRemap={handleRemap} readOnly={!onlyUnconfirmed} />
+              {groups.map((g) => (
+                <WpGroup
+                  key={g.wpId}
+                  group={g}
+                  selectedCardId={selectedCardId}
+                  wbsRoot={wbs}
+                  onConfirm={handleConfirm}
+                  onRemap={handleRemap}
+                  onSelectCard={handleSelectCard}
+                  readOnly={!onlyUnconfirmed}
+                />
               ))}
-              {visibleCards.length === 0 && (
+              {groups.length === 0 && (
                 <div className="rounded-card border border-dashed border-border-soft py-12 text-center text-sm text-ink-light">
                   {onlyUnconfirmed ? "검토할 신규 매핑이 없습니다."
                     : registeredError ? "등록 작업을 불러오지 못했습니다. 잠시 후 다시 시도하세요."
@@ -218,14 +261,22 @@ export default function HumanReviewPage() {
             </div>
 
             {onlyUnconfirmed && (
-              <div className="px-4 py-3 border-t border-border-soft flex justify-end shrink-0">
+              <div className="px-4 py-3 border-t border-border-soft flex justify-end gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleConfirmHighConf}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-mint bg-white px-4 py-2 text-xs font-semibold text-mint-text hover:bg-mint-light/30 transition-colors"
+                >
+                  <CheckCheck className="h-4 w-4" strokeWidth={2.5} />
+                  확신도 0.8↑ 일괄 확정
+                </button>
                 <button
                   type="button"
                   onClick={handleConfirmAll}
                   className="inline-flex items-center gap-1.5 rounded-md bg-mint px-4 py-2 text-xs font-semibold text-white hover:bg-mint-text transition-colors"
                 >
                   <CheckCheck className="h-4 w-4" strokeWidth={2.5} />
-                  모두 AI 추천대로 확정 (확신도 ≥ 0.8)
+                  모두 확정
                 </button>
               </div>
             )}

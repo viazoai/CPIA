@@ -239,7 +239,12 @@ export default function AgentTasksPage() {
   const isSimSelected = !hasProgress && !!(sim.simDate && selectedDate === sim.simDate && simStages);
   useEffect(() => {
     if (hasProgress && progress) {
-      setSelectedAgent(pickCurrentAgent(progress.stages));
+      // current_node 로 매핑된 현재 노드를 우선 선택 (진행도 0/미기록이어도 정확).
+      // 못 찾으면(완료·reporter 등) 기존 휴리스틱으로 폴백.
+      const activeFromNode = STAGE_ORDER.find(
+        (s) => s.currentNode === progress.current_node,
+      )?.agent;
+      setSelectedAgent(activeFromNode ?? pickCurrentAgent(progress.stages));
     } else if (isSimSelected && simStages) {
       setSelectedAgent(pickCurrentAgent(simStages));
     }

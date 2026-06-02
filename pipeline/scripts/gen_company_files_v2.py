@@ -11,10 +11,14 @@ argv[1] (optional): 단일 회사 정규화명만 생성 (검증용). 없으면 
 
 from __future__ import annotations
 
+import asyncio
 import copy
+import os
+import re
 import sys
 import warnings
 from collections import defaultdict
+from datetime import date
 from pathlib import Path
 
 import openpyxl
@@ -23,7 +27,14 @@ from openpyxl.cell.cell import MergedCell
 warnings.filterwarnings("ignore")
 ROOT = Path("/Users/kyungseoplee/Project Agent/CPIA")
 sys.path.insert(0, str(ROOT))
+from pipeline.agents.optimizer._work_content import factor_for  # noqa: E402
 from pipeline.agents.parser import parse_daily_report  # noqa: E402
+from pipeline.db import PGClient  # noqa: E402
+from scripts.seed_dummy_year import _pick_diagnosis  # noqa: E402
+
+SITE_ID = "m15x-ph3-ibl"
+ANCHOR_DATE = date(2025, 9, 25)
+DEFAULT_PG_URL = "postgresql://cpia:K7mP2xQ9nR4v@43.200.85.209:5532/cpia"
 
 SRC = ROOT / "docs/sample/통합작업일보_M15X Ph-3 IBL PJT 작업일보_20250925.xlsx"
 TEMPLATE = (
@@ -46,19 +57,91 @@ TARGETS = [
 SHIFT_KEYS = ("morning", "daytime", "overtime", "night", "all_night", "total")
 
 
-def _today_qty_fill(a: dict) -> float:
-    """today_qty(금일실적)=0/None → 계획 기반 적절한 일일 진행량으로 채움.
-    deterministic (work_content 해시) factor ∈ [0.015, 0.04] × 총물량. 최소 1.
-    원본 today_qty 가 있으면 그대로."""
+# ---------------------------------------------------------------------------
+# DB load helper — gen-time, 1회 호출
+# ---------------------------------------------------------------------------
+
+
+def _tokens(*parts: str) -> set[str]:
+    s = " ".join(p for p in parts if p)
+    return {t for t in re.split(r"[\s/·,()]+", s) if len(t) >= 2}
+
+
+async def _load_ongoing_am(out_companies: list[str]) -> dict[str, list[dict]]:
+    """activity_master 에서 09-25 ongoing 행 로드 (건축/토목, 7개사)."""
+    pg = PGClient(os.environ.get("POSTGRES_URL", DEFAULT_PG_URL))
+    await pg.connect()
+    try:
+        rows = await pg._pool.fetch(
+            """
+            SELECT company, l6_main, l7_5_activity, unit, plan_total_qty, plan_start, plan_finish
+            FROM activity_master
+            WHERE site_id = $1 AND l5_disc IN ('건축','토목')
+              AND company = ANY($2::text[])
+              AND plan_start <= $3 AND plan_finish >= $3
+            ORDER BY company, plan_start
+            """,
+            SITE_ID,
+            out_companies,
+            ANCHOR_DATE,
+        )
+        by: dict[str, list[dict]] = defaultdict(list)
+        for r in rows:
+            d = dict(r)
+            d["total_days"] = (d["plan_finish"] - d["plan_start"]).days + 1
+            by[d["company"]].append(d)
+        return by
+    finally:
+        await pg._pool.close()
+
+
+def _match_plan(a: dict, am_rows: list[dict]) -> dict | None:
+    """unit 일치 + work_content↔(l6_main+l7_5_activity) 토큰 overlap 최고."""
+    unit = (a.get("unit") or "").strip()
+    wc = a.get("work_content") or ""
+    wt = _tokens(wc)
+    best: dict | None = None
+    best_score = 0
+    for am in am_rows:
+        if (am.get("unit") or "").strip() != unit:
+            continue
+        score = len(wt & _tokens(am.get("l6_main") or "", am.get("l7_5_activity") or ""))
+        if score > best_score:
+            best, best_score = am, score
+    return best if best_score > 0 else None
+
+
+def _reverse_fill_today_qty(a: dict, out_company: str, am_rows: list[dict], nominal: int) -> float:
+    """today_qty>0 → 원본 보존. 0/None → activity_master plan 역산."""
     tq = a.get("today_qty")
     if tq is not None and float(tq) > 0:
         return float(tq)
+    wc = a.get("work_content") or "x"
+    seed = f"2025-09-25|{out_company}|{wc}"
+    am = _match_plan(a, am_rows)
+    if am is not None:
+        diag = _pick_diagnosis(
+            "2025-09-25",
+            a.get("bp_code") or wc,
+            out_company,
+            am.get("l6_main") or "",
+        )
+        cond = diag["conditions"][0] if diag["conditions"] else "정상"
+        factor = factor_for(cond, seed)
+        plan_total = float(am.get("plan_total_qty") or 0)
+        total_days = max(1, int(am.get("total_days") or 1))
+        return max(1.0, round(factor * plan_total / total_days, 1))
+    # 미매칭 fallback: 파일총물량 / nominal 기간
+    diag = _pick_diagnosis("2025-09-25", wc, out_company, "")
+    cond = diag["conditions"][0] if diag["conditions"] else "정상"
+    factor = factor_for(cond, seed)
     plan = float(a.get("plan_total_qty") or 0)
-    if plan <= 0:
-        return 1.0
-    h = sum(ord(ch) for ch in (a.get("work_content") or "x"))
-    factor = 0.015 + (h % 26) / 1000.0  # 0.015 ~ 0.040
-    return max(1.0, round(plan * factor, 1))
+    return max(1.0, round(factor * plan / max(1, nominal), 1))
+
+
+# ---------------------------------------------------------------------------
+# Excel helpers
+# ---------------------------------------------------------------------------
 
 
 def _set(ws, r, c, v):
@@ -87,11 +170,11 @@ def _clear_rows(ws, r_from, r_to, cmax):
             cell.value = None
 
 
-def _fill_sheet4(ws, acts: list[dict], out_company: str):
+def _fill_sheet4(ws, acts: list[dict], out_company: str, am_rows: list[dict], nominal: int):
     """업체포맷 시트4: r5=BP코드행(공종 c4 포함), r6=회사명행, 이후 활동행.
     c4=공종, c5=BP/회사, c6=Scope, c7=작업내용, c8=단위, c9=총물량, c10=전일누적,
     c11=금일실적, c12=금일누적, c13=F%, c14=잔여, c16=위치, c17=중공종, c18=소공종, c19=세공종.
-    out_company 는 Task 4 에서 회사명 오버라이드에 사용 예정 (현재는 acts[0].company 유지)."""
+    out_company 로 회사명 오버라이드. am_rows/nominal 로 today_qty 역산."""
     CMAX = 19
     DATA0 = 5
     style_row = 7  # 활동행 스타일 src (병합 없는 일반 데이터행)
@@ -99,7 +182,7 @@ def _fill_sheet4(ws, acts: list[dict], out_company: str):
     _clear_rows(ws, DATA0, ws.max_row, CMAX)
     if not acts:
         return
-    company = acts[0].get("company") or ""
+    company = out_company  # Task 4: out_company 오버라이드
     bp = acts[0].get("bp_code") or "PH_X-000"
     r = DATA0
     for i, a in enumerate(acts):
@@ -112,7 +195,7 @@ def _fill_sheet4(ws, acts: list[dict], out_company: str):
             _set(ws, r, 5, company)
         plan = float(a.get("plan_total_qty") or 0)
         yest = float(a.get("yesterday_cum_qty") or 0)
-        tq = _today_qty_fill(a)
+        tq = _reverse_fill_today_qty(a, out_company, am_rows, nominal)
         cum = yest + tq
         _set(ws, r, 6, a.get("scope") or "")  # Scope
         _set(ws, r, 7, a.get("work_content") or "")  # 작업내용
@@ -277,14 +360,27 @@ def _fill_sheet3(ws, equips: list[dict], company: str, trade: str):
         r += 1
 
 
-def build_one(out_company, src_company, raw_name, trade_label, by_co_act, by_co_job, by_co_sum, by_co_eq):
+def build_one(
+    out_company,
+    src_company,
+    raw_name,
+    trade_label,
+    by_co_act,
+    by_co_job,
+    by_co_sum,
+    by_co_eq,
+    am_by_co,
+):
     wb = openpyxl.load_workbook(str(TEMPLATE), keep_vba=True)
     acts = by_co_act.get(src_company, [])
     jobs = by_co_job.get(src_company, [])
     sums = by_co_sum.get(src_company, [])
     eqs = by_co_eq.get(src_company, [])
     trade = acts[0].get("trade") if acts else "건축"
-    _fill_sheet4(wb["4.물량"], acts, out_company)
+    am_rows = am_by_co.get(out_company, [])
+    days = sorted(int(r["total_days"]) for r in am_rows) if am_rows else []
+    nominal = max(1, days[len(days) // 2]) if days else 1
+    _fill_sheet4(wb["4.물량"], acts, out_company, am_rows, nominal)
     _fill_sheet1(wb["1.출력인원 현황"], sums, jobs, out_company, trade)
     _fill_sheet2(wb["2.직종별 인원현황"], jobs, out_company, trade)
     _fill_sheet3(wb["3.장비현황"], eqs, out_company, trade)
@@ -317,6 +413,9 @@ def main():
         assert by_co_job.get(src), f"src '{src}' job 없음 (by_co_job)"
         assert by_co_eq.get(src), f"src '{src}' eq 없음 (by_co_eq)"
 
+    out_companies = [t[2] for t in TARGETS]
+    am_by_co = asyncio.run(_load_ongoing_am(out_companies))
+
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     targets = [t for t in TARGETS if (only is None or t[2] == only)]
     if only is None:
@@ -333,6 +432,7 @@ def main():
             by_co_job,
             by_co_sum,
             by_co_eq,
+            am_by_co,
         )
         rp = parse_daily_report(str(out))
         pa = rp["activities"]

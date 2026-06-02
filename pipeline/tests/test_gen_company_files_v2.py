@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -65,10 +66,19 @@ def built_files(tmp_path_factory):
             by_sum[s.get("company") or ""].append(s)
         for e in rep.get("equipment_allocations", []):
             by_eq[e.get("company") or ""].append(e)
+        am_by_co = asyncio.run(gen._load_ongoing_am([t[2] for t in gen.TARGETS]))
         results = {}
         for raw_name, trade_label, out_company, src_company in gen.TARGETS:
             out, na, nj, ns, ne = gen.build_one(
-                out_company, src_company, raw_name, trade_label, by_act, by_job, by_sum, by_eq
+                out_company,
+                src_company,
+                raw_name,
+                trade_label,
+                by_act,
+                by_job,
+                by_sum,
+                by_eq,
+                am_by_co,
             )
             results[out_company] = (out, parse_daily_report(str(out)))
         return results
@@ -97,3 +107,19 @@ def test_sheet3_equip_count_roundtrip(built_files, out_company):
     assert len(eqs) == exp_eq, f"{out_company} eq {len(eqs)} != {exp_eq}"
     cos = {e.get("company") for e in eqs}
     assert cos == {out_company}, f"{out_company} eq company {cos}"
+
+
+@pytest.mark.parametrize("out_company", list(EXPECTED))
+def test_sheet4_no_zero_today_qty(built_files, out_company):
+    """역산 후 today_qty==0 행 0건."""
+    _, rp = built_files[out_company]
+    zero = [a for a in rp["activities"] if not (a.get("today_qty") and float(a["today_qty"]) > 0)]
+    assert not zero, f"{out_company} today_qty 0 행 {len(zero)}건"
+
+
+@pytest.mark.parametrize("out_company", list(EXPECTED))
+def test_sheet4_company_is_out_company(built_files, out_company):
+    """파일 파싱 company == out_company (광건/태우/선보 정렬 확인)."""
+    _, rp = built_files[out_company]
+    cos = {a.get("company") for a in rp["activities"]}
+    assert cos == {out_company}, f"{out_company}: {cos}"

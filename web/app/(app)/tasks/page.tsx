@@ -314,7 +314,7 @@ export default function AgentTasksPage() {
               / 02 — Agent Tasks
             </span>
             <h1 className="mt-3 font-display text-h3 text-ink">
-              CPIA 작업 현황
+              작업일보 처리 현황
             </h1>
             <p className="mt-2 text-body-sm text-ink-mid">
               매일 이메일로 접수되는 업체별 작업일보를 7개 Agent를 통해 업무를 처리하여 Middle Office 업무를 지원합니다.

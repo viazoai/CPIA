@@ -107,7 +107,7 @@ export default function HumanReviewPage() {
           / 03 — Human Review
         </span>
         <h1 className="mt-3 font-display text-h3 text-ink">
-          WBS-작업 물량 Mapping
+          WBS-작업 물량 관계 검토
         </h1>
         <p className="mt-2 text-body-sm text-ink-mid">
           좌측 WBS 트리에서 공종을 선택하거나, 검색 입력·드래그앤드롭으로 매핑을 수정·확정합니다.

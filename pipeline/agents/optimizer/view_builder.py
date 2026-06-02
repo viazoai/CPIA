@@ -1232,13 +1232,12 @@ def _build_optimizer_view(
                     recommendations.append(str(r))
             else:
                 recommendations.append(str(r))
-        # 2026-05-28: LLM 우회 (4건 출력) 차단 — wp 당 최대 3건 trim (사용자 의도: 1-2건 default, 복잡 시 3건).
-        recommendations = recommendations[:3]
+        # 2026-06: 만회방안 wp 당 최대 2건 trim (재설계 — 권고사항→만회방안, 3→2건).
+        recommendations = recommendations[:2]
 
         # 6칸 details
-        # 2026-05-29 (2차) 사용자: UI 가 3건만 표시하므로 회복 요약도 "표시되는 3건" 기준 +
-        # 평균 회복일수 편입. (이전엔 5건 집계라 "5건 중 3건"처럼 보여 불일치.)
-        cases_for_dist = (advice.get("degradation_cases") or [])[:3]
+        # 2026-06: UI 가 유사사례 2건 표시 → 회복 요약도 "표시되는 2건" 기준 + 평균 회복일수 편입.
+        cases_for_dist = (advice.get("degradation_cases") or [])[:2]
         rdist_text = _recovery_distribution_text(cases_for_dist)
         rd_vals = [
             (c.get("recovery") or {}).get("recovery_days")

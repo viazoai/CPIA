@@ -105,9 +105,29 @@ from io import BytesIO  # noqa: E402
 from pathlib import Path  # noqa: E402
 
 from openpyxl import load_workbook  # noqa: E402
+from openpyxl.cell.cell import MergedCell  # noqa: E402
 
 TEMPLATE_PATH = Path(__file__).parent / "exporter_templates" / "consolidated_template.xlsx"
 DATA_START_ROW = 5
+
+
+def _safe_set(ws, r: int, c: int, value) -> None:
+    """MergedCell-safe 셀 쓰기.
+
+    openpyxl 은 병합 범위의 anchor(좌상단) 외 멤버 셀을 MergedCell 읽기전용 객체로
+    반환한다. 해당 셀에 직접 value 를 쓰면 AttributeError 가 발생하므로, 대상 셀이
+    MergedCell 이면 병합 범위의 anchor(min_row, min_col) 에 대신 쓴다.
+    anchor 가 아닌 일반 셀은 그대로 쓴다.
+    """
+    cell = ws.cell(r, c)
+    if isinstance(cell, MergedCell):
+        for rng in ws.merged_cells.ranges:
+            if rng.min_row <= r <= rng.max_row and rng.min_col <= c <= rng.max_col:
+                ws.cell(rng.min_row, rng.min_col).value = value
+                return
+        # 병합 범위를 찾지 못한 경우(방어): 그냥 skip
+        return
+    cell.value = value
 
 # COL_* 는 docs/sample/통합작업일보_M15X*.xlsx r3+r4+r5 헤더를 openpyxl 로 덤프해
 # 직접 추출한 1-indexed 컬럼 번호. placeholder 아님.
@@ -198,22 +218,22 @@ def _fill_timeshift(ws, row: int, col_start: int, ts: dict | None) -> None:
     if not ts:
         return
     for i, key in enumerate(["morning", "daytime", "overtime", "night", "all_night", "total"]):
-        ws.cell(row=row, column=col_start + i, value=ts.get(key, 0))
+        _safe_set(ws, row, col_start + i, ts.get(key, 0))
 
 
 def _fill_output_manpower(ws, rows: list[dict], report_date: _date) -> None:
     C = COL_OUTPUT_MANPOWER
     for i, row in enumerate(rows):
         r = DATA_START_ROW + i
-        ws.cell(r, C["zone"], row.get("zone"))
-        ws.cell(r, C["trade"], row.get("disc_abbrev"))
+        _safe_set(ws, r, C["zone"], row.get("zone"))
+        _safe_set(ws, r, C["trade"], row.get("disc_abbrev"))
         # col 5 는 bp_code 와 company 가 동일 칸 — bp_code 우선 (실제 시트가 BP_CODE 박힘).
         # company 는 별도 컬럼 없음. 시트1 헤더 r3='BP사' / r4='협력업체' 가 같은 칸.
-        ws.cell(r, C["bp_code"], row.get("bp_code") or row.get("company"))
-        ws.cell(r, C["scope"], row.get("scope"))
-        ws.cell(r, C["work_y"], row.get("work_text_yesterday"))
-        ws.cell(r, C["work_t"], row.get("work_text_today"))
-        ws.cell(r, C["work_n"], row.get("work_text_tomorrow"))
+        _safe_set(ws, r, C["bp_code"], row.get("bp_code") or row.get("company"))
+        _safe_set(ws, r, C["scope"], row.get("scope"))
+        _safe_set(ws, r, C["work_y"], row.get("work_text_yesterday"))
+        _safe_set(ws, r, C["work_t"], row.get("work_text_today"))
+        _safe_set(ws, r, C["work_n"], row.get("work_text_tomorrow"))
         _fill_timeshift(ws, r, C["yest_incr"], row.get("workers_yesterday_incr"))
         _fill_timeshift(ws, r, C["yest_cum"], row.get("workers_yesterday_cum"))
         _fill_timeshift(ws, r, C["today_incr"], row.get("workers_today_incr"))
@@ -224,18 +244,18 @@ def _fill_occupation(ws, rows: list[dict], report_date: _date) -> None:
     C = COL_OCCUPATION
     for i, row in enumerate(rows):
         r = DATA_START_ROW + i
-        ws.cell(r, C["trade"], row.get("disc_abbrev"))
-        ws.cell(r, C["bp_code"], row.get("bp_code"))
-        ws.cell(r, C["manager_code"], row.get("manager_code"))
-        ws.cell(r, C["worker_code"], row.get("worker_code"))
-        ws.cell(r, C["job_type"], row.get("job_type"))
+        _safe_set(ws, r, C["trade"], row.get("disc_abbrev"))
+        _safe_set(ws, r, C["bp_code"], row.get("bp_code"))
+        _safe_set(ws, r, C["manager_code"], row.get("manager_code"))
+        _safe_set(ws, r, C["worker_code"], row.get("worker_code"))
+        _safe_set(ws, r, C["job_type"], row.get("job_type"))
         # 시트2 의 yest_cum / today_incr / today_cum 은 6 timeshift 블록 + 누계 cell.
         # parser 단계에서 timeshift dict 가 없으면 scalar workers_cum_t 만 'total' 자리에 박음.
         cum_t = row.get("workers_cum_t")
         if isinstance(row.get("workers_yesterday_cum"), dict):
             _fill_timeshift(ws, r, C["yest_cum"], row["workers_yesterday_cum"])
         elif cum_t is not None:
-            ws.cell(r, C["yest_cum"] + 5, cum_t)  # total 자리 (블록 시작+5)
+            _safe_set(ws, r, C["yest_cum"] + 5, cum_t)  # total 자리 (블록 시작+5)
         if isinstance(row.get("workers_today_incr"), dict):
             _fill_timeshift(ws, r, C["today_incr"], row["workers_today_incr"])
         if isinstance(row.get("workers_today_cum"), dict):
@@ -246,16 +266,16 @@ def _fill_equipment(ws, rows: list[dict], report_date: _date) -> None:
     C = COL_EQUIPMENT
     for i, row in enumerate(rows):
         r = DATA_START_ROW + i
-        ws.cell(r, C["trade"], row.get("disc_abbrev"))
-        ws.cell(r, C["bp_code"], row.get("bp_code"))
-        ws.cell(r, C["eq_big"], row.get("equipment_big"))
-        ws.cell(r, C["eq_mid"], row.get("equipment_mid"))
-        ws.cell(r, C["eq_spec"], row.get("equipment_spec"))
+        _safe_set(ws, r, C["trade"], row.get("disc_abbrev"))
+        _safe_set(ws, r, C["bp_code"], row.get("bp_code"))
+        _safe_set(ws, r, C["eq_big"], row.get("equipment_big"))
+        _safe_set(ws, r, C["eq_mid"], row.get("equipment_mid"))
+        _safe_set(ws, r, C["eq_spec"], row.get("equipment_spec"))
         cnt_cum = row.get("count_cum_t")
         if isinstance(row.get("count_yesterday_cum"), dict):
             _fill_timeshift(ws, r, C["yest_cum"], row["count_yesterday_cum"])
         elif cnt_cum is not None:
-            ws.cell(r, C["yest_cum"] + 5, cnt_cum)
+            _safe_set(ws, r, C["yest_cum"] + 5, cnt_cum)
         if isinstance(row.get("count_today_incr"), dict):
             _fill_timeshift(ws, r, C["today_incr"], row["count_today_incr"])
         if isinstance(row.get("count_today_cum"), dict):
@@ -266,28 +286,28 @@ def _fill_quantity(ws, rows: list[dict], report_date: _date) -> None:
     C = COL_QUANTITY
     for i, row in enumerate(rows):
         r = DATA_START_ROW + i
-        ws.cell(r, C["zone"], row.get("zone"))
-        ws.cell(r, C["trade"], row.get("trade") or row.get("disc_abbrev"))
-        ws.cell(r, C["bp_code"], row.get("bp_code"))
-        ws.cell(r, C["company"], row.get("company"))
-        ws.cell(r, C["scope"], row.get("scope"))
-        ws.cell(r, C["rep_work"], row.get("work_content"))
-        ws.cell(r, C["unit"], row.get("unit"))
-        ws.cell(r, C["total_a"], row.get("plan_total_qty"))
-        ws.cell(r, C["prev_cum_b"], row.get("yesterday_cum_qty"))
-        ws.cell(r, C["today_c"], row.get("today_qty"))
+        _safe_set(ws, r, C["zone"], row.get("zone"))
+        _safe_set(ws, r, C["trade"], row.get("trade") or row.get("disc_abbrev"))
+        _safe_set(ws, r, C["bp_code"], row.get("bp_code"))
+        _safe_set(ws, r, C["company"], row.get("company"))
+        _safe_set(ws, r, C["scope"], row.get("scope"))
+        _safe_set(ws, r, C["rep_work"], row.get("work_content"))
+        _safe_set(ws, r, C["unit"], row.get("unit"))
+        _safe_set(ws, r, C["total_a"], row.get("plan_total_qty"))
+        _safe_set(ws, r, C["prev_cum_b"], row.get("yesterday_cum_qty"))
+        _safe_set(ws, r, C["today_c"], row.get("today_qty"))
         # D = B + C, E = A - D — 둘 다 산식 가능하면 채움 (None 안전).
         b = row.get("yesterday_cum_qty")
         c = row.get("today_qty")
         a = row.get("plan_total_qty")
         if b is not None and c is not None:
             d = b + c
-            ws.cell(r, C["today_cum_d"], d)
+            _safe_set(ws, r, C["today_cum_d"], d)
             if a:
-                ws.cell(r, C["f_pct"], round(d / a * 100, 2))
-                ws.cell(r, C["remain_e"], a - d)
-                ws.cell(r, C["g_pct"], round(100 - (d / a * 100), 2))
-        ws.cell(r, C["note"], row.get("note"))
+                _safe_set(ws, r, C["f_pct"], round(d / a * 100, 2))
+                _safe_set(ws, r, C["remain_e"], a - d)
+                _safe_set(ws, r, C["g_pct"], round(100 - (d / a * 100), 2))
+        _safe_set(ws, r, C["note"], row.get("note"))
 
 
 def render_xlsx(sheet_data: SheetData, report_date: _date, project: str) -> bytes:

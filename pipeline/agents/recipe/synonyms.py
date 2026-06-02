@@ -3,6 +3,14 @@ from __future__ import annotations
 from pipeline.agents.parser import _norm_header
 
 # 헤더(정규화, _norm_header 가 공백 제거) -> 스키마 필드. 동의어는 같은 값으로.
+#
+# ⚠️ 적용 범위: field_for_header 는 recognize.py 의 sheet1/2/3(bp_summary/job/equip) 경로에서만
+# 호출된다. sheet4(activity) 컬럼은 parser.py _resolve_sheet4_columns 가 해석하며 그쪽은 한글 토큰
+# (공종/BP사/단위/작업내용/금일실적)만 인식한다. 따라서 아래 today_qty/today_cum/plan_total/unit 류
+# 와 영문(todayactual) 엔트리는 sheet4 변이 흡수에는 결정론적으로 적용되지 않는다(그 경우 Tier2 LLM
+# 영역 — gap → _llm_fill_recipe_gaps). 이 엔트리들은 field_for_header 단위테스트/Tier2 프롬프트 어휘
+# /향후 sheet4 resolver 통합 대비용으로 유지한다. sheet4 의 결정론 동의어는 work_content(작업내용)
+# 처럼 _resolve_sheet4_columns 가 직접 인식하는 것만 해당.
 _FIELD_SYNONYMS: dict[str, str] = {
     "공종": "trade",
     "Dis": "trade",

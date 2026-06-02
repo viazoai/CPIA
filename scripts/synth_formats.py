@@ -2,6 +2,13 @@
 
 각 변이는 의미적으로 동치 (레이블/위치만 바뀌고 값은 보존).
 Task 14: 로딩 가능한 .xlsx (>=4 시트) 생성 검증만. 의미 등치 검증은 Task 15.
+
+⚠️ 한계 (왜 합성이 필요한가): 현재 가용한 실 업체 파일(docs/sample + data/demo_inputs 10개)은
+fingerprint 1종 — 전부 동일 시트구조/헤더(같은 M15X IBL 템플릿)에 셀 company 도 전부 '중원엔지니어링'
+복제본이다. 즉 spec 가 전제한 'P1 양식 변이(컬럼/헤더/시트명 변이)'를 보여줄 실 corpus 가 없다.
+따라서 변이 흡수 능력은 이 합성 변이(V1 시트rename / V2 동의어 / V3 컬럼shuffle / V4 업체명컬럼삽입)로
+검증한다 — V1~V3 는 fingerprint 가 실제로 바뀌면서도 parse 등가 유지됨을 test_synth_* 가 증명.
+실 다양한 업체 양식이 확보되면 그 파일들로 골든 등가 테스트를 보강해야 한다.
 """
 
 from __future__ import annotations

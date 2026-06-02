@@ -105,32 +105,38 @@ def save_recipe(recipe: FormatRecipe) -> None:
 
 
 def load_cached_recipe(fp: str) -> FormatRecipe | None:
-    """캐시된 recipe 로드. 파일 없거나 손상 시 None. header_rows 는 tuple 로 복원(JSON 은 tuple 없음)."""
+    """캐시된 recipe 로드. 파일 없거나 손상 시 None. header_rows 는 tuple 로 복원(JSON 은 tuple 없음).
+
+    "손상" 은 깨진 JSON(JSONDecodeError)뿐 아니라 스키마 드리프트(키 누락/리네임 → KeyError,
+    top-level non-dict → TypeError)도 포함한다. model.py 스키마가 진화하면 구 캐시 파일이 이 케이스에
+    걸리는데, 가드 없이 두면 public 경로(use_cache=True)가 해당 fingerprint 에서 영구 crash(brick).
+    재해석으로 복구 가능하므로 손상 캐시는 조용히 무시(None)하고 Tier1 재실행에 맡긴다.
+    """
     path = _recipe_cache_path(fp)
     if not path.exists():
         return None
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return None
-    sheets = {
-        role: SheetRecipe(
-            sheet_name=sr["sheet_name"],
-            columns=sr["columns"],
-            timeshift_blocks=sr["timeshift_blocks"],
-            group_boundary=sr["group_boundary"],
-            header_rows=tuple(sr["header_rows"]),
-            final_flag_col=sr["final_flag_col"],
+        sheets = {
+            role: SheetRecipe(
+                sheet_name=sr["sheet_name"],
+                columns=sr["columns"],
+                timeshift_blocks=sr["timeshift_blocks"],
+                group_boundary=sr["group_boundary"],
+                header_rows=tuple(sr["header_rows"]),
+                final_flag_col=sr["final_flag_col"],
+            )
+            for role, sr in data["sheets"].items()
+        }
+        return FormatRecipe(
+            fingerprint=data["fingerprint"],
+            format_class=data["format_class"],
+            sheets=sheets,
+            generated_by=data["generated_by"],
+            confidence=data["confidence"],
         )
-        for role, sr in data["sheets"].items()
-    }
-    return FormatRecipe(
-        fingerprint=data["fingerprint"],
-        format_class=data["format_class"],
-        sheets=sheets,
-        generated_by=data["generated_by"],
-        confidence=data["confidence"],
-    )
+    except (json.JSONDecodeError, OSError, KeyError, TypeError, AttributeError, ValueError):
+        return None
 
 
 def _header_text_block(ws) -> list[str]:

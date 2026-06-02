@@ -417,3 +417,31 @@ def test_capture_exactness_vs_golden():
         assert sum(e["count_today_cum"]["total"] for e in rep["equipment_allocations"]) == sum(
             e["count_today_cum"]["total"] for e in gold["equipment_allocations"]
         ), f"{path}: equipment count_today_cum total 불일치"
+
+
+def test_cache_schema_drift_returns_none(tmp_path, monkeypatch):
+    # valid JSON 이지만 스키마 드리프트(키 누락/리네임/top-level non-dict) 캐시 → crash 아니라 None.
+    # docstring "손상 시 None" 계약 + public 경로(use_cache=True) brick 방지. (최종리뷰 MEDIUM #1)
+    monkeypatch.setattr("pipeline.agents.recipe.recognize.RECIPE_CACHE_DIR", tmp_path)
+    (tmp_path / "miss_sheets.json").write_text('{"format_class": "업체"}', encoding="utf-8")
+    assert load_cached_recipe("miss_sheets") is None  # KeyError 'sheets' → None
+    (tmp_path / "toplevel_list.json").write_text("[1, 2, 3]", encoding="utf-8")
+    assert load_cached_recipe("toplevel_list") is None  # TypeError → None
+    # public 경로: 실제 fingerprint 자리에 드리프트 파일을 둬도 Tier1 재해석으로 복구(brick X)
+    wb = openpyxl.load_workbook(BP, data_only=True)
+    fpv = fingerprint(wb)
+    (tmp_path / f"{fpv}.json").write_text('{"format_class": "업체"}', encoding="utf-8")
+    r = recognize_format(wb)  # use_cache=True default — crash 나면 안 됨
+    wb.close()
+    assert r.format_class == "업체" and r.confidence == 1.0  # 재해석 복구
+
+
+def test_synth_v5_english_headers_loud_fail(tmp_path):
+    # V5(영문 헤더)는 결정론 흡수 대상이 아님 — _resolve_sheet4_columns 가 한글 토큰만 인식하므로
+    # parse_with_recipe(V5) 는 ParseError 로 loud-fail (조용한 오염 X). 영문 변이는 Tier2 LLM 영역.
+    # (최종리뷰 MEDIUM #3: V5 한계를 명시 테스트로 박제)
+    out = tmp_path / "업체작업일보_M15X_PH4_중원엔지니어링_V5_250917.xlsx"
+    make_variant(BP, "V5", str(out))
+    with pytest.raises(ParseError) as e:
+        parse_with_recipe(str(out))
+    assert "work_content" in str(e.value) or "today_qty" in str(e.value)

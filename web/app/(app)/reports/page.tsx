@@ -151,6 +151,8 @@ export default function ReportPage() {
       : filteredWpRowsBase.filter((w) => w.status === wpStatusFilter);
   // WP목록 표 = 전체 wp_summary (status 4분면 필터만). headline Σ(wp_summary) 와 정합.
   const wpListRows = wpRowsForStatus(detail.wp_summary ?? [], wpStatusFilter);
+  // 선택 WP — OptimizerResult 진단/만회방안 괄호(지연·AI단축) prop source (wp_summary SSOT).
+  const selectedWp = detail.wp_summary.find((w) => w.wp_id === selectedWpId);
 
   return (
     <div className="flex flex-col">
@@ -264,6 +266,8 @@ export default function ReportPage() {
                         ?? detail.optimizer?.by_wp?.[detail.optimizer?.default_wp_id ?? ""]
                         ?? EMPTY_OPTIMIZER
                       }
+                      delayDays={selectedWp?.delay_days}
+                      recoveryDays={selectedWp?.recovery_days}
                     />
                   </div>
                 </div>

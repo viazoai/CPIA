@@ -10,17 +10,18 @@ interface Props {
   wbsRoot: WBSNode;
   onConfirm: (id: string) => void;
   onRemap: (id: string, newWpId: string, newPath: string) => void;
+  readOnly?: boolean;
 }
 
-export function ReviewCard({ item, wbsRoot, onConfirm, onRemap }: Props) {
+export function ReviewCard({ item, wbsRoot, onConfirm, onRemap, readOnly }: Props) {
   const [editMode, setEditMode] = useState(false);
   const isConfirmed = item.status === "confirmed";
 
   return (
     <div
-      draggable={!isConfirmed}
+      draggable={!isConfirmed && !readOnly}
       onDragStart={(e) => {
-        if (isConfirmed) return;
+        if (isConfirmed || readOnly) return;
         e.dataTransfer.setData("text/card-id", item.id);
         e.dataTransfer.effectAllowed = "move";
       }}
@@ -31,7 +32,12 @@ export function ReviewCard({ item, wbsRoot, onConfirm, onRemap }: Props) {
     >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          {isConfirmed ? (
+          {readOnly ? (
+            <>
+              <CheckCircle2 className="h-4 w-4 text-ink-light" />
+              <span className="font-mono text-xs uppercase tracking-wider text-ink-mid font-bold">등록</span>
+            </>
+          ) : isConfirmed ? (
             <>
               <CheckCircle2 className="h-4 w-4 text-mint" />
               <span className="font-mono text-xs uppercase tracking-wider text-mint-text font-bold">확정</span>
@@ -64,13 +70,13 @@ export function ReviewCard({ item, wbsRoot, onConfirm, onRemap }: Props) {
         </span>
       </div>
 
-      {!isConfirmed && item.alternative_wps && item.alternative_wps.length > 0 && (
+      {!isConfirmed && !readOnly && item.alternative_wps && item.alternative_wps.length > 0 && (
         <div className="mt-2 text-[11px] text-ink-light">
           대안: {item.alternative_wps.map((a) => `${a.path.split(" > ").pop()} (${Math.round(a.score * 100)}%)`).join(" · ")}
         </div>
       )}
 
-      {editMode && (
+      {!readOnly && editMode && (
         <div className="mt-3 rounded-md bg-surface-soft p-2">
           <div className="text-xs font-mono uppercase tracking-wider text-ink-light mb-1.5">
             수정: 검색 또는 좌측 트리로 드래그
@@ -86,26 +92,28 @@ export function ReviewCard({ item, wbsRoot, onConfirm, onRemap }: Props) {
         </div>
       )}
 
-      <div className="mt-3 flex items-center justify-end gap-2">
-        {!isConfirmed && (
+      {!readOnly && (
+        <div className="mt-3 flex items-center justify-end gap-2">
+          {!isConfirmed && (
+            <button
+              type="button"
+              onClick={() => onConfirm(item.id)}
+              className="inline-flex items-center gap-1 rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-text transition-colors"
+            >
+              <Check className="h-3.5 w-3.5" strokeWidth={2.5} />
+              확정
+            </button>
+          )}
           <button
             type="button"
-            onClick={() => onConfirm(item.id)}
-            className="inline-flex items-center gap-1 rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-text transition-colors"
+            onClick={() => setEditMode((v) => !v)}
+            className="inline-flex items-center gap-1 rounded-md border border-border bg-white px-3 py-1.5 text-xs font-semibold text-ink-mid hover:bg-surface-soft"
           >
-            <Check className="h-3.5 w-3.5" strokeWidth={2.5} />
-            확정
+            <Pencil className="h-3.5 w-3.5" />
+            {editMode ? "취소" : "수정"}
           </button>
-        )}
-        <button
-          type="button"
-          onClick={() => setEditMode((v) => !v)}
-          className="inline-flex items-center gap-1 rounded-md border border-border bg-white px-3 py-1.5 text-xs font-semibold text-ink-mid hover:bg-surface-soft"
-        >
-          <Pencil className="h-3.5 w-3.5" />
-          {editMode ? "취소" : "수정"}
-        </button>
-      </div>
+        </div>
+      )}
     </div>
   );
 }

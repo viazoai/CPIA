@@ -1,0 +1,24 @@
+import { describe, it, expect } from "vitest";
+import { render, screen } from "@testing-library/react";
+import { ReviewCard } from "@/app/components/review/ReviewCard";
+import type { ReviewItem, WBSNode } from "@/lib/types";
+
+const wbs: WBSNode = { id: "s", type: "building", name: "s", parent_id: null, review_count: 0, total_count: 0, status: "normal", children: [] };
+const item: ReviewItem = {
+  id: "r1", idx: 1, bp_name: "A건설", work_content: "작업", quantity: 10, unit: "m3",
+  ai_mapped_wp_id: "w", ai_mapped_path: "s > FAB > PC", wa: "FAB", l6_main: "PC공사",
+  confidence: 0.9, status: "confirmed",
+};
+
+describe("ReviewCard readOnly", () => {
+  it("readOnly 면 확정·수정 버튼 없고 배지 '등록'", () => {
+    render(<ReviewCard item={item} wbsRoot={wbs} onConfirm={() => {}} onRemap={() => {}} readOnly />);
+    expect(screen.queryByText("수정")).toBeNull();
+    expect(screen.queryByText("확정")).toBeNull();
+    expect(screen.getByText("등록")).toBeTruthy();
+  });
+  it("readOnly 아니면 수정 버튼 있음", () => {
+    render(<ReviewCard item={{ ...item, status: "unconfirmed" }} wbsRoot={wbs} onConfirm={() => {}} onRemap={() => {}} />);
+    expect(screen.getByText("수정")).toBeTruthy();
+  });
+});

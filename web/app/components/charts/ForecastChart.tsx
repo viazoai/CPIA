@@ -62,6 +62,12 @@ export function ForecastChart({
     noaction: true,
   });
 
+  // AI 시나리오 라인 클릭 강조 (C4)
+  const [activeLine, setActiveLine] = useState<"base" | null>(null);
+
+  // cold_start 가드 — base 커브 데이터가 실제로 있는지 확인
+  const hasBase = (diagnosis.scenarios?.base?.curve ?? []).some((v) => v != null);
+
   // 마우스 스크롤 줌 — 슬라이스 경계 override
   const [view, setView] = useState<{ s: number; e: number } | null>(null);
 
@@ -217,7 +223,11 @@ export function ForecastChart({
           <span className="h-0.5 w-4" style={{ background: "#94a3b8" }} />
           플랜 (계획)
         </span>
-        <span className="inline-flex items-center gap-1.5">
+        <span
+          className="inline-flex items-center gap-1.5"
+          onClick={() => hasBase && setActiveLine((a) => (a === "base" ? null : "base"))}
+          style={{ cursor: hasBase ? "pointer" : "default" }}
+        >
           <span className="h-0.5 w-4 border-t-2 border-dashed" style={{ borderColor: "#0ea76a" }} />
           AI 시나리오
         </span>
@@ -243,20 +253,31 @@ export function ForecastChart({
             labelFormatter={(v) => String(v)}
           />
 
-          <Area dataKey="band_high" stroke="none" fill="#e8eeff" fillOpacity={0.4} activeDot={false} isAnimationActive={false} />
+          <Area dataKey="band_high" stroke="none" fill="#e8eeff" fillOpacity={activeLine === "base" ? 0.15 : 0.4} activeDot={false} isAnimationActive={false} />
           <Area dataKey="band_low"  stroke="none" fill="#ffffff" fillOpacity={1}   activeDot={false} isAnimationActive={false} />
 
           {/* 플랜 (계획) — 회색 실선 */}
-          <Line dataKey="planned" stroke="#94a3b8" strokeWidth={2} dot={false} isAnimationActive={false} />
+          <Line dataKey="planned" stroke="#94a3b8" strokeWidth={2} strokeOpacity={activeLine === "base" ? 0.25 : 1} dot={false} isAnimationActive={false} />
 
-          {/* 현황 (실적) — 검정 굵은 실선 */}
-          <Line dataKey="actual" stroke="#0d1117" strokeWidth={3} dot={false} isAnimationActive={false} />
+          {/* 현황 (실적) — 검정 굵은 실선 (항상 full) */}
+          <Line dataKey="actual" stroke="#0d1117" strokeWidth={3} strokeOpacity={1} dot={false} isAnimationActive={false} />
 
           {/* 현황 (예측) — 빨강 dashed (BE forecast — actual trend 연장, plan 과 평행 격차 유지) */}
-          <Line dataKey="forecast" stroke="#ef4444" strokeWidth={2} strokeDasharray="6 5" dot={false} isAnimationActive={false} connectNulls={false} />
+          <Line dataKey="forecast" stroke="#ef4444" strokeWidth={2} strokeDasharray="6 5" strokeOpacity={activeLine === "base" ? 0.25 : 1} dot={false} isAnimationActive={false} connectNulls={false} />
 
-          {/* AI 시나리오 — mint 점선. catch-up + plan 동행 (catch-up 까지만 라인 그림). */}
-          <Line dataKey="base" stroke="#0ea76a" strokeWidth={2.5} strokeDasharray="5 4" dot={false} isAnimationActive={false} connectNulls={false} />
+          {/* AI 시나리오 — mint 점선. catch-up + plan 동행. 클릭 토글 강조 */}
+          <Line
+            dataKey="base"
+            stroke="#0ea76a"
+            strokeWidth={2.5}
+            strokeDasharray="5 4"
+            strokeOpacity={1}
+            dot={false}
+            isAnimationActive={false}
+            connectNulls={false}
+            onClick={() => hasBase && setActiveLine((a) => (a === "base" ? null : "base"))}
+            style={{ cursor: hasBase ? "pointer" : "default" }}
+          />
 
           {lastPoint && lastPoint.actual !== undefined && (
             <ReferenceDot
@@ -329,6 +350,36 @@ export function ForecastChart({
 
         </ComposedChart>
       </ResponsiveContainer>
+
+      {/* 컴팩트 카드 — AI 시나리오 라인/범례 클릭 시 표시 (C4) */}
+      {activeLine === "base" && (
+        <div className="mt-3 max-w-md rounded-md bg-mint-light/40 px-3 py-2 text-[12.5px] ring-1 ring-mint/30">
+          <div className="font-semibold text-mint-text">AI 시나리오 · {recoveryDays > 0 ? `${recoveryDays}일 만에 plan 따라잡음` : "회복 제한적"}</div>
+          {(() => {
+            const top = (aiAdvice ?? [])
+              .filter((w) => typeof w.recovery_days === "number")
+              .sort((a, b) => (b.recovery_days ?? 0) - (a.recovery_days ?? 0))[0];
+            const recs = top?.recommendations?.slice(0, 2) ?? [];
+            if (recs.length)
+              return (
+                <ul className="mt-1 ml-3 list-disc space-y-0.5 text-ink-mid">
+                  {recs.map((r, i) => (
+                    <li key={i}>{r}</li>
+                  ))}
+                </ul>
+              );
+            if (aiSummaryText) return <p className="mt-1 text-ink-mid line-clamp-2">{aiSummaryText}</p>;
+            return null;
+          })()}
+          <button
+            type="button"
+            onClick={() => setActiveLine(null)}
+            className="mt-1 text-[11px] text-ink-light hover:text-ink-mid"
+          >
+            닫기
+          </button>
+        </div>
+      )}
       </div>
 
       {/* 3선 요약 — 현황 / 플랜 / AI 시나리오 */}

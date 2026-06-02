@@ -1613,6 +1613,18 @@ def _group_perperson_unit(items: list[dict]) -> tuple[float | None, str | None]:
     return avg, unit
 
 
+def _wp_summary_dates(it: dict, today: date) -> tuple[str, str]:
+    """wp_summary 시작/종료일 = 온고잉 plan 의 실 기간 (placeholder 폐기).
+
+    2026-06-02 B2.5(C6): 이전엔 당월1일/오늘 placeholder 라 진단 inconsistent.
+    grouped_items 의 plan_start/plan_finish (활동마스터 plan) 사용. 둘 중
+    하나라도 None/누락이면 today 로 fallback (디자인 불가침 — 데이터-only).
+    """
+    ps = it.get("plan_start") or today
+    pf = it.get("plan_finish") or today
+    return str(ps), str(pf)
+
+
 _VIEWS_V2_EMPTY = {
     "kpi": {},
     "productivity": {},
@@ -1780,6 +1792,8 @@ async def _build_productivity_views_v2(
                 "risk_level": risk_lookup.get((r["wa"], r["company"], r["l6_main"])),
                 "productivity": productivity,
                 "impact_raw": impact_raw,
+                "plan_start": r["plan_start"],
+                "plan_finish": r["plan_finish"],
             }
         )
 
@@ -1985,8 +1999,9 @@ async def _build_productivity_views_v2(
                 "wp_name": _wp_name_with_wa(it),
                 "trade": it["l6_main"],
                 "bp_name": it["company"],
-                "start_date": str(today.replace(day=1)),  # placeholder
-                "end_date": str(today),
+                # 2026-06-02 B2.5(C6): 당월1일/오늘 placeholder → 온고잉 plan 실 기간.
+                "start_date": _wp_summary_dates(it, today)[0],
+                "end_date": _wp_summary_dates(it, today)[1],
                 "progress_pct": round(
                     min(100, (it["today_qty"] / max(it["plan_total_qty"], 1)) * 100), 1
                 ),

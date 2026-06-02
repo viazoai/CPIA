@@ -301,6 +301,20 @@ async def run_pipeline(body: RunRequest) -> RunResponse:
                 file=__import__("sys").stderr,
                 flush=True,
             )
+            # 2026-06-02 (C5-6): mapper 청크 INSERT 가 남긴 부분행 정리 (run 단위 chokepoint).
+            try:
+                import asyncpg as _asyncpg
+
+                _c = await _asyncpg.connect(postgres_url)
+                try:
+                    await _c.execute(
+                        "DELETE FROM mapper_activities WHERE run_id=$1",
+                        run_id,  # run_id is uuid.UUID here (uuid.uuid4() at line 279)
+                    )
+                finally:
+                    await _c.close()
+            except Exception:
+                pass
             await set_run_status(postgres_url, run_id, "failed")
 
     asyncio.create_task(_bg())

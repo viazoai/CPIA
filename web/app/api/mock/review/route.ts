@@ -29,7 +29,8 @@ export async function GET() {
     (sql as any)`
     SELECT
       ma.id, ma.run_id, ma.idx, ma.company, ma.today_qty, ma.unit,
-      ma.wa, ma.l6_main, ma.mapping_conf, ma.requires_review, ma.alternatives,
+      ma.wa, ma.l6_main, ma.mapping_conf, ma.requires_review,
+      ma.l7_5_activity, ma.l7_5_alternatives,
       pa.work_content
     FROM mapper_activities ma
     JOIN pipeline_runs pr USING (run_id)
@@ -55,26 +56,21 @@ export async function GET() {
       l6_main: string | null;
       mapping_conf: number | string | null;
       requires_review: boolean;
-      alternatives: unknown;
+      l7_5_activity: string | null;
+      l7_5_alternatives: unknown;
       work_content: string | null;
     }>,
   ];
 
   const cards: ReviewItem[] = cardRows.map((r) => {
     const aiMapped = deriveWpIdAndPath(r.wa, r.l6_main, siteName);
-    const altsRaw = r.alternatives;
-    const alts: Array<{ wa?: string | null; l6_main?: string | null; score?: number | string | null }> =
-      Array.isArray(altsRaw)
-        ? (altsRaw as any[])
-        : typeof altsRaw === "string"
-          ? (() => {
-              try {
-                const parsed = JSON.parse(altsRaw);
-                return Array.isArray(parsed) ? parsed : [];
-              } catch {
-                return [];
-              }
-            })()
+
+    const l75AltsRaw = r.l7_5_alternatives;
+    const l75Alts: Array<{ label?: string | null; score?: number | string | null }> =
+      Array.isArray(l75AltsRaw)
+        ? (l75AltsRaw as any[])
+        : typeof l75AltsRaw === "string"
+          ? (() => { try { const p = JSON.parse(l75AltsRaw); return Array.isArray(p) ? p : []; } catch { return []; } })()
           : [];
 
     return {
@@ -85,19 +81,16 @@ export async function GET() {
       quantity: r.today_qty != null ? Number(r.today_qty) : 0,
       unit: r.unit ?? "",
       ai_mapped_wp_id: aiMapped.wp_id,
-      ai_mapped_path: aiMapped.path,
+      ai_mapped_path: `${aiMapped.path} > ${r.l7_5_activity || "미분류"}`,
       wa: r.wa,
       l6_main: r.l6_main,
       confidence: r.mapping_conf != null ? Number(r.mapping_conf) : 0,
       status: r.requires_review ? "unconfirmed" : "confirmed",
-      alternative_wps: alts.map((a) => {
-        const ap = deriveWpIdAndPath(a.wa ?? null, a.l6_main ?? null, siteName);
-        return {
-          id: ap.wp_id,
-          path: ap.path,
-          score: a.score != null ? Number(a.score) : 0,
-        };
-      }),
+      alternative_wps: l75Alts.map((a, i) => ({
+        id: `l75-${i}`,
+        path: a.label ?? "",
+        score: a.score != null ? Number(a.score) : 0,
+      })),
     };
   });
 

@@ -360,6 +360,65 @@ class MapperConfig:
     top_k: int = 15
     max_candidates: int = 8
     conf_threshold: float = 0.7
+    l75_conf_threshold: float = 0.7  # l7.5 선정 신뢰도 게이트 (env CPIA_L75_CONF_THRESHOLD)
+
+
+# ============================================================
+# l7.5 pageindex 선정 (pick_l75 + _call_l75_llm)
+# ============================================================
+
+
+def _call_l75_llm(client, model, work_content, l6, company, unit, candidates) -> dict:
+    """l7.5 후보 중 best 선택 LLM 호출 (동기). asyncio.to_thread 로 감쌈."""
+    cand_str = "\n".join(f"[{i}] {c}" for i, c in enumerate(candidates))
+    user_msg = (
+        f"건설 작업일보 1행을, 같은 공종(L6) 밑 세부작업(L7.5) 후보 중 가장 맞는 1개로 분류.\n"
+        f"맞는 후보가 없거나 애매하면 choice=-1.\n\n"
+        f"### 작업일보\n작업내용: {work_content}\n업체: {company}\n단위: {unit}\n공종(L6): {l6}\n\n"
+        f"### L7.5 후보\n{cand_str}\n\n"
+        f'### 응답 (JSON only)\n{{"choice": <int 또는 -1>, "confidence": <0.0~1.0>, "reason": "<짧게>"}}'
+    )
+    resp = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": "건설 작업일보 ↔ WBS L7.5 분류기. 한국어."},
+            {"role": "user", "content": user_msg},
+        ],
+        response_format={"type": "json_object"},
+    )
+    return json.loads(resp.choices[0].message.content)
+
+
+async def pick_l75(work_content, l6, company, unit, candidates, cfg, client=None) -> dict:
+    """l6 밑 master l7.5 후보 중 best 선정. 반환 {l7_5_activity, l75_conf, l7_5_alternatives}.
+
+    cfg=None + _call_l75_llm monkeypatch 시 client/cfg 미접근 (드라이 테스트).
+    map_activity 는 이미 만든 client 를 재사용해 activity 당 2번째 AzureOpenAI 생성 회피.
+    """
+    if not candidates:
+        return {"l7_5_activity": None, "l75_conf": 0.0, "l7_5_alternatives": []}
+    if client is None and cfg is not None:
+        client = AzureOpenAI(
+            api_key=cfg.azure_api_key,
+            api_version=cfg.azure_api_version,
+            azure_endpoint=cfg.azure_endpoint,
+        )
+    model = cfg.llm_model if cfg is not None else None
+    try:
+        out = await asyncio.to_thread(
+            _call_l75_llm, client, model, work_content, l6, company, unit, candidates
+        )
+    except Exception:
+        out = {"choice": -1, "confidence": 0.0}
+    ch = out.get("choice", -1)
+    alts = [{"label": c, "score": 0.0} for c in candidates[:5]]
+    if isinstance(ch, int) and 0 <= ch < len(candidates):
+        return {
+            "l7_5_activity": candidates[ch],
+            "l75_conf": float(out.get("confidence", 0.0)),
+            "l7_5_alternatives": alts,
+        }
+    return {"l7_5_activity": None, "l75_conf": 0.0, "l7_5_alternatives": alts}
 
 
 async def map_activity(
@@ -367,6 +426,7 @@ async def map_activity(
     parsed_report: ParsedDailyReport | None,
     cfg: MapperConfig,
     bp_cand_lookup: dict[str, list[tuple[str, str]]] | None = None,
+    l75_cand_map: dict | None = None,
 ) -> Activity:
     """6단계 흐름 (mapping-layer.md §3).
 
@@ -512,6 +572,16 @@ async def map_activity(
         chosen_wa=chosen_key[0],
     )
 
+    l75 = await pick_l75(
+        activity.get("work_content", ""),
+        chosen_key[1],
+        activity["company"],
+        activity.get("unit", ""),
+        (l75_cand_map or {}).get(chosen_key[1], []),
+        cfg,
+        client=client,
+    )
+
     # 2026-06-02 (C5-1): 전건 HIL — 점수 무관 모든 매핑이 review UI 를 거치도록 강제.
     # mapping_conf 는 confidence 원본 그대로 반환(FE 표시). Spec §5.1 #1.
     requires_review = True
@@ -525,6 +595,9 @@ async def map_activity(
         "requires_review": requires_review,
         # G23 — FE review dropdown 용 top-K 후보 (K=3).
         "alternatives": _select_top_k_alternatives(candidates, k=3),
+        "l7_5_activity": l75["l7_5_activity"],
+        "l75_conf": l75["l75_conf"],
+        "l7_5_alternatives": l75["l7_5_alternatives"],
     }
 
 

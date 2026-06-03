@@ -9,6 +9,33 @@ PG = os.environ["POSTGRES_URL"]
 
 
 @pytest.mark.asyncio
+async def test_pick_l75_specific(monkeypatch):
+    from pipeline.agents import mapper as M
+
+    cands = ["기초공사 : 거푸집 공사", "기초공사 : 철근 콘크리트 타설", "RC Wall & Column 공사 : 거푸집 공사"]
+    monkeypatch.setattr(M, "_call_l75_llm", lambda *a, **k: {"choice": 0, "confidence": 0.99, "reason": "x"})
+    out = await M.pick_l75("기초 거푸집 설치", "철근콘크리트공사", "광건", "m2", cands, cfg=None)
+    assert out["l7_5_activity"] == "기초공사 : 거푸집 공사"
+    assert out["l75_conf"] == 0.99
+    assert out["l7_5_alternatives"][0]["label"] in cands
+
+
+@pytest.mark.asyncio
+async def test_pick_l75_none(monkeypatch):
+    from pipeline.agents import mapper as M
+
+    monkeypatch.setattr(
+        M, "_call_l75_llm", lambda *a, **k: {"choice": -1, "confidence": 0.2, "reason": "no fit"}
+    )
+    out = await M.pick_l75(
+        "비계 설치", "외장판넬공사", "남웅", "m2", ["Glass Wool Panel 설치", "Wind Column 설치"], cfg=None
+    )
+    assert out["l7_5_activity"] is None
+    assert out["l75_conf"] == 0.0
+    assert len(out["l7_5_alternatives"]) >= 1
+
+
+@pytest.mark.asyncio
 async def test_l75_columns_roundtrip():
     pg = PGClient(PG)
     await pg.connect()

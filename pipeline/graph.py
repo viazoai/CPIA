@@ -92,6 +92,15 @@ async def mapper_node(state: CPIAState, cfg: GraphConfig) -> dict:
         for company in unique_companies:
             cand_rows = await pg.fetch_bp_candidates(company)
             bp_cand_lookup[company] = [(r["wa"], r["l6_main"]) for r in cand_rows]
+        # l7.5 후보맵: site+l5_disc(건축/토목)의 l6 → [l7.5...]. activity별 l6는 LLM 후 결정되므로 전체 1회 fetch.
+        _site_id = state.get("site_id") or "m15x-ph3-ibl"
+        l75_cand_rows = await pg.fetch_all(
+            """SELECT l6_main, ARRAY_AGG(DISTINCT l7_5_activity) AS l75s
+               FROM activity_master WHERE site_id=$1 AND l5_disc IN ('건축','토목')
+                 AND l7_5_activity IS NOT NULL GROUP BY l6_main""",
+            _site_id,
+        )
+        l75_cand_map: dict[str, list[str]] = {r["l6_main"]: list(r["l75s"]) for r in l75_cand_rows}
     finally:
         await pg.close()
 
@@ -104,6 +113,7 @@ async def mapper_node(state: CPIAState, cfg: GraphConfig) -> dict:
                 parsed_report=parsed,
                 cfg=cfg.mapper,
                 bp_cand_lookup=bp_cand_lookup,
+                l75_cand_map=l75_cand_map,
             )
             return idx, m
 

@@ -119,6 +119,7 @@ def _build_prod_graph_config() -> GraphConfig:
         embedding_model=embedding_model,
         chroma_host=chroma_host,
         chroma_port=chroma_port,
+        l75_conf_threshold=float(os.environ.get("CPIA_L75_CONF_THRESHOLD", "0.7")),
     )
     atomizer_cfg = AtomizerConfig(
         postgres_url=postgres_url,

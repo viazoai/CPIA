@@ -47,6 +47,7 @@ class CorrectionItem(BaseModel):
 
     wa: str
     l6_main: str
+    l7_5_activity: Optional[str] = None  # 사람이 l7.5 지정. None+l6 변경 시 미분류 (D9).
 
 
 class Hil1ResumeRequest(BaseModel):
@@ -350,7 +351,8 @@ async def hil_1_resume(run_id: str, body: Hil1ResumeRequest) -> Hil1ResumeAck:
 
     # corrections dict[str, CorrectionItem] → dict[str, dict] (JSON serializable)
     corrections_payload: dict[str, dict] = {
-        k: {"wa": v.wa, "l6_main": v.l6_main} for k, v in body.corrections.items()
+        k: {"wa": v.wa, "l6_main": v.l6_main, "l7_5_activity": v.l7_5_activity}
+        for k, v in body.corrections.items()
     }
 
     async def _bg() -> None:

@@ -268,10 +268,16 @@ def _apply_corrections(
         if a.get("requires_review"):
             c = corrections.get(i)
             if c:
+                l6_changed = c["l6_main"] != a.get("l6_main")
+                if "l7_5_activity" in c:
+                    new_l75 = c.get("l7_5_activity")
+                else:
+                    new_l75 = None if l6_changed else a.get("l7_5_activity")
                 new_a: Activity = {
                     **a,
                     "wa": c["wa"],
                     "l6_main": c["l6_main"],
+                    "l7_5_activity": new_l75,
                     "mapping_source": "user_corrected",
                     "requires_review": False,
                 }
@@ -347,6 +353,7 @@ async def hil_1_node(state: CPIAState, cfg) -> dict:
                     corrected={
                         "wa": c["wa"],
                         "l6_main": c["l6_main"],
+                        "l7_5_activity": c.get("l7_5_activity"),
                         "mapping_source": "user_corrected",
                         "correction_type": "replace",
                     },

@@ -45,3 +45,19 @@ def test_unclassified_hil():
 
 def test_user_corrected_exempt():
     assert compute_requires_review(None, "외장판넬공사", 0.0, HIST, 0.7, "user_corrected") is False
+
+
+from pipeline.graph import _apply_corrections
+
+
+def test_apply_l75_remap_to_unclassified():
+    mapped = [{"company": "A", "l6_main": "외장판넬공사", "l7_5_activity": "Glass Wool Panel 설치", "requires_review": True}]
+    out = _apply_corrections(mapped, {0: {"wa": "FAB", "l6_main": "수장공사"}})  # l6 변경, l7.5 미지정
+    assert out[0]["l7_5_activity"] is None  # 옛 l6 의 l7.5 무효화 → 미분류
+    assert out[0]["mapping_source"] == "user_corrected" and out[0]["requires_review"] is False
+
+
+def test_apply_l75_explicit():
+    mapped = [{"company": "A", "l6_main": "수장공사", "l7_5_activity": None, "requires_review": True}]
+    out = _apply_corrections(mapped, {0: {"wa": "CUB", "l6_main": "수장공사", "l7_5_activity": "경량벽체 설치"}})
+    assert out[0]["l7_5_activity"] == "경량벽체 설치"

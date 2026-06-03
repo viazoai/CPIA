@@ -156,10 +156,10 @@ export default function HumanReviewPage() {
     setConfirmedNotice(`${n}건 확정 완료`);
     // 사용자가 수정(remap)한 카드만 corrections 로 BE 전달(idx 키 = mapper_activities.idx).
     // 수정 안 한 요검토 항목은 BE hil_1_node 가 AI 매핑 그대로 확정(corrections 불필요).
-    const corrections: Record<string, { wa: string; l6_main: string }> = {};
+    const corrections: Record<string, { wa: string; l6_main: string; l7_5_activity?: string | null }> = {};
     for (const c of cards) {
       if (c.remapped && c.wa && c.l6_main) {
-        corrections[String(c.idx)] = { wa: c.wa, l6_main: c.l6_main };
+        corrections[String(c.idx)] = { wa: c.wa, l6_main: c.l6_main, l7_5_activity: null };
       }
     }
     fetch("/api/hil/resume", {

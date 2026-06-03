@@ -100,6 +100,10 @@ export default function HumanReviewPage() {
   );
   const connectorTone: "mint" | "sun" =
     selectedCard && selectedCard.status === "unconfirmed" && selectedCard.confidence < 0.8 ? "sun" : "mint";
+  // Task 8: 선택 노드의 검토대기(요검토) 건수 — 누적(확정)은 requires_review=FALSE 만이라
+  // 이 만큼이 아직 누적에 미반영(과소표시). 좌측 트리 요검토와 동일 review_count.
+  const selectedPending =
+    wbs && selectedNodeId ? (find(wbs, selectedNodeId)?.review_count ?? 0) : 0;
   // 연결선 재드로잉 nonce — 모드·그룹수·선택노드(트리 펼침/스크롤) 변할 때 bump.
   const [redrawKey, setRedrawKey] = useState(0);
   useEffect(() => {
@@ -250,7 +254,7 @@ export default function HumanReviewPage() {
               <span className="font-display text-h6 font-bold text-ink">작업물량</span>
               <div className="flex items-center gap-2">
                 {!onlyUnconfirmed && selectedNodeId && registered.length > 0 && (
-                  <span className="text-[11px] text-ink-light">총 {registeredTotal}건 중 최근 {registered.length}건</span>
+                  <span className="text-[11px] text-ink-light">확정 {registeredTotal}건{selectedPending > 0 ? ` · 검토대기 ${selectedPending}건` : ""}</span>
                 )}
                 {confirmedNotice && <span className="text-[11px] font-semibold text-mint-text">{confirmedNotice}</span>}
                 <span className="text-xs font-medium text-ink">신규 확정 필요만 보기</span>

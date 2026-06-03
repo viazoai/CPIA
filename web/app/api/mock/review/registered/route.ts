@@ -30,6 +30,7 @@ export async function GET(req: Request) {
     LEFT JOIN parser_activities pa ON pa.run_id = ma.run_id AND pa.idx = ma.idx
     WHERE pr.site_id = ${siteId} AND ma.is_mock = ${useMock}
       AND ma.l6_main IS NOT NULL
+      AND ma.trade IN ('건축', '토목')
       AND ma.wa = ${wa}
       AND (${l6}::text IS NULL OR ma.l6_main = ${l6})
       AND (${l5}::text IS NULL OR ma.l5_disc = ${l5})

@@ -190,9 +190,11 @@ export async function wbsTreeBuild(siteId: string, siteName?: string): Promise<W
   const useMock = process.env.CPIA_DEMO_FALLBACK === "on";
   const rows = (await (sql as any)`
     WITH am_combos AS (
+      -- 시연 범위: 건축/토목 공종 한정 (설비·전기·UT·제어·소방 등 트리에서 제외)
       SELECT DISTINCT site_id, wa, l5_disc, l6_main
       FROM activity_master
       WHERE site_id = ${siteId}
+        AND l5_disc IN ('건축', '토목')
     ),
     review_agg AS (
       -- review/route.ts:36-40 와 동일 필터 (today_qty > 0 포함) — WBS 노드 카운트 ↔ 카드 수 일치.

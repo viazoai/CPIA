@@ -262,6 +262,7 @@ def _apply_corrections(
     - 답한 row: wa/l6_main 수정 + mapping_source="user_corrected" + requires_review=False
     - 답 안 한 row (review_needed 였으나 corrections 에 없음): Mapper 추천 수용 +
       mapping_source="user_corrected" + requires_review=False (재시도 X — PoC 기본)
+    - l7_5_activity (D9): c 에 키 있으면 그 값(None 이면 미분류); 키 없으면 l6 변경 시 None(미분류), l6 동일 시 기존 값 유지.
     """
     out: list[Activity] = []
     for i, a in enumerate(mapped):
@@ -351,9 +352,9 @@ async def hil_1_node(state: CPIAState, cfg) -> dict:
                         "mapping_source": original_a.get("mapping_source"),
                     },
                     corrected={
-                        "wa": c["wa"],
-                        "l6_main": c["l6_main"],
-                        "l7_5_activity": c.get("l7_5_activity"),
+                        "wa": corrected[idx]["wa"],
+                        "l6_main": corrected[idx]["l6_main"],
+                        "l7_5_activity": corrected[idx].get("l7_5_activity"),
                         "mapping_source": "user_corrected",
                         "correction_type": "replace",
                     },

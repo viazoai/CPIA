@@ -61,3 +61,17 @@ def test_apply_l75_explicit():
     mapped = [{"company": "A", "l6_main": "수장공사", "l7_5_activity": None, "requires_review": True}]
     out = _apply_corrections(mapped, {0: {"wa": "CUB", "l6_main": "수장공사", "l7_5_activity": "경량벽체 설치"}})
     assert out[0]["l7_5_activity"] == "경량벽체 설치"
+
+
+def test_apply_l75_key_present_none_explicit():
+    """API 경로: l7_5_activity 키 있고 None + l6 변경 → 명시적 미분류."""
+    mapped = [{"company": "A", "l6_main": "외장판넬공사", "l7_5_activity": "Old 항목", "requires_review": True}]
+    out = _apply_corrections(mapped, {0: {"wa": "FAB", "l6_main": "수장공사", "l7_5_activity": None}})
+    assert out[0]["l7_5_activity"] is None
+
+
+def test_apply_l75_keep_when_l6_same_and_key_absent():
+    """키 없음 + l6 동일 → 기존 l7.5 보존."""
+    mapped = [{"company": "A", "l6_main": "수장공사", "l7_5_activity": "기존항목", "requires_review": True}]
+    out = _apply_corrections(mapped, {0: {"wa": "CUB", "l6_main": "수장공사"}})  # 키 없음
+    assert out[0]["l7_5_activity"] == "기존항목"

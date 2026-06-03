@@ -159,6 +159,7 @@ export default function HumanReviewPage() {
     const corrections: Record<string, { wa: string; l6_main: string; l7_5_activity?: string | null }> = {};
     for (const c of cards) {
       if (c.remapped && c.wa && c.l6_main) {
+        // l6 재매핑 → 기존 l7.5 무효화(BE 에서 미분류 처리, D9)
         corrections[String(c.idx)] = { wa: c.wa, l6_main: c.l6_main, l7_5_activity: null };
       }
     }

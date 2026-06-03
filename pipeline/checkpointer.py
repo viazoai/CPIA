@@ -38,11 +38,19 @@ class _LazyAsyncPostgresSaver(AsyncPostgresSaver):
     def __init__(self, postgres_url: str):
         from psycopg_pool import AsyncConnectionPool
 
+        # check=check_connection: 풀에서 커넥션을 넘기기 전 살아있는지 검증·교체.
+        # max_idle/max_lifetime: 원격 Postgres(homelab) 가 idle 커넥션을 끊어도
+        # 죽은 커넥션을 재사용하지 않도록 주기적으로 회수·재생성.
+        # (2026-06-03 fix: 장시간 가동 후 첫 /run 의 _bg 가 aget_tuple 에서
+        #  "server closed the connection unexpectedly" 로 즉시 실패하던 문제)
         pool = AsyncConnectionPool(
             postgres_url,
             kwargs={"autocommit": True},
             max_size=10,
             open=False,
+            check=AsyncConnectionPool.check_connection,
+            max_idle=300,
+            max_lifetime=1800,
         )
         super().__init__(pool)
         self._lazy_pool = pool

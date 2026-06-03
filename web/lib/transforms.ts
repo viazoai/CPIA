@@ -197,24 +197,42 @@ export async function wbsTreeBuild(siteId: string, siteName?: string): Promise<W
         AND l5_disc IN ('건축', '토목')
     ),
     review_agg AS (
-      -- review/route.ts:36-40 와 동일 필터 (today_qty > 0 포함) — WBS 노드 카운트 ↔ 카드 수 일치.
+      -- review/route.ts:36-40 와 동일 필터 (status='waiting_hil_1' 포함) — WBS 노드 카운트 ↔ 카드 수 일치.
       SELECT ma.wa, ma.l6_main, COUNT(*) AS review_count
       FROM mapper_activities ma
       JOIN pipeline_runs pr USING (run_id)
       WHERE pr.site_id = ${siteId}
+        AND pr.status = 'waiting_hil_1'
         AND ma.requires_review = TRUE
         AND ma.is_mock = ${useMock}
         AND ma.trade IN ('건축', '토목')
         AND ma.today_qty > 0
       GROUP BY ma.wa, ma.l6_main
     ),
-    activity_agg AS (
-      SELECT ma.wa, ma.l6_main, COUNT(*) AS total_count
+    active_l75 AS (
+      -- mapper 가 활성화한 (wa, l6, l7_5_activity) 조합. l7_5 NULL(미해소/HIL대기)은 제외.
+      SELECT DISTINCT ma.wa, ma.l6_main, ma.l7_5_activity
       FROM mapper_activities ma
       JOIN pipeline_runs pr USING (run_id)
       WHERE pr.site_id = ${siteId}
         AND ma.is_mock = ${useMock}
-      GROUP BY ma.wa, ma.l6_main
+        AND ma.trade IN ('건축', '토목')
+        AND ma.l7_5_activity IS NOT NULL
+    ),
+    activity_agg AS (
+      -- total_count = mapper 가 건드린 작업을 마스터 leaf(개별 활동 wbs_activity_id)로 펼친 수.
+      -- mapper 는 l7_5(상세작업명)까지만 기록하므로, 활성 l7_5 를 activity_master 의 동일
+      -- (wa, l6, l7_5) 행으로 역매핑해 leaf 개수를 센다. DISTINCT l7_5 종류 grain(232)이 아니라
+      -- 활동 인스턴스 grain — 준공 시점엔 계획 leaf(689)의 ~99.6%(686)를 커버한다.
+      SELECT al.wa, al.l6_main, COUNT(DISTINCT am.wbs_activity_id) AS total_count
+      FROM active_l75 al
+      JOIN activity_master am
+        ON am.site_id = ${siteId}
+       AND am.wa = al.wa
+       AND am.l6_main = al.l6_main
+       AND am.l7_5_activity = al.l7_5_activity
+      WHERE am.l5_disc IN ('건축', '토목')
+      GROUP BY al.wa, al.l6_main
     ),
     forecast_agg AS (
       SELECT f.l6_main, MIN(CASE f.risk_level WHEN '이상' THEN 1 WHEN '주의' THEN 2 ELSE 3 END) AS worst_risk

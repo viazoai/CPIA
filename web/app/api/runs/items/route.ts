@@ -89,10 +89,10 @@ export async function GET(req: Request) {
         const cnt = (arr: Array<{ company: string; c: number }>, co: string) => arr.find((r) => r.company === co)?.c ?? 0;
         const companies = Array.from(new Set([...qty, ...job, ...equip, ...content].map((r) => r.company).filter(Boolean)));
         const CATS: Array<[string, (co: string) => number]> = [
-          ["작업내용(시트1)", (co) => cnt(content, co)],
-          ["인원(시트2)", (co) => cnt(job, co)],
-          ["장비(시트3)", (co) => cnt(equip, co)],
-          ["물량(시트4)", (co) => cnt(qty, co)],
+          ["작업내용", (co) => cnt(content, co)],
+          ["인원", (co) => cnt(job, co)],
+          ["장비", (co) => cnt(equip, co)],
+          ["물량", (co) => cnt(qty, co)],
         ];
         rows = companies.flatMap((co) =>
           CATS.map(([label, getc], i) => ({

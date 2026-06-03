@@ -20,7 +20,7 @@ import os
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Optional
 
 from dotenv import load_dotenv
 

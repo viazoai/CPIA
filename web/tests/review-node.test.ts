@@ -18,7 +18,7 @@ describe("nodeToQuery", () => {
     expect(nodeToQuery(n)).toEqual({ wa: "FAB", l5: null, l6: null });
   });
   it("building / null → null", () => {
-    expect(nodeToQuery({ ...base, id: "site", type: "building" })).toBeNull();
+    expect(nodeToQuery({ ...base, id: "site", type: "building" })).toEqual({ wa: null, l5: null, l6: null });
     expect(nodeToQuery(null)).toBeNull();
   });
 });

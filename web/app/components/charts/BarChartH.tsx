@@ -123,11 +123,12 @@ export function BarChartH({
           animationEasing="ease-out"
         >
           {items.map((it, i) => {
-            /* showBaseline 모드: baseline 미만이면 rose 그라데이션, 이상이면 blue.
+            /* showBaseline 모드: 평균선(avg) 미만이면 rose, 이상이면 blue —
+             * 화면에 보이는 회색 평균선과 색상 기준을 일치시킨다.
              * 세로 막대 → 위 짙음 / 아래 옅음 (랜딩 LandingHero 패턴).
              * 미설정 모드(다른 사용처): 기존 status 기반 단색. */
             const fill = showBaseline
-              ? (typeof it.baseline === "number" && it.value < it.baseline ? `url(#${roseId})` : `url(#${blueId})`)
+              ? (it.value < avg ? `url(#${roseId})` : `url(#${blueId})`)
               : STATUS_COLOR[it.status];
             return <Cell key={i} fill={fill} />;
           })}

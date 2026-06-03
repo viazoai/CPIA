@@ -11,7 +11,7 @@ import { QuadrantScatter } from "@/app/components/charts/QuadrantScatter";
 import { diagnose } from "@/lib/diagnosis";
 import { toDiagnosisInput } from "@/lib/diagnosis-adapter";
 import { filterAndPickBars } from "@/lib/bar-filters";
-import type { ReportDaily, OptimizerOutput } from "@/lib/types";
+import type { ReportDaily, OptimizerOutput, BarItem } from "@/lib/types";
 import type { ReportDetail } from "@/lib/fixtures";
 import { wpRowsForStatus, type WPStatusFilter } from "@/lib/wp-rows";
 
@@ -111,6 +111,23 @@ export default function ReportPage() {
     return new Set(filterAndPickBars(detail.trade_bars).map((b) => b.label));
   }, [detail]);
 
+  // 토글 'WP별' 막대 — wp_summary(중복 wp_id 제거) → BarItem. value=생산성, baseline=이력평균.
+  const wpBars = useMemo<BarItem[]>(() => {
+    const seen = new Set<string>();
+    return (detail?.wp_summary ?? [])
+      .filter((w) => {
+        if (!w.wp_id || seen.has(w.wp_id)) return false;
+        seen.add(w.wp_id);
+        return true;
+      })
+      .map((w) => ({
+        label: w.wp_name,
+        value: w.productivity,
+        status: w.status,
+        baseline: w.baseline,
+      }));
+  }, [detail]);
+
   const diagnosis = useMemo(() => {
     if (!detail) return null;
     const base = diagnose(toDiagnosisInput(detail.kpi, detail.s_curve, REPORT_SITE_ID, detail.scenarios?.site));
@@ -187,7 +204,7 @@ export default function ReportPage() {
               />
               <ProductivityBarToggle
                 contractorBars={detail.contractor_bars}
-                tradeBars={detail.trade_bars}
+                wpBars={wpBars}
                 historyMean={detail.kpi.target_productivity}
                 date={selectedDate}
               />

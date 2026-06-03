@@ -5,11 +5,11 @@ import { cn } from "@/lib/utils";
 import { filterAndPickBars } from "@/lib/bar-filters";
 import type { BarItem } from "@/lib/types";
 
-type Mode = "contractor" | "trade";
+type Mode = "contractor" | "wp";
 
 interface Props {
   contractorBars: BarItem[];
-  tradeBars: BarItem[];
+  wpBars: BarItem[];
   /** 이력 평균 — 격차 산출 기준 (보통 ReportKpi.target_productivity). */
   historyMean: number;
   /** 기준 날짜 (ISO "YYYY-MM-DD"). 헤더 보조 라벨 'YYYY-MM-DD 기준'. */
@@ -18,7 +18,7 @@ interface Props {
 
 const MODES: { key: Mode; label: string }[] = [
   { key: "contractor", label: "업체별" },
-  { key: "trade",      label: "공종별" },
+  { key: "wp",         label: "WP별" },
 ];
 
 function avgStatus(avg: number): "normal" | "caution" | "risk" {
@@ -39,30 +39,28 @@ const STATUS_CHIP = {
   risk:    "bg-rose-light text-rose-text",
 } as const;
 
-export function ProductivityBarToggle({ contractorBars, tradeBars, historyMean, date }: Props) {
+export function ProductivityBarToggle({ contractorBars, wpBars, historyMean, date }: Props) {
   const [mode, setMode] = useState<Mode>("contractor");
   // spec 2026-05-21-cpia-ui-4-fixes-design.md §④ — 150% 초과 제거 + top3+bot7 (최대 10).
   const items = useMemo(
-    () => filterAndPickBars(mode === "contractor" ? contractorBars : tradeBars),
-    [mode, contractorBars, tradeBars],
+    () => filterAndPickBars(mode === "contractor" ? contractorBars : wpBars),
+    [mode, contractorBars, wpBars],
   );
-  const modeLabel = mode === "contractor" ? "업체별" : "공종별";
+  const modeLabel = mode === "contractor" ? "업체별" : "WP별";
 
   const avg = items.length
     ? items.reduce((s, it) => s + it.value, 0) / items.length
     : 0;
   const status = avgStatus(avg);
-  const subLabel = mode === "contractor" ? "BP사 평균" : "공종 평균";
+  const subLabel = mode === "contractor" ? "BP사 평균" : "WP 평균";
 
   const gap = avg - historyMean;
   const gapSign = gap >= 0 ? "+" : "";
   const gapChipTone = gap >= -3 ? STATUS_CHIP.normal : gap >= -8 ? STATUS_CHIP.caution : STATUS_CHIP.risk;
 
-  /* baseline 미만 항목 수 — 자체 기준 도달 못한 항목들 */
-  const underCount = items.filter(
-    (it) => typeof it.baseline === "number" && it.value < it.baseline,
-  ).length;
-  const underUnit = mode === "contractor" ? "개 BP사" : "개 공종";
+  /* 평균선(avg) 미만 항목 수 — 빨간 막대(평균선 아래)와 동일 기준. */
+  const underCount = items.filter((it) => it.value < avg).length;
+  const underUnit = mode === "contractor" ? "개 BP사" : "개 WP";
 
   return (
     <div className="rounded-card border border-border-soft bg-card p-4 shadow-xs">

@@ -372,11 +372,12 @@ def _call_l75_llm(client, model, work_content, l6, company, unit, candidates) ->
     """l7.5 후보 중 best 선택 LLM 호출 (동기). asyncio.to_thread 로 감쌈."""
     cand_str = "\n".join(f"[{i}] {c}" for i, c in enumerate(candidates))
     user_msg = (
-        f"건설 작업일보 1행을, 같은 공종(L6) 밑 세부작업(L7.5) 후보 중 가장 맞는 1개로 분류.\n"
-        f"맞는 후보가 없거나 애매하면 choice=-1.\n\n"
+        f"건설 작업일보 1행을, 같은 공종(L6) 밑 세부작업(L7.5) 후보 중 가장 가까운 1개로 반드시 분류.\n"
+        f"후보가 애매하거나 완벽히 맞는 게 없어도 의미상 가장 근접한 후보를 고르고, "
+        f"확신이 낮으면 confidence 를 낮게 매겨라. choice 는 항상 0 이상의 후보 인덱스다 (-1 금지).\n\n"
         f"### 작업일보\n작업내용: {work_content}\n업체: {company}\n단위: {unit}\n공종(L6): {l6}\n\n"
         f"### L7.5 후보\n{cand_str}\n\n"
-        f'### 응답 (JSON only)\n{{"choice": <int 또는 -1>, "confidence": <0.0~1.0>, "reason": "<짧게>"}}'
+        f'### 응답 (JSON only)\n{{"choice": <int, 후보 인덱스 0 이상>, "confidence": <0.0~1.0>, "reason": "<짧게>"}}'
     )
     resp = client.chat.completions.create(
         model=model,
@@ -418,7 +419,14 @@ async def pick_l75(work_content, l6, company, unit, candidates, cfg, client=None
             "l75_conf": float(out.get("confidence", 0.0)),
             "l7_5_alternatives": alts,
         }
-    return {"l7_5_activity": None, "l75_conf": 0.0, "l7_5_alternatives": alts}
+    # D5: 후보가 1개 이상이면 항상 best-guess 배정 — LLM 이 -1/범위외/에러를 반환해도
+    # 최근접 후보(candidates[0])로 폴백. 미분류(None)는 후보 0개일 때만 (위 `if not candidates`).
+    # 낮은 confidence 는 그대로 보존 → requires_review 게이트가 HIL 로 보냄 (단 best-guess 표시됨).
+    return {
+        "l7_5_activity": candidates[0],
+        "l75_conf": float(out.get("confidence", 0.0)),
+        "l7_5_alternatives": alts,
+    }
 
 
 def compute_requires_review(

@@ -21,7 +21,9 @@ async def test_pick_l75_specific(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_pick_l75_none(monkeypatch):
+async def test_pick_l75_forced_best_guess(monkeypatch):
+    # D5: LLM 이 -1(애매) 을 반환해도 후보가 있으면 best-guess(candidates[0]) 강제 배정.
+    # 미분류(None)는 후보 0개일 때만. 낮은 conf 는 보존 → 게이트가 HIL 로 보냄.
     from pipeline.agents import mapper as M
 
     monkeypatch.setattr(
@@ -30,9 +32,19 @@ async def test_pick_l75_none(monkeypatch):
     out = await M.pick_l75(
         "비계 설치", "외장판넬공사", "남웅", "m2", ["Glass Wool Panel 설치", "Wind Column 설치"], cfg=None
     )
-    assert out["l7_5_activity"] is None
-    assert out["l75_conf"] == 0.0
+    assert out["l7_5_activity"] == "Glass Wool Panel 설치"  # best-guess 폴백 (미분류 아님)
+    assert out["l75_conf"] == 0.2  # 낮은 conf 보존
     assert len(out["l7_5_alternatives"]) >= 1
+
+
+@pytest.mark.asyncio
+async def test_pick_l75_empty_candidates_unclassified():
+    # 후보 0개 = 진짜 미분류 (l6 밑 master l7.5 없음) — 유일한 None 케이스.
+    from pipeline.agents import mapper as M
+
+    out = await M.pick_l75("X 작업", "후보없는공종", "C", "m2", [], cfg=None)
+    assert out["l7_5_activity"] is None
+    assert out["l7_5_alternatives"] == []
 
 
 @pytest.mark.asyncio

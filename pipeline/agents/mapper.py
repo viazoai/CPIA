@@ -421,12 +421,36 @@ async def pick_l75(work_content, l6, company, unit, candidates, cfg, client=None
     return {"l7_5_activity": None, "l75_conf": 0.0, "l7_5_alternatives": alts}
 
 
+def compute_requires_review(
+    l7_5: str | None,
+    l6: str | None,
+    l75_conf: float | None,
+    history_set: set,
+    threshold: float,
+    mapping_source: str | None,
+) -> bool:
+    """이력기반 HIL 게이트. 자동승인 = confident l7.5 + (l6,l7.5) 이력 존재.
+
+    user_corrected(사람 확정, 미분류 포함) 면제. 미분류 / 저신뢰 / 신규 l7.5 → HIL.
+    """
+    if mapping_source == "user_corrected":
+        return False
+    if l7_5 is None or l7_5 == "":
+        return True
+    if l75_conf is None or l75_conf < threshold:
+        return True
+    if (l6, l7_5) not in history_set:
+        return True
+    return False
+
+
 async def map_activity(
     activity: Activity,
     parsed_report: ParsedDailyReport | None,
     cfg: MapperConfig,
     bp_cand_lookup: dict[str, list[tuple[str, str]]] | None = None,
     l75_cand_map: dict | None = None,
+    history_set: set | None = None,
 ) -> Activity:
     """6단계 흐름 (mapping-layer.md §3).
 
@@ -582,9 +606,17 @@ async def map_activity(
         client=client,
     )
 
-    # 2026-06-02 (C5-1): 전건 HIL — 점수 무관 모든 매핑이 review UI 를 거치도록 강제.
-    # mapping_conf 는 confidence 원본 그대로 반환(FE 표시). Spec §5.1 #1.
-    requires_review = True
+    # 2026-06-04 (Task 3): 이력기반 HIL 게이트.
+    # confident l7.5 + (l6,l7.5) 이력 존재 → 자동승인. 미분류/저신뢰/신규 → HIL.
+    # user_corrected 는 항상 면제. mapping_conf 는 confidence 원본 그대로 반환(FE 표시).
+    requires_review = compute_requires_review(
+        l75["l7_5_activity"],
+        chosen_key[1],
+        l75["l75_conf"],
+        (history_set or set()),
+        cfg.l75_conf_threshold,
+        wa_result.source,
+    )
 
     return {
         **activity,

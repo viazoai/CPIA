@@ -101,6 +101,15 @@ async def mapper_node(state: CPIAState, cfg: GraphConfig) -> dict:
             _site_id,
         )
         l75_cand_map: dict[str, list[str]] = {r["l6_main"]: list(r["l75s"]) for r in l75_cand_rows}
+        # Task 3: 이력기반 게이트용 — 이 site 의 기존 (l6,l7.5) 쌍 일괄 fetch.
+        # mapper_activities 에는 site_id 컬럼이 없으므로 pipeline_runs JOIN 필수.
+        hist_rows = await pg.fetch_all(
+            """SELECT DISTINCT ma.l6_main, ma.l7_5_activity
+               FROM mapper_activities ma JOIN pipeline_runs pr USING(run_id)
+               WHERE pr.site_id=$1 AND ma.l7_5_activity IS NOT NULL AND ma.l7_5_activity<>''""",
+            _site_id,
+        )
+        history_set = {(r["l6_main"], r["l7_5_activity"]) for r in hist_rows}
     finally:
         await pg.close()
 
@@ -114,6 +123,7 @@ async def mapper_node(state: CPIAState, cfg: GraphConfig) -> dict:
                 cfg=cfg.mapper,
                 bp_cand_lookup=bp_cand_lookup,
                 l75_cand_map=l75_cand_map,
+                history_set=history_set,
             )
             return idx, m
 

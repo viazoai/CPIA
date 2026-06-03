@@ -1,7 +1,13 @@
-"""mapper.map_activity — 전건 HIL (C5-1). high-conf 성공 분기에서도 requires_review=True.
+"""mapper.map_activity — 미분류 l7.5 → HIL.
 
-Azure/Chroma/PG 를 모두 패치해 LLM 호출 없이 line 515 분기를 결정론적으로 구동.
-Spec 2026-06-02-cpia-0925-demo-refinement-design.md §5.1 #1.
+l75_cand_map=None(기본) 이면 pick_l75 가 [] 후보 → l7_5_activity=None → 게이트가 True 반환.
+high-conf(0.99) 여도 l7.5 미분류 시 requires_review=True 임을 확인.
+
+이력기반 게이트 (Task 3, 2026-06-04):
+  자동승인 = confident l7.5(>=threshold) + (l6,l7.5) 이력 존재.
+  l7.5 None / 저신뢰 / 신규 → HIL. user_corrected → 면제.
+
+Azure/Chroma/PG 를 모두 패치해 LLM 호출 없이 결정론적으로 구동.
 """
 
 from __future__ import annotations
@@ -54,7 +60,7 @@ def _activity() -> Activity:
 
 
 def _fake_azure() -> MagicMock:
-    """confidence=0.99 (conf_threshold=0.7 초과) → 원래라면 requires_review=False 분기."""
+    """confidence=0.99 이지만 l75_cand_map 미전달 → l7_5=None → 게이트 True."""
     client = MagicMock()
     client.embeddings.create.return_value = SimpleNamespace(data=[SimpleNamespace(embedding=[0.0] * 1536)])
     msg = SimpleNamespace(content=json.dumps({"choice": 0, "confidence": 0.99, "reason": "ok"}))
@@ -74,6 +80,11 @@ def _fake_coll() -> MagicMock:
 
 
 def test_map_activity_high_conf_still_requires_review() -> None:
+    """l75_cand_map 미전달(기본 None) → pick_l75 후보 [] → l7_5=None → HIL.
+
+    mapping 자체는 성공(confidence=0.99, l6_main 확정)이지만
+    l7.5 미분류이므로 이력기반 게이트가 True 반환.
+    """
     cfg = _cfg()
     fake_pg = MagicMock()
     fake_pg.connect = AsyncMock()

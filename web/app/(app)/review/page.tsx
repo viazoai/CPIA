@@ -59,7 +59,8 @@ export default function HumanReviewPage() {
       setRegisteredTotal(0);
       return;
     }
-    const params = new URLSearchParams({ wa: q.wa });
+    const params = new URLSearchParams();
+    if (q.wa) params.set("wa", q.wa);
     if (q.l5) params.set("l5", q.l5);
     if (q.l6) params.set("l6", q.l6);
     let cancelled = false;

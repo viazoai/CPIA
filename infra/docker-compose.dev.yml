@@ -22,8 +22,10 @@ services:
       # (POSTGRES_URL 이 아닌 전용 변수 — .env 의 localhost 용 POSTGRES_URL 과 충돌 방지)
       #   예: DEV_DB_URL='postgresql://USER:PASS@AWS_HOST:5432/cpia?sslmode=require' make dev2
       POSTGRES_URL: ${DEV_DB_URL:-postgresql://${POSTGRES_USER:-cpia}:${POSTGRES_PASSWORD:-cpia}@cpia-postgres:5432/${POSTGRES_DB:-cpia}}
-      CHROMA_HOST: cpia-chroma
-      CHROMA_PORT: "8000"
+      # Chroma 도 POSTGRES 와 동일하게 DEV_CHROMA_* 로 외부(AWS) 공유 override.
+      #   미설정 시 로컬 cpia-chroma(컨테이너). split-brain 방지 위해 postgres 와 짝 맞춤.
+      CHROMA_HOST: ${DEV_CHROMA_HOST:-cpia-chroma}
+      CHROMA_PORT: "${DEV_CHROMA_PORT:-8000}"
       FASTAPI_URL: http://cpia-pipeline:8000
       NEXT_PUBLIC_DEMO_RESET: "1"
       DATA_DIR: /app/data
@@ -53,6 +55,9 @@ services:
   pipeline:
     environment:
       POSTGRES_URL: ${DEV_DB_URL:-postgresql://${POSTGRES_USER:-cpia}:${POSTGRES_PASSWORD:-cpia}@cpia-postgres:5432/${POSTGRES_DB:-cpia}}
+      # web 과 동일하게 Chroma 도 DEV_CHROMA_* 로 통일 (Mapper RAG·Forecaster 유사이력이 같은 컬렉션을 봐야 함).
+      CHROMA_HOST: ${DEV_CHROMA_HOST:-cpia-chroma}
+      CHROMA_PORT: "${DEV_CHROMA_PORT:-8000}"
 
 volumes:
   web_dev_modules:

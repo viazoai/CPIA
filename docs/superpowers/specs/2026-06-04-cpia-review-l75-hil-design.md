@@ -90,8 +90,8 @@ ALTER TABLE mapper_activities ADD COLUMN IF NOT EXISTS l7_5_alternatives jsonb; 
 
 `map_activity` 가 (wa, l6_main) 확정 후(L513 직후) 단계 추가:
 1. **후보 맵 batch (run 1회):** activity별 l6 가 LLM 후 결정되므로 l6별 lazy fetch 대신 `mapper_node`(graph.py) 진입 시 1회 `SELECT l6_main, ARRAY_AGG(DISTINCT l7_5_activity) FROM activity_master WHERE site_id=? AND l5_disc IN ('건축','토목') AND l7_5_activity IS NOT NULL GROUP BY l6_main` → `{l6: [l7.5...]}` 맵 구성, `map_activity` 에 주입(기존 `bp_cand_lookup` 패턴). PG 활동별 재조회 회피.
-2. **LLM 선정:** work_content+company+unit+l6+후보 → `{choice|-1, confidence, reason}` (PoC 프롬프트, AzureOpenAI `llm_model`, json_object). `asyncio.to_thread` + Semaphore(기존 패턴).
-3. **적재:** choice 유효 → `l7_5_activity=후보[choice]`, `l75_conf=confidence`, `l7_5_alternatives`=후보를 conf 추정 역순 top-5 `[{label,score}]`. choice=-1/후보없음 → `l7_5_activity=NULL`(미분류), `l75_conf=0`, `l7_5_alternatives`=l6 밑 후보 top-5.
+2. **LLM 선정:** work_content+company+unit+l6+후보 → `{choice, confidence, reason}`. **★ choice 는 항상 0 이상(프롬프트에서 -1 금지) — D5 "항상 best-guess 배정".** 애매해도 최근접 후보를 고르고 confidence 로 확신도 표현. AzureOpenAI `llm_model`, json_object, `asyncio.to_thread` + Semaphore(기존 패턴).
+3. **적재:** 후보 1개+ 면 항상 best-guess 배정 → `l7_5_activity=후보[choice 유효시 그 후보, 아니면 candidates[0]]`, `l75_conf=confidence`(낮으면 게이트가 HIL 로 보냄, 단 best-guess 표시), `l7_5_alternatives`=후보 top-5 `[{label,score}]`. **`l7_5_activity=NULL`(미분류)는 후보 0개(l6 밑 master l7.5 없음)일 때만.** (구 설계의 "choice=-1 → NULL" 은 실측서 미분류 41% 유발·D5 위반 → 폐기. 라이브 9/25: 미분류 0%, 자동 66/HIL 49.)
 4. forecaster/optimizer/export/atomizer 쿼리 불변.
 
 **성능:** 활동당 LLM 1→2회. 라이브 115건×2≈230 call, Semaphore(4) 흡수. mapper 소요 ~2배 가능 → §7 에서 실측해 데모 서사 대조. 시드 70k 는 이미 l7.5 보유 → **재매핑 안 함**(신규 run 만).

@@ -35,3 +35,65 @@ def test_company_trade_map_most_common():
 def test_sheetdata_company_trade_default_empty():
     sd = SheetData(output_manpower=[], occupation_manpower=[], equipment=[], quantity=[])
     assert sd.company_trade == {}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Task 2 — 구분(col2) / 시트1 공종 company_trade 폴백
+# ──────────────────────────────────────────────────────────────────────────────
+
+from datetime import date  # noqa: E402
+from io import BytesIO  # noqa: E402
+
+from openpyxl import load_workbook  # noqa: E402
+
+from pipeline.agents.exporter import render_xlsx  # noqa: E402
+
+
+def _sd_one_company():
+    return SheetData(
+        output_manpower=[
+            {
+                "company": "광건",
+                "bp_code": "PH_X-070",
+                "zone": "CUB",
+                "disc_abbrev": None,  # 공종 비어있음 → company_trade 폴백
+                "work_text_today": "천장 설치",
+                "workers_today_incr": {"total": 5},
+            }
+        ],
+        occupation_manpower=[],
+        equipment=[],
+        quantity=[
+            {
+                "company": "광건",
+                "trade": "건축",
+                "mapper_wa": "CUB",
+                "work_content": "경량벽체",
+                "unit": "m2",
+                "today_qty": 9,
+            }
+        ],
+        company_wa={"광건": "CUB"},
+        company_trade={"광건": "건축"},
+    )
+
+
+def test_render_division_col2_first_row_only():
+    """구분(col2) = project, 첫 데이터 행(r5)만. 시트1·4 모두."""
+    from pipeline.agents.exporter import COL_OUTPUT_MANPOWER, COL_QUANTITY
+
+    wb = load_workbook(BytesIO(render_xlsx(_sd_one_company(), date(2025, 9, 25), project="M15X Ph-3 IBL")))
+    # rename 후 시트1 = '1.작업사항'
+    ws1 = wb["1.작업사항"]
+    assert ws1.cell(5, COL_OUTPUT_MANPOWER["project"]).value == "M15X Ph-3 IBL"
+    ws4 = wb["4.물량"]
+    assert ws4.cell(5, COL_QUANTITY["project"]).value == "M15X Ph-3 IBL"
+
+
+def test_render_sheet1_trade_fallback_to_company_trade():
+    """시트1 공종(col4): disc_abbrev 없으면 company_trade 폴백."""
+    from pipeline.agents.exporter import COL_OUTPUT_MANPOWER
+
+    wb = load_workbook(BytesIO(render_xlsx(_sd_one_company(), date(2025, 9, 25), project="M15X Ph-3 IBL")))
+    ws1 = wb["1.작업사항"]
+    assert ws1.cell(5, COL_OUTPUT_MANPOWER["trade"]).value == "건축"

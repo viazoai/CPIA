@@ -364,13 +364,19 @@ def _fill_timeshift(ws, row: int, col_start: int, ts: dict | None) -> None:
         _safe_set(ws, row, col_start + i, ts.get(key, 0))
 
 
-def _fill_output_manpower(ws, rows: list[dict], report_date: _date, *, company_wa: dict | None = None) -> None:
+def _fill_output_manpower(
+    ws, rows: list[dict], report_date: _date, *,
+    company_wa: dict | None = None, company_trade: dict | None = None, project: str | None = None,
+) -> None:
     C = COL_OUTPUT_MANPOWER
     company_wa = company_wa or {}
+    company_trade = company_trade or {}
     for i, row in enumerate(rows):
         r = DATA_START_ROW + i
+        if i == 0 and project:
+            _safe_set(ws, r, C["project"], project)  # 구분(PJT) — 첫 행 1회
         _safe_set(ws, r, C["zone"], company_wa.get(row.get("company")) or row.get("zone"))
-        _safe_set(ws, r, C["trade"], row.get("disc_abbrev"))
+        _safe_set(ws, r, C["trade"], row.get("disc_abbrev") or company_trade.get(row.get("company")))
         # col 5 는 bp_code 와 company 가 동일 칸 — company 우선, BP사 컬럼=업체명 (spec D5).
         # 시드는 company 만, 9/25 실업로드는 둘 다 → 둘 다 company 표기. 헤더 r3='BP사' / r4='협력업체' 동일 칸.
         _safe_set(ws, r, C["bp_code"], row.get("company") or row.get("bp_code"))
@@ -426,10 +432,12 @@ def _fill_equipment(ws, rows: list[dict], report_date: _date) -> None:
             _fill_timeshift(ws, r, C["today_cum"], row["count_today_cum"])
 
 
-def _fill_quantity(ws, rows: list[dict], report_date: _date) -> None:
+def _fill_quantity(ws, rows: list[dict], report_date: _date, *, project: str | None = None) -> None:
     C = COL_QUANTITY
     for i, row in enumerate(rows):
         r = DATA_START_ROW + i
+        if i == 0 and project:
+            _safe_set(ws, r, C["project"], project)  # 구분(PJT) — 첫 행 1회
         _safe_set(ws, r, C["zone"], (row.get("mapper_wa") or row.get("zone")))
         _safe_set(ws, r, C["trade"], row.get("trade") or row.get("disc_abbrev"))
         _safe_set(ws, r, C["bp_code"], row.get("bp_code"))
@@ -459,10 +467,11 @@ def render_xlsx(sheet_data: SheetData, report_date: _date, project: str) -> byte
     if not TEMPLATE_PATH.exists():
         raise FileNotFoundError(f"template not found: {TEMPLATE_PATH}")
     wb = load_workbook(TEMPLATE_PATH)
-    _fill_output_manpower(wb["1.출력인원 현황"], sheet_data.output_manpower, report_date, company_wa=sheet_data.company_wa)
+    _fill_output_manpower(wb["1.출력인원 현황"], sheet_data.output_manpower, report_date,
+                          company_wa=sheet_data.company_wa, company_trade=sheet_data.company_trade, project=project)
     _fill_occupation(wb["2.직종별 인원현황"], sheet_data.occupation_manpower, report_date)
     _fill_equipment(wb["3.장비현황"], sheet_data.equipment, report_date)
-    _fill_quantity(wb["4.물량"], sheet_data.quantity, report_date)
+    _fill_quantity(wb["4.물량"], sheet_data.quantity, report_date, project=project)
     buf = BytesIO()
     wb.save(buf)
     return buf.getvalue()

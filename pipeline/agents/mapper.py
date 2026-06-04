@@ -430,26 +430,21 @@ async def pick_l75(work_content, l6, company, unit, candidates, cfg, client=None
 
 
 def compute_requires_review(
-    l7_5: str | None,
-    l6: str | None,
-    l75_conf: float | None,
-    history_set: set,
+    mapping_conf: float | None,
     threshold: float,
     mapping_source: str | None,
 ) -> bool:
-    """이력기반 HIL 게이트. 자동승인 = confident l7.5 + (l6,l7.5) 이력 존재.
+    """l6 신뢰도 기반 HIL 게이트. user_corrected 면제, l6 conf < threshold → HIL.
 
-    user_corrected(사람 확정, 미분류 포함) 면제. 미분류 / 저신뢰 / 신규 l7.5 → HIL.
+    2026-06-04 재설계: HIL 의 역할을 l6(공종) 매칭으로 한정한다. 기존 l7.5/이력 기반
+    게이트는 폐기 — "기존 적재분과의 매칭(신규/누적)"은 (업체,l6,이름,scope) 정확일치로
+    결정론 처리하므로 HIL 판단 대상이 아니다. l7.5 는 여전히 배정/저장되나 게이트엔 무관.
     """
     if mapping_source == "user_corrected":
         return False
-    if l7_5 is None or l7_5 == "":
+    if mapping_conf is None:
         return True
-    if l75_conf is None or l75_conf < threshold:
-        return True
-    if (l6, l7_5) not in history_set:
-        return True
-    return False
+    return mapping_conf < threshold
 
 
 async def map_activity(
@@ -614,15 +609,12 @@ async def map_activity(
         client=client,
     )
 
-    # 2026-06-04 (Task 3): 이력기반 HIL 게이트.
-    # confident l7.5 + (l6,l7.5) 이력 존재 → 자동승인. 미분류/저신뢰/신규 → HIL.
-    # user_corrected 는 항상 면제. mapping_conf 는 confidence 원본 그대로 반환(FE 표시).
+    # 2026-06-04 재설계: HIL 게이트 = l6 신뢰도(mapping_conf) < threshold.
+    # l7.5/이력 게이트 폐기 — 적재 매칭(신규/누적)은 (업체,l6,이름,scope) 정확일치로 분리.
+    # l7.5 는 계속 배정/저장(아래)되나 게이트엔 무관. user_corrected 면제.
     requires_review = compute_requires_review(
-        l75["l7_5_activity"],
-        chosen_key[1],
-        l75["l75_conf"],
-        (history_set or set()),
-        cfg.l75_conf_threshold,
+        confidence,
+        cfg.conf_threshold,
         wa_result.source,
     )
 

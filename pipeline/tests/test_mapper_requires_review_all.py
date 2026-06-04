@@ -1,11 +1,8 @@
-"""mapper.map_activity — 미분류 l7.5 → HIL.
+"""mapper.map_activity — l6 신뢰도 기반 HIL 게이트.
 
-l75_cand_map=None(기본) 이면 pick_l75 가 [] 후보 → l7_5_activity=None → 게이트가 True 반환.
-high-conf(0.99) 여도 l7.5 미분류 시 requires_review=True 임을 확인.
-
-이력기반 게이트 (Task 3, 2026-06-04):
-  자동승인 = confident l7.5(>=threshold) + (l6,l7.5) 이력 존재.
-  l7.5 None / 저신뢰 / 신규 → HIL. user_corrected → 면제.
+2026-06-04 재설계: HIL 게이트 = l6 신뢰도(mapping_conf) < threshold.
+l7.5 미분류여도 l6 가 confident(>=0.7) 면 자동승인(requires_review=False).
+(l7.5/이력 게이트 폐기 — 적재 매칭은 (업체,l6,이름,scope) 정확일치로 분리.)
 
 Azure/Chroma/PG 를 모두 패치해 LLM 호출 없이 결정론적으로 구동.
 """
@@ -79,11 +76,11 @@ def _fake_coll() -> MagicMock:
     return coll
 
 
-def test_map_activity_high_conf_still_requires_review() -> None:
-    """l75_cand_map 미전달(기본 None) → pick_l75 후보 [] → l7_5=None → HIL.
+def test_map_activity_high_l6_conf_auto_approves() -> None:
+    """l6 confident(0.99) → l7.5 미분류여도 자동승인(requires_review=False).
 
-    mapping 자체는 성공(confidence=0.99, l6_main 확정)이지만
-    l7.5 미분류이므로 이력기반 게이트가 True 반환.
+    재설계 후 게이트는 l6 신뢰도만 본다. l75_cand_map 미전달로 l7_5=None 이어도
+    l6 conf 0.99 >= 0.7 이므로 HIL 로 보내지 않는다.
     """
     cfg = _cfg()
     fake_pg = MagicMock()
@@ -98,6 +95,6 @@ def test_map_activity_high_conf_still_requires_review() -> None:
     ):
         result = asyncio.run(map_activity(_activity(), parsed_report=None, cfg=cfg))
 
-    assert result["requires_review"] is True
+    assert result["requires_review"] is False
     assert result["mapping_conf"] == 0.99
     assert result["l6_main"] == "철근콘크리트공사"

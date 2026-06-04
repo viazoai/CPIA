@@ -1,11 +1,14 @@
-"""이력기반 HIL 게이트 — compute_requires_review 단위 테스트.
+"""l6 신뢰도 HIL 게이트 — compute_requires_review 단위 테스트.
 
-5가지 케이스:
-1. confident + 이력 있음 → 자동승인 (False)
-2. 저신뢰 → HIL (True)
-3. 신규 l7.5 (이력 없음) → HIL (True)
-4. l7.5 미분류(None) → HIL (True)
-5. user_corrected → 면제 (False)
+2026-06-04 재설계: HIL 역할을 l6(공종) 매칭으로 한정. l7.5/이력 게이트 폐기.
+게이트 = user_corrected 면제, l6 신뢰도(mapping_conf) < threshold → HIL.
+
+케이스:
+1. l6 confident(>=threshold) → 자동승인 (False)
+2. l6 저신뢰(<threshold) → HIL (True)
+3. 경계값(= threshold) → 자동승인 (False)
+4. mapping_conf None → HIL (True)
+5. user_corrected → 저신뢰여도 면제 (False)
 
 드라이 테스트: LLM / DB 호출 없음.
 """
@@ -14,37 +17,27 @@ from __future__ import annotations
 
 from pipeline.agents.mapper import compute_requires_review
 
-HIST = {("철근콘크리트공사", "기초공사 : 거푸집 공사")}  # 시드 이력
+
+def test_l6_confident_auto():
+    assert compute_requires_review(0.99, 0.7, "auto_llm_rerank") is False
 
 
-def test_confident_with_history_auto():
-    assert (
-        compute_requires_review(
-            "기초공사 : 거푸집 공사", "철근콘크리트공사", 0.99, HIST, 0.7, "auto_llm_rerank"
-        )
-        is False
-    )
+def test_l6_low_conf_hil():
+    assert compute_requires_review(0.5, 0.7, "auto_llm_rerank") is True
 
 
-def test_low_conf_hil():
-    assert (
-        compute_requires_review(
-            "기초공사 : 거푸집 공사", "철근콘크리트공사", 0.5, HIST, 0.7, "auto_llm_rerank"
-        )
-        is True
-    )
+def test_l6_boundary_auto():
+    # mapping_conf == threshold → 통과 (< 만 HIL)
+    assert compute_requires_review(0.7, 0.7, "auto_llm_rerank") is False
 
 
-def test_novel_l75_hil():
-    assert compute_requires_review("2차 포장", "포장공사", 0.95, HIST, 0.7, "auto_llm_rerank") is True
-
-
-def test_unclassified_hil():
-    assert compute_requires_review(None, "외장판넬공사", 0.0, HIST, 0.7, "auto_llm_rerank") is True
+def test_l6_none_conf_hil():
+    assert compute_requires_review(None, 0.7, "auto_llm_rerank") is True
 
 
 def test_user_corrected_exempt():
-    assert compute_requires_review(None, "외장판넬공사", 0.0, HIST, 0.7, "user_corrected") is False
+    # 저신뢰여도 사람이 확정한 것은 면제
+    assert compute_requires_review(0.0, 0.7, "user_corrected") is False
 
 
 from pipeline.graph import _apply_corrections

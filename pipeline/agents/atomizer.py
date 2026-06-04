@@ -39,9 +39,13 @@ class AtomizerConfig:
     embedding_dim: int = 1536
 
 
-def _make_doc_id(date: str, company: str, l6_main: str, work_content: str) -> str:
-    """결정성 doc id — spec §4.2 (✓ Verified `73ff80435e312c41` for sample)."""
-    raw = f"{date}|{company}|{l6_main}|{work_content}"
+def _make_doc_id(date: str, company: str, l6_main: str, work_content: str, scope: str | None = None) -> str:
+    """결정성 doc id. 2026-06-04 (scope-2b): scope 추가.
+
+    같은 (date, company, l6_main, work_content) 라도 scope(위치/범위)가 다르면 별개
+    물량 — 동명 작업 오병합 방지(예: 남웅 "기초 거푸집 설치" 7건/scope 5종). scope None → ''.
+    """
+    raw = f"{date}|{company}|{l6_main}|{work_content}|{scope or ''}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
@@ -67,6 +71,8 @@ def _build_metadata(a: Activity, date: str, run_id: str) -> dict[str, Any]:
         "conditions": ",".join(a.get("conditions") or []),
         # 2026-05-29: 저하/회복 narrative. retrieve 가 similar_cases 저하/회복 분리에 사용.
         "work_content": a.get("work_content") or "",
+        # 2026-06-04 (scope-2b): scope(위치/범위) — doc_id 분기 키. 동명 작업 구분.
+        "scope": a.get("scope") or "",
     }
 
 
@@ -121,13 +127,13 @@ async def atomize(
             max_retries=cfg.azure_max_retries,
         )
 
-        # doc_id 는 (date, company, l6_main, work_content) hash — 같은 BP사가 같은 l6 에
-        # 같은 work_content 를 여러 번 적은 경우 (예: 남웅 47 row → 11 unique work_content)
-        # 동일 doc_id 가 생성된다. Chroma 0.5.20 upsert/get 은 within-call 중복 id 를 거부 →
-        # 단일 호출 내에서 미리 dedup (마지막 등장 metadata 채택).
+        # doc_id 는 (date, company, l6_main, work_content, scope) hash (2026-06-04 scope-2b).
+        # scope 가 키에 들어가므로 같은 (회사,l6,work_content) 라도 위치/범위가 다르면 별개 doc
+        # — 동명 작업 오병합 방지(예: 남웅 "기초 거푸집 설치" 7건/scope 5종이 1건으로 합쳐지던 버그).
+        # 같은 (..,scope) 가 한 호출에 중복되면(드묾) Chroma within-call 중복 id 거부 → dedup(마지막 채택).
         seen: dict[str, int] = {}
         for i, a in enumerate(valid):
-            doc_id = _make_doc_id(date, a["company"], a["l6_main"], a["work_content"])
+            doc_id = _make_doc_id(date, a["company"], a["l6_main"], a["work_content"], a.get("scope"))
             seen[doc_id] = i  # 같은 id 면 뒤 index 가 덮어쓴다 (Chroma upsert semantics 와 동일).
 
         ids = list(seen.keys())

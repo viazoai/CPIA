@@ -54,3 +54,44 @@ export function groupCardsByWp(cards: ReviewItem[]): WpGroup[] {
     return a.wpName.localeCompare(b.wpName);
   });
 }
+
+// 등록(누적) 카드 전용 — l7(l7_sub) 라벨로 묶는다. wpId 는 (wa,l6) 스코프를 포함한 합성키.
+// (key 충돌·동명 l7 오병합 방지. 연결선 타깃은 카드의 ai_mapped_wp_id 별개로 유지.)
+export function groupCardsByL7(cards: ReviewItem[]): WpGroup[] {
+  const l7Of = (c: ReviewItem) => (c.l7_label && c.l7_label.trim() ? c.l7_label : "기타");
+  const byKey = new Map<string, ReviewItem[]>();
+  for (const c of cards) {
+    const wpId = `${c.ai_mapped_wp_id}::${l7Of(c)}`;
+    const arr = byKey.get(wpId) ?? [];
+    arr.push(c);
+    byKey.set(wpId, arr);
+  }
+
+  const groups: WpGroup[] = [];
+  byKey.forEach((raw, wpId) => {
+    const items = [...raw].sort((a, b) => b.quantity - a.quantity);
+    const unconfirmed = items.filter((c) => c.status === "unconfirmed");
+    const confirmed = items.filter((c) => c.status === "confirmed");
+    const { path } = splitPath(raw[0].ai_mapped_path);
+    groups.push({
+      wpId,
+      wpName: l7Of(raw[0]),
+      path,
+      items,
+      confirmedCount: confirmed.length,
+      unconfirmedCount: unconfirmed.length,
+      minUnconfirmedConfidence: unconfirmed.length
+        ? Math.min(...unconfirmed.map((c) => c.confidence))
+        : null,
+      allConfirmed: unconfirmed.length === 0,
+    });
+  });
+
+  // 그룹 정렬: Σquantity DESC, 동률 wpName localeCompare(결정론).
+  return groups.sort((a, b) => {
+    const sa = a.items.reduce((s, c) => s + c.quantity, 0);
+    const sb = b.items.reduce((s, c) => s + c.quantity, 0);
+    if (sb !== sa) return sb - sa;
+    return a.wpName.localeCompare(b.wpName);
+  });
+}

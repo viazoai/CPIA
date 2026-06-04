@@ -151,6 +151,7 @@ export interface ReviewItem {
   status: "confirmed" | "unconfirmed";
   remapped?: boolean;           // 사용자가 AI 추천과 다르게 수정했는지 (corrections 전송 대상)
   alternative_wps?: { id: string; path: string; score: number }[];
+  l7_label?: string;            // l7(l7_sub) 그룹 라벨 — registered 카드 전용(groupCardsByL7). HIL 카드는 미설정.
 }
 
 // ────── Report ──────

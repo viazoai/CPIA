@@ -71,6 +71,8 @@ class Activity(TypedDict):
     l6_main: str | None  # Mapper LLM 결정
     l7_sub: str | None  # PoC: None — 1:N
     l7_5_activity: str | None  # PoC: None — 1:N
+    l75_conf: float | None  # l7.5 선정 신뢰도 (mapping_conf 는 l6 conf — 별개)
+    l7_5_alternatives: list[dict] | None  # HIL 대안 [{label, score}]
     sub_work_area: str | None  # PoC: None — 1:N
     conditions: list[str]
 

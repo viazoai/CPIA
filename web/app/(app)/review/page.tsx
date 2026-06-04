@@ -6,7 +6,7 @@ import { WBSTree } from "@/app/components/review/WBSTree";
 import { WpGroup } from "@/app/components/review/WpGroup";
 import { ReviewConnector } from "@/app/components/review/ReviewConnector";
 import { ReviewBoard } from "@/app/components/review/ReviewBoard";
-import { groupCardsByWp } from "@/lib/review-group";
+import { groupCardsByWp, groupCardsByL7 } from "@/lib/review-group";
 import { nodeToQuery } from "@/lib/review-node";
 import type { WBSNode, ReviewItem } from "@/lib/types";
 
@@ -59,7 +59,8 @@ export default function HumanReviewPage() {
       setRegisteredTotal(0);
       return;
     }
-    const params = new URLSearchParams({ wa: q.wa });
+    const params = new URLSearchParams();
+    if (q.wa) params.set("wa", q.wa);
     if (q.l5) params.set("l5", q.l5);
     if (q.l6) params.set("l6", q.l6);
     let cancelled = false;
@@ -88,9 +89,9 @@ export default function HumanReviewPage() {
     setConfirmedNotice(null);
   }, [selectedNodeId]);
 
-  // HIL 은 cards 전체(확정 포함)를 그룹핑해 집계 노출. 등록은 registered.
+  // HIL 은 cards 전체(확정 포함)를 (wa,l6) 그룹핑. 등록은 registered 를 l7(l7_sub) 그룹핑.
   const groups = useMemo(
-    () => groupCardsByWp(onlyUnconfirmed ? cards : registered),
+    () => (onlyUnconfirmed ? groupCardsByWp(cards) : groupCardsByL7(registered)),
     [onlyUnconfirmed, cards, registered]
   );
   const selectedCard = useMemo(
@@ -99,6 +100,12 @@ export default function HumanReviewPage() {
   );
   const connectorTone: "mint" | "sun" =
     selectedCard && selectedCard.status === "unconfirmed" && selectedCard.confidence < 0.8 ? "sun" : "mint";
+  // Task 8: 선택 노드의 검토대기(요검토) 건수 — 누적(확정)은 requires_review=FALSE 만이라
+  // 이 만큼이 아직 누적에 미반영(과소표시). 좌측 트리 요검토와 동일 review_count.
+  const selectedPending = useMemo(
+    () => (wbs && selectedNodeId ? (find(wbs, selectedNodeId)?.review_count ?? 0) : 0),
+    [wbs, selectedNodeId],
+  );
   // 연결선 재드로잉 nonce — 모드·그룹수·선택노드(트리 펼침/스크롤) 변할 때 bump.
   const [redrawKey, setRedrawKey] = useState(0);
   useEffect(() => {
@@ -155,10 +162,11 @@ export default function HumanReviewPage() {
     setConfirmedNotice(`${n}건 확정 완료`);
     // 사용자가 수정(remap)한 카드만 corrections 로 BE 전달(idx 키 = mapper_activities.idx).
     // 수정 안 한 요검토 항목은 BE hil_1_node 가 AI 매핑 그대로 확정(corrections 불필요).
-    const corrections: Record<string, { wa: string; l6_main: string }> = {};
+    const corrections: Record<string, { wa: string; l6_main: string; l7_5_activity?: string | null }> = {};
     for (const c of cards) {
       if (c.remapped && c.wa && c.l6_main) {
-        corrections[String(c.idx)] = { wa: c.wa, l6_main: c.l6_main };
+        // l6 재매핑 → 기존 l7.5 무효화(BE 에서 미분류 처리, D9)
+        corrections[String(c.idx)] = { wa: c.wa, l6_main: c.l6_main, l7_5_activity: null };
       }
     }
     fetch("/api/hil/resume", {
@@ -248,7 +256,7 @@ export default function HumanReviewPage() {
               <span className="font-display text-h6 font-bold text-ink">작업물량</span>
               <div className="flex items-center gap-2">
                 {!onlyUnconfirmed && selectedNodeId && registered.length > 0 && (
-                  <span className="text-[11px] text-ink-light">총 {registeredTotal}건 중 최근 {registered.length}건</span>
+                  <span className="text-[11px] text-ink-light">확정 {registeredTotal}건{selectedPending > 0 ? ` · 검토대기 ${selectedPending}건` : ""}</span>
                 )}
                 {confirmedNotice && <span className="text-[11px] font-semibold text-mint-text">{confirmedNotice}</span>}
                 <span className="text-xs font-medium text-ink">신규 확정 필요만 보기</span>

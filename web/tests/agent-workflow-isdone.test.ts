@@ -9,7 +9,7 @@ const isInflight = (s: { received: number; percent: number; waiting_hil: boolean
 
 function inp(o: Partial<ProgressInputs> = {}): ProgressInputs {
   return { status: "running", current_node: "mapper", fileCount: 7,
-    parserRows: 330, mapperRows: 330, atomizedCount: 0, agentProgress: {}, ...o };
+    parserRows: 330, mapperRows: 330, hilCount: 100, atomizedCount: 0, agentProgress: {}, ...o };
 }
 
 describe("AgentWorkflowList 계약 — markup 불변", () => {

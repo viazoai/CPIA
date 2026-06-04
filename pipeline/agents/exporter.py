@@ -9,8 +9,7 @@ import json
 import logging
 import uuid as _uuid
 from dataclasses import dataclass, field
-from datetime import date as _date
-from datetime import datetime as _dt
+from datetime import date as _date, datetime as _dt, timedelta
 
 from pipeline.db import PGClient, fetch_site_by_id, upsert_agent_progress, upsert_consolidated_report
 from pipeline.state import CPIAState
@@ -33,6 +32,75 @@ def _coerce(row) -> dict:
     """asyncpg jsonb codec 미등록 시 str 로 떨어지는 케이스 흡수."""
     v = row["row"]
     return json.loads(v) if isinstance(v, str) else v
+
+
+def _reconstruct_output_manpower(
+    agg_rows: list[dict],
+    company_wa: dict,
+    prev_map: dict | None = None,
+    next_map: dict | None = None,
+) -> list[dict]:
+    """시드일(빈 bp_summaries) 시트1 재구성 — mapper per-company 집계 → _fill_output_manpower 호환 dict.
+    시드는 전일/명일 작업텍스트·교대 내역 원천이 없어, 투입인원 총합만 today_incr.total 한 칸에 넣는다.
+    prev_map / next_map: 인접일 업체별 작업텍스트 맵 (화면 route.ts 인접일 로직과 동일).
+    """
+    prev_map = prev_map or {}
+    next_map = next_map or {}
+    out: list[dict] = []
+    for r in agg_rows:
+        out.append({
+            "company": r["company"],
+            "bp_code": None,  # 시드 빈값 → _fill_output_manpower 가 company 폴백
+            "zone": company_wa.get(r["company"]),
+            "disc_abbrev": r.get("trade"),
+            "scope": None,
+            "work_text_today": r.get("work_today"),
+            "work_text_yesterday": prev_map.get(r["company"]) or None,
+            "work_text_tomorrow": next_map.get(r["company"]) or None,
+            "workers_today_incr": {"total": round(r.get("workers_total") or 0)},
+        })
+    return out
+
+
+async def _work_text_by_company(con, site_id: str, report_date: _date) -> dict:
+    """특정 날짜의 업체별 '금일 작업' 텍스트 맵. bp_summaries 있으면 그 텍스트, 없으면 mapper work_content 집계.
+    화면(route.ts)의 인접일 로직과 동일 — 단 exporter 는 site_id 필터(멀티사이트).
+    """
+    bp = await con.fetch(
+        """
+        SELECT jsonb_array_elements(pt.bp_summaries) AS row
+        FROM parser_reports pt
+        JOIN pipeline_runs pr USING (run_id)
+        WHERE pr.site_id = $1 AND pt.report_date = $2
+        """,
+        site_id,
+        report_date,
+    )
+    m: dict = {}
+    if bp:
+        for r in bp:
+            s = _coerce(r)
+            co = s.get("company")
+            if co:
+                m[co] = s.get("work_text_today") or ""
+        return m
+    agg = await con.fetch(
+        """
+        SELECT ma.company,
+               string_agg(DISTINCT NULLIF(pa.work_content, ''), E'\n') AS work
+        FROM mapper_activities ma
+        JOIN pipeline_runs pr USING (run_id)
+        LEFT JOIN parser_activities pa ON pa.run_id = ma.run_id AND pa.idx = ma.idx
+        WHERE pr.site_id = $1 AND ma.report_date = $2
+          AND ma.trade IN ('건축', '토목')
+        GROUP BY ma.company
+        """,
+        site_id,
+        report_date,
+    )
+    for r in agg:
+        m[r["company"]] = r["work"] or ""
+    return m
 
 
 async def fetch_sheet_data(
@@ -77,7 +145,7 @@ async def fetch_sheet_data(
         )
         act_rows = await con.fetch(
             """
-            SELECT pa.*, ma.wa AS mapper_wa
+            SELECT pa.*, ma.wa AS mapper_wa, ma.l7_5_activity AS mapper_l75
             FROM parser_activities pa
             JOIN pipeline_runs pr USING (run_id)
             LEFT JOIN mapper_activities ma USING (run_id, idx)
@@ -97,6 +165,28 @@ async def fetch_sheet_data(
             site_id,
             report_date,
         )
+        out_agg_rows = []
+        if not bp_rows:
+            out_agg_rows = await con.fetch(
+                """
+                SELECT ma.company,
+                       MAX(ma.trade) AS trade,
+                       SUM(COALESCE(ma.assigned_workers, 0))::float AS workers_total,
+                       string_agg(DISTINCT NULLIF(pa.work_content, ''), E'\n') AS work_today
+                FROM mapper_activities ma
+                JOIN pipeline_runs pr USING (run_id)
+                LEFT JOIN parser_activities pa ON pa.run_id = ma.run_id AND pa.idx = ma.idx
+                WHERE pr.site_id = $1 AND ma.report_date = $2
+                  AND ma.trade IN ('건축', '토목')
+                GROUP BY ma.company
+                ORDER BY ma.company
+                """,
+                site_id,
+                report_date,
+            )
+
+        prev_map = await _work_text_by_company(con, site_id, report_date - timedelta(days=1))
+        next_map = await _work_text_by_company(con, site_id, report_date + timedelta(days=1))
 
     if not (bp_rows or job_rows or eq_rows or act_rows):
         raise NoDataError(f"해당 ({site_id}, {report_date.isoformat()}) 데이터 없음")
@@ -111,8 +201,21 @@ async def fetch_sheet_data(
         for co, cnt in _by_co.items()
     }
 
+    if bp_rows:
+        output_manpower = []
+        for _r in bp_rows:
+            _d = _coerce(_r)
+            _co = _d.get("company")
+            _d["work_text_yesterday"] = prev_map.get(_co) or None
+            _d["work_text_tomorrow"] = next_map.get(_co) or None
+            output_manpower.append(_d)
+    else:
+        output_manpower = _reconstruct_output_manpower(
+            [dict(r) for r in out_agg_rows], company_wa, prev_map, next_map
+        )
+
     return SheetData(
-        output_manpower=[_coerce(r) for r in bp_rows],
+        output_manpower=output_manpower,
         occupation_manpower=[_coerce(r) for r in job_rows],
         equipment=[_coerce(r) for r in eq_rows],
         quantity=[dict(r) for r in act_rows],
@@ -251,9 +354,9 @@ def _fill_output_manpower(ws, rows: list[dict], report_date: _date, *, company_w
         r = DATA_START_ROW + i
         _safe_set(ws, r, C["zone"], company_wa.get(row.get("company")) or row.get("zone"))
         _safe_set(ws, r, C["trade"], row.get("disc_abbrev"))
-        # col 5 는 bp_code 와 company 가 동일 칸 — bp_code 우선 (실제 시트가 BP_CODE 박힘).
-        # company 는 별도 컬럼 없음. 시트1 헤더 r3='BP사' / r4='협력업체' 가 같은 칸.
-        _safe_set(ws, r, C["bp_code"], row.get("bp_code") or row.get("company"))
+        # col 5 는 bp_code 와 company 가 동일 칸 — company 우선, BP사 컬럼=업체명 (spec D5).
+        # 시드는 company 만, 9/25 실업로드는 둘 다 → 둘 다 company 표기. 헤더 r3='BP사' / r4='협력업체' 동일 칸.
+        _safe_set(ws, r, C["bp_code"], row.get("company") or row.get("bp_code"))
         _safe_set(ws, r, C["scope"], row.get("scope"))
         _safe_set(ws, r, C["work_y"], row.get("work_text_yesterday"))
         _safe_set(ws, r, C["work_t"], row.get("work_text_today"))
@@ -269,7 +372,7 @@ def _fill_occupation(ws, rows: list[dict], report_date: _date) -> None:
     for i, row in enumerate(rows):
         r = DATA_START_ROW + i
         _safe_set(ws, r, C["trade"], row.get("disc_abbrev"))
-        _safe_set(ws, r, C["bp_code"], row.get("bp_code"))
+        _safe_set(ws, r, C["bp_code"], row.get("company") or row.get("bp_code"))
         _safe_set(ws, r, C["manager_code"], row.get("manager_code"))
         _safe_set(ws, r, C["worker_code"], row.get("worker_code"))
         _safe_set(ws, r, C["job_type"], row.get("job_type"))
@@ -291,7 +394,7 @@ def _fill_equipment(ws, rows: list[dict], report_date: _date) -> None:
     for i, row in enumerate(rows):
         r = DATA_START_ROW + i
         _safe_set(ws, r, C["trade"], row.get("disc_abbrev"))
-        _safe_set(ws, r, C["bp_code"], row.get("bp_code"))
+        _safe_set(ws, r, C["bp_code"], row.get("company") or row.get("bp_code"))
         _safe_set(ws, r, C["eq_big"], row.get("equipment_big"))
         _safe_set(ws, r, C["eq_mid"], row.get("equipment_mid"))
         _safe_set(ws, r, C["eq_spec"], row.get("equipment_spec"))
@@ -315,7 +418,7 @@ def _fill_quantity(ws, rows: list[dict], report_date: _date) -> None:
         _safe_set(ws, r, C["bp_code"], row.get("bp_code"))
         _safe_set(ws, r, C["company"], row.get("company"))
         _safe_set(ws, r, C["scope"], row.get("scope"))
-        _safe_set(ws, r, C["rep_work"], row.get("work_content"))
+        _safe_set(ws, r, C["rep_work"], row.get("mapper_l75") or row.get("work_content"))
         _safe_set(ws, r, C["unit"], row.get("unit"))
         _safe_set(ws, r, C["total_a"], row.get("plan_total_qty"))
         _safe_set(ws, r, C["prev_cum_b"], row.get("yesterday_cum_qty"))

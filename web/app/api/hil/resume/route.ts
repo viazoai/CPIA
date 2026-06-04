@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = (await req.json().catch(() => ({}))) as {
       run_id?: string;
-      corrections?: Record<string, { wa: string; l6_main: string }>;
+      corrections?: Record<string, { wa: string; l6_main: string; l7_5_activity?: string | null }>;
     };
     const corrections = body?.corrections ?? {};
 

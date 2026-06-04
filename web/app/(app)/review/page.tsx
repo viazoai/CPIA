@@ -6,7 +6,7 @@ import { WBSTree } from "@/app/components/review/WBSTree";
 import { WpGroup } from "@/app/components/review/WpGroup";
 import { ReviewConnector } from "@/app/components/review/ReviewConnector";
 import { ReviewBoard } from "@/app/components/review/ReviewBoard";
-import { groupCardsByWp } from "@/lib/review-group";
+import { groupCardsByWp, groupCardsByL7 } from "@/lib/review-group";
 import { nodeToQuery } from "@/lib/review-node";
 import type { WBSNode, ReviewItem } from "@/lib/types";
 
@@ -89,9 +89,9 @@ export default function HumanReviewPage() {
     setConfirmedNotice(null);
   }, [selectedNodeId]);
 
-  // HIL 은 cards 전체(확정 포함)를 그룹핑해 집계 노출. 등록은 registered.
+  // HIL 은 cards 전체(확정 포함)를 (wa,l6) 그룹핑. 등록은 registered 를 l7(l7_sub) 그룹핑.
   const groups = useMemo(
-    () => groupCardsByWp(onlyUnconfirmed ? cards : registered),
+    () => (onlyUnconfirmed ? groupCardsByWp(cards) : groupCardsByL7(registered)),
     [onlyUnconfirmed, cards, registered]
   );
   const selectedCard = useMemo(

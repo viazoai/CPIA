@@ -333,15 +333,57 @@ def resolve_wa(
     return WAResolution(value=None, source="hil_required")
 
 
-def _select_top_k_alternatives(candidates: list[dict[str, Any]], k: int = 3) -> list[dict[str, Any]]:
-    """G23 — RAG candidate 중 score 내림차순 top-K 후보 추출.
+def _select_top_k_alternatives(candidates: list[dict[str, Any]], k: int = 5) -> list[dict[str, Any]]:
+    """리랭크(RAG cosine) 후보 중 l6 별 dedup → score 내림차순 distinct l6 top-K.
 
-    candidates 원소는 mapper map_activity() 안에서 만든
-    {"key": (wa, l6_main), "score": float, ...}. 반환은 FE review
-    페이지 dropdown 용 {wa, l6_main, score} 만 추려 jsonb 적재.
+    candidates 원소 {"key": (wa, l6_main), "score": float, ...}. wbs_master 는 l6 밑
+    l7.5 단위라 같은 l6 의 항목이 여러 개 후보로 들어온다. l6 dedup 없이 raw top-k 를
+    저장하면 동일 l6 가 자리를 차지해 distinct l6 다양성이 사라진다(예: top-3 가 전부
+    C/R 조성공사). → l6 별 최고 score 1개만 남겨 **distinct l6** top-K 를 적재.
+    2026-06-04: k=3→5 (route 가 같은 분야 필터 후 top-3 노출할 여유 확보).
+    반환은 FE review 카드 l6 후보용 {wa, l6_main, score, conf} (score 내림차순).
+    conf = 후보별 LLM 신뢰도 (_attach_candidate_confs 가 c["conf"] 로 미리 부착).
+    review 카드가 후보 행마다 신뢰도(유사도 X)를 보이도록 함께 적재.
     """
-    ranked = sorted(candidates, key=lambda c: c["score"], reverse=True)[:k]
-    return [{"wa": c["key"][0], "l6_main": c["key"][1], "score": float(c["score"])} for c in ranked]
+    best: dict[str, dict[str, Any]] = {}
+    for c in candidates:
+        l6 = c["key"][1]
+        if l6 not in best or c["score"] > best[l6]["score"]:
+            best[l6] = c
+    ranked = sorted(best.values(), key=lambda c: c["score"], reverse=True)[:k]
+    return [
+        {
+            "wa": c["key"][0],
+            "l6_main": c["key"][1],
+            "score": float(c["score"]),
+            "conf": float(c.get("conf", 0.0)),
+        }
+        for c in ranked
+    ]
+
+
+def _attach_candidate_confs(
+    candidates: list[dict[str, Any]],
+    cand_confs: Any,
+    chosen_idx: int,
+    chosen_conf: float,
+) -> list[dict[str, Any]]:
+    """LLM 후보별 신뢰도(candidate_confidences 리스트)를 각 후보 dict 에 c["conf"] 로 부착.
+
+    LLM 리랭크가 한 호출에서 각 후보 [i] 에 0~1 신뢰도를 매긴 결과. 선택 후보(chosen_idx)는
+    게이트와 동일한 chosen_conf(mapping_conf)로 고정 — review 카드 AI 추천 행 숫자와 게이트가
+    단일 진실을 공유하도록. 누락/형식오류 후보는 0.0.
+    """
+    confs = cand_confs if isinstance(cand_confs, list) else []
+    for i, c in enumerate(candidates):
+        v = confs[i] if i < len(confs) else None
+        try:
+            c["conf"] = float(v) if v is not None else 0.0
+        except (TypeError, ValueError):
+            c["conf"] = 0.0
+    if 0 <= chosen_idx < len(candidates):
+        candidates[chosen_idx]["conf"] = float(chosen_conf)
+    return candidates
 
 
 @dataclass
@@ -430,26 +472,21 @@ async def pick_l75(work_content, l6, company, unit, candidates, cfg, client=None
 
 
 def compute_requires_review(
-    l7_5: str | None,
-    l6: str | None,
-    l75_conf: float | None,
-    history_set: set,
+    mapping_conf: float | None,
     threshold: float,
     mapping_source: str | None,
 ) -> bool:
-    """이력기반 HIL 게이트. 자동승인 = confident l7.5 + (l6,l7.5) 이력 존재.
+    """l6 신뢰도 기반 HIL 게이트. user_corrected 면제, l6 conf < threshold → HIL.
 
-    user_corrected(사람 확정, 미분류 포함) 면제. 미분류 / 저신뢰 / 신규 l7.5 → HIL.
+    2026-06-04 재설계: HIL 의 역할을 l6(공종) 매칭으로 한정한다. 기존 l7.5/이력 기반
+    게이트는 폐기 — "기존 적재분과의 매칭(신규/누적)"은 (업체,l6,이름,scope) 정확일치로
+    결정론 처리하므로 HIL 판단 대상이 아니다. l7.5 는 여전히 배정/저장되나 게이트엔 무관.
     """
     if mapping_source == "user_corrected":
         return False
-    if l7_5 is None or l7_5 == "":
+    if mapping_conf is None:
         return True
-    if l75_conf is None or l75_conf < threshold:
-        return True
-    if (l6, l7_5) not in history_set:
-        return True
-    return False
+    return mapping_conf < threshold
 
 
 async def map_activity(
@@ -553,7 +590,11 @@ async def map_activity(
         f"### 작업일보 + BP사 컨텍스트\n{llm_text}\n\n"
         f"### 후보\n{cand_str}\n\n"
         f"### 응답 (JSON only)\n"
-        f'{{"choice": <int>, "confidence": <0.0~1.0 float>, "reason": "<짧게>"}}'
+        f"choice = 최종 선택 후보 인덱스, confidence = 그 선택의 확신도(0~1).\n"
+        f"candidate_confidences = 후보 [0]..[{len(candidates) - 1}] 각각에 대해 "
+        f"이 작업일보 행이 그 후보에 매핑될 확신도(0~1) 배열. choice 후보가 가장 높아야 한다.\n"
+        f'{{"choice": <int>, "confidence": <0.0~1.0 float>, '
+        f'"candidate_confidences": [<후보 수만큼 0.0~1.0>], "reason": "<짧게>"}}'
     )
     # 2026-05-20: sync Azure chat.completions 도 to_thread — Semaphore 4 deadlock 방지.
     chat_resp = await asyncio.to_thread(
@@ -595,6 +636,9 @@ async def map_activity(
     chosen_key = candidates[choice]["key"]
     confidence = float(llm_result.get("confidence", 0.0))
 
+    # 후보별 LLM 신뢰도 부착 — review 카드가 후보 행마다 신뢰도 표시 (선택 후보=confidence 고정).
+    _attach_candidate_confs(candidates, llm_result.get("candidate_confidences"), choice, confidence)
+
     # ⑥ WA 결정 4단계 + Task 4 fallback (chosen_wa 전달)
     wa_result = resolve_wa(
         activity,
@@ -614,15 +658,12 @@ async def map_activity(
         client=client,
     )
 
-    # 2026-06-04 (Task 3): 이력기반 HIL 게이트.
-    # confident l7.5 + (l6,l7.5) 이력 존재 → 자동승인. 미분류/저신뢰/신규 → HIL.
-    # user_corrected 는 항상 면제. mapping_conf 는 confidence 원본 그대로 반환(FE 표시).
+    # 2026-06-04 재설계: HIL 게이트 = l6 신뢰도(mapping_conf) < threshold.
+    # l7.5/이력 게이트 폐기 — 적재 매칭(신규/누적)은 (업체,l6,이름,scope) 정확일치로 분리.
+    # l7.5 는 계속 배정/저장(아래)되나 게이트엔 무관. user_corrected 면제.
     requires_review = compute_requires_review(
-        l75["l7_5_activity"],
-        chosen_key[1],
-        l75["l75_conf"],
-        (history_set or set()),
-        cfg.l75_conf_threshold,
+        confidence,
+        cfg.conf_threshold,
         wa_result.source,
     )
 
@@ -633,8 +674,8 @@ async def map_activity(
         "mapping_conf": confidence,
         "mapping_source": wa_result.source,
         "requires_review": requires_review,
-        # G23 — FE review dropdown 용 top-K 후보 (K=3).
-        "alternatives": _select_top_k_alternatives(candidates, k=3),
+        # FE review 카드 l6 후보 — distinct l6 top-K (k=5, route 가 같은 분야 필터 후 top-3 노출).
+        "alternatives": _select_top_k_alternatives(candidates, k=5),
         "l7_5_activity": l75["l7_5_activity"],
         "l75_conf": l75["l75_conf"],
         "l7_5_alternatives": l75["l7_5_alternatives"],

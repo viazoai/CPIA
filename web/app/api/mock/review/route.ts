@@ -85,9 +85,9 @@ export async function GET() {
           ? (() => { try { const p = JSON.parse(l75AltsRaw); return Array.isArray(p) ? p : []; } catch { return []; } })()
           : [];
 
-    // l6(공종) 후보 — [{wa, l6_main, score}]. (wa,l6_main) 중복 제거 + 현재 매핑 제외.
+    // l6(공종) 후보 — [{wa, l6_main, score, conf}]. (wa,l6_main) 중복 제거 + 현재 매핑 제외.
     const l6AltsRaw = r.alternatives;
-    const l6AltsArr: Array<{ wa?: string | null; l6_main?: string | null; score?: number | string | null }> =
+    const l6AltsArr: Array<{ wa?: string | null; l6_main?: string | null; score?: number | string | null; conf?: number | string | null }> =
       Array.isArray(l6AltsRaw)
         ? (l6AltsRaw as any[])
         : typeof l6AltsRaw === "string"
@@ -100,6 +100,29 @@ export async function GET() {
       .filter((a) => validL6.has(`${r.l5_disc}::${a.l6_main}`))           // 같은 공종(l5_disc) 내 l6 만 — 타 공종(예 설비) 차단
       .filter((a) => { const k = `${a.wa}::${a.l6_main}`; if (seenL6.has(k)) return false; seenL6.add(k); return true; })
       .map((a) => ({ wa: a.wa ?? null, l6_main: a.l6_main as string, score: a.score != null ? Number(a.score) : 0 }));
+
+    // scope-1 카드용: 랭크된 l6 후보 (현재 AI l6 포함, 같은 공종, 신뢰도 desc, AI 최상단).
+    // l6 당 대표 후보는 max cosine score 로 dedup(유사도 1위 doc), 그 doc 의 LLM 신뢰도(conf)를 함께 보존.
+    // 카드는 conf(신뢰도)를 표시 — 유사도 X. AI l6 의 conf 는 아래에서 mapping_conf 로 고정(게이트와 단일 진실).
+    const l6Score = new Map<string, { score: number; conf: number; wa: string | null }>();
+    for (const a of l6AltsArr) {
+      if (!a.l6_main || !validL6.has(`${r.l5_disc}::${a.l6_main}`)) continue;
+      const prev = l6Score.get(a.l6_main);
+      const sc = a.score != null ? Number(a.score) : 0;
+      const cf = a.conf != null ? Number(a.conf) : 0;
+      if (!prev || sc > prev.score) l6Score.set(a.l6_main, { score: sc, conf: cf, wa: a.wa ?? null });
+    }
+    // 현재 AI l6 의 conf = mapping_conf(게이트와 동일 신호)로 고정 — AI 추천 행 숫자가 게이트와 일치.
+    // RAG 후보에 없으면 신규 엔트리로 추가(wa 는 매핑 wa).
+    if (r.l6_main) {
+      const aiConf = r.mapping_conf != null ? Number(r.mapping_conf) : 0;
+      const prev = l6Score.get(r.l6_main);
+      l6Score.set(r.l6_main, { score: prev?.score ?? aiConf, conf: aiConf, wa: prev?.wa ?? r.wa });
+    }
+    // AI 추천(LLM 리랭크 선택) 최상단 강조, 나머지는 LLM 신뢰도(conf) 내림차순.
+    const l6_candidates = Array.from(l6Score.entries())
+      .map(([l6_main, v]) => ({ l6_main, score: v.score, conf: v.conf, wa: v.wa, is_ai: l6_main === r.l6_main }))
+      .sort((a, b) => (a.is_ai === b.is_ai ? b.conf - a.conf : a.is_ai ? -1 : 1));
 
     return {
       id: `r-${r.id}`,
@@ -122,6 +145,7 @@ export async function GET() {
         score: a.score != null ? Number(a.score) : 0,
       })),
       l6_alternatives,
+      l6_candidates,
     };
   });
 

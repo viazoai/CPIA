@@ -33,8 +33,7 @@ export default function HumanReviewPage() {
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [view, setView] = useState<"list" | "board">("list");
   const gridRef = useRef<HTMLDivElement>(null);
-  // HIL oneshot 카드용: 분야별 누적 적재 인벤토리(1회 fetch) + 카드별 선택(모두 확정 corrections).
-  const [inventory, setInventory] = useState<Record<string, ReviewItem[]>>({});
+  // HIL l6 picker: 카드별 l6 선택(모두 확정 corrections). 분야별 전체 l6 카탈로그는 wbs 파생(아래 useMemo).
   const [selections, setSelections] = useState<Record<string, { wa: string | null; l6_main: string | null; l7_5_activity: string | null }>>({});
 
   useEffect(() => {
@@ -47,22 +46,33 @@ export default function HumanReviewPage() {
       });
   }, []);
 
-  // HIL oneshot 후보 인벤토리 — 건축/토목 누적 적재를 분야별로 1회씩만 fetch(카드별 fetch 폭주 방지).
-  useEffect(() => {
-    if (!onlyUnconfirmed) return;
-    let cancelled = false;
-    const get = (disc: string) =>
-      fetch(`/api/mock/review/registered?l5=${encodeURIComponent(disc)}`)
-        .then((r) => (r.ok ? r.json() : { items: [] }))
-        .then((d) => (d.items ?? []) as ReviewItem[])
-        .catch(() => [] as ReviewItem[]);
-    Promise.all([get("건축"), get("토목")]).then(([arch, civil]) => {
-      if (!cancelled) setInventory({ "건축": arch, "토목": civil });
-    });
-    return () => { cancelled = true; };
-  }, [onlyUnconfirmed]);
+  // HIL l6 picker 4번째 옵션용 — 분야(건축/토목)별 전체 l6 카탈로그. WBS 트리에서 파생(추가 fetch 없음).
+  //   트리: building > wa(trade) > l5(trade, id=`wa::l5`, name=분야) > work_package(l6). l6명 dedup.
+  const l6CatalogByDisc = useMemo(() => {
+    const map: Record<string, { wa: string | null; l6_main: string }[]> = {};
+    const seen: Record<string, Set<string>> = {};
+    const walk = (n: WBSNode | null, wa: string | null, disc: string | null) => {
+      if (!n) return;
+      let curWa = wa, curDisc = disc;
+      if (n.type === "trade") {
+        if (n.id.includes("::")) curDisc = n.name;
+        else curWa = n.id;
+      }
+      if (n.type === "work_package" && curDisc) {
+        const l6 = n.l6_main ?? n.name;
+        (seen[curDisc] ??= new Set());
+        if (!seen[curDisc].has(l6)) {
+          seen[curDisc].add(l6);
+          (map[curDisc] ??= []).push({ wa: n.wa ?? curWa, l6_main: l6 });
+        }
+      }
+      (n.children || []).forEach((c) => walk(c, curWa, curDisc));
+    };
+    walk(wbs, null, null);
+    return map;
+  }, [wbs]);
 
-  // 카드별 선택 보고 — 사용자가 후보 항목/신규를 고른 카드만 기록(미선택 카드는 BE 가 AI 매핑 수용).
+  // 카드별 l6 선택 보고 — 사용자가 바꾼 카드만 기록(미선택 카드는 BE 가 AI 매핑 수용).
   const handleCardSelect = useCallback(
     (cardId: string, sel: { wa: string | null; l6_main: string | null; l7_5_activity: string | null }) => {
       setSelections((s) => ({ ...s, [cardId]: sel }));
@@ -322,7 +332,7 @@ export default function HumanReviewPage() {
                   onRemap={handleRemap}
                   onSelectCard={handleSelectCard}
                   readOnly={!onlyUnconfirmed}
-                  inventory={inventory}
+                  l6CatalogByDisc={l6CatalogByDisc}
                   onCardSelect={handleCardSelect}
                 />
               ))}

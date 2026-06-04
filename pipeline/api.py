@@ -27,6 +27,7 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from langgraph.types import Command
 from pydantic import BaseModel
 
@@ -223,6 +224,13 @@ app = FastAPI(
     title="CPIA Pipeline API",
     version="0.1.0",
     lifespan=lifespan,
+)
+# Export 버튼은 브라우저가 FastAPI 를 직접 fetch(cross-origin) — 로컬 dev UI(localhost:*) 허용.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex=r"http://localhost:\d+",
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 app.include_router(exporter_router)
 

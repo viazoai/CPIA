@@ -114,4 +114,6 @@ def test_unhide_and_clean_removes_hidden_outline_filter():
     assert ws.row_dimensions[8].hidden is False
     assert ws.row_dimensions[8].outlineLevel == 0
     assert ws.column_dimensions["D"].hidden is False
+    assert ws.column_dimensions["D"].outlineLevel == 0
+    assert ws.sheet_view.showOutlineSymbols is False
     assert ws.freeze_panes == "A5"

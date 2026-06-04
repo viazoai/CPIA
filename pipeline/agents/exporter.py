@@ -269,8 +269,8 @@ _SHEET1_TITLE = "1.작업사항"
 
 
 def _unhide_and_clean(ws, n: int) -> None:
-    """autofilter 제거 + 데이터 영역 row/col hidden·outline 해제 + freeze 정상화(A5).
-    데이터 영역(1..DATA_START_ROW+n+3) 한정 — 그 아래 빈 행 잔존 hidden 은 출력 무관."""
+    """autofilter 제거 + 데이터·헤더 영역 row/col hidden·outline 해제 + freeze 정상화(A5).
+    행 1..(DATA_START_ROW+n+3) 처리 (헤더 4행 + 데이터 n행 + 여유 4행) — 그 아래 빈 행 잔존 hidden 은 출력 무관."""
     ws.auto_filter.ref = None
     for r in range(1, DATA_START_ROW + n + 4):
         rd = ws.row_dimensions[r]
@@ -282,7 +282,7 @@ def _unhide_and_clean(ws, n: int) -> None:
         cd.outlineLevel = 0
     try:
         ws.sheet_view.showOutlineSymbols = False
-    except Exception:
+    except AttributeError:
         pass
     ws.freeze_panes = "A5"
 

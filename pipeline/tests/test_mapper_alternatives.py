@@ -10,6 +10,21 @@ import json
 from datetime import date
 from uuid import uuid4
 
+from pipeline.agents.mapper import _select_top_k_alternatives
+
+
+def test_select_top_k_alternatives_dedup_distinct_l6():
+    """l6 별 dedup — 같은 l6 의 wbs_master 항목이 여러 개여도 distinct l6 top-K(최고 score)."""
+    cands = [
+        {"key": ("FAB", "C/R 조성공사"), "score": 0.62},
+        {"key": ("FAB", "C/R 조성공사"), "score": 0.60},  # dup l6 (낮은 score → 버려짐)
+        {"key": ("CUB", "외장판넬공사"), "score": 0.58},
+        {"key": ("FAB", "철골공사"), "score": 0.55},
+    ]
+    out = _select_top_k_alternatives(cands, k=5)
+    assert [o["l6_main"] for o in out] == ["C/R 조성공사", "외장판넬공사", "철골공사"]  # distinct, score desc
+    assert out[0]["score"] == 0.62  # dup 중 최고 score 만 남음
+
 
 async def _seed_pipeline_run(pg_client, run_id) -> None:
     async with pg_client._pool.acquire() as con:

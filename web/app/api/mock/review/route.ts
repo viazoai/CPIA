@@ -114,6 +114,7 @@ export async function GET() {
     if (r.l6_main && !l6Score.has(r.l6_main)) {
       l6Score.set(r.l6_main, { score: r.mapping_conf != null ? Number(r.mapping_conf) : 0, wa: r.wa });
     }
+    // AI 추천(LLM 리랭크 선택) 최상단 강조, 나머지는 유사도 내림차순. (AI 가 임베딩 1위 아닐 수 있음 — 리랭크 우선.)
     const l6_candidates = Array.from(l6Score.entries())
       .map(([l6_main, v]) => ({ l6_main, score: v.score, wa: v.wa, is_ai: l6_main === r.l6_main }))
       .sort((a, b) => (a.is_ai === b.is_ai ? b.score - a.score : a.is_ai ? -1 : 1));

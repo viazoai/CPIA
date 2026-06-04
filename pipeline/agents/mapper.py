@@ -333,14 +333,22 @@ def resolve_wa(
     return WAResolution(value=None, source="hil_required")
 
 
-def _select_top_k_alternatives(candidates: list[dict[str, Any]], k: int = 3) -> list[dict[str, Any]]:
-    """G23 — RAG candidate 중 score 내림차순 top-K 후보 추출.
+def _select_top_k_alternatives(candidates: list[dict[str, Any]], k: int = 5) -> list[dict[str, Any]]:
+    """리랭크(RAG cosine) 후보 중 l6 별 dedup → score 내림차순 distinct l6 top-K.
 
-    candidates 원소는 mapper map_activity() 안에서 만든
-    {"key": (wa, l6_main), "score": float, ...}. 반환은 FE review
-    페이지 dropdown 용 {wa, l6_main, score} 만 추려 jsonb 적재.
+    candidates 원소 {"key": (wa, l6_main), "score": float, ...}. wbs_master 는 l6 밑
+    l7.5 단위라 같은 l6 의 항목이 여러 개 후보로 들어온다. l6 dedup 없이 raw top-k 를
+    저장하면 동일 l6 가 자리를 차지해 distinct l6 다양성이 사라진다(예: top-3 가 전부
+    C/R 조성공사). → l6 별 최고 score 1개만 남겨 **distinct l6** top-K 를 적재.
+    2026-06-04: k=3→5 (route 가 같은 분야 필터 후 top-3 노출할 여유 확보).
+    반환은 FE review 카드 l6 후보용 {wa, l6_main, score} (score 내림차순).
     """
-    ranked = sorted(candidates, key=lambda c: c["score"], reverse=True)[:k]
+    best: dict[str, dict[str, Any]] = {}
+    for c in candidates:
+        l6 = c["key"][1]
+        if l6 not in best or c["score"] > best[l6]["score"]:
+            best[l6] = c
+    ranked = sorted(best.values(), key=lambda c: c["score"], reverse=True)[:k]
     return [{"wa": c["key"][0], "l6_main": c["key"][1], "score": float(c["score"])} for c in ranked]
 
 
@@ -625,8 +633,8 @@ async def map_activity(
         "mapping_conf": confidence,
         "mapping_source": wa_result.source,
         "requires_review": requires_review,
-        # G23 — FE review dropdown 용 top-K 후보 (K=3).
-        "alternatives": _select_top_k_alternatives(candidates, k=3),
+        # FE review 카드 l6 후보 — distinct l6 top-K (k=5, route 가 같은 분야 필터 후 top-3 노출).
+        "alternatives": _select_top_k_alternatives(candidates, k=5),
         "l7_5_activity": l75["l7_5_activity"],
         "l75_conf": l75["l75_conf"],
         "l7_5_alternatives": l75["l7_5_alternatives"],

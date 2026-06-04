@@ -30,7 +30,7 @@ class SheetData:
 
 
 def _company_trade_map(quantity: list[dict]) -> dict:
-    """company → 대표 trade(최빈, 동률 시 사전순 — spec §5.2 D2, company_wa 와 동일 결정론).
+    """company → 대표 trade(최빈, 동률 시 사전순 — spec §5.2 D2).
     quantity dict 는 parser_activities.* 라 company·trade 키 보유. 둘 중 하나 없으면 무시."""
     from collections import Counter
 

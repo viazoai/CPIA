@@ -29,6 +29,7 @@ def test_company_trade_map_most_common():
         _company_trade_map([{"company": "X", "trade": "토목"}, {"company": "X", "trade": "건축"}])["X"]
         == "건축"
     )
+    assert _company_trade_map([]) == {}  # 빈 입력 → 빈 맵
 
 
 def test_sheetdata_company_trade_default_empty():

@@ -101,6 +101,23 @@ export async function GET() {
       .filter((a) => { const k = `${a.wa}::${a.l6_main}`; if (seenL6.has(k)) return false; seenL6.add(k); return true; })
       .map((a) => ({ wa: a.wa ?? null, l6_main: a.l6_main as string, score: a.score != null ? Number(a.score) : 0 }));
 
+    // scope-1 카드용: 랭크된 l6 후보 (현재 AI l6 포함, 같은 공종, 유사도 desc, AI 최상단).
+    // l6 당 max score 로 dedup. AI l6 가 RAG 후보에 없으면 score 1.0 으로 최상단 보장.
+    const l6Score = new Map<string, { score: number; wa: string | null }>();
+    for (const a of l6AltsArr) {
+      if (!a.l6_main || !validL6.has(`${r.l5_disc}::${a.l6_main}`)) continue;
+      const prev = l6Score.get(a.l6_main);
+      const sc = a.score != null ? Number(a.score) : 0;
+      if (!prev || sc > prev.score) l6Score.set(a.l6_main, { score: sc, wa: a.wa ?? null });
+    }
+    // 현재 AI l6 보장 — RAG 후보에 없으면 l6 신뢰도(mapping_conf)를 유사도 대용으로. 정렬은 is_ai 우선.
+    if (r.l6_main && !l6Score.has(r.l6_main)) {
+      l6Score.set(r.l6_main, { score: r.mapping_conf != null ? Number(r.mapping_conf) : 0, wa: r.wa });
+    }
+    const l6_candidates = Array.from(l6Score.entries())
+      .map(([l6_main, v]) => ({ l6_main, score: v.score, wa: v.wa, is_ai: l6_main === r.l6_main }))
+      .sort((a, b) => (a.is_ai === b.is_ai ? b.score - a.score : a.is_ai ? -1 : 1));
+
     return {
       id: `r-${r.id}`,
       idx: r.idx,
@@ -122,6 +139,7 @@ export async function GET() {
         score: a.score != null ? Number(a.score) : 0,
       })),
       l6_alternatives,
+      l6_candidates,
     };
   });
 

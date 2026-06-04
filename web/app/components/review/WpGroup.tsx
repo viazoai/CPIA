@@ -15,11 +15,11 @@ interface Props {
   onRemap: (id: string, newWpId: string, newPath: string) => void;
   onSelectCard: (id: string) => void;
   readOnly?: boolean;
-  inventory?: Record<string, ReviewItem[]>;           // HIL: 후보 공종 인벤토리 (oneshot 카드용)
-  onCardSelect?: (cardId: string, sel: CardSelection) => void;  // HIL: 카드별 선택 보고
+  l6CatalogByDisc?: Record<string, { wa: string | null; l6_main: string }[]>;  // HIL: 분야별 전체 l6 (l6 picker 4번째 옵션)
+  onCardSelect?: (cardId: string, sel: CardSelection) => void;  // HIL: 카드별 l6 선택 보고
 }
 
-export function WpGroup({ group, selectedCardId, wbsRoot, onConfirm, onRemap, onSelectCard, readOnly, inventory, onCardSelect }: Props) {
+export function WpGroup({ group, selectedCardId, wbsRoot, onConfirm, onRemap, onSelectCard, readOnly, l6CatalogByDisc, onCardSelect }: Props) {
   const [showConfirmed, setShowConfirmed] = useState(false);
 
   const unconfirmed = group.items.filter((c) => c.status === "unconfirmed");
@@ -55,7 +55,7 @@ export function WpGroup({ group, selectedCardId, wbsRoot, onConfirm, onRemap, on
           <ReviewCardV2OneShot
             key={c.id}
             item={c}
-            inventory={inventory ?? {}}
+            l6CatalogByDisc={l6CatalogByDisc ?? {}}
             selected={c.id === selectedCardId}
             onConfirm={onConfirm}
             onSelect={onCardSelect ?? (() => {})}

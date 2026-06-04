@@ -183,14 +183,14 @@ export default function ReportPage() {
       </div>
 
       <section className="mx-auto w-full max-w-screen-2xl px-6 pb-20 md:px-10">
-        <div className="mt-6 grid grid-cols-12 gap-4">
-          <div className="col-span-12 md:col-span-3">
+        <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-10">
+          <div className="md:col-span-3">
             <div className="flex flex-col overflow-hidden rounded-card border border-border-soft bg-card shadow-xs lg:sticky lg:top-6 lg:h-[calc(100vh-220px)]">
               <ReportDailyList daily={daily} selectedDate={selectedDate} onSelect={setSelectedDate} />
             </div>
           </div>
 
-          <div className="col-span-12 flex flex-col gap-10 md:col-span-9">
+          <div className="flex flex-col gap-10 md:col-span-7">
 
             <Section
               eyebrow="/ 01 — 생산성 지표"
@@ -481,7 +481,7 @@ function Section({
         </span>
         <h2 className="mt-1 font-display text-h5 text-ink">{title}</h2>
         {subtitle && (
-          <p className="mt-0.5 whitespace-pre-line text-body-sm text-ink-mid">{subtitle}</p>
+          <p className="mt-2 whitespace-pre-line text-body-sm font-light text-ink-mid">{subtitle}</p>
         )}
       </div>
       {children}

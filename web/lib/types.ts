@@ -444,6 +444,7 @@ export interface ConsolidatedReportSummary {
   pjt: string;                                 // "M15X Ph-3 IBL"
   status: "ready" | "draft";                   // 엑셀 다운로드 가능 여부
   sheet_row_counts: Record<SheetTab, number>;
+  bp_count: number;                            // 통합된 업체(BP사) 수 — parser_activities.company distinct
 }
 
 export interface OutputManpowerRow {

@@ -68,6 +68,15 @@ export async function GET(req: Request) {
           AND pa.is_mock = ${useMock}
         GROUP BY pr.report_date
       ),
+      bp_counts AS (
+        SELECT pr.report_date,
+               COUNT(DISTINCT NULLIF(TRIM(pa.company), ''))::int AS bp_count
+        FROM parser_activities pa
+        JOIN pipeline_runs pr USING (run_id)
+        WHERE pr.report_date >= CURRENT_DATE - INTERVAL '1 year'
+          AND pa.is_mock = ${useMock}
+        GROUP BY pr.report_date
+      ),
       run_dates AS (
         SELECT DISTINCT report_date
         FROM pipeline_runs
@@ -78,10 +87,12 @@ export async function GET(req: Request) {
              COALESCE(lr.output_count, 0)      AS output_count,
              COALESCE(lr.occupation_count, 0)  AS occupation_count,
              COALESCE(lr.equipment_count, 0)   AS equipment_count,
-             COALESCE(ac.quantity_count, 0)    AS quantity_count
+             COALESCE(ac.quantity_count, 0)    AS quantity_count,
+             COALESCE(bc.bp_count, 0)          AS bp_count
       FROM run_dates rd
       LEFT JOIN latest_reports lr USING (report_date)
       LEFT JOIN act_counts ac USING (report_date)
+      LEFT JOIN bp_counts bc USING (report_date)
       ORDER BY rd.report_date DESC
       LIMIT 365
     `) as Array<{
@@ -90,6 +101,7 @@ export async function GET(req: Request) {
       occupation_count: number;
       equipment_count: number;
       quantity_count: number;
+      bp_count: number;
     }>;
 
     const summaries: ConsolidatedReportSummary[] = rows.map((r) => ({
@@ -102,6 +114,7 @@ export async function GET(req: Request) {
         equipment: r.equipment_count,
         quantity: r.quantity_count,
       },
+      bp_count: r.bp_count,
     }));
     return NextResponse.json(summaries, {
       headers: { "Cache-Control": "s-maxage=30, stale-while-revalidate=60" },
@@ -251,6 +264,9 @@ export async function GET(req: Request) {
       equipment: equipment.length,
       quantity: quantity.length,
     },
+    bp_count: new Set(
+      quantity.map((q) => q.bp_name.trim()).filter(Boolean),
+    ).size,
     output_manpower,
     occupation_manpower,
     equipment,

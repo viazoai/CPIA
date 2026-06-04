@@ -55,12 +55,12 @@ export function DailyTaskList({ tasks, selectedDate, onSelect }: Props) {
             >
               <span className={cn("h-2 w-2 shrink-0 rounded-full", s.dot)} title={s.text} />
               <span className={cn(
-                "font-mono text-[11px] leading-tight shrink-0",
+                "font-mono text-[13px] leading-tight shrink-0",
                 active ? "text-brand-text font-bold" : "text-ink"
               )}>
                 {t.date}
               </span>
-              <span className="ml-auto font-mono text-[11px] tabular-nums text-ink-mid">
+              <span className="ml-auto font-mono text-xs tabular-nums text-ink-mid">
                 {t.total_count.toLocaleString()}건
               </span>
             </button>

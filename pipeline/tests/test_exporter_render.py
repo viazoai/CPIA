@@ -143,18 +143,29 @@ def test_reconstruct_output_manpower_per_company() -> None:
     from pipeline.agents.exporter import _reconstruct_output_manpower
 
     agg = [
-        {"company": "OTIS", "trade": "건축", "workers_total": 27.3, "work_today": "승강로 작업"},
-        {"company": "광건", "trade": "건축", "workers_total": 12.0, "work_today": "면 작업"},
+        {"company": "OTIS", "trade": "건축", "workers_total": 27.3, "work_today": "오늘작업"},
     ]
-    out = _reconstruct_output_manpower(agg, {"OTIS": "FAB", "광건": "FAB"})
-    assert len(out) == 2
+    out = _reconstruct_output_manpower(agg, {"OTIS": "FAB"}, {"OTIS": "어제작업"}, {"OTIS": "내일작업"})
+    assert len(out) == 1
     assert out[0]["company"] == "OTIS"
     assert out[0]["bp_code"] is None
     assert out[0]["zone"] == "FAB"
     assert out[0]["disc_abbrev"] == "건축"
-    assert out[0]["work_text_today"] == "승강로 작업"
-    assert out[0]["work_text_yesterday"] is None
+    assert out[0]["work_text_today"] == "오늘작업"
+    assert out[0]["work_text_yesterday"] == "어제작업"
+    assert out[0]["work_text_tomorrow"] == "내일작업"
     assert out[0]["workers_today_incr"] == {"total": 27}
+
+
+def test_reconstruct_output_manpower_no_adjacent_maps() -> None:
+    """인접일 맵 생략 시 전일/명일 None."""
+    from pipeline.agents.exporter import _reconstruct_output_manpower
+
+    out = _reconstruct_output_manpower(
+        [{"company": "A", "trade": "토목", "workers_total": 5, "work_today": "x"}], {"A": "Z"}
+    )
+    assert out[0]["work_text_yesterday"] is None
+    assert out[0]["work_text_tomorrow"] is None
 
 
 def test_render_xlsx_sheet1_bp_is_company() -> None:
@@ -182,3 +193,42 @@ def test_render_xlsx_sheet1_bp_is_company() -> None:
     wb = load_workbook(BytesIO(render_xlsx(sd, date(2025, 9, 24), project="M15X")))
     ws = wb["1.출력인원 현황"]
     assert ws.cell(5, COL_OUTPUT_MANPOWER["bp_code"]).value == "광건"
+
+
+def test_render_xlsx_sheet4_rep_work_l75_priority() -> None:
+    """시트4 대표작업내용 = l7_5_activity 우선(mapper_l75), 없으면 work_content."""
+    from pipeline.agents.exporter import SheetData, render_xlsx, COL_QUANTITY
+    from openpyxl import load_workbook
+    from io import BytesIO
+    from datetime import date
+
+    sd = SheetData(
+        output_manpower=[],
+        occupation_manpower=[],
+        equipment=[],
+        quantity=[
+            {
+                "company": "광건",
+                "mapper_l75": "경량벽체 설치",
+                "work_content": "석고벽체 설치",
+                "unit": "m2",
+                "today_qty": 5,
+                "mapper_wa": "FAB",
+                "trade": "건축",
+            },
+            {
+                "company": "남웅",
+                "mapper_l75": None,
+                "work_content": "기초 타설",
+                "unit": "m3",
+                "today_qty": 3,
+                "mapper_wa": "FAB",
+                "trade": "토목",
+            },
+        ],
+        company_wa={},
+    )
+    wb = load_workbook(BytesIO(render_xlsx(sd, date(2025, 9, 25), project="M15X")))
+    ws = wb["4.물량"]
+    assert ws.cell(5, COL_QUANTITY["rep_work"]).value == "경량벽체 설치"  # l7.5 우선
+    assert ws.cell(6, COL_QUANTITY["rep_work"]).value == "기초 타설"  # l7.5 None → work_content 폴백

@@ -249,9 +249,42 @@ from pathlib import Path  # noqa: E402
 
 from openpyxl import load_workbook  # noqa: E402
 from openpyxl.cell.cell import MergedCell  # noqa: E402
+from openpyxl.styles import Alignment, Border, Side  # noqa: E402,F401
+from openpyxl.utils import get_column_letter  # noqa: E402,F401
 
 TEMPLATE_PATH = Path(__file__).parent / "exporter_templates" / "consolidated_template.xlsx"
 DATA_START_ROW = 5
+
+_THIN = Side(style="thin")
+_HAIR = Side(style="hair")
+
+# 시트명 → (데이터 c0, c1, 그룹키 컬럼(=Zone~업체명), SheetData 리스트 속성)
+_GROUP_SHEETS = [
+    ("1.출력인원 현황", 2, 37, (3, 4, 5), "output_manpower"),
+    ("2.직종별 인원현황", 2, 25, (2, 3), "occupation_manpower"),
+    ("3.장비현황", 2, 25, (2, 3), "equipment"),
+    ("4.물량", 2, 17, (3, 4, 5, 6), "quantity"),
+]
+_SHEET1_TITLE = "1.작업사항"
+
+
+def _unhide_and_clean(ws, n: int) -> None:
+    """autofilter 제거 + 데이터 영역 row/col hidden·outline 해제 + freeze 정상화(A5).
+    데이터 영역(1..DATA_START_ROW+n+3) 한정 — 그 아래 빈 행 잔존 hidden 은 출력 무관."""
+    ws.auto_filter.ref = None
+    for r in range(1, DATA_START_ROW + n + 4):
+        rd = ws.row_dimensions[r]
+        rd.hidden = False
+        rd.outlineLevel = 0
+    for key in list(ws.column_dimensions):
+        cd = ws.column_dimensions[key]
+        cd.hidden = False
+        cd.outlineLevel = 0
+    try:
+        ws.sheet_view.showOutlineSymbols = False
+    except Exception:
+        pass
+    ws.freeze_panes = "A5"
 
 
 def _safe_set(ws, r: int, c: int, value) -> None:

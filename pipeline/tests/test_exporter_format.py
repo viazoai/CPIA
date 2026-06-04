@@ -97,3 +97,21 @@ def test_render_sheet1_trade_fallback_to_company_trade():
     wb = load_workbook(BytesIO(render_xlsx(_sd_one_company(), date(2025, 9, 25), project="M15X Ph-3 IBL")))
     ws1 = wb["1.작업사항"]
     assert ws1.cell(5, COL_OUTPUT_MANPOWER["trade"]).value == "건축"
+
+
+def test_unhide_and_clean_removes_hidden_outline_filter():
+    import openpyxl
+    from pipeline.agents.exporter import _unhide_and_clean
+
+    ws = openpyxl.Workbook().active
+    ws.auto_filter.ref = "B5:Y100"
+    ws.row_dimensions[8].hidden = True
+    ws.row_dimensions[8].outlineLevel = 2
+    ws.column_dimensions["D"].hidden = True
+    ws.freeze_panes = "F26"
+    _unhide_and_clean(ws, n=10)
+    assert ws.auto_filter.ref is None
+    assert ws.row_dimensions[8].hidden is False
+    assert ws.row_dimensions[8].outlineLevel == 0
+    assert ws.column_dimensions["D"].hidden is False
+    assert ws.freeze_panes == "A5"

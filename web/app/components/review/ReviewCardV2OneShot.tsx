@@ -36,12 +36,9 @@ export function ReviewCardV2OneShot({ item, l6CatalogByDisc, onConfirm, onSelect
   const aiL6 = item.l6_main;
   const aiPath = [site, item.wa ?? "", disc, aiL6 ?? ""].filter(Boolean).join(" > ");
 
-  // 리랭크(유사도) distinct l6 후보 — route l6_candidates (유사도 desc). top-3 노출.
+  // 리랭크 후보(AI 최상단) — route l6_candidates. top-3 노출.
   const candidates = item.l6_candidates ?? [];
   const top = candidates.slice(0, TOP_N);
-  const aiCand = candidates.find((c) => c.is_ai);
-  // 매핑 옆 % = AI 후보의 유사도 (후보 행 %와 동일 출처). 후보 없으면 mapping_conf fallback.
-  const aiSim = aiCand ? aiCand.score : item.confidence;
 
   // 4번째 옵션: 같은 분야 전체 l6 중 top 에 없는 나머지 (l6명 dedup, 가나다).
   const moreL6s = useMemo(() => {
@@ -72,9 +69,10 @@ export function ReviewCardV2OneShot({ item, l6CatalogByDisc, onConfirm, onSelect
     });
   };
 
-  const simChip = (score: number) => (
+  // AI 추천 신뢰도 = mapping_conf(LLM 신뢰도, 게이트와 동일 신호). AI 추천 행에만 표시.
+  const confChip = (
     <span className="shrink-0 rounded-md bg-sky-light px-1.5 py-0.5 text-[11px] font-bold text-sky-text">
-      유사도 {Math.round(score * 100)}%
+      신뢰도 {Math.round(item.confidence * 100)}%
     </span>
   );
 
@@ -100,23 +98,22 @@ export function ReviewCardV2OneShot({ item, l6CatalogByDisc, onConfirm, onSelect
       </div>
       <p className="mt-2 text-sm italic text-ink-mid leading-snug">&ldquo;{item.work_content}&rdquo;</p>
 
-      {/* 매핑 경로 (site > WA > 분야 > l6) + AI 후보 유사도 (후보 행 %와 동일 출처) */}
+      {/* 매핑 경로 (site > WA > 분야 > l6). 오른쪽 % 는 밑 리스트와 중복이라 제거. */}
       <div className="mt-3 flex items-center gap-2 text-xs">
-        <span className="text-ink-light">매핑:</span>
+        <span className="shrink-0 text-ink-light">매핑:</span>
         <span className="font-semibold text-ink truncate">{aiPath}</span>
-        <span className="ml-auto">{simChip(aiSim)}</span>
       </div>
 
       {/* 공종(l6) 선택 */}
       <div className="mt-3 rounded-md bg-surface-soft p-2" onClick={(e) => e.stopPropagation()}>
         <div className="mb-1.5 text-[11px] font-mono uppercase tracking-wider text-ink-light">
-          공종(l6) 선택 — 유사도 순
+          공종 선택
         </div>
 
         <div className="flex flex-col gap-1">
           {top.map((c) => {
             const on = choice === c.l6_main;
-            // AI 추천 행: 강조(배지 + 유사도% + 틴트). 나머지 후보: plain(아래 '다른 공종' 목록과 동일 폰트/색).
+            // AI 추천 행: 강조(배지 + 신뢰도 + 틴트). 나머지 후보: plain(아래 '다른 공종' 목록과 동일 폰트/색, 숫자 없음).
             if (c.is_ai) {
               return (
                 <button
@@ -131,7 +128,7 @@ export function ReviewCardV2OneShot({ item, l6CatalogByDisc, onConfirm, onSelect
                   <span className={cn("h-3 w-3 shrink-0 rounded-full border", on ? "border-brand bg-brand" : "border-brand/60")} />
                   <span className="flex-1 truncate">{c.l6_main}</span>
                   <span className="shrink-0 rounded-sm bg-brand px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">AI 추천</span>
-                  {simChip(c.score)}
+                  {confChip}
                 </button>
               );
             }
@@ -147,8 +144,6 @@ export function ReviewCardV2OneShot({ item, l6CatalogByDisc, onConfirm, onSelect
               >
                 <span className={cn("h-2.5 w-2.5 shrink-0 rounded-full border", on ? "border-brand bg-brand" : "border-ink-light")} />
                 <span className="flex-1 truncate font-medium">{c.l6_main}</span>
-                {/* 비-AI 후보: 유사도% 는 보이되 무채색·작게(평범) → AI 추천이 상대적으로 강조됨 */}
-                <span className="shrink-0 font-mono text-[10px] text-ink-light">유사도 {Math.round(c.score * 100)}%</span>
               </button>
             );
           })}

@@ -221,3 +221,11 @@ def test_finalize_empty_sheet_safe():
     sd.equipment = []
     wb = load_workbook(BytesIO(render_xlsx(sd, date(2025, 9, 25), project="M15X Ph-3 IBL")))
     assert "2.직종별 인원현황" in wb.sheetnames
+
+
+def test_sheet1_pjt_to_bp_top_aligned():
+    """시트1 작업사항: PJT(col2)~BP사(col5) 세로 위 맞춤 (템플릿 기본 아래맞춤 교정)."""
+    wb = load_workbook(BytesIO(render_xlsx(_sd_one_company(), date(2025, 9, 25), project="M15X Ph-3 IBL")))
+    ws1 = wb["1.작업사항"]
+    for c in (2, 3, 4, 5):
+        assert ws1.cell(5, c).alignment.vertical == "top", f"col{c} vertical={ws1.cell(5, c).alignment.vertical}"

@@ -329,9 +329,16 @@ def _unmerge_data_region(wb, sheet_data: SheetData) -> None:
 
 
 def _polish_sheet1(ws, n: int) -> None:
-    """시트1 작업사항(col7·8·9): ' | '→줄바꿈 + wrap + 행높이(줄수 기반)."""
+    """시트1 작업사항(col7·8·9): ' | '→줄바꿈 + wrap + 행높이(줄수 기반).
+    PJT(col2)~BP사(col5): 세로 위 맞춤(템플릿 기본 아래맞춤 교정, horizontal 보존)."""
     for i in range(n):
         r = DATA_START_ROW + i
+        for c in (2, 3, 4, 5):
+            cell = ws.cell(r, c)
+            if isinstance(cell, MergedCell):
+                continue
+            cur = cell.alignment
+            cell.alignment = Alignment(horizontal=cur.horizontal, vertical="top", wrap_text=cur.wrap_text)
         for c in (7, 8, 9):
             cell = ws.cell(r, c)
             if isinstance(cell.value, str) and " | " in cell.value:

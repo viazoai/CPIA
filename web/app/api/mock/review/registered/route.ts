@@ -22,13 +22,21 @@ export async function GET(req: Request) {
   const siteName = siteRow[0]?.name ?? siteId;
 
   const rows = (await (sql as any)`
+    WITH master_l7 AS (
+      SELECT wa, l6_main, l7_5_activity, MAX(NULLIF(l7_sub,'')) AS m_l7
+      FROM activity_master WHERE site_id = ${siteId}
+      GROUP BY wa, l6_main, l7_5_activity
+    )
     SELECT ma.wa, ma.l6_main,
            COALESCE(NULLIF(ma.l7_5_activity,''),'미분류') AS l75_label,
+           COALESCE(MAX(NULLIF(ma.l7_sub,'')), MAX(ml.m_l7), '기타') AS l7_label,
            ROUND(SUM(ma.today_qty)::numeric,2) AS cum_qty,
            MAX(ma.unit) AS unit,
            MAX(ma.company) AS company,
            COUNT(DISTINCT ma.company) AS company_n
     FROM mapper_activities ma JOIN pipeline_runs pr USING (run_id)
+    LEFT JOIN master_l7 ml
+      ON ml.wa = ma.wa AND ml.l6_main = ma.l6_main AND ml.l7_5_activity = ma.l7_5_activity
     WHERE pr.site_id = ${siteId} AND ma.is_mock = ${useMock}
       AND ma.l6_main IS NOT NULL AND ma.trade IN ('건축','토목') AND ma.requires_review = FALSE
       AND (${waParam}::text IS NULL OR ma.wa = ${waParam})
@@ -37,7 +45,7 @@ export async function GET(req: Request) {
     GROUP BY ma.wa, ma.l6_main, l75_label
     ORDER BY cum_qty DESC
   `) as Array<{
-    wa: string | null; l6_main: string | null; l75_label: string;
+    wa: string | null; l6_main: string | null; l75_label: string; l7_label: string;
     cum_qty: number | string | null; unit: string | null;
     company: string | null; company_n: number | string;
   }>;
@@ -51,7 +59,7 @@ export async function GET(req: Request) {
       quantity: r.cum_qty != null ? Number(r.cum_qty) : 0,
       unit: r.unit ?? "",
       ai_mapped_wp_id: m.wp_id, ai_mapped_path: `${m.path} > ${r.l75_label}`,
-      wa: r.wa, l6_main: r.l6_main, confidence: 1.0,
+      wa: r.wa, l6_main: r.l6_main, l7_label: r.l7_label, confidence: 1.0,
       status: "confirmed", alternative_wps: [],
     };
   });

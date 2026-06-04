@@ -310,7 +310,7 @@ def _dedup_and_border(ws, n: int, c0: int, c1: int, key_cols: tuple) -> None:
 
 
 def _unmerge_data_region(wb, sheet_data: SheetData) -> None:
-    """채움 前: 각 시트 데이터구역(r5..r5+n-1)에 걸친 템플릿 stray 병합 해제.
+    """채움 전: 각 시트 데이터구역(r5..r5+n-1)에 걸친 템플릿 stray 병합 해제.
     시트2 B87:F87 등이 _safe_set 스킵을 유발해 데이터 유실/dedup 오판 → 채움 전 해제로 근본 차단."""
     counts = {
         "1.출력인원 현황": len(sheet_data.output_manpower),
@@ -576,7 +576,7 @@ def render_xlsx(sheet_data: SheetData, report_date: _date, project: str) -> byte
     if not TEMPLATE_PATH.exists():
         raise FileNotFoundError(f"template not found: {TEMPLATE_PATH}")
     wb = load_workbook(TEMPLATE_PATH)
-    _unmerge_data_region(wb, sheet_data)   # 채움 前: 데이터구역 stray 병합 해제
+    _unmerge_data_region(wb, sheet_data)   # 채움 전: 데이터구역 stray 병합 해제
     _fill_output_manpower(wb["1.출력인원 현황"], sheet_data.output_manpower, report_date,
                           company_wa=sheet_data.company_wa, company_trade=sheet_data.company_trade, project=project)
     _fill_occupation(wb["2.직종별 인원현황"], sheet_data.occupation_manpower, report_date)

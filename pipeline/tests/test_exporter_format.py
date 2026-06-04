@@ -117,3 +117,52 @@ def test_unhide_and_clean_removes_hidden_outline_filter():
     assert ws.column_dimensions["D"].outlineLevel == 0
     assert ws.sheet_view.showOutlineSymbols is False
     assert ws.freeze_panes == "A5"
+
+
+def test_dedup_clears_same_group_keeps_different_zone():
+    import openpyxl
+    from pipeline.agents.exporter import _dedup_and_border, DATA_START_ROW
+    ws = openpyxl.Workbook().active
+    # 시트4 형태: col3=zone, col4=공종, col5=bp, col6=업체. r5/r6 같은 그룹, r7 zone 다름
+    data = [
+        ("CUB", "건축", "PH_X-070", "광건"),
+        ("CUB", "건축", "PH_X-070", "광건"),  # 직전과 전부 같음 → 비움
+        ("FAB", "건축", "PH_X-070", "광건"),  # zone 다름 → 유지
+    ]
+    for i, (z, t, b, c) in enumerate(data):
+        r = DATA_START_ROW + i
+        ws.cell(r, 3, z); ws.cell(r, 4, t); ws.cell(r, 5, b); ws.cell(r, 6, c)
+    _dedup_and_border(ws, n=3, c0=2, c1=17, key_cols=(3, 4, 5, 6))
+    # r6(둘째) 키 비움
+    assert ws.cell(DATA_START_ROW + 1, 3).value is None
+    assert ws.cell(DATA_START_ROW + 1, 6).value is None
+    # r7 zone 다르므로 유지
+    assert ws.cell(DATA_START_ROW + 2, 3).value == "FAB"
+    assert ws.cell(DATA_START_ROW + 2, 6).value == "광건"
+
+
+def test_dedup_border_group_boundary_thin_internal_hair():
+    import openpyxl
+    from pipeline.agents.exporter import _dedup_and_border, DATA_START_ROW
+    ws = openpyxl.Workbook().active
+    for i, c in enumerate(["광건", "광건", "남웅"]):
+        ws.cell(DATA_START_ROW + i, 6, c); ws.cell(DATA_START_ROW + i, 3, "CUB")
+        ws.cell(DATA_START_ROW + i, 4, "건축"); ws.cell(DATA_START_ROW + i, 5, "B")
+    _dedup_and_border(ws, n=3, c0=2, c1=17, key_cols=(3, 4, 5, 6))
+    assert ws.cell(DATA_START_ROW + 0, 6).border.top.style == "thin"   # 첫 그룹 시작
+    assert ws.cell(DATA_START_ROW + 1, 6).border.top.style == "hair"   # 같은 광건 내부
+    assert ws.cell(DATA_START_ROW + 2, 6).border.top.style == "thin"   # 남웅 새 그룹
+    assert ws.cell(DATA_START_ROW + 0, 6).border.bottom.style == "hair"
+
+
+def test_dedup_border_skips_merged_cell():
+    """border 범위에 병합셀이 있어도 크래시 없이 dedup·테두리 적용(MergedCell read-only 회피)."""
+    import openpyxl
+    from pipeline.agents.exporter import _dedup_and_border, DATA_START_ROW
+    ws = openpyxl.Workbook().active
+    for i in range(2):
+        ws.cell(DATA_START_ROW + i, 3, "CUB")
+        ws.cell(DATA_START_ROW + i, 6, "광건")
+    ws.merge_cells(start_row=DATA_START_ROW, start_column=8, end_row=DATA_START_ROW, end_column=9)
+    _dedup_and_border(ws, n=2, c0=2, c1=17, key_cols=(3, 4, 5, 6))  # 예외 없어야
+    assert ws.cell(DATA_START_ROW + 1, 6).value is None  # 둘째 행 dedup 정상

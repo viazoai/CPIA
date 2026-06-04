@@ -287,6 +287,28 @@ def _unhide_and_clean(ws, n: int) -> None:
     ws.freeze_panes = "A5"
 
 
+def _dedup_and_border(ws, n: int, c0: int, c1: int, key_cols: tuple) -> None:
+    """직전 데이터 행과 그룹키(Zone~업체명) 전부 같으면 그 키 컬럼 비움(dedup).
+    그룹 경계 top=thin, 같은 그룹 내부 top=hair, 모든 행 bottom=hair, 좌우=thin(옵션1)."""
+    prev = None
+    for i in range(n):
+        r = DATA_START_ROW + i
+        key = tuple(ws.cell(r, c).value for c in key_cols)
+        is_new = prev is None or key != prev
+        if not is_new:
+            for c in key_cols:
+                cell = ws.cell(r, c)
+                if not isinstance(cell, MergedCell):
+                    cell.value = None
+        top = _THIN if is_new else _HAIR
+        for c in range(c0, c1 + 1):
+            cell = ws.cell(r, c)
+            if isinstance(cell, MergedCell):
+                continue
+            cell.border = Border(top=top, bottom=_HAIR, left=_THIN, right=_THIN)
+        prev = key
+
+
 def _safe_set(ws, r: int, c: int, value) -> None:
     """MergedCell-safe 셀 쓰기.
 

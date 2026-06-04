@@ -179,11 +179,13 @@ def test_unmerge_data_region_clears_intersecting_merges():
     # occupation 5행(r5~r9) 가정: r6 데이터구역 안 병합 → 해제, r50 밖 병합 → 유지
     ws2.merge_cells(start_row=DATA_START_ROW + 1, start_column=2, end_row=DATA_START_ROW + 1, end_column=6)
     ws2.merge_cells(start_row=50, start_column=2, end_row=50, end_column=6)
+    ws2.merge_cells(start_row=4, start_column=2, end_row=DATA_START_ROW, end_column=6)  # 헤더(r4)에서 시작 → 보존돼야
     sd = SheetData(output_manpower=[], occupation_manpower=[{} for _ in range(5)], equipment=[], quantity=[])
     _unmerge_data_region(wb, sd)
     refs = {str(m) for m in ws2.merged_cells.ranges}
     assert "B6:F6" not in refs       # 데이터구역(r6) 병합 해제됨
     assert "B50:F50" in refs          # 데이터구역 밖(r50) 유지
+    assert "B4:F5" in refs            # 헤더에서 시작한 병합은 보존(I-1)
 
 
 def test_finalize_sheet1_renamed_and_headcount_hidden():

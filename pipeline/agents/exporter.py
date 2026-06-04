@@ -310,7 +310,7 @@ def _dedup_and_border(ws, n: int, c0: int, c1: int, key_cols: tuple) -> None:
 
 
 def _unmerge_data_region(wb, sheet_data: SheetData) -> None:
-    """채움 전: 각 시트 데이터구역(r5..r5+n-1)에 걸친 템플릿 stray 병합 해제.
+    """채움 전: 각 시트 데이터구역(r5..r5+n-1)에서 시작하는 템플릿 stray 병합 해제(헤더 병합 보존).
     시트2 B87:F87 등이 _safe_set 스킵을 유발해 데이터 유실/dedup 오판 → 채움 전 해제로 근본 차단."""
     counts = {
         "1.출력인원 현황": len(sheet_data.output_manpower),
@@ -324,7 +324,7 @@ def _unmerge_data_region(wb, sheet_data: SheetData) -> None:
         ws = wb[title]
         last = DATA_START_ROW + n - 1
         for rng in list(ws.merged_cells.ranges):  # list() 스냅샷 — unmerge 가 ranges 를 변형
-            if rng.min_row <= last and rng.max_row >= DATA_START_ROW:
+            if DATA_START_ROW <= rng.min_row <= last:
                 ws.unmerge_cells(str(rng))
 
 

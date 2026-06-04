@@ -10,72 +10,57 @@ type Mode = "contractor" | "wp";
 interface Props {
   contractorBars: BarItem[];
   wpBars: BarItem[];
-  /** 이력 평균 — 격차 산출 기준 (보통 ReportKpi.target_productivity). */
+  /** 목표 생산성 — 격차 산출 기준 (보통 ReportKpi.target_productivity, 100%). */
   historyMean: number;
   /** 기준 날짜 (ISO "YYYY-MM-DD"). 헤더 보조 라벨 'YYYY-MM-DD 기준'. */
   date: string;
 }
 
 const MODES: { key: Mode; label: string }[] = [
+  { key: "wp",         label: "공사별" },
   { key: "contractor", label: "업체별" },
-  { key: "wp",         label: "WP별" },
 ];
 
-function avgStatus(avg: number): "normal" | "caution" | "risk" {
-  if (avg < 80) return "risk";
-  if (avg < 90) return "caution";
-  return "normal";
-}
-
-const STATUS_VALUE_COLOR = {
-  normal:  "text-mint-text",
-  caution: "text-sun-text",
-  risk:    "text-rose-text",
-} as const;
-
-const STATUS_CHIP = {
-  normal:  "bg-mint-light text-mint-text",
-  caution: "bg-sun-light text-sun-text",
-  risk:    "bg-rose-light text-rose-text",
-} as const;
-
 export function ProductivityBarToggle({ contractorBars, wpBars, historyMean, date }: Props) {
-  const [mode, setMode] = useState<Mode>("contractor");
+  const [mode, setMode] = useState<Mode>("wp");
   // spec 2026-05-21-cpia-ui-4-fixes-design.md §④ — 150% 초과 제거 + top3+bot7 (최대 10).
   const items = useMemo(
     () => filterAndPickBars(mode === "contractor" ? contractorBars : wpBars),
     [mode, contractorBars, wpBars],
   );
-  const modeLabel = mode === "contractor" ? "업체별" : "WP별";
-
+  // 오늘 평균 생산성 — 표시 막대들의 평균.
   const avg = items.length
     ? items.reduce((s, it) => s + it.value, 0) / items.length
     : 0;
-  const status = avgStatus(avg);
-  const subLabel = mode === "contractor" ? "BP사 평균" : "WP 평균";
 
+  // 목표 생산성(100%) 대비 격차 — 생산성 라인차트 KPI 칩과 동일 기준(>100 정상 / 75~100 주의 / ≤75 위험).
   const gap = avg - historyMean;
   const gapSign = gap >= 0 ? "+" : "";
-  const gapChipTone = gap >= -3 ? STATUS_CHIP.normal : gap >= -8 ? STATUS_CHIP.caution : STATUS_CHIP.risk;
-
-  /* 평균선(avg) 미만 항목 수 — 빨간 막대(평균선 아래)와 동일 기준. */
-  const underCount = items.filter((it) => it.value < avg).length;
-  const underUnit = mode === "contractor" ? "개 BP사" : "개 WP";
+  const gapChipTone =
+    gap > 0 ? "bg-mint-light text-mint-text"
+    : gap > -25 ? "bg-sun-light text-sun-text"
+    : "bg-rose-light text-rose-text";
 
   return (
     <div className="rounded-card border border-border-soft bg-card p-4 shadow-xs">
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
           <div className="font-display text-base font-semibold text-ink">
-            {modeLabel} 현장 생산성{" "}
+            공사/업체별 현장 생산성{" "}
             <span className="text-sm font-normal text-ink-mid">({date} 기준)</span>
           </div>
           <div className="mt-3 flex items-baseline gap-2">
             <span className="font-display text-h3 font-semibold tracking-[-0.015em] text-ink">
-              {underCount}
+              {avg.toFixed(1)}
             </span>
-            <span className="text-base text-ink-mid">
-              {underUnit} 평균 미만
+            <span className="text-base text-ink-light">%</span>
+            <span
+              className={cn(
+                "ml-1 inline-flex items-center rounded-full px-2.5 py-0.5 font-display text-sm font-medium",
+                gapChipTone,
+              )}
+            >
+              목표 대비 {gapSign}{gap.toFixed(1)}%
             </span>
           </div>
         </div>
@@ -104,7 +89,6 @@ export function ProductivityBarToggle({ contractorBars, wpBars, historyMean, dat
         items={items}
         showBaseline
         showAverage
-        averageLabel={`${modeLabel} 평균`}
         bare
         orientation="vertical"
       />

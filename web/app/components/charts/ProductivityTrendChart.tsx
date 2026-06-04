@@ -8,6 +8,7 @@ import {
   YAxis,
   Tooltip,
   ReferenceLine,
+  ReferenceDot,
   Label,
   CartesianGrid,
 } from "recharts";
@@ -46,11 +47,12 @@ export function ProductivityTrendChart({ trend, todayValue, endDate }: Props) {
     const peak = Math.max(0, todayValue, avg, ...data.map((p) => p.value));
     return Math.ceil((peak + 5) / 10) * 10;
   }, [data, todayValue, avg]);
-  const gap = todayValue - avg;
+  // 목표(생산성 100%) 대비 격차 — 좌측 목록 상태 점과 동일 기준(>100 정상 / 75~100 주의 / ≤75 위험).
+  const gap = todayValue - 100;
   const gapSign = gap >= 0 ? "+" : "";
   const gapChipTone =
-    gap >= -2 ? "bg-mint-light text-mint-text"
-    : gap >= -6 ? "bg-sun-light text-sun-text"
+    gap > 0 ? "bg-mint-light text-mint-text"
+    : gap > -25 ? "bg-sun-light text-sun-text"
     : "bg-rose-light text-rose-text";
 
   return (
@@ -58,7 +60,7 @@ export function ProductivityTrendChart({ trend, todayValue, endDate }: Props) {
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
           <div className="font-display text-base font-semibold text-ink">
-            현장 생산성{" "}
+            전체 현장 생산성{" "}
             <span className="text-sm font-normal text-ink-mid">({endDate} 기준)</span>
           </div>
           <div className="mt-3 flex items-baseline gap-2">
@@ -72,7 +74,7 @@ export function ProductivityTrendChart({ trend, todayValue, endDate }: Props) {
                 gapChipTone,
               )}
             >
-              현장 평균 대비 {gapSign}{gap.toFixed(1)}%
+              목표 대비 {gapSign}{gap.toFixed(1)}%
             </span>
           </div>
         </div>
@@ -89,7 +91,7 @@ export function ProductivityTrendChart({ trend, todayValue, endDate }: Props) {
           <CartesianGrid stroke="#eef0f4" vertical={false} />
           <XAxis
             dataKey="label"
-            tick={{ fontSize: 10, fill: "#7a8494" }}
+            tick={{ fontSize: 12, fill: "#7a8494" }}
             interval={Math.max(1, Math.floor(data.length / 8))}
           />
           <YAxis
@@ -112,17 +114,36 @@ export function ProductivityTrendChart({ trend, todayValue, endDate }: Props) {
             animationDuration={DRAW_DURATION_MS}
             animationEasing="ease-out"
           />
+          {/* 목표 생산성 100% — 이력 기대치(정상 기준)를 나타내는 고정선. 현장 평균과 색으로 구분(초록). */}
+          <ReferenceLine
+            y={100}
+            stroke="#0ea76a"
+            strokeWidth={1}
+            strokeDasharray="5 4"
+            ifOverflow="extendDomain"
+            className="cpia-ref-draw"
+          >
+            <Label
+              value="목표 생산성 100%"
+              position="top"
+              offset={6}
+              fill="#067a4e"
+              fontSize={14}
+              fontFamily='"Inter Tight", Pretendard, "Noto Sans KR", system-ui, sans-serif'
+              fontWeight={700}
+            />
+          </ReferenceLine>
           <ReferenceLine
             y={avg}
             stroke="#9ca3af"
-            strokeWidth={2}
+            strokeWidth={1}
             strokeDasharray="5 4"
             ifOverflow="extendDomain"
-            className="cpia-ref-fade"
+            className="cpia-ref-draw"
           >
             <Label
-              value={`현장 평균 ${avg.toFixed(1)}%`}
-              position="top"
+              value={`평균 생산성 ${avg.toFixed(1)}%`}
+              position="bottom"
               offset={6}
               fill="#6b7280"
               fontSize={14}
@@ -130,6 +151,19 @@ export function ProductivityTrendChart({ trend, todayValue, endDate }: Props) {
               fontWeight={700}
             />
           </ReferenceLine>
+          {/* 현재 시점(우측 끝) 강조 — 파란 포인트. 선 그리기 완료 후 페이드인. */}
+          {data.length > 0 && (
+            <ReferenceDot
+              x={data[data.length - 1].label}
+              y={todayValue}
+              r={5}
+              fill="#1a56db"
+              stroke="#ffffff"
+              strokeWidth={2}
+              isFront
+              className="cpia-ref-fade"
+            />
+          )}
         </ComposedChart>
       </ResponsiveContainer>
     </div>

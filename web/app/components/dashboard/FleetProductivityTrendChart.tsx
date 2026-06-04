@@ -112,18 +112,37 @@ export function FleetProductivityTrendChart({
             animationDuration={DRAW_DURATION_MS}
             animationEasing="ease-out"
           />
+          {/* 목표 생산성 100% — 이력 기대치(정상 기준) 고정선. 이력 평균과 색으로 구분(초록). */}
+          <ReferenceLine
+            y={100}
+            stroke="#0ea76a"
+            strokeWidth={1}
+            strokeDasharray="5 4"
+            ifOverflow="extendDomain"
+            className="cpia-ref-draw"
+          >
+            <Label
+              value="목표 생산성 100%"
+              position="top"
+              offset={6}
+              fill="#067a4e"
+              fontSize={14}
+              fontFamily='"Inter Tight", Pretendard, "Noto Sans KR", system-ui, sans-serif'
+              fontWeight={700}
+            />
+          </ReferenceLine>
           {/* 이력 평균 ReferenceLine — 회색 점선, 그리기 완료 후 페이드인, 가운데 라벨 */}
           <ReferenceLine
             y={historyMean}
             stroke="#9ca3af"
-            strokeWidth={2}
+            strokeWidth={1}
             strokeDasharray="5 4"
             ifOverflow="extendDomain"
-            className="cpia-ref-fade"
+            className="cpia-ref-draw"
           >
             <Label
-              value={`이력 평균 ${historyMean}%`}
-              position="top"
+              value={`평균 생산성 ${historyMean}%`}
+              position="bottom"
               offset={6}
               fill="#6b7280"
               fontSize={14}

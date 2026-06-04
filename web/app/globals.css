@@ -199,6 +199,8 @@ body::after {
    delay 1550ms = 선 그리기(begin 150 + duration 1400) 완료 시점.
    animation-fill-mode both → delay 동안 0% 프레임(opacity 0)으로 숨김. */
 .cpia-ref-fade { animation: cpiaRefFade 600ms ease-out 1550ms both; }
+/* 목표/평균 기준선·라벨 — 선이 그려지는 동안 함께 떠오르도록 draw 시작(150ms)과 맞춰 페이드인. */
+.cpia-ref-draw { animation: cpiaRefFade 700ms ease-out 150ms both; }
 
 /* active 슬라이드 내부의 1차 레벨 요소 — h1~h3 / p / [data-anim] 가 부드럽게 진입 */
 .slide[data-active="true"] h1,

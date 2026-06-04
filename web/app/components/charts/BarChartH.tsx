@@ -9,6 +9,7 @@ import {
   Tooltip,
   ReferenceLine,
   Label,
+  LabelList,
   CartesianGrid,
 } from "recharts";
 import { useId } from "react";
@@ -24,10 +25,8 @@ const STATUS_COLOR = {
 interface Props {
   items: BarItem[];
   title?: string;
-  /** 그룹 평균선 (단일 ReferenceLine, 차트 끝~끝 가로선). */
+  /** 그룹 평균선 (단일 ReferenceLine, 차트 끝~끝 가로선) + 목표 생산성 100% 선. */
   showAverage?: boolean;
-  /** 평균선 라벨 접두어 (예: "업체별 평균"). 기본 "평균". */
-  averageLabel?: string;
   /** 각 막대를 baseline 미만(rose)/이상(blue) 으로 색 구분. items 가 baseline 필드를 가져야 함. */
   showBaseline?: boolean;
   /** true 면 카드 chrome·title 없이 차트만 렌더 — 다른 컴포넌트 안에 임베드용. */
@@ -44,7 +43,6 @@ export function BarChartH({
   items,
   title,
   showAverage,
-  averageLabel = "평균",
   showBaseline,
   bare,
   orientation = "horizontal",
@@ -90,7 +88,7 @@ export function BarChartH({
             <XAxis
               type="category"
               dataKey="label"
-              tick={{ fontSize: 10, fill: "#0d1117" }}
+              tick={{ fontSize: 12, fill: "#0d1117" }}
               interval={0}
               angle={-30}
               textAnchor="end"
@@ -123,35 +121,65 @@ export function BarChartH({
           animationEasing="ease-out"
         >
           {items.map((it, i) => {
-            /* showBaseline 모드: 평균선(avg) 미만이면 rose, 이상이면 blue —
-             * 화면에 보이는 회색 평균선과 색상 기준을 일치시킨다.
+            /* showBaseline 모드: 목표 생산성(100%) 미만이면 rose, 이상이면 blue —
+             * 초록 목표선(100%) 아래 항목을 빨갛게 강조해 미달 공사/업체를 즉시 식별.
              * 세로 막대 → 위 짙음 / 아래 옅음 (랜딩 LandingHero 패턴).
              * 미설정 모드(다른 사용처): 기존 status 기반 단색. */
             const fill = showBaseline
-              ? (it.value < avg ? `url(#${roseId})` : `url(#${blueId})`)
+              ? (it.value < 100 ? `url(#${roseId})` : `url(#${blueId})`)
               : STATUS_COLOR[it.status];
             return <Cell key={i} fill={fill} />;
           })}
+          {/* 각 막대 값(%) 라벨 — 세로: 위, 가로: 오른쪽. */}
+          <LabelList
+            dataKey="value"
+            position={isVertical ? "top" : "right"}
+            formatter={(v: number) => `${Math.round(v)}%`}
+            fontSize={10}
+            fontWeight={600}
+            fill="#0d1117"
+          />
         </Bar>
         {showAverage && items.length > 0 && (
-          <ReferenceLine
-            {...(isVertical ? { y: avg } : { x: avg })}
-            stroke="#9ca3af"
-            strokeWidth={2}
-            strokeDasharray="5 4"
-            ifOverflow="extendDomain"
-            className="cpia-ref-fade"
-          >
-            <Label
-              value={`${averageLabel} ${avg.toFixed(1)}%`}
-              position="top"
-              offset={6}
-              fill="#6b7280"
-              fontSize={14}
-              fontFamily='"Inter Tight", Pretendard, "Noto Sans KR", system-ui, sans-serif'
-              fontWeight={700}
-            />
-          </ReferenceLine>
+          <>
+            {/* 목표 생산성 100% — 이력 기대치(정상 기준) 고정선. 평균선과 색으로 구분(초록). */}
+            <ReferenceLine
+              {...(isVertical ? { y: 100 } : { x: 100 })}
+              stroke="#0ea76a"
+              strokeWidth={1}
+              strokeDasharray="5 4"
+              ifOverflow="extendDomain"
+              className="cpia-ref-draw"
+            >
+              <Label
+                value="목표 생산성 100%"
+                position="top"
+                offset={6}
+                fill="#067a4e"
+                fontSize={14}
+                fontFamily='"Inter Tight", Pretendard, "Noto Sans KR", system-ui, sans-serif'
+                fontWeight={700}
+              />
+            </ReferenceLine>
+            <ReferenceLine
+              {...(isVertical ? { y: avg } : { x: avg })}
+              stroke="#9ca3af"
+              strokeWidth={1}
+              strokeDasharray="5 4"
+              ifOverflow="extendDomain"
+              className="cpia-ref-draw"
+            >
+              <Label
+                value={`평균 생산성 ${avg.toFixed(1)}%`}
+                position="bottom"
+                offset={6}
+                fill="#6b7280"
+                fontSize={14}
+                fontFamily='"Inter Tight", Pretendard, "Noto Sans KR", system-ui, sans-serif'
+                fontWeight={700}
+              />
+            </ReferenceLine>
+          </>
         )}
       </ComposedChart>
     </ResponsiveContainer>

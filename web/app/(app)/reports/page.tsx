@@ -441,9 +441,9 @@ function buildProductivityIssueText(detail: ReportDetail): string {
   const good = gap >= 0;
   const line1 = good
     ? gap > 0
-      ? `현재 현장 생산성은 ${fmtPct(today)}%로 이력 평균(${fmtPct(target)}%)을 ${fmtPct(gap)}%p 웃도는 양호한 흐름입니다.`
-      : `현재 현장 생산성은 ${fmtPct(today)}%로 이력 평균(${fmtPct(target)}%)과 동일한 안정적 수준입니다.`
-    : `현재 현장 생산성은 ${fmtPct(today)}%로 이력 평균(${fmtPct(target)}%) 대비 ${fmtPct(Math.abs(gap))}%p 낮은 상황입니다.`;
+      ? `현재 현장 생산성은 ${fmtPct(today)}%로 목표 생산성(${fmtPct(target)}%)을 ${fmtPct(gap)}%p 웃도는 양호한 흐름입니다.`
+      : `현재 현장 생산성은 ${fmtPct(today)}%로 목표 생산성(${fmtPct(target)}%)과 동일한 안정적 수준입니다.`
+    : `현재 현장 생산성은 ${fmtPct(today)}%로 목표 생산성(${fmtPct(target)}%) 대비 ${fmtPct(Math.abs(gap))}%p 낮은 상황입니다.`;
 
   // 저조 공종을 못 찾으면 전체 흐름만으로 마무리.
   if (parts.length === 0) {
@@ -459,7 +459,7 @@ function buildProductivityIssueText(detail: ReportDetail): string {
     .join("·");
   const recovery = Math.round(kpi.recovery_days ?? 0);
   const line2 = good
-    ? `다만 ${issues} 등이 평균을 밑돌고 있어, 이 부분을 개선하면 생산성을 더 끌어올릴 수 있습니다.`
+    ? `다만 ${issues} 등이 평균을 밑돌고 있어 개선이 필요합니다.`
     : `특히 ${issues} 등이 생산성을 끌어내리고 있어, 우선 보완하면 ${recovery > 0 ? `약 ${recovery}일 내 ` : ""}만회가 가능합니다.`;
   return `${line1}\n${line2}`;
 }

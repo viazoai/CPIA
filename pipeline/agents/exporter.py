@@ -295,8 +295,8 @@ def _fill_output_manpower(ws, rows: list[dict], report_date: _date, *, company_w
         r = DATA_START_ROW + i
         _safe_set(ws, r, C["zone"], company_wa.get(row.get("company")) or row.get("zone"))
         _safe_set(ws, r, C["trade"], row.get("disc_abbrev"))
-        # col 5 는 bp_code 와 company 가 동일 칸 — bp_code 우선 (실제 시트가 BP_CODE 박힘).
-        # company 는 별도 컬럼 없음. 시트1 헤더 r3='BP사' / r4='협력업체' 가 같은 칸.
+        # col 5 는 bp_code 와 company 가 동일 칸 — company 우선, BP사 컬럼=업체명 (spec D5).
+        # 시드는 company 만, 9/25 실업로드는 둘 다 → 둘 다 company 표기. 헤더 r3='BP사' / r4='협력업체' 동일 칸.
         _safe_set(ws, r, C["bp_code"], row.get("company") or row.get("bp_code"))
         _safe_set(ws, r, C["scope"], row.get("scope"))
         _safe_set(ws, r, C["work_y"], row.get("work_text_yesterday"))

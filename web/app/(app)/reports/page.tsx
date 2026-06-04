@@ -185,7 +185,9 @@ export default function ReportPage() {
       <section className="mx-auto w-full max-w-screen-2xl px-6 pb-20 md:px-10">
         <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-10">
           <div className="md:col-span-3">
-            <div className="flex flex-col overflow-hidden rounded-card border border-border-soft bg-card shadow-xs lg:sticky lg:top-6 lg:h-[calc(100vh-220px)]">
+            {/* TopBar(sticky h-16=64px) 아래로 16px 띄워 pin — top-6 이던 시절 상단 잘림 수정.
+             * 높이는 pin 위치(5rem)+하단 여백(1.5rem) 만큼 빼서 하단이 뷰포트에서 붕 뜨지 않게. */}
+            <div className="flex flex-col overflow-hidden rounded-card border border-border-soft bg-card shadow-xs lg:sticky lg:top-20 lg:h-[calc(100vh-6.5rem)]">
               <ReportDailyList daily={daily} selectedDate={selectedDate} onSelect={setSelectedDate} />
             </div>
           </div>

@@ -26,6 +26,22 @@ class SheetData:
     equipment: list[dict]  # 시트3
     quantity: list[dict]  # 시트4
     company_wa: dict = field(default_factory=dict)  # 시트1 Zone 용 company→최빈 wa 맵
+    company_trade: dict = field(default_factory=dict)  # 시트1 공종 폴백용 company→trade 맵
+
+
+def _company_trade_map(quantity: list[dict]) -> dict:
+    """company → 대표 trade(최빈, 동률 시 사전순 — spec §5.2 D2, company_wa 와 동일 결정론).
+    quantity dict 는 parser_activities.* 라 company·trade 키 보유. 둘 중 하나 없으면 무시."""
+    from collections import Counter
+
+    by_co: dict[str, Counter] = {}
+    for a in quantity:
+        co = a.get("company")
+        tr = a.get("trade")
+        if co and tr:
+            by_co.setdefault(co, Counter())[tr] += 1
+    # 최빈(count desc), 동률 시 사전순(trade asc) — most_common 은 삽입순서라 비결정. 결정론으로 고정.
+    return {co: sorted(cnt.items(), key=lambda kv: (-kv[1], kv[0]))[0][0] for co, cnt in by_co.items()}
 
 
 def _coerce(row) -> dict:
@@ -220,6 +236,7 @@ async def fetch_sheet_data(
         equipment=[_coerce(r) for r in eq_rows],
         quantity=[dict(r) for r in act_rows],
         company_wa=company_wa,
+        company_trade=_company_trade_map([dict(r) for r in act_rows]),
     )
 
 

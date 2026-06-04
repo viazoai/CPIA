@@ -1,8 +1,8 @@
 "use client";
 // 검토 카드 — scope-1: l6(공종) picker (HIL 역할 = l6 매칭).
-//   기존 매핑 리랭크(Chroma cosine 유사도) 후보를 그대로 차용 — distinct l6 유사도 순 top-3.
-//   · 매핑 경로(site > WA > 분야 > l6) + AI 후보 유사도% (후보 행 %와 동일 출처)
-//   · top-3 l6 후보(유사도 칩) + AI 추천 배지/자동선택
+//   기존 매핑 리랭크 후보(distinct l6)를 차용 — 후보별 LLM 신뢰도(mapper candidate_confidences) 순 top-3.
+//   · 매핑 경로(site > WA > 분야 > l6) (오른쪽 % 없음 — 밑 리스트와 중복)
+//   · top-3 l6 후보(신뢰도 칩, 행마다) + AI 추천 배지/자동선택(선택 후보 신뢰도=mapping_conf=게이트)
 //   · 4번째 "다른 공종에서 선택 (분야)" → 같은 분야 전체 l6 카탈로그 펼침(수동)
 //   · 하단 전체 승인(page) → AI 추천 l6 일괄
 //   적재 매칭(신규/누적)은 (업체,l6,이름,scope) 정확일치로 백엔드 분리 — 카드는 l6 만 정한다.
@@ -144,6 +144,8 @@ export function ReviewCardV2OneShot({ item, l6CatalogByDisc, onConfirm, onSelect
               >
                 <span className={cn("h-2.5 w-2.5 shrink-0 rounded-full border", on ? "border-brand bg-brand" : "border-ink-light")} />
                 <span className="flex-1 truncate font-medium">{c.l6_main}</span>
+                {/* 후보별 LLM 신뢰도 — plain/muted (AI 추천 강조와 대비). */}
+                <span className="shrink-0 text-[10px] font-semibold text-ink-light">신뢰도 {Math.round((c.conf ?? 0) * 100)}%</span>
               </button>
             );
           })}

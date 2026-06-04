@@ -154,7 +154,7 @@ export interface ReviewItem {
   remapped?: boolean;           // 사용자가 AI 추천과 다르게 수정했는지 (corrections 전송 대상)
   alternative_wps?: { id: string; path: string; score: number }[];
   l6_alternatives?: { wa: string | null; l6_main: string; score: number }[];  // l6(공종) 후보 — mapper_activities.alternatives. v2 검토카드 전용.
-  l6_candidates?: { wa: string | null; l6_main: string; score: number; is_ai: boolean }[];  // scope-1: 랭크된 l6 후보(현 AI 포함, 유사도 desc, AI 최상단).
+  l6_candidates?: { wa: string | null; l6_main: string; score: number; conf: number; is_ai: boolean }[];  // scope-1: 랭크된 l6 후보(현 AI 포함, AI 최상단). conf=후보별 LLM 신뢰도(카드 표시), score=cosine 유사도(dedup용).
   l7_label?: string;            // l7(l7_sub) 그룹 라벨 — registered 카드 전용(groupCardsByL7). HIL 카드는 미설정.
 }
 

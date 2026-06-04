@@ -341,7 +341,9 @@ def _select_top_k_alternatives(candidates: list[dict[str, Any]], k: int = 5) -> 
     저장하면 동일 l6 가 자리를 차지해 distinct l6 다양성이 사라진다(예: top-3 가 전부
     C/R 조성공사). → l6 별 최고 score 1개만 남겨 **distinct l6** top-K 를 적재.
     2026-06-04: k=3→5 (route 가 같은 분야 필터 후 top-3 노출할 여유 확보).
-    반환은 FE review 카드 l6 후보용 {wa, l6_main, score} (score 내림차순).
+    반환은 FE review 카드 l6 후보용 {wa, l6_main, score, conf} (score 내림차순).
+    conf = 후보별 LLM 신뢰도 (_attach_candidate_confs 가 c["conf"] 로 미리 부착).
+    review 카드가 후보 행마다 신뢰도(유사도 X)를 보이도록 함께 적재.
     """
     best: dict[str, dict[str, Any]] = {}
     for c in candidates:
@@ -349,7 +351,39 @@ def _select_top_k_alternatives(candidates: list[dict[str, Any]], k: int = 5) -> 
         if l6 not in best or c["score"] > best[l6]["score"]:
             best[l6] = c
     ranked = sorted(best.values(), key=lambda c: c["score"], reverse=True)[:k]
-    return [{"wa": c["key"][0], "l6_main": c["key"][1], "score": float(c["score"])} for c in ranked]
+    return [
+        {
+            "wa": c["key"][0],
+            "l6_main": c["key"][1],
+            "score": float(c["score"]),
+            "conf": float(c.get("conf", 0.0)),
+        }
+        for c in ranked
+    ]
+
+
+def _attach_candidate_confs(
+    candidates: list[dict[str, Any]],
+    cand_confs: Any,
+    chosen_idx: int,
+    chosen_conf: float,
+) -> list[dict[str, Any]]:
+    """LLM 후보별 신뢰도(candidate_confidences 리스트)를 각 후보 dict 에 c["conf"] 로 부착.
+
+    LLM 리랭크가 한 호출에서 각 후보 [i] 에 0~1 신뢰도를 매긴 결과. 선택 후보(chosen_idx)는
+    게이트와 동일한 chosen_conf(mapping_conf)로 고정 — review 카드 AI 추천 행 숫자와 게이트가
+    단일 진실을 공유하도록. 누락/형식오류 후보는 0.0.
+    """
+    confs = cand_confs if isinstance(cand_confs, list) else []
+    for i, c in enumerate(candidates):
+        v = confs[i] if i < len(confs) else None
+        try:
+            c["conf"] = float(v) if v is not None else 0.0
+        except (TypeError, ValueError):
+            c["conf"] = 0.0
+    if 0 <= chosen_idx < len(candidates):
+        candidates[chosen_idx]["conf"] = float(chosen_conf)
+    return candidates
 
 
 @dataclass
@@ -556,7 +590,11 @@ async def map_activity(
         f"### 작업일보 + BP사 컨텍스트\n{llm_text}\n\n"
         f"### 후보\n{cand_str}\n\n"
         f"### 응답 (JSON only)\n"
-        f'{{"choice": <int>, "confidence": <0.0~1.0 float>, "reason": "<짧게>"}}'
+        f"choice = 최종 선택 후보 인덱스, confidence = 그 선택의 확신도(0~1).\n"
+        f"candidate_confidences = 후보 [0]..[{len(candidates) - 1}] 각각에 대해 "
+        f"이 작업일보 행이 그 후보에 매핑될 확신도(0~1) 배열. choice 후보가 가장 높아야 한다.\n"
+        f'{{"choice": <int>, "confidence": <0.0~1.0 float>, '
+        f'"candidate_confidences": [<후보 수만큼 0.0~1.0>], "reason": "<짧게>"}}'
     )
     # 2026-05-20: sync Azure chat.completions 도 to_thread — Semaphore 4 deadlock 방지.
     chat_resp = await asyncio.to_thread(
@@ -597,6 +635,9 @@ async def map_activity(
 
     chosen_key = candidates[choice]["key"]
     confidence = float(llm_result.get("confidence", 0.0))
+
+    # 후보별 LLM 신뢰도 부착 — review 카드가 후보 행마다 신뢰도 표시 (선택 후보=confidence 고정).
+    _attach_candidate_confs(candidates, llm_result.get("candidate_confidences"), choice, confidence)
 
     # ⑥ WA 결정 4단계 + Task 4 fallback (chosen_wa 전달)
     wa_result = resolve_wa(

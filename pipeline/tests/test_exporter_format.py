@@ -166,3 +166,56 @@ def test_dedup_border_skips_merged_cell():
     ws.merge_cells(start_row=DATA_START_ROW, start_column=8, end_row=DATA_START_ROW, end_column=9)
     _dedup_and_border(ws, n=2, c0=2, c1=17, key_cols=(3, 4, 5, 6))  # 예외 없어야
     assert ws.cell(DATA_START_ROW + 1, 6).value is None  # 둘째 행 dedup 정상
+
+
+def test_unmerge_data_region_clears_intersecting_merges():
+    import openpyxl
+    from pipeline.agents.exporter import _unmerge_data_region, SheetData, DATA_START_ROW
+    wb = openpyxl.Workbook()
+    wb.active.title = "1.출력인원 현황"
+    ws2 = wb.create_sheet("2.직종별 인원현황")
+    wb.create_sheet("3.장비현황")
+    wb.create_sheet("4.물량")
+    # occupation 5행(r5~r9) 가정: r6 데이터구역 안 병합 → 해제, r50 밖 병합 → 유지
+    ws2.merge_cells(start_row=DATA_START_ROW + 1, start_column=2, end_row=DATA_START_ROW + 1, end_column=6)
+    ws2.merge_cells(start_row=50, start_column=2, end_row=50, end_column=6)
+    sd = SheetData(output_manpower=[], occupation_manpower=[{} for _ in range(5)], equipment=[], quantity=[])
+    _unmerge_data_region(wb, sd)
+    refs = {str(m) for m in ws2.merged_cells.ranges}
+    assert "B6:F6" not in refs       # 데이터구역(r6) 병합 해제됨
+    assert "B50:F50" in refs          # 데이터구역 밖(r50) 유지
+
+
+def test_finalize_sheet1_renamed_and_headcount_hidden():
+    wb = load_workbook(BytesIO(render_xlsx(_sd_one_company(), date(2025, 9, 25), project="M15X Ph-3 IBL")))
+    assert wb.sheetnames == ["1.작업사항", "2.직종별 인원현황", "3.장비현황", "4.물량"]
+    ws1 = wb["1.작업사항"]
+    assert ws1.column_dimensions["J"].hidden is True   # col10 인원
+    assert ws1.column_dimensions["AK"].hidden is True  # col37
+    assert ws1.column_dimensions["I"].hidden is False  # col9 명일작업(주요작업까지 보임)
+
+
+def test_finalize_sheet2_no_hidden_no_filter_white():
+    sd = _sd_one_company()
+    sd.occupation_manpower = [
+        {"disc_abbrev": "건축", "company": "광건", "job_type": "비계공", "workers_cum_t": 3},
+        {"disc_abbrev": "건축", "company": "광건", "job_type": "형틀목공", "workers_cum_t": 5},
+    ]
+    wb = load_workbook(BytesIO(render_xlsx(sd, date(2025, 9, 25), project="M15X Ph-3 IBL")))
+    ws2 = wb["2.직종별 인원현황"]
+    assert ws2.auto_filter.ref is None
+    assert ws2.row_dimensions[5].hidden is False
+    assert ws2.row_dimensions[6].hidden is False
+    assert ws2.freeze_panes == "A5"
+    assert ws2.column_dimensions["D"].hidden is False  # 템플릿 숨김열 D 풀림
+    assert ws2.column_dimensions["Y"].hidden is False  # 템플릿 숨김열 Y 풀림
+    assert ws2.cell(5, 2).fill.patternType is None     # 흰색(회색 PoC 아티팩트 재유입 방지)
+
+
+def test_finalize_empty_sheet_safe():
+    """빈 시트(occupation/equipment=[]) 도 _finalize 가 안 깨짐."""
+    sd = _sd_one_company()
+    sd.occupation_manpower = []
+    sd.equipment = []
+    wb = load_workbook(BytesIO(render_xlsx(sd, date(2025, 9, 25), project="M15X Ph-3 IBL")))
+    assert "2.직종별 인원현황" in wb.sheetnames

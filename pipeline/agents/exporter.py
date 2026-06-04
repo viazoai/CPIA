@@ -309,6 +309,60 @@ def _dedup_and_border(ws, n: int, c0: int, c1: int, key_cols: tuple) -> None:
         prev = key
 
 
+def _unmerge_data_region(wb, sheet_data: SheetData) -> None:
+    """채움 前: 각 시트 데이터구역(r5..r5+n-1)에 걸친 템플릿 stray 병합 해제.
+    시트2 B87:F87 등이 _safe_set 스킵을 유발해 데이터 유실/dedup 오판 → 채움 전 해제로 근본 차단."""
+    counts = {
+        "1.출력인원 현황": len(sheet_data.output_manpower),
+        "2.직종별 인원현황": len(sheet_data.occupation_manpower),
+        "3.장비현황": len(sheet_data.equipment),
+        "4.물량": len(sheet_data.quantity),
+    }
+    for title, n in counts.items():
+        if n <= 0:
+            continue
+        ws = wb[title]
+        last = DATA_START_ROW + n - 1
+        for rng in list(ws.merged_cells.ranges):  # list() 스냅샷 — unmerge 가 ranges 를 변형
+            if rng.min_row <= last and rng.max_row >= DATA_START_ROW:
+                ws.unmerge_cells(str(rng))
+
+
+def _polish_sheet1(ws, n: int) -> None:
+    """시트1 작업사항(col7·8·9): ' | '→줄바꿈 + wrap + 행높이(줄수 기반)."""
+    for i in range(n):
+        r = DATA_START_ROW + i
+        for c in (7, 8, 9):
+            cell = ws.cell(r, c)
+            if isinstance(cell.value, str) and " | " in cell.value:
+                cell.value = cell.value.replace(" | ", "\n")
+            cell.alignment = Alignment(wrap_text=True, vertical="top", horizontal="left")
+        maxlines = max([str(ws.cell(r, c).value or "").count("\n") + 1 for c in (7, 8, 9)] + [1])
+        ws.row_dimensions[r].height = max(15, min(maxlines, 12) * 14)
+
+
+def _finalize_layout(wb, sheet_data: SheetData) -> None:
+    """render_xlsx 후처리: 숨김해제 + dedup + 그룹테두리(옵션1) + 시트1 '작업사항' 재정의.
+    회색 없음 — capture 미이식, 템플릿 기본(흰색) 유지."""
+    counts = {
+        "output_manpower": len(sheet_data.output_manpower),
+        "occupation_manpower": len(sheet_data.occupation_manpower),
+        "equipment": len(sheet_data.equipment),
+        "quantity": len(sheet_data.quantity),
+    }
+    for title, c0, c1, key_cols, attr in _GROUP_SHEETS:
+        ws = wb[title]
+        n = counts[attr]
+        _unhide_and_clean(ws, n)
+        _dedup_and_border(ws, n, c0, c1, key_cols)
+    # 시트1 재정의 (rename 전 이름으로 접근)
+    ws1 = wb["1.출력인원 현황"]
+    _polish_sheet1(ws1, counts["output_manpower"])
+    for c in range(10, 38):
+        ws1.column_dimensions[get_column_letter(c)].hidden = True
+    ws1.title = _SHEET1_TITLE
+
+
 def _safe_set(ws, r: int, c: int, value) -> None:
     """MergedCell-safe 셀 쓰기.
 
@@ -522,11 +576,13 @@ def render_xlsx(sheet_data: SheetData, report_date: _date, project: str) -> byte
     if not TEMPLATE_PATH.exists():
         raise FileNotFoundError(f"template not found: {TEMPLATE_PATH}")
     wb = load_workbook(TEMPLATE_PATH)
+    _unmerge_data_region(wb, sheet_data)   # 채움 前: 데이터구역 stray 병합 해제
     _fill_output_manpower(wb["1.출력인원 현황"], sheet_data.output_manpower, report_date,
                           company_wa=sheet_data.company_wa, company_trade=sheet_data.company_trade, project=project)
     _fill_occupation(wb["2.직종별 인원현황"], sheet_data.occupation_manpower, report_date)
     _fill_equipment(wb["3.장비현황"], sheet_data.equipment, report_date)
     _fill_quantity(wb["4.물량"], sheet_data.quantity, report_date, project=project)
+    _finalize_layout(wb, sheet_data)       # 숨김해제+dedup+테두리+시트1재정의
     buf = BytesIO()
     wb.save(buf)
     return buf.getvalue()

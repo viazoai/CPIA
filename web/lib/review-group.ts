@@ -1,10 +1,10 @@
 import type { ReviewItem } from "@/lib/types";
 
 export interface WpGroup {
-  wpId: string;                          // ai_mapped_wp_id (= WBSNode.id, 연결선 타깃)
+  wpId: string;                          // groupCardsByWp: ai_mapped_wp_id (= WBSNode.id, 연결선 타깃). groupCardsByL7: "ai_mapped_wp_id::l7_label" 합성 (React key·(wa,l6) 스코프 — 그래프 노드 id 아님)
   wpName: string;                        // ai_mapped_path 마지막 세그먼트
   path: string;                          // 마지막 제외 상위 경로 (예 "M15X > FAB")
-  items: ReviewItem[];                   // 미확정(확신도 오름차순) → 확정 순
+  items: ReviewItem[];                   // 정렬은 producer별 상이 — groupCardsByWp: 미확정(확신도 오름차순)→확정, groupCardsByL7: quantity DESC
   confirmedCount: number;
   unconfirmedCount: number;
   minUnconfirmedConfidence: number | null;

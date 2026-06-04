@@ -18,6 +18,12 @@ import type {
   EquipmentRow,
   QuantityRow,
 } from "@/lib/types";
+import {
+  outputFromBpSummaries,
+  reconstructOutputFromMapper,
+  bpLabel,
+  type MapperOutputAgg,
+} from "@/lib/consolidated-transforms";
 
 const PJT = "M15X Ph-3 IBL";
 
@@ -179,26 +185,31 @@ export async function GET(req: Request) {
     }
   }
 
-  // 시트1 — 출력인원: parser_reports.bp_summaries jsonb 펼침.
-  const output_manpower: OutputManpowerRow[] = bp_summaries.map((s: any) => ({
-    pjt: PJT,
-    zone: String(companyWa[s.company] ?? s.zone ?? ""),
-    trade: String(s.disc_abbrev ?? ""),
-    bp_code: String(s.bp_code ?? s.company ?? ""),
-    scope: String(s.scope ?? ""),
-    main_work: String(s.work_text_today ?? ""),
-    prev_work: String(s.work_text_yesterday ?? ""),
-    today_work: String(s.work_text_today ?? ""),
-    next_work: String(s.work_text_tomorrow ?? ""),
-    early: 0,
-    day: Number(s.today_incr_total ?? 0),
-    overtime: 0,
-  }));
+  // 시트1 — bp_summaries 있으면 그대로(BP사=업체명), 없으면(시드일) mapper per-company 재구성.
+  let output_manpower: OutputManpowerRow[];
+  if (bp_summaries.length > 0) {
+    output_manpower = outputFromBpSummaries(bp_summaries, companyWa);
+  } else {
+    const outAgg = (await (sql as any)`
+      SELECT ma.company,
+             MAX(ma.trade)                                       AS trade,
+             SUM(COALESCE(ma.assigned_workers, 0))::float        AS workers_total,
+             string_agg(DISTINCT NULLIF(pa.work_content, ''), E'\n') AS work_today
+      FROM mapper_activities ma
+      LEFT JOIN parser_activities pa ON pa.run_id = ma.run_id AND pa.idx = ma.idx
+      WHERE ma.report_date = ${date}
+        AND ma.is_mock = ${useMock}
+        AND ma.trade IN ('건축', '토목')
+      GROUP BY ma.company
+      ORDER BY ma.company
+    `) as MapperOutputAgg[];
+    output_manpower = reconstructOutputFromMapper(outAgg, companyWa);
+  }
 
   // 시트2 — 직종별 인원: parser_reports.job_allocations jsonb 펼침.
   const occupation_manpower: OccupationManpowerRow[] = job_allocations.map((j: any) => ({
     trade: String(j.disc_abbrev ?? ""),
-    bp_code: String(j.bp_code ?? j.company ?? ""),
+    bp_code: bpLabel(j.company, j.bp_code),
     manager_code: String(j.manager_code ?? ""),
     skilled_code: String(j.worker_code ?? ""),
     occupation: String(j.job_type ?? ""),
@@ -214,7 +225,7 @@ export async function GET(req: Request) {
   // 시트3 — 장비: parser_reports.equipment_allocations jsonb 펼침.
   const equipment: EquipmentRow[] = equipment_allocations.map((e: any) => ({
     trade: String(e.disc_abbrev ?? ""),
-    bp_code: String(e.bp_code ?? e.company ?? ""),
+    bp_code: bpLabel(e.company, e.bp_code),
     eq_major: String(e.equipment_big ?? ""),
     eq_mid: String(e.equipment_mid ?? ""),
     eq_spec: String(e.equipment_spec ?? ""),

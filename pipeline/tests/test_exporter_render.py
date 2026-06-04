@@ -107,14 +107,14 @@ def test_render_xlsx_returns_bytes(fake_data: SheetData) -> None:
 def test_render_xlsx_sheets_present(fake_data: SheetData) -> None:
     out = render_xlsx(fake_data, date(2025, 9, 26), project="M15X")
     wb = load_workbook(BytesIO(out))
-    assert wb.sheetnames == ["1.출력인원 현황", "2.직종별 인원현황", "3.장비현황", "4.물량"]
+    assert wb.sheetnames == ["1.작업사항", "2.직종별 인원현황", "3.장비현황", "4.물량"]
 
 
 def test_render_xlsx_output_manpower_row(fake_data: SheetData) -> None:
     """시트1 r5 에 zone='FAB' 박혀야 함 (COL dict 가 정확한지 검증)."""
     out = render_xlsx(fake_data, date(2025, 9, 26), project="M15X")
     wb = load_workbook(BytesIO(out))
-    ws = wb["1.출력인원 현황"]
+    ws = wb["1.작업사항"]
     found = any(ws.cell(5, c).value == "FAB" for c in range(1, ws.max_column + 1))
     assert found, (
         f"r5 row 어디에도 'FAB' 없음 — COL dict 확인. 실 r5: {[ws.cell(5, c).value for c in range(1, ws.max_column + 1)]}"
@@ -191,7 +191,7 @@ def test_render_xlsx_sheet1_bp_is_company() -> None:
         company_wa={"광건": "FAB"},
     )
     wb = load_workbook(BytesIO(render_xlsx(sd, date(2025, 9, 24), project="M15X")))
-    ws = wb["1.출력인원 현황"]
+    ws = wb["1.작업사항"]
     assert ws.cell(5, COL_OUTPUT_MANPOWER["bp_code"]).value == "광건"
 
 

@@ -35,6 +35,26 @@ def _coerce(row) -> dict:
     return json.loads(v) if isinstance(v, str) else v
 
 
+def _reconstruct_output_manpower(agg_rows: list[dict], company_wa: dict) -> list[dict]:
+    """시드일(빈 bp_summaries) 시트1 재구성 — mapper per-company 집계 → _fill_output_manpower 호환 dict.
+    시드는 전일/명일 작업텍스트·교대 내역 원천이 없어, 투입인원 총합만 today_incr.total 한 칸에 넣는다.
+    """
+    out: list[dict] = []
+    for r in agg_rows:
+        out.append({
+            "company": r["company"],
+            "bp_code": None,  # 시드 빈값 → _fill_output_manpower 가 company 폴백
+            "zone": company_wa.get(r["company"]),
+            "disc_abbrev": r.get("trade"),
+            "scope": None,
+            "work_text_today": r.get("work_today"),
+            "work_text_yesterday": None,
+            "work_text_tomorrow": None,
+            "workers_today_incr": {"total": round(r.get("workers_total") or 0)},
+        })
+    return out
+
+
 async def fetch_sheet_data(
     pg: PGClient,
     site_id: str,
@@ -97,6 +117,25 @@ async def fetch_sheet_data(
             site_id,
             report_date,
         )
+        out_agg_rows = []
+        if not bp_rows:
+            out_agg_rows = await con.fetch(
+                """
+                SELECT ma.company,
+                       MAX(ma.trade) AS trade,
+                       SUM(COALESCE(ma.assigned_workers, 0))::float AS workers_total,
+                       string_agg(DISTINCT NULLIF(pa.work_content, ''), E'\n') AS work_today
+                FROM mapper_activities ma
+                JOIN pipeline_runs pr USING (run_id)
+                LEFT JOIN parser_activities pa ON pa.run_id = ma.run_id AND pa.idx = ma.idx
+                WHERE pr.site_id = $1 AND ma.report_date = $2
+                  AND ma.trade IN ('건축', '토목')
+                GROUP BY ma.company
+                ORDER BY ma.company
+                """,
+                site_id,
+                report_date,
+            )
 
     if not (bp_rows or job_rows or eq_rows or act_rows):
         raise NoDataError(f"해당 ({site_id}, {report_date.isoformat()}) 데이터 없음")
@@ -111,8 +150,13 @@ async def fetch_sheet_data(
         for co, cnt in _by_co.items()
     }
 
+    output_manpower = (
+        [_coerce(r) for r in bp_rows]
+        if bp_rows
+        else _reconstruct_output_manpower([dict(r) for r in out_agg_rows], company_wa)
+    )
     return SheetData(
-        output_manpower=[_coerce(r) for r in bp_rows],
+        output_manpower=output_manpower,
         occupation_manpower=[_coerce(r) for r in job_rows],
         equipment=[_coerce(r) for r in eq_rows],
         quantity=[dict(r) for r in act_rows],
@@ -253,7 +297,7 @@ def _fill_output_manpower(ws, rows: list[dict], report_date: _date, *, company_w
         _safe_set(ws, r, C["trade"], row.get("disc_abbrev"))
         # col 5 는 bp_code 와 company 가 동일 칸 — bp_code 우선 (실제 시트가 BP_CODE 박힘).
         # company 는 별도 컬럼 없음. 시트1 헤더 r3='BP사' / r4='협력업체' 가 같은 칸.
-        _safe_set(ws, r, C["bp_code"], row.get("bp_code") or row.get("company"))
+        _safe_set(ws, r, C["bp_code"], row.get("company") or row.get("bp_code"))
         _safe_set(ws, r, C["scope"], row.get("scope"))
         _safe_set(ws, r, C["work_y"], row.get("work_text_yesterday"))
         _safe_set(ws, r, C["work_t"], row.get("work_text_today"))
@@ -269,7 +313,7 @@ def _fill_occupation(ws, rows: list[dict], report_date: _date) -> None:
     for i, row in enumerate(rows):
         r = DATA_START_ROW + i
         _safe_set(ws, r, C["trade"], row.get("disc_abbrev"))
-        _safe_set(ws, r, C["bp_code"], row.get("bp_code"))
+        _safe_set(ws, r, C["bp_code"], row.get("company") or row.get("bp_code"))
         _safe_set(ws, r, C["manager_code"], row.get("manager_code"))
         _safe_set(ws, r, C["worker_code"], row.get("worker_code"))
         _safe_set(ws, r, C["job_type"], row.get("job_type"))
@@ -291,7 +335,7 @@ def _fill_equipment(ws, rows: list[dict], report_date: _date) -> None:
     for i, row in enumerate(rows):
         r = DATA_START_ROW + i
         _safe_set(ws, r, C["trade"], row.get("disc_abbrev"))
-        _safe_set(ws, r, C["bp_code"], row.get("bp_code"))
+        _safe_set(ws, r, C["bp_code"], row.get("company") or row.get("bp_code"))
         _safe_set(ws, r, C["eq_big"], row.get("equipment_big"))
         _safe_set(ws, r, C["eq_mid"], row.get("equipment_mid"))
         _safe_set(ws, r, C["eq_spec"], row.get("equipment_spec"))

@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { Check, Pencil, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatReviewQuantity } from "@/lib/review-format";
 import { WPSearchCombobox } from "./WPSearchCombobox";
 import type { ReviewItem, WBSNode } from "@/lib/types";
 
@@ -56,7 +57,7 @@ export function ReviewCard({ item, wbsRoot, onConfirm, onRemap, readOnly, select
           <span className="ml-1 font-semibold text-sm text-ink">{item.bp_name}</span>
         </div>
         <span className="font-mono text-xs font-semibold text-ink-mid">
-          {item.quantity} {item.unit}
+          {formatReviewQuantity(item.quantity)} {item.unit}
         </span>
       </div>
 

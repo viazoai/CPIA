@@ -146,11 +146,14 @@ export interface ReviewItem {
   ai_mapped_wp_id: string;      // 매핑된 WP id (remap 시 갱신)
   ai_mapped_path: string;       // "M15X > 골조 > WP-3-2 거푸집"
   wa: string | null;            // 현재 매핑 wa (remap 시 갱신) — resume corrections 전달용
+  l5_disc?: string | null;      // 공종 분야(건축/토목) — 경로 표시·대안 같은공종 필터·v2 카드 전용
   l6_main: string | null;       // 현재 매핑 l6_main (remap 시 갱신)
+  l7_5_activity?: string | null; // mapper 가 고른 l7.5 작업종류 — oneshot 카드 "AI 추천" 마커
   confidence: number;           // 0.0~1.0
   status: "confirmed" | "unconfirmed";
   remapped?: boolean;           // 사용자가 AI 추천과 다르게 수정했는지 (corrections 전송 대상)
   alternative_wps?: { id: string; path: string; score: number }[];
+  l6_alternatives?: { wa: string | null; l6_main: string; score: number }[];  // l6(공종) 후보 — mapper_activities.alternatives. v2 검토카드 전용.
   l7_label?: string;            // l7(l7_sub) 그룹 라벨 — registered 카드 전용(groupCardsByL7). HIL 카드는 미설정.
 }
 

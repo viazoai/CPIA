@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useMemo, useRef } from "react";
+import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { Switch } from "@/components/ui/switch";
 import { CheckCheck } from "lucide-react";
 import { WBSTree } from "@/app/components/review/WBSTree";
@@ -33,6 +33,9 @@ export default function HumanReviewPage() {
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [view, setView] = useState<"list" | "board">("list");
   const gridRef = useRef<HTMLDivElement>(null);
+  // HIL oneshot 카드용: 분야별 누적 적재 인벤토리(1회 fetch) + 카드별 선택(모두 확정 corrections).
+  const [inventory, setInventory] = useState<Record<string, ReviewItem[]>>({});
+  const [selections, setSelections] = useState<Record<string, { wa: string | null; l6_main: string | null; l7_5_activity: string | null }>>({});
 
   useEffect(() => {
     fetch("/api/mock/review")
@@ -43,6 +46,29 @@ export default function HumanReviewPage() {
         setOnlyUnconfirmed(cards.length > 0);
       });
   }, []);
+
+  // HIL oneshot 후보 인벤토리 — 건축/토목 누적 적재를 분야별로 1회씩만 fetch(카드별 fetch 폭주 방지).
+  useEffect(() => {
+    if (!onlyUnconfirmed) return;
+    let cancelled = false;
+    const get = (disc: string) =>
+      fetch(`/api/mock/review/registered?l5=${encodeURIComponent(disc)}`)
+        .then((r) => (r.ok ? r.json() : { items: [] }))
+        .then((d) => (d.items ?? []) as ReviewItem[])
+        .catch(() => [] as ReviewItem[]);
+    Promise.all([get("건축"), get("토목")]).then(([arch, civil]) => {
+      if (!cancelled) setInventory({ "건축": arch, "토목": civil });
+    });
+    return () => { cancelled = true; };
+  }, [onlyUnconfirmed]);
+
+  // 카드별 선택 보고 — 사용자가 후보 항목/신규를 고른 카드만 기록(미선택 카드는 BE 가 AI 매핑 수용).
+  const handleCardSelect = useCallback(
+    (cardId: string, sel: { wa: string | null; l6_main: string | null; l7_5_activity: string | null }) => {
+      setSelections((s) => ({ ...s, [cardId]: sel }));
+    },
+    [],
+  );
 
   // A4: 등록 모드(HIL off)에서 선택 노드의 누적 등록 작업을 노드 스코프로 lazy fetch.
   useEffect(() => {
@@ -89,10 +115,24 @@ export default function HumanReviewPage() {
     setConfirmedNotice(null);
   }, [selectedNodeId]);
 
-  // HIL 은 cards 전체(확정 포함)를 (wa,l6) 그룹핑. 등록은 registered 를 l7(l7_sub) 그룹핑.
+  // 좌측 트리 노드 선택 → 우측 카드 필터 (HIL 모드). 단방향: 트리 클릭만 필터를 바꾼다.
+  //   nodeToQuery: building(root)→{null,null,null}=전체 · wa→{wa} · wa::l5→{wa,l5} · wp→{wa,l6}.
+  //   M15X(root) 클릭 시 전체, CUB/FAB 클릭 시 그 동(棟)만, 공종(l6) 클릭 시 그 공종만.
+  const filteredCards = useMemo(() => {
+    if (!selectedNodeId || !wbs) return cards;
+    const q = nodeToQuery(find(wbs, selectedNodeId));
+    if (!q) return cards;
+    return cards.filter((c) =>
+      (q.wa == null || c.wa === q.wa) &&
+      (q.l5 == null || c.l5_disc === q.l5) &&
+      (q.l6 == null || c.l6_main === q.l6)
+    );
+  }, [selectedNodeId, wbs, cards]);
+
+  // HIL 은 (필터된) cards 를 (wa,l6) 그룹핑. 등록은 registered 를 l7(l7_sub) 그룹핑.
   const groups = useMemo(
-    () => (onlyUnconfirmed ? groupCardsByWp(cards) : groupCardsByL7(registered)),
-    [onlyUnconfirmed, cards, registered]
+    () => (onlyUnconfirmed ? groupCardsByWp(filteredCards) : groupCardsByL7(registered)),
+    [onlyUnconfirmed, filteredCards, registered]
   );
   const selectedCard = useMemo(
     () => (onlyUnconfirmed ? cards : registered).find((c) => c.id === selectedCardId) ?? null,
@@ -160,12 +200,20 @@ export default function HumanReviewPage() {
     // 미확정 0 도달 → 등록 모드로 자동 복귀 + 알림.
     setOnlyUnconfirmed(false);
     setConfirmedNotice(`${n}건 확정 완료`);
-    // 사용자가 수정(remap)한 카드만 corrections 로 BE 전달(idx 키 = mapper_activities.idx).
-    // 수정 안 한 요검토 항목은 BE hil_1_node 가 AI 매핑 그대로 확정(corrections 불필요).
-    const corrections: Record<string, { wa: string; l6_main: string; l7_5_activity?: string | null }> = {};
+    // corrections: 사용자가 AI 추천과 다르게 고른 카드만 전송(idx 키 = mapper_activities.idx).
+    //   - oneshot 선택(selections): 기존 항목 선택 → 그 {wa,l6,l7.5}, 신규 → AI l7.5 그대로.
+    //   - AI 추천 그대로인 카드(selections 미기록 or AI 기본값과 동일)는 미전송 → BE 가 AI 매핑 수용(= AI 추천 일괄 적용).
+    //   - 구 remap(트리 드래그)도 흡수: c.remapped 면 그 wa/l6 + l7.5 무효화.
+    const corrections: Record<string, { wa: string | null; l6_main: string; l7_5_activity?: string | null }> = {};
     for (const c of cards) {
-      if (c.remapped && c.wa && c.l6_main) {
-        // l6 재매핑 → 기존 l7.5 무효화(BE 에서 미분류 처리, D9)
+      const sel = selections[c.id];
+      if (sel && sel.l6_main) {
+        const sameAsAi =
+          (sel.wa ?? null) === (c.wa ?? null) &&
+          (sel.l6_main ?? null) === (c.l6_main ?? null) &&
+          (sel.l7_5_activity ?? null) === (c.l7_5_activity ?? null);
+        if (!sameAsAi) corrections[String(c.idx)] = { wa: sel.wa, l6_main: sel.l6_main, l7_5_activity: sel.l7_5_activity ?? null };
+      } else if (c.remapped && c.l6_main) {
         corrections[String(c.idx)] = { wa: c.wa, l6_main: c.l6_main, l7_5_activity: null };
       }
     }
@@ -179,11 +227,10 @@ export default function HumanReviewPage() {
       .catch((e) => console.error("[hil/resume] 실패", e));
   };
 
-  // 카드 선택 → 연결선 + 트리 자동 펼침/스크롤(해당 WP 노드).
+  // 카드 선택 → 연결선 + 트리 자동 펼침/스크롤(revealNodeId=selectedCard).
+  //   필터(selectedNodeId)는 건드리지 않는다 — 좌측→우측 단방향 필터 유지(카드 클릭이 우측을 1건으로 좁히지 않게).
   const handleSelectCard = (id: string) => {
     setSelectedCardId(id);
-    const card = (onlyUnconfirmed ? cards : registered).find((c) => c.id === id);
-    if (card) setSelectedNodeId(card.ai_mapped_wp_id);
   };
   // 확신도 0.8↑ 미확정만 일괄 확정 (저확신은 남김 → resume 보류).
   const handleConfirmHighConf = () => {
@@ -275,11 +322,14 @@ export default function HumanReviewPage() {
                   onRemap={handleRemap}
                   onSelectCard={handleSelectCard}
                   readOnly={!onlyUnconfirmed}
+                  inventory={inventory}
+                  onCardSelect={handleCardSelect}
                 />
               ))}
               {groups.length === 0 && (
                 <div className="rounded-card border border-dashed border-border-soft py-12 text-center text-sm text-ink-light">
-                  {onlyUnconfirmed ? "검토할 신규 매핑이 없습니다."
+                  {onlyUnconfirmed
+                    ? (selectedNodeId ? "이 공종에는 검토할 항목이 없습니다. (좌측 최상위 노드 클릭 시 전체)" : "검토할 신규 매핑이 없습니다.")
                     : registeredError ? "등록 작업을 불러오지 못했습니다. 잠시 후 다시 시도하세요."
                     : !selectedNodeId ? "좌측에서 공종 또는 WP를 선택하면 누적 등록 작업을 볼 수 있습니다."
                     : "이 공종에 등록된 작업이 없습니다."}

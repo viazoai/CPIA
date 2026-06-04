@@ -3,8 +3,9 @@ import { useState } from "react";
 import { ChevronDown, ChevronRight, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ReviewCard } from "./ReviewCard";
+import { ReviewCardV2OneShot, type CardSelection } from "./ReviewCardV2OneShot";
 import type { WpGroup as WpGroupData } from "@/lib/review-group";
-import type { WBSNode } from "@/lib/types";
+import type { WBSNode, ReviewItem } from "@/lib/types";
 
 interface Props {
   group: WpGroupData;
@@ -14,9 +15,11 @@ interface Props {
   onRemap: (id: string, newWpId: string, newPath: string) => void;
   onSelectCard: (id: string) => void;
   readOnly?: boolean;
+  inventory?: Record<string, ReviewItem[]>;           // HIL: 후보 공종 인벤토리 (oneshot 카드용)
+  onCardSelect?: (cardId: string, sel: CardSelection) => void;  // HIL: 카드별 선택 보고
 }
 
-export function WpGroup({ group, selectedCardId, wbsRoot, onConfirm, onRemap, onSelectCard, readOnly }: Props) {
+export function WpGroup({ group, selectedCardId, wbsRoot, onConfirm, onRemap, onSelectCard, readOnly, inventory, onCardSelect }: Props) {
   const [showConfirmed, setShowConfirmed] = useState(false);
 
   const unconfirmed = group.items.filter((c) => c.status === "unconfirmed");
@@ -49,15 +52,14 @@ export function WpGroup({ group, selectedCardId, wbsRoot, onConfirm, onRemap, on
       {/* 카드 목록 */}
       <div className="flex flex-col gap-2 rounded-b-card border border-t-0 border-border-soft p-2">
         {unconfirmed.map((c) => (
-          <ReviewCard
+          <ReviewCardV2OneShot
             key={c.id}
             item={c}
-            wbsRoot={wbsRoot}
+            inventory={inventory ?? {}}
             selected={c.id === selectedCardId}
             onConfirm={onConfirm}
-            onRemap={onRemap}
+            onSelect={onCardSelect ?? (() => {})}
             onSelectCard={onSelectCard}
-            readOnly={readOnly}
           />
         ))}
 

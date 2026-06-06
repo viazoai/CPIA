@@ -160,7 +160,6 @@ export function ProductivityTrendChart({ trend, todayValue, endDate }: Props) {
               fill="#1a56db"
               stroke="#ffffff"
               strokeWidth={2}
-              isFront
               className="cpia-ref-fade"
             />
           )}

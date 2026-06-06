@@ -41,8 +41,9 @@ export default function ExportPage() {
     if (busy || !report?.date || report.status !== "ready") return;
     setBusy(true);
     try {
-      const base = process.env.NEXT_PUBLIC_FASTAPI_BASE || "http://localhost:8000";
-      const url = `${base}/export/run?site_id=${encodeURIComponent(SITE_ID)}&date=${report.date}`;
+      // same-origin Next API Route(BFF)로 호출 → 서버가 FASTAPI_URL 로 중계.
+      // 브라우저가 FastAPI 를 직접 때리지 않으므로 포트·CORS·Tunnel 문제 없음.
+      const url = `/api/export?site_id=${encodeURIComponent(SITE_ID)}&date=${encodeURIComponent(report.date)}`;
       const res = await fetch(url);
       if (!res.ok) {
         const text = await res.text();

@@ -84,8 +84,11 @@ export async function GET(req: Request) {
     (sql as any)`
       SELECT
         (SELECT COUNT(*)::int FROM parser_activities WHERE run_id = ${run.run_id}) AS parser_rows,
-        (SELECT COUNT(*)::int FROM mapper_activities WHERE run_id = ${run.run_id}) AS mapper_rows
-    ` as Promise<Array<{ parser_rows: number; mapper_rows: number }>>,
+        (SELECT COUNT(*)::int FROM mapper_activities WHERE run_id = ${run.run_id}) AS mapper_rows,
+        (SELECT COUNT(*)::int FROM mapper_activities
+           WHERE run_id = ${run.run_id} AND requires_review
+             AND trade IN ('건축', '토목') AND today_qty > 0) AS hil_rows
+    ` as Promise<Array<{ parser_rows: number; mapper_rows: number; hil_rows: number }>>,
     (sql as any)`
       SELECT agent, processed, total
       FROM agent_progress
@@ -94,6 +97,7 @@ export async function GET(req: Request) {
   ]);
   const parserRows    = countRows[0]?.parser_rows ?? 0;
   const mapperRows    = countRows[0]?.mapper_rows ?? 0;
+  const hilRows       = countRows[0]?.hil_rows ?? 0;
   const atomizedCount = run.atomized_count ?? 0;
 
   const agentProgress: Record<string, { processed: number; total: number }> = {};
@@ -110,6 +114,7 @@ export async function GET(req: Request) {
     fileCount,
     parserRows,
     mapperRows,
+    hilCount: hilRows,
     atomizedCount,
     agentProgress,
   });

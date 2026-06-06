@@ -14,6 +14,7 @@ function base(overrides: Partial<ProgressInputs> = {}): ProgressInputs {
     fileCount: 7,
     parserRows: 0,
     mapperRows: 0,
+    hilCount: 0,
     atomizedCount: 0,
     agentProgress: {},
     ...overrides,
@@ -101,26 +102,26 @@ describe("computeProgressStages", () => {
     }
   });
 
-  it("Collector=fileCount(파일수), Human Review=mapperRows fallback (agent_progress 미emit)", () => {
+  it("Collector=fileCount(파일수), Human Review=hilCount fallback (총 mapperRows 아님)", () => {
     const st = computeProgressStages(
-      base({ current_node: "atomizer", fileCount: 7, mapperRows: 330,
+      base({ current_node: "atomizer", fileCount: 7, mapperRows: 330, hilCount: 51,
              agentProgress: { atomizer: { processed: 1, total: 5 } } }),
     );
     expect(by(st, "Collector").received).toBe(7);
     expect(by(st, "Collector").percent).toBe(100);
     const hr = by(st, "Human Review");
-    expect(hr.received).toBe(330);
+    expect(hr.received).toBe(51); // 검토 대상(requires_review)만 — 총 활동 330 아님
     expect(hr.percent).toBe(100);
   });
 
-  it("waiting_hil_1 분기 유지: Human Review waiting_hil=true, percent=0, received=mapperRows", () => {
+  it("waiting_hil_1 분기 유지: Human Review waiting_hil=true, percent=0, received=hilCount(검토대상)", () => {
     const st = computeProgressStages(
-      base({ status: "waiting_hil_1", current_node: "hil_1", mapperRows: 80 }),
+      base({ status: "waiting_hil_1", current_node: "hil_1", mapperRows: 115, hilCount: 49 }),
     );
     const hr = by(st, "Human Review");
     expect(hr.waiting_hil).toBe(true);
     expect(hr.percent).toBe(0);
-    expect(hr.received).toBe(80);
+    expect(hr.received).toBe(49); // 115(총) 아님 — 게이트 통과 못한 49건만
     expect(hr.processed).toBe(0);
   });
 

@@ -18,12 +18,25 @@ import type {
   EquipmentRow,
   QuantityRow,
 } from "@/lib/types";
+import {
+  outputFromBpSummaries,
+  reconstructOutputFromMapper,
+  bpLabel,
+  type MapperOutputAgg,
+} from "@/lib/consolidated-transforms";
 
 const PJT = "M15X Ph-3 IBL";
 
 function toDateStr(d: Date | string): string {
   if (typeof d === "string") return d.slice(0, 10);
   return d.toISOString().slice(0, 10);
+}
+
+/** "YYYY-MM-DD" 를 days 만큼 이동(UTC 고정, 결정론적). */
+function shiftDate(d: string, days: number): string {
+  const dt = new Date(d + "T00:00:00Z");
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return dt.toISOString().slice(0, 10);
 }
 
 function asArray(v: unknown): any[] {
@@ -37,6 +50,34 @@ function asArray(v: unknown): any[] {
     }
   }
   return [];
+}
+
+/** 특정 날짜의 업체별 "금일 작업" 텍스트 맵. bp_summaries 있으면 그 텍스트, 없으면(시드일) mapper work_content 집계. */
+async function workTextByCompany(date: string, useMock: boolean): Promise<Record<string, string>> {
+  const rep = (await (sql as any)`
+    SELECT bp_summaries FROM parser_reports
+    WHERE report_date = ${date} AND is_mock = ${useMock}
+    ORDER BY created_at DESC LIMIT 1
+  `) as Array<{ bp_summaries: unknown }>;
+  const arr = asArray(rep[0]?.bp_summaries);
+  const m: Record<string, string> = {};
+  if (arr.length > 0) {
+    for (const s of arr as any[]) {
+      if (s?.company) m[String(s.company)] = String(s.work_text_today ?? "");
+    }
+    return m;
+  }
+  const agg = (await (sql as any)`
+    SELECT ma.company,
+           string_agg(DISTINCT NULLIF(pa.work_content, ''), E'\n') AS work
+    FROM mapper_activities ma
+    LEFT JOIN parser_activities pa ON pa.run_id = ma.run_id AND pa.idx = ma.idx
+    WHERE ma.report_date = ${date} AND ma.is_mock = ${useMock}
+      AND ma.trade IN ('건축', '토목')
+    GROUP BY ma.company
+  `) as Array<{ company: string; work: string | null }>;
+  for (const r of agg) m[r.company] = String(r.work ?? "");
+  return m;
 }
 
 export async function GET(req: Request) {
@@ -141,7 +182,7 @@ export async function GET(req: Request) {
   const acts = (await (sql as any)`
     SELECT pa.zone, pa.trade, pa.bp_code, pa.company, pa.scope,
            pa.work_content, pa.unit, pa.plan_total_qty, pa.yesterday_cum_qty, pa.today_qty,
-           ma.wa AS mapper_wa
+           ma.wa AS mapper_wa, ma.l7_5_activity AS mapper_l75
     FROM parser_activities pa
     JOIN pipeline_runs pr USING (run_id)
     LEFT JOIN mapper_activities ma USING (run_id, idx)
@@ -159,6 +200,7 @@ export async function GET(req: Request) {
     yesterday_cum_qty: number | string | null;
     today_qty: number | string | null;
     mapper_wa: string | null;
+    mapper_l75: string | null;
   }>;
 
   // 시트1 zone 소스: mapper_activities.wa 를 회사별 최빈값으로 집계.
@@ -192,26 +234,35 @@ export async function GET(req: Request) {
     }
   }
 
-  // 시트1 — 출력인원: parser_reports.bp_summaries jsonb 펼침.
-  const output_manpower: OutputManpowerRow[] = bp_summaries.map((s: any) => ({
-    pjt: PJT,
-    zone: String(companyWa[s.company] ?? s.zone ?? ""),
-    trade: String(s.disc_abbrev ?? ""),
-    bp_code: String(s.bp_code ?? s.company ?? ""),
-    scope: String(s.scope ?? ""),
-    main_work: String(s.work_text_today ?? ""),
-    prev_work: String(s.work_text_yesterday ?? ""),
-    today_work: String(s.work_text_today ?? ""),
-    next_work: String(s.work_text_tomorrow ?? ""),
-    early: 0,
-    day: Number(s.today_incr_total ?? 0),
-    overtime: 0,
-  }));
+  // 시트1 전일/명일 = 인접일(D-1/D+1)의 업체별 금일 작업 (사용자 요구: 전일=전날 금일, 명일=다음날 금일).
+  const prevWork = await workTextByCompany(shiftDate(date, -1), useMock);
+  const nextWork = await workTextByCompany(shiftDate(date, +1), useMock);
+
+  // 시트1 — bp_summaries 있으면 그대로(BP사=업체명), 없으면(시드일) mapper per-company 재구성.
+  let output_manpower: OutputManpowerRow[];
+  if (bp_summaries.length > 0) {
+    output_manpower = outputFromBpSummaries(bp_summaries, companyWa, prevWork, nextWork);
+  } else {
+    const outAgg = (await (sql as any)`
+      SELECT ma.company,
+             MAX(ma.trade)                                       AS trade,
+             SUM(COALESCE(ma.assigned_workers, 0))::float        AS workers_total,
+             string_agg(DISTINCT NULLIF(pa.work_content, ''), E'\n') AS work_today
+      FROM mapper_activities ma
+      LEFT JOIN parser_activities pa ON pa.run_id = ma.run_id AND pa.idx = ma.idx
+      WHERE ma.report_date = ${date}
+        AND ma.is_mock = ${useMock}
+        AND ma.trade IN ('건축', '토목')
+      GROUP BY ma.company
+      ORDER BY ma.company
+    `) as MapperOutputAgg[];
+    output_manpower = reconstructOutputFromMapper(outAgg, companyWa, prevWork, nextWork);
+  }
 
   // 시트2 — 직종별 인원: parser_reports.job_allocations jsonb 펼침.
   const occupation_manpower: OccupationManpowerRow[] = job_allocations.map((j: any) => ({
     trade: String(j.disc_abbrev ?? ""),
-    bp_code: String(j.bp_code ?? j.company ?? ""),
+    bp_code: bpLabel(j.company, j.bp_code),
     manager_code: String(j.manager_code ?? ""),
     skilled_code: String(j.worker_code ?? ""),
     occupation: String(j.job_type ?? ""),
@@ -227,7 +278,7 @@ export async function GET(req: Request) {
   // 시트3 — 장비: parser_reports.equipment_allocations jsonb 펼침.
   const equipment: EquipmentRow[] = equipment_allocations.map((e: any) => ({
     trade: String(e.disc_abbrev ?? ""),
-    bp_code: String(e.bp_code ?? e.company ?? ""),
+    bp_code: bpLabel(e.company, e.bp_code),
     eq_major: String(e.equipment_big ?? ""),
     eq_mid: String(e.equipment_mid ?? ""),
     eq_spec: String(e.equipment_spec ?? ""),
@@ -247,7 +298,7 @@ export async function GET(req: Request) {
     bp_code: a.bp_code ?? "",
     bp_name: a.company ?? "",
     scope: a.scope ?? "",
-    rep_work: a.work_content ?? "",
+    rep_work: a.mapper_l75 || a.work_content || "",
     unit: a.unit ?? "",
     total_a: a.plan_total_qty != null ? Number(a.plan_total_qty) : 0,
     prev_cum_b: a.yesterday_cum_qty != null ? Number(a.yesterday_cum_qty) : 0,

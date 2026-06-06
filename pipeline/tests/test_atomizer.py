@@ -46,16 +46,27 @@ def _sample_activity() -> Activity:
 
 
 def test_make_doc_id_determinism():
-    """spec §4.7 ✓ Verified."""
+    """결정성 (2026-06-04 scope-2b: scope 키 추가로 해시값 갱신)."""
     id1 = _make_doc_id("2025-09-25", "남웅건설", "철근콘크리트공사", "기초 거푸집 설치")
     id2 = _make_doc_id("2025-09-25", "남웅건설", "철근콘크리트공사", "기초 거푸집 설치")
-    assert id1 == id2 == "73ff80435e312c41"
+    assert id1 == id2 == "b9073b3082263449"
 
 
 def test_make_doc_id_changes():
     id1 = _make_doc_id("2025-09-25", "남웅건설", "철근콘크리트공사", "기초 거푸집 설치")
     id2 = _make_doc_id("2025-09-25", "남웅건설", "철근콘크리트공사", "기초 타설")
     assert id1 != id2
+
+
+def test_make_doc_id_scope_distinguishes():
+    """scope-2b: 같은 (date,company,l6,work_content) 라도 scope 다르면 별개 doc.
+
+    동명 작업 오병합 방지 — 남웅 "기초 거푸집 설치" 가 위치(scope)별로 합쳐지지 않게.
+    """
+    base = ("2025-09-25", "남웅건설", "철근콘크리트공사", "기초 거푸집 설치")
+    assert _make_doc_id(*base, "F04 2층") != _make_doc_id(*base, "F05 1층")
+    assert _make_doc_id(*base, "F04 2층") == _make_doc_id(*base, "F04 2층")  # 같은 scope → 누적
+    assert _make_doc_id(*base, None) != _make_doc_id(*base, "F04 2층")  # 미지정 vs 지정 구분
 
 
 def test_make_doc_id_format():
@@ -173,10 +184,10 @@ async def test_atomize_skip_unmapped(cfg):
 async def test_atomize_namwong_47(cfg, run_row):
     """9/25 남웅 47 row (비계 제외) → Chroma 적재 + assigned_workers=88 일관.
 
-    Spec §4.2 의 doc_id = sha256(date|company|l6_main|work_content)[:16] 는 같은
-    (BP사, l6, work_content) 조합을 단일 doc 로 collapse. 9/25 남웅 47 row 의
-    work_content 는 11 unique (예: '철근 배근' 12x, '기초 거푸집 설치' 7x …) →
-    Chroma 적재 행은 11.
+    2026-06-04 (scope-2b): doc_id = sha256(date|company|l6|work_content|scope)[:16].
+    scope 가 키에 들어가므로 같은 work_content 라도 위치(scope)가 다르면 별개 doc 다.
+    9/25 남웅 47 row 는 work_content 만으론 11 unique 지만 (work_content, scope) 로는
+    37 unique → 옛 키의 over-merge(36 row 유실) 가 해소된다. 기대값은 입력에서 동적 산출.
     """
     from pipeline.agents.mapper import _prorate_mh
     from pipeline.agents.parser import parse_daily_report
@@ -217,14 +228,16 @@ async def test_atomize_namwong_47(cfg, run_row):
     )
 
     ids = await atomize(namwong, parsed, run_row, cfg)
-    # 47 input rows → 11 unique doc_id 로 collapse (work_content 가 반복됨).
-    assert len(ids) == 11, f"unique doc_id 수: {len(ids)} (예상 11)"
+    # scope-2b: doc_id 가 (work_content, scope) 로 갈리므로 기대값을 입력에서 동적 산출.
+    # 같은 (work_content, scope) 조합만 collapse (= 같은 위치 반복작업 → 누적). 현 샘플 37.
+    expected = len({(a["work_content"], a.get("scope")) for a in namwong})
+    assert len(ids) == expected, f"unique doc_id 수: {len(ids)} (예상 {expected})"
     assert len(set(ids)) == len(ids), "atomize() 가 dedup 후 반환해야 함"
 
     chroma = ChromaClient(host=cfg.chroma_host, port=cfg.chroma_port, ssl=cfg.chroma_ssl)
     coll = chroma.get_or_create_daily_activities()
     rows = coll.get(ids=ids, include=["metadatas"])
-    assert len(rows["ids"]) == 11
+    assert len(rows["ids"]) == expected
     assert all(m["assigned_workers"] == 88.0 for m in rows["metadatas"])
 
 

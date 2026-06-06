@@ -57,11 +57,12 @@ export function SheetTable<T extends object>({ cols, rows }: Props<T>) {
                     className={cn(
                       "px-3 py-1.5 align-top text-ink-mid",
                       c.align === "right"  && "text-right tabular-nums",
-                      c.align === "center" && "text-center",
-                      c.cellClass
+                      c.align === "center" && "text-center"
                     )}
                   >
-                    {content}
+                    {/* cellClass 는 내부 div 에. line-clamp(display:-webkit-box)를 td 에 직접 걸면
+                        display:table-cell 이 깨져 컬럼 정렬이 무너지므로 래퍼로 격리한다. */}
+                    {c.cellClass ? <div className={cn(c.cellClass)}>{content}</div> : content}
                   </td>
                 );
               })}
@@ -89,9 +90,9 @@ export const OUTPUT_MANPOWER_COLS: readonly SheetColumn<OutputManpowerRow>[] = [
   { key: "trade",      label: "공종" },
   { key: "bp_code",    label: "BP사", cellClass: "font-mono text-[11px]" },
   { key: "scope",      label: "Scope" },
-  { key: "prev_work",  label: "전일 작업사항", cellClass: "max-w-[160px] truncate" },
-  { key: "today_work", label: "금일 작업사항", cellClass: "max-w-[200px] whitespace-normal text-ink" },
-  { key: "next_work",  label: "명일 작업사항", cellClass: "max-w-[160px] truncate" },
+  { key: "prev_work",  label: "전일 작업사항", cellClass: "max-w-[160px] whitespace-pre-line line-clamp-3" },
+  { key: "today_work", label: "금일 작업사항", cellClass: "max-w-[200px] whitespace-pre-line line-clamp-3 text-ink" },
+  { key: "next_work",  label: "명일 작업사항", cellClass: "max-w-[160px] whitespace-pre-line line-clamp-3" },
 ] as const;
 
 export const OCCUPATION_COLS: readonly SheetColumn<OccupationManpowerRow>[] = [

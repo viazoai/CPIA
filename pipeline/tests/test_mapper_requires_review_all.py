@@ -1,7 +1,10 @@
-"""mapper.map_activity — 전건 HIL (C5-1). high-conf 성공 분기에서도 requires_review=True.
+"""mapper.map_activity — l6 신뢰도 기반 HIL 게이트.
 
-Azure/Chroma/PG 를 모두 패치해 LLM 호출 없이 line 515 분기를 결정론적으로 구동.
-Spec 2026-06-02-cpia-0925-demo-refinement-design.md §5.1 #1.
+2026-06-04 재설계: HIL 게이트 = l6 신뢰도(mapping_conf) < threshold.
+l7.5 미분류여도 l6 가 confident(>=0.7) 면 자동승인(requires_review=False).
+(l7.5/이력 게이트 폐기 — 적재 매칭은 (업체,l6,이름,scope) 정확일치로 분리.)
+
+Azure/Chroma/PG 를 모두 패치해 LLM 호출 없이 결정론적으로 구동.
 """
 
 from __future__ import annotations
@@ -54,7 +57,7 @@ def _activity() -> Activity:
 
 
 def _fake_azure() -> MagicMock:
-    """confidence=0.99 (conf_threshold=0.7 초과) → 원래라면 requires_review=False 분기."""
+    """confidence=0.99 이지만 l75_cand_map 미전달 → l7_5=None → 게이트 True."""
     client = MagicMock()
     client.embeddings.create.return_value = SimpleNamespace(data=[SimpleNamespace(embedding=[0.0] * 1536)])
     msg = SimpleNamespace(content=json.dumps({"choice": 0, "confidence": 0.99, "reason": "ok"}))
@@ -73,7 +76,12 @@ def _fake_coll() -> MagicMock:
     return coll
 
 
-def test_map_activity_high_conf_still_requires_review() -> None:
+def test_map_activity_high_l6_conf_auto_approves() -> None:
+    """l6 confident(0.99) → l7.5 미분류여도 자동승인(requires_review=False).
+
+    재설계 후 게이트는 l6 신뢰도만 본다. l75_cand_map 미전달로 l7_5=None 이어도
+    l6 conf 0.99 >= 0.7 이므로 HIL 로 보내지 않는다.
+    """
     cfg = _cfg()
     fake_pg = MagicMock()
     fake_pg.connect = AsyncMock()
@@ -87,6 +95,6 @@ def test_map_activity_high_conf_still_requires_review() -> None:
     ):
         result = asyncio.run(map_activity(_activity(), parsed_report=None, cfg=cfg))
 
-    assert result["requires_review"] is True
+    assert result["requires_review"] is False
     assert result["mapping_conf"] == 0.99
     assert result["l6_main"] == "철근콘크리트공사"

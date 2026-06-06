@@ -38,6 +38,12 @@ data/output/**
 data/synthetic_history/*
 !data/synthetic_history/.gitkeep
 data/vector_db/
+data/upload/
+# parser recipe 런타임 캐시 산출물 (recipe 모듈 미배선 — 캐시 JSON 은 비추적)
+data/parser_recipes/_review/
+data/parser_recipes/*.json
+# export PoC throwaway 산출물 (데모 정합 brainstorming 잔여)
+web/public/poc_*.xlsx
 
 # IDE
 .vscode/

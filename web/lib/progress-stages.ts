@@ -39,6 +39,8 @@ export interface ProgressInputs {
   fileCount: number;
   parserRows: number;
   mapperRows: number;
+  /** requires_review=TRUE 건수 (이력기반 게이트 통과 못한 검토 대상). Human Review 단계의 received. */
+  hilCount: number;
   atomizedCount: number;
   agentProgress: Record<string, { processed: number; total: number }>;
 }
@@ -56,7 +58,7 @@ export function computeProgressStages(inp: ProgressInputs): AgentStageProgress[]
     Collector: inp.fileCount,
     Parser: inp.parserRows,
     Mapper: inp.mapperRows,
-    "Human Review": inp.mapperRows,
+    "Human Review": inp.hilCount,
     Atomizer: inp.atomizedCount,
     Exporter: inp.mapperRows,
     Forecaster: inp.mapperRows,

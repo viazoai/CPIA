@@ -92,6 +92,24 @@ async def mapper_node(state: CPIAState, cfg: GraphConfig) -> dict:
         for company in unique_companies:
             cand_rows = await pg.fetch_bp_candidates(company)
             bp_cand_lookup[company] = [(r["wa"], r["l6_main"]) for r in cand_rows]
+        # l7.5 후보맵: site+l5_disc(건축/토목)의 l6 → [l7.5...]. activity별 l6는 LLM 후 결정되므로 전체 1회 fetch.
+        _site_id = state.get("site_id") or "m15x-ph3-ibl"
+        l75_cand_rows = await pg.fetch_all(
+            """SELECT l6_main, ARRAY_AGG(DISTINCT l7_5_activity) AS l75s
+               FROM activity_master WHERE site_id=$1 AND l5_disc IN ('건축','토목')
+                 AND l7_5_activity IS NOT NULL GROUP BY l6_main""",
+            _site_id,
+        )
+        l75_cand_map: dict[str, list[str]] = {r["l6_main"]: list(r["l75s"]) for r in l75_cand_rows}
+        # Task 3: 이력기반 게이트용 — 이 site 의 기존 (l6,l7.5) 쌍 일괄 fetch.
+        # mapper_activities 에는 site_id 컬럼이 없으므로 pipeline_runs JOIN 필수.
+        hist_rows = await pg.fetch_all(
+            """SELECT DISTINCT ma.l6_main, ma.l7_5_activity
+               FROM mapper_activities ma JOIN pipeline_runs pr USING(run_id)
+               WHERE pr.site_id=$1 AND ma.l7_5_activity IS NOT NULL AND ma.l7_5_activity<>''""",
+            _site_id,
+        )
+        history_set = {(r["l6_main"], r["l7_5_activity"]) for r in hist_rows}
     finally:
         await pg.close()
 
@@ -104,6 +122,8 @@ async def mapper_node(state: CPIAState, cfg: GraphConfig) -> dict:
                 parsed_report=parsed,
                 cfg=cfg.mapper,
                 bp_cand_lookup=bp_cand_lookup,
+                l75_cand_map=l75_cand_map,
+                history_set=history_set,
             )
             return idx, m
 
@@ -242,16 +262,23 @@ def _apply_corrections(
     - 답한 row: wa/l6_main 수정 + mapping_source="user_corrected" + requires_review=False
     - 답 안 한 row (review_needed 였으나 corrections 에 없음): Mapper 추천 수용 +
       mapping_source="user_corrected" + requires_review=False (재시도 X — PoC 기본)
+    - l7_5_activity (D9): c 에 키 있으면 그 값(None 이면 미분류); 키 없으면 l6 변경 시 None(미분류), l6 동일 시 기존 값 유지.
     """
     out: list[Activity] = []
     for i, a in enumerate(mapped):
         if a.get("requires_review"):
             c = corrections.get(i)
             if c:
+                l6_changed = c["l6_main"] != a.get("l6_main")
+                if "l7_5_activity" in c:
+                    new_l75 = c.get("l7_5_activity")
+                else:
+                    new_l75 = None if l6_changed else a.get("l7_5_activity")
                 new_a: Activity = {
                     **a,
                     "wa": c["wa"],
                     "l6_main": c["l6_main"],
+                    "l7_5_activity": new_l75,
                     "mapping_source": "user_corrected",
                     "requires_review": False,
                 }
@@ -325,8 +352,9 @@ async def hil_1_node(state: CPIAState, cfg) -> dict:
                         "mapping_source": original_a.get("mapping_source"),
                     },
                     corrected={
-                        "wa": c["wa"],
-                        "l6_main": c["l6_main"],
+                        "wa": corrected[idx]["wa"],
+                        "l6_main": corrected[idx]["l6_main"],
+                        "l7_5_activity": corrected[idx].get("l7_5_activity"),
                         "mapping_source": "user_corrected",
                         "correction_type": "replace",
                     },

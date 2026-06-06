@@ -43,6 +43,10 @@ class _FakePG:
         _FakePG.events.append((kind, len(kw["activities"])))
 
     async def fetch_all(self, sql, *a):
+        # l7.5 candidates / history batch queries: mapper expects specific keys,
+        # return [] so the comprehensions produce empty map/set safely.
+        if "activity_master" in sql or "l7_5_activity" in sql:
+            return []
         return [{"n": 0}]
 
 
@@ -67,7 +71,7 @@ async def test_mapper_node_chunks_and_emits(monkeypatch):
         if agent == "mapper":
             progress.append((processed, total))
 
-    async def _fake_map_one_inner(a, parsed_report, cfg, bp_cand_lookup):
+    async def _fake_map_one_inner(a, parsed_report, cfg, bp_cand_lookup, l75_cand_map=None, history_set=None):
         out = dict(a)
         out["l6_main"] = "L6"
         out["wa"] = "WA"

@@ -134,7 +134,7 @@ export function BarChartH({
           <LabelList
             dataKey="value"
             position={isVertical ? "top" : "right"}
-            formatter={(v: number) => `${Math.round(v)}%`}
+            formatter={(v: unknown) => `${Math.round(Number(v))}%`}
             fontSize={10}
             fontWeight={600}
             fill="#0d1117"

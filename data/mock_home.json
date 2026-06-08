@@ -19,7 +19,9 @@
     "unsubmitted": 10,
     "completed_cum": 23800,
     "hours_saved_cum": 2640,
-    "hours_saved_per_day": 10
+    "hours_saved_per_day": 10,
+    "productivity_today": 108.6,
+    "recovery_days": 21
   },
   "unsubmitted_companies": [
     {

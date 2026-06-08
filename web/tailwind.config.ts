@@ -17,6 +17,9 @@ const config: Config = {
       screens: { "2xl": "1240px" },
     },
     extend: {
+      // QHD 전용 표시용 커스텀 breakpoint. FHD(1920)·FHD@125%(1536)는 미달,
+      // QHD(2560)·QHD@125%(2048)는 도달 → `qhd:` 유틸로 QHD에서만 노출되는 요소 제어.
+      screens: { qhd: "2048px" },
       colors: {
         /* v7.1 의미 색 — 직접 named 토큰 */
         ink: {

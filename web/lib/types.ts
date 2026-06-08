@@ -304,6 +304,10 @@ export interface HomeProcessing {
   hours_saved_cum: number;
   /** 일 평균 절감 시간(h) — 설명용 (M15X 월 ~221h ÷ 가동일 기준) */
   hours_saved_per_day: number;
+  /** 현장 생산성 (목표 100% 대비). Report 9/24 kpi.productivity_today 그대로. */
+  productivity_today: number;
+  /** 최적화 공사기간 — AI 최적화 시 단축 가능 일수. Report 9/24 scenarios.site.base_p50.recovery_days. */
+  recovery_days: number;
 }
 
 export interface HomeUnsubmittedCompany {

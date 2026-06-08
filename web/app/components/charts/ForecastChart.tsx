@@ -73,8 +73,6 @@ export function ForecastChart({
 
   const showOptimistic = toggles.optimistic || recoveryActive;
 
-  // X 축 범위 — 720일 그대로면 마지막 1~2주가 압축돼 spike 처럼 보임.
-  // 기준일(today=lastActual) 기준 -90일 ~ +200일 (시나리오 ec 가 +180일 근처라 200일로 여유).
   const allData = diagnosis.s_curve.map((p, i) => ({
     date: p.date,
     planned: p.planned,
@@ -85,15 +83,9 @@ export function ForecastChart({
     base:      diagnosis.scenarios?.base?.curve?.[i],
     optimistic:  diagnosis.scenarios?.optimistic?.curve?.[i],
   }));
-  // todayIdx = actual 마지막 점 (역순 탐색 — sparse hole 회피)
-  let todayIdx = -1;
-  for (let i = allData.length - 1; i >= 0; i--) {
-    if (allData[i].actual !== undefined && allData[i].actual !== null) { todayIdx = i; break; }
-  }
-  if (todayIdx < 0) todayIdx = allData.length - 1;
-  const windowStart = Math.max(0, todayIdx - 90);
-  const windowEnd   = Math.min(allData.length, todayIdx + 240);
-  const defStart = windowStart, defEnd = windowEnd;
+  // 기본 뷰 = 전체 기간 (착공~완공 full period). 이전엔 기준일 -90~+240일로 잘라
+  // 보였으나 요청에 따라 전체가 보이도록 변경. 스크롤로 확대 가능, 더블클릭 시 전체로 복귀.
+  const defStart = 0, defEnd = allData.length;
   const vs = view?.s ?? defStart;
   const ve = view?.e ?? defEnd;
   const data = allData.slice(vs, ve);

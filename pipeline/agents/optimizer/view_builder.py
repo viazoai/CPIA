@@ -1465,26 +1465,40 @@ def _build_scenarios(advice_rows: list[dict], forecast: list[dict]) -> dict:
         else:
             by_wp[wp_id] = _wp_block_deterministic(advice, wp_no_action)
 
-    # site = by_wp 의 집계 (no_action 은 max ec, 나머지는 sum recovery_days)
-    # 2026-05-28: median → sum 변경 (사용자 의도: "a공종 2일+b공종 1일+c공종 2일=5일").
-    # 모든 advice 있는 wp 의 recovery_days 단순 합. 사용자가 산출 근거 직접 추적 가능.
+    # site = by_wp 의 '지배 완료일(longest pole)' 이동량.
+    # 2026-06-09: Σwp 폐기. 공종별 만회는 병렬이라 더해지지 않는다 — 골조 5일·도장 5일을
+    #   같이 당겨도 10일이 아니라 둘 다 끝나길 기다리는 시간일 뿐. 현장 완공일은 '가장 늦게
+    #   끝나는 WP' 가 정하므로:
+    #       D_noaction  = max(by_wp[*].no_action.expected_completion)
+    #       D_opt(slot) = max(by_wp[*].{slot}.expected_completion)   # 각 WP 자기 만회 반영
+    #       site.{slot}.recovery_days = max(0, D_noaction − D_opt)
+    #   일찍 끝나는 공종은 max 에 안 잡혀 자동 0 기여(과대계상 제거). 다음 폴이 새 구속이 되는
+    #   cascade 도 max 가 자연 처리. (직전 Σwp 는 30공종×수일 = 60~98일로 부풀어 버그였음.)
+    def _site_ec(slot_key: str) -> date | None:
+        ecs = [
+            _coerce_date((b.get(slot_key) or {}).get("expected_completion"))
+            for b in by_wp.values()
+        ]
+        ecs = [e for e in ecs if e is not None]
+        return max(ecs) if ecs else None
+
+    d_noaction = _site_ec("no_action")
+
     def _site_slot(slot_key: str) -> dict:
         items = [b[slot_key] for b in by_wp.values() if b.get(slot_key)]
-        if not items:
-            return {
-                "expected_completion": None,
-                "recovery_days": 0,
-                "delta_days": 0,
-                "case_count": 0,
-            }
-        ecs = [_coerce_date(it.get("expected_completion")) for it in items]
-        ecs = [e for e in ecs if e is not None]
-        max_ec = max(ecs) if ecs else None
-        sum_rec = sum(int(it.get("recovery_days") or 0) for it in items)
+        d_opt = _site_ec(slot_key)
+        if slot_key == "no_action":
+            rec = 0
+        elif d_noaction and d_opt:
+            rec = max(0, (d_noaction - d_opt).days)
+        else:
+            # 완료예정일 결측 → max(per-WP recovery_days) 폴백 (합산 금지).
+            rec = max((int(it.get("recovery_days") or 0) for it in items), default=0)
+        ec = d_opt or d_noaction
         return {
-            "expected_completion": max_ec.isoformat() if max_ec else None,
-            "recovery_days": sum_rec,
-            "delta_days": -sum_rec if slot_key != "no_action" else 0,
+            "expected_completion": ec.isoformat() if ec else None,
+            "recovery_days": rec,
+            "delta_days": 0 if slot_key == "no_action" else -rec,
             "case_count": len(items),
         }
 
@@ -1516,10 +1530,23 @@ def _build_scenarios(advice_rows: list[dict], forecast: list[dict]) -> dict:
 
 
 def reconcile_site_recovery(wp_summary: list[dict], kpi: dict, scenarios: dict) -> None:
-    """site recovery SSOT = Σ(wp_summary recovery_days). 화면 WP목록 합과 headline 정합.
+    """현장 공기 만회 SSOT = '지배 완료일(longest pole)' 이동량 — 전 산출 경로 일괄 정합.
 
-    site.base_p50.recovery_days 한 키만 갱신 — by_wp·rationale·expected_completion 등
-    기존 필드는 보존. recovery_days 가 None/str/float 로 와도 안전 coerce(비숫자=0)."""
+    2026-06-09: Σ(wp_summary recovery_days) 폐기. 공종 만회는 병렬이라 더해지지 않는다
+    (30개 공종 5일씩 합 = 98일 = 과대계상 버그). 현장 완공일은 가장 늦게 끝나는 WP 가 정하므로
+    by_wp 의 완료예정일로 직접 산출하고, headline·KPI·표·그래프가 한 숫자를 가리키게 통일한다:
+
+        D_noaction  = max(by_wp[*].no_action.expected_completion)
+        D_opt(slot) = max(by_wp[*].{slot}.expected_completion)
+        site.{slot}.recovery_days = max(0, D_noaction − D_opt)
+
+    base_p50·kpi 는 delay_days 상한으로 클램프(만회 ≤ 지연)하고 expected_completion /
+    recovered_completion 을 같은 값으로 재계산 → 일별목록(scenarios 우선)·헤드라인 동일값.
+    by_wp 완료예정일이 전무하면 max(per-WP recovery_days) 폴백(합산 아님). wp_summary 는
+    동일 폴백의 최후 보루로만 사용. None/str/float 안전 coerce(비숫자=0)."""
+
+    SLOTS = ("no_action", "optimistic_p25", "base_p50", "pessimistic_p75")
+    by_wp: dict = scenarios.get("by_wp") or {}
 
     def _rd(v: object) -> int:
         try:
@@ -1527,9 +1554,55 @@ def reconcile_site_recovery(wp_summary: list[dict], kpi: dict, scenarios: dict) 
         except (TypeError, ValueError):
             return 0
 
-    total = sum(_rd(w.get("recovery_days")) for w in wp_summary)
-    kpi["recovery_days"] = total
-    scenarios.setdefault("site", {}).setdefault("base_p50", {})["recovery_days"] = total
+    def _ec(block: dict, slot: str) -> date | None:
+        d = _coerce_date((block.get(slot) or {}).get("expected_completion"))
+        if d is None:  # slot 결측 → no_action 으로 폴백
+            d = _coerce_date((block.get("no_action") or {}).get("expected_completion"))
+        return d
+
+    na_dates = [d for d in (_ec(b, "no_action") for b in by_wp.values()) if d]
+    d_noaction = max(na_dates) if na_dates else None
+
+    site = scenarios.setdefault("site", {})
+    for slot in SLOTS:
+        s = site.setdefault(slot, {})
+        if slot == "no_action":
+            s["recovery_days"] = 0
+            s["delta_days"] = 0
+            if d_noaction:
+                s["expected_completion"] = d_noaction.isoformat()
+            continue
+        opt_dates = [d for d in (_ec(b, slot) for b in by_wp.values()) if d]
+        d_opt = max(opt_dates) if opt_dates else None
+        if d_noaction and d_opt:
+            rec = max(0, (d_noaction - d_opt).days)
+            ec = d_opt
+        else:
+            # 날짜 근거 없음 → max(per-WP recovery_days) 폴백, 그래도 없으면 wp_summary max.
+            rec = max((_rd((b.get(slot) or {}).get("recovery_days")) for b in by_wp.values()), default=0)
+            if rec == 0 and wp_summary:
+                rec = max((_rd(w.get("recovery_days")) for w in wp_summary), default=0)
+            ec = None
+        s["recovery_days"] = rec
+        s["delta_days"] = -rec
+        if ec:
+            s["expected_completion"] = ec.isoformat()
+
+    # headline(base_p50) + kpi — 만회 ≤ 지연(delay_days), 날짜·일수 정합.
+    bp50 = site.setdefault("base_p50", {})
+    rec_p50 = _rd(bp50.get("recovery_days"))
+    delay = kpi.get("delay_days")
+    if isinstance(delay, (int, float)) and delay >= 0:
+        rec_p50 = min(rec_p50, int(delay))
+    bp50["recovery_days"] = rec_p50
+    bp50["delta_days"] = -rec_p50
+    if d_noaction:
+        recovered = (d_noaction - timedelta(days=rec_p50)).isoformat()
+        bp50["expected_completion"] = recovered
+        kpi["recovered_completion"] = recovered
+    else:
+        kpi["recovered_completion"] = bp50.get("expected_completion") or kpi.get("expected_completion")
+    kpi["recovery_days"] = rec_p50
 
 
 def _compute_daily_quota(plan_total_qty: float, total_days: int) -> float:

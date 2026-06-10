@@ -163,10 +163,13 @@ async def main() -> None:
                     print(f"  [SKIP] {r['report_date']} {wp_key}: {type(e).__name__}: {e}")
                     continue
                 briefing = (out.get("briefing") or "").strip()
+                headline = (out.get("headline") or "").strip()
                 new_recs = out.get("recommendations") or []
                 if briefing:
                     wp_view["briefing"] = briefing
                     n_brief += 1
+                if headline:
+                    wp_view["briefing_headline"] = headline
                 if new_recs:
                     wp_view["recommendations"] = _merge_recs(
                         wp_view.get("recommendations") or [], new_recs
@@ -174,6 +177,7 @@ async def main() -> None:
                 n_wp += 1
                 if args.dry_run:
                     print(f"\n── {r['report_date']} {wp_key}")
+                    print(f"   헤드라인: {headline}")
                     print(f"   브리핑: {briefing[:200]}")
                     if new_recs and isinstance(new_recs[0], dict):
                         print(f"   만회방안1: [{new_recs[0].get('keyword')}] {str(new_recs[0].get('action'))[:120]}")

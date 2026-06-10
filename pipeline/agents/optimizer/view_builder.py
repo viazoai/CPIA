@@ -1311,7 +1311,9 @@ def _build_optimizer_view(
                 {"label": "산출근거", "value": delay_basis},
             ]
             by_wp[wp_id] = {
-                # 2026-06-10 (A+C): 경영진 브리핑 한 단락 (advice.briefing → FE 상단 블록).
+                # 2026-06-10 (A+C): 경영진 브리핑 (advice → FE 상단 블록).
+                # 2026-06-11: headline 한 줄(볼드) + briefing 문단.
+                "briefing_headline": advice.get("briefing_headline"),
                 "briefing": advice.get("briefing"),
                 "diagnosis": diagnosis,
                 "similar_cases": similar_cases,

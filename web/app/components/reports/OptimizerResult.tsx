@@ -17,7 +17,7 @@ export function OptimizerResult({
 }) {
   return (
     <div className="h-full overflow-y-auto rounded-card border border-border-soft bg-card shadow-xs">
-      {output.briefing ? (
+      {output.briefing || output.briefing_headline ? (
         <div className="border-b border-border-soft bg-brand-light/40 px-4 py-3">
           <div className="mb-1.5 flex items-center gap-2">
             <span className="inline-flex h-6 w-6 items-center justify-center rounded-sm bg-brand-text/10 text-brand-text">
@@ -25,7 +25,12 @@ export function OptimizerResult({
             </span>
             <span className="text-sm font-semibold text-brand-text">AI 브리핑</span>
           </div>
-          <p className="text-sm text-ink leading-relaxed">{output.briefing}</p>
+          {output.briefing_headline ? (
+            <p className="mb-1 text-sm font-bold text-ink leading-snug">{output.briefing_headline}</p>
+          ) : null}
+          {output.briefing ? (
+            <p className="text-sm text-ink-mid leading-relaxed">{output.briefing}</p>
+          ) : null}
         </div>
       ) : null}
       <Row

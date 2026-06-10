@@ -102,8 +102,9 @@ def _compose_row(r: dict, cases: list[dict], llm_output: dict, run_id: uuid.UUID
         # LLM 출력 override — 코드단 deterministic 값을 정답으로 박음
         "recovery_distribution": _compute_recovery_distribution(cases),
         "recommendations": llm_output["recommendations"],
-        # 2026-06-10 (A+C): 경영진 브리핑 한 단락 (view_builder 가 by_wp.briefing 으로 forward).
+        # 2026-06-10 (A+C): 경영진 브리핑 (view_builder 가 by_wp.briefing/headline 으로 forward).
         "briefing": llm_output.get("briefing"),
+        "briefing_headline": llm_output.get("briefing_headline"),
     }
     if scenarios is not None:
         row["scenarios"] = scenarios
@@ -260,6 +261,7 @@ async def _process_one_v10_with_retry(
                 "diagnosis": diag_out.get("diagnosis"),
                 "recommendations": recs_out.get("recommendations") or [],
                 "briefing": briefing_out.get("briefing"),
+                "briefing_headline": briefing_out.get("headline"),
             }
             # PG write 는 sem 밖 (위 async with sem 블록 종료 후) — card streaming:
             # advice 를 task 별로 즉시 insert 하여 대시보드가 점진적으로 카드를 받음.

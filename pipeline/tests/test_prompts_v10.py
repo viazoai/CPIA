@@ -232,11 +232,13 @@ from pipeline.agents.optimizer.prompt import (  # noqa: E402
 
 
 def test_briefing_prompt_schema_and_tone():
-    """BRIEFING_PROMPT — 3~4문장 한 단락 서술체 + briefing JSON 출력."""
-    assert "3~4문장" in BRIEFING_PROMPT
+    """BRIEFING_PROMPT — 헤드라인 한 줄 + 2~3문장 한 단락 서술체 + JSON 출력."""
+    assert "2~3문장" in BRIEFING_PROMPT      # 단축 (2026-06-11)
     assert "한 단락" in BRIEFING_PROMPT
+    assert "헤드라인" in BRIEFING_PROMPT      # 한 줄 요약
     assert "전망입니다" in BRIEFING_PROMPT  # 서술체 종결 예시
-    assert '"briefing"' in BRIEFING_PROMPT or "briefing" in BRIEFING_PROMPT
+    assert '"headline"' in BRIEFING_PROMPT
+    assert '"briefing"' in BRIEFING_PROMPT
     # 새 수치 환각 금지
     assert "지어내지" in BRIEFING_PROMPT
 
@@ -282,9 +284,11 @@ def test_build_briefing_input_defaults_none():
 
 
 def test_migration_polish_prompt_dual_output():
-    """MIGRATION_POLISH_PROMPT — briefing + recommendations 둘 다 출력, keyword 보존 명시."""
+    """MIGRATION_POLISH_PROMPT — headline + briefing + recommendations 출력, keyword 보존 명시."""
+    assert '"headline"' in MIGRATION_POLISH_PROMPT
     assert '"briefing"' in MIGRATION_POLISH_PROMPT
     assert '"recommendations"' in MIGRATION_POLISH_PROMPT
+    assert "2~3문장" in MIGRATION_POLISH_PROMPT  # 브리핑 단축
     assert "보존" in MIGRATION_POLISH_PROMPT  # keyword·사실 보존
     assert "권합니다" in MIGRATION_POLISH_PROMPT
 

@@ -222,7 +222,7 @@ export default function ReportPage() {
                   {/* QuadrantCountKpi 는 wpSummary prop (병합본 컴포넌트 시그니처) — 필터된 WP 상태 카운트 */}
                   <QuadrantCountKpi wpSummary={filteredWpRowsBase} filter={filter} onFilterChange={setFilter} />
                   <div className="rounded-card border border-border-soft bg-card p-4 shadow-xs">
-                    <div className="mb-2 font-display text-h6 text-ink">Impact × Productivity 분포도</div>
+                    <div className="mb-2 font-display text-base font-semibold text-ink">Impact × Productivity 분포도</div>
                     <QuadrantScatter
                       points={detail.quadrant}
                       selectedWpId={selectedWpId}

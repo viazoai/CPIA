@@ -30,7 +30,8 @@ function levelTextClass(depth: number) {
 }
 
 export function WBSTree({ root, selectedId, onSelect, onDrop, revealNodeId }: Props) {
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(idsByMaxDepth(root, 2)));
+  // 초기엔 가장 아래 레벨까지 전부 펼친다 (Infinity → 모든 노드 id 포함).
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(idsByMaxDepth(root, Infinity)));
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const toggle = (id: string) =>

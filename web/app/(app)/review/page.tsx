@@ -5,7 +5,6 @@ import { CheckCheck } from "lucide-react";
 import { WBSTree } from "@/app/components/review/WBSTree";
 import { WpGroup } from "@/app/components/review/WpGroup";
 import { ReviewConnector } from "@/app/components/review/ReviewConnector";
-import { ReviewBoard } from "@/app/components/review/ReviewBoard";
 import { groupCardsByWp, groupCardsByL7 } from "@/lib/review-group";
 import { nodeToQuery } from "@/lib/review-node";
 import type { WBSNode, ReviewItem } from "@/lib/types";
@@ -31,7 +30,6 @@ export default function HumanReviewPage() {
   const [registeredError, setRegisteredError] = useState(false);
   const [confirmedNotice, setConfirmedNotice] = useState<string | null>(null);
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
-  const [view, setView] = useState<"list" | "board">("list");
   const gridRef = useRef<HTMLDivElement>(null);
   // HIL l6 picker: 카드별 l6 선택(모두 확정 corrections). 분야별 전체 l6 카탈로그는 wbs 파생(아래 useMemo).
   const [selections, setSelections] = useState<Record<string, { wa: string | null; l6_main: string | null; l7_5_activity: string | null }>>({});
@@ -42,7 +40,10 @@ export default function HumanReviewPage() {
       .then(({ wbs, cards }) => {
         setWbs(wbs);
         setCards(cards);
-        setOnlyUnconfirmed(cards.length > 0);
+        // 최상위(root) 노드를 디폴트 선택 → 전체 목록이 보이도록(nodeToQuery: root=전체).
+        setSelectedNodeId(wbs?.id ?? null);
+        // '신규 검토 필요' 토글 디폴트 ON.
+        setOnlyUnconfirmed(true);
       });
   }, []);
 
@@ -265,25 +266,8 @@ export default function HumanReviewPage() {
         <p className="mt-2 text-body-sm text-ink-mid">
           좌측 WBS 트리에서 공종을 선택하거나, 검색 입력·드래그앤드롭으로 매핑을 수정·확정합니다.
         </p>
-        <div className="mt-3 inline-flex rounded-lg border border-border-soft bg-surface-soft p-0.5">
-          <button
-            type="button"
-            onClick={() => setView("list")}
-            className={view === "list" ? "rounded-md bg-card px-3 py-1 text-xs font-semibold text-ink shadow-xs" : "px-3 py-1 text-xs text-ink-light"}
-          >
-            리스트
-          </button>
-          <button
-            type="button"
-            onClick={() => setView("board")}
-            className={view === "board" ? "rounded-md bg-card px-3 py-1 text-xs font-semibold text-ink shadow-xs" : "px-3 py-1 text-xs text-ink-light"}
-          >
-            보드
-          </button>
-        </div>
       </div>
 
-      {view === "list" && (
       <section className="mx-auto w-full max-w-screen-2xl px-6 pb-20 md:px-10">
         <div ref={gridRef} className="relative grid grid-cols-12 gap-4 items-stretch">
           <ReviewConnector
@@ -316,7 +300,7 @@ export default function HumanReviewPage() {
                   <span className="text-[11px] text-ink-light">확정 {registeredTotal}건{selectedPending > 0 ? ` · 검토대기 ${selectedPending}건` : ""}</span>
                 )}
                 {confirmedNotice && <span className="text-[11px] font-semibold text-mint-text">{confirmedNotice}</span>}
-                <span className="text-xs font-medium text-ink">신규 확정 필요만 보기</span>
+                <span className="text-xs font-medium text-ink">신규 검토 필요</span>
                 <Switch checked={onlyUnconfirmed} onCheckedChange={setOnlyUnconfirmed} />
               </div>
             </div>
@@ -370,22 +354,6 @@ export default function HumanReviewPage() {
           </div>
         </div>
       </section>
-      )}
-
-      {view === "board" && (
-        <section className="mx-auto w-full max-w-screen-2xl px-6 pb-10 md:px-10 h-[calc(100vh-220px)]">
-          <div className="h-full rounded-card border border-border-soft bg-card overflow-hidden">
-            <ReviewBoard
-              wbs={wbs}
-              cards={onlyUnconfirmed ? cards : registered}
-              onConfirm={handleConfirm}
-              onConfirmHighConf={handleConfirmHighConf}
-              onConfirmAll={handleConfirmAll}
-              onRemap={handleRemap}
-            />
-          </div>
-        </section>
-      )}
     </div>
   );
 }

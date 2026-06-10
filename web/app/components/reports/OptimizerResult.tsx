@@ -1,9 +1,10 @@
-import { Brain, History, Lightbulb, Database } from "lucide-react";
+import { Brain, History, Lightbulb, Database, Sparkles } from "lucide-react";
 import type { OptimizerOutput } from "@/lib/types";
 
 /**
- * 진단·유사사례·권고·상세 4 섹션을 단일 박스 + 항목별 구분선.
+ * 브리핑·진단·유사사례·권고·상세 5 섹션을 단일 박스 + 항목별 구분선.
  * 본문 텍스트는 모두 진단 디스크립션과 동일한 text-sm sans + leading-relaxed.
+ * 2026-06-10 (A+C): 최상단 'AI 브리핑' 블록 — LLM 종합 한 단락 (output.briefing).
  */
 export function OptimizerResult({
   output,
@@ -16,6 +17,17 @@ export function OptimizerResult({
 }) {
   return (
     <div className="h-full overflow-y-auto rounded-card border border-border-soft bg-card shadow-xs">
+      {output.briefing ? (
+        <div className="border-b border-border-soft bg-brand-light/40 px-4 py-3">
+          <div className="mb-1.5 flex items-center gap-2">
+            <span className="inline-flex h-6 w-6 items-center justify-center rounded-sm bg-brand-text/10 text-brand-text">
+              <Sparkles className="h-4 w-4" />
+            </span>
+            <span className="text-sm font-semibold text-brand-text">AI 브리핑</span>
+          </div>
+          <p className="text-sm text-ink leading-relaxed">{output.briefing}</p>
+        </div>
+      ) : null}
       <Row
         icon={<Brain className="h-4 w-4" />}
         tone="brand"

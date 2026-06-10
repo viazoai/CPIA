@@ -114,12 +114,14 @@ def test_diag_prompt_forbids_manhour_absolute():
     assert "절대수치" in DIAG_PROMPT_V10
 
 
-def test_diag_prompt_recovery_pattern():
-    """2026-06 재설계: 개조식 현장여건 1줄 — 회복 패턴·분기점·만회방안 금지 명시."""
-    assert "개조식" in DIAG_PROMPT_V10
-    assert "회복 패턴" in DIAG_PROMPT_V10  # 금지어로 명시
-    assert "분기점" in DIAG_PROMPT_V10  # 금지어로 명시
-    assert "만회방안" in DIAG_PROMPT_V10  # 금지어로 명시
+def test_diag_prompt_natural_narrative():
+    """2026-06-10 (A) 재설계: 자연 서술 2~3문장 — 회복 패턴 + 오늘의 관건."""
+    assert "2~3문장" in DIAG_PROMPT_V10
+    assert "서술체" in DIAG_PROMPT_V10
+    assert "회복 패턴" in DIAG_PROMPT_V10  # 작성 관점 1
+    assert "관건" in DIAG_PROMPT_V10       # 작성 관점 2
+    # 전보식 명사 종결은 금지로 명시
+    assert "전보식" in DIAG_PROMPT_V10
 
 
 def test_diag_prompt_g8_trade_frame():
@@ -168,7 +170,16 @@ def test_recs_prompt_keyword_guide():
 def test_recs_prompt_weak_verbs_forbidden():
     """약한 동사 금지 명시 (G4)."""
     assert "확인 권장" in RECS_PROMPT_V10 or "확인 검토" in RECS_PROMPT_V10
-    assert "지시하세요" in RECS_PROMPT_V10  # 강 동사 예시
+    assert "강한 행위 동사" in RECS_PROMPT_V10  # 강 동사 권유체로 풀어쓰기
+
+
+def test_recs_prompt_natural_tone():
+    """2026-06-10 (A): action/reason 자연 권유·서술체 + 내부용어 누출 차단."""
+    assert "권유체" in RECS_PROMPT_V10
+    assert "권합니다" in RECS_PROMPT_V10  # action 종결 예시
+    assert "때문입니다" in RECS_PROMPT_V10  # reason 종결 예시
+    # 'trade_frame'·공종 분류명 본문 노출 금지
+    assert "내부 용어" in RECS_PROMPT_V10
 
 
 def test_recs_prompt_json_output_schema():
@@ -209,3 +220,75 @@ def test_scenarios_prompt_v10_four_scenarios():
     """4 시나리오 정의 명시."""
     for sc in ["no_action", "optimistic", "base", "pessimistic"]:
         assert sc in SCENARIOS_PROMPT_V10, f"{sc} 시나리오 누락"
+
+
+# ───────────────────────── 2026-06-10 (A+C) 브리핑 ─────────────────────────
+
+from pipeline.agents.optimizer.prompt import (  # noqa: E402
+    BRIEFING_PROMPT,
+    MIGRATION_POLISH_PROMPT,
+    build_briefing_input,
+)
+
+
+def test_briefing_prompt_schema_and_tone():
+    """BRIEFING_PROMPT — 3~4문장 한 단락 서술체 + briefing JSON 출력."""
+    assert "3~4문장" in BRIEFING_PROMPT
+    assert "한 단락" in BRIEFING_PROMPT
+    assert "전망입니다" in BRIEFING_PROMPT  # 서술체 종결 예시
+    assert '"briefing"' in BRIEFING_PROMPT or "briefing" in BRIEFING_PROMPT
+    # 새 수치 환각 금지
+    assert "지어내지" in BRIEFING_PROMPT
+
+
+def test_briefing_prompt_no_kanji():
+    found = re.findall(r"[一-鿿]", BRIEFING_PROMPT)
+    assert not found, f"한자 발견: {found}"
+
+
+def test_build_briefing_input_shape():
+    """build_briefing_input — 필수 facts 키 + recommendations 요약 정규화."""
+    out = build_briefing_input(
+        wp_label="장평건설 · 배수 공사",
+        condition="자재미입고",
+        today_level="1.02 m/인",
+        plan_level="1.44 m/인",
+        schedule_impact="30일 지연",
+        schedule_basis="현황 페이스 기준 완공 약 30일 지연 — AI 만회 시 3일 단축",
+        recovery_pattern="5건 중 3건 회복 | D+1 회복 3건",
+        ai_recovery_days=3,
+        recommendations=[{"keyword": "계측 기준선 점검", "action": "긴 액션 텍스트", "reason": "사유"}],
+    )
+    assert out["wp"] == "장평건설 · 배수 공사"
+    assert out["schedule_impact"] == "30일 지연"
+    assert out["ai_recovery_days"] == 3
+    assert out["today_vs_plan"]["today"] == "1.02 m/인"
+    # recommendations 는 keyword+action 만 (reason 은 브리핑에 불필요 → 미전달)
+    assert out["recommendations"] == [{"keyword": "계측 기준선 점검", "action": "긴 액션 텍스트"}]
+
+
+def test_build_briefing_input_handles_string_recs():
+    """옛 string 권고 — action 만 담은 dict 로 정규화."""
+    out = build_briefing_input(wp_label="A · B", recommendations=["타워크레인 확인"])
+    assert out["recommendations"] == [{"action": "타워크레인 확인"}]
+
+
+def test_build_briefing_input_defaults_none():
+    """optional 미지정 시 None — KeyError 없음."""
+    out = build_briefing_input(wp_label="A · B")
+    assert out["today_condition"] is None
+    assert out["ai_recovery_days"] is None
+    assert out["recommendations"] == []
+
+
+def test_migration_polish_prompt_dual_output():
+    """MIGRATION_POLISH_PROMPT — briefing + recommendations 둘 다 출력, keyword 보존 명시."""
+    assert '"briefing"' in MIGRATION_POLISH_PROMPT
+    assert '"recommendations"' in MIGRATION_POLISH_PROMPT
+    assert "보존" in MIGRATION_POLISH_PROMPT  # keyword·사실 보존
+    assert "권합니다" in MIGRATION_POLISH_PROMPT
+
+
+def test_migration_polish_prompt_no_kanji():
+    found = re.findall(r"[一-鿿]", MIGRATION_POLISH_PROMPT)
+    assert not found, f"한자 발견: {found}"

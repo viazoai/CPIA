@@ -249,6 +249,7 @@ export interface SimilarCase {
 
 export interface OptimizerOutput {
   wp_id: string;
+  briefing?: string;                              // 경영진 브리핑 한 단락 (2026-06-10 A+C, 상단 블록)
   diagnosis: string;                              // 진단 (개조식 — '\n' 줄바꿈)
   similar_cases: SimilarCase[];
   recovery_distribution_text?: string;            // "5건 중 5건 회복 | D+1 회복 5건" (유사사례 밑)

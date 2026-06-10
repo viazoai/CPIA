@@ -334,7 +334,7 @@ class PGClient:
             )
 
     async def insert_optimizer_advice(self, row: dict) -> None:
-        """optimizer_advice 테이블 INSERT 1 row — 9 컬럼 (id/created_at auto).
+        """optimizer_advice 테이블 INSERT 1 row — 10 컬럼 (id/created_at auto).
 
         Spec §9 + §3.1.1 — JSONB falsy 회피 (is not None) — cold_start 의 빈 dict/list 도 INSERT.
         """
@@ -347,11 +347,11 @@ class PGClient:
                 INSERT INTO optimizer_advice (
                     run_id, company, l6_main, forecast_assessment,
                     diagnosis, degradation_cases, recovery_pattern,
-                    recovery_distribution, recommendations
+                    recovery_distribution, recommendations, briefing
                 ) VALUES (
                     $1, $2, $3, $4,
                     $5, $6::jsonb, $7::jsonb,
-                    $8::jsonb, $9::jsonb
+                    $8::jsonb, $9::jsonb, $10
                 )
                 """,
                 row["run_id"],
@@ -369,6 +369,8 @@ class PGClient:
                 _json.dumps(row["recommendations"], ensure_ascii=False)
                 if row.get("recommendations") is not None
                 else None,
+                # 2026-06-10 (A+C): 경영진 브리핑 한 단락 (plain text, nullable).
+                row.get("briefing"),
             )
 
     async def insert_mapping_correction(

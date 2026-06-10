@@ -29,17 +29,20 @@ from openai import AzureOpenAI
 from pipeline.agents._concurrency import get_llm_semaphore
 from pipeline.agents.optimizer._trade_frames import lookup_frame
 from pipeline.agents.optimizer.prompt import (
+    BRIEFING_PROMPT,
     DIAG_PROMPT_V10,
     FEW_SHOT_MESSAGES,
     RECS_PROMPT_V10,
     SCENARIOS_PROMPT,
     SCENARIOS_PROMPT_V10,
     SYSTEM_PROMPT,
+    build_briefing_input,
     build_diag_input_v10,
     build_llm_user_input,
     build_recs_input_v10,
     build_scenarios_input_v10,
     build_scenarios_llm_input,
+    recovery_distribution_text,
 )
 from pipeline.agents.optimizer.view_builder import (
     _build_productivity_views_v2,
@@ -99,6 +102,8 @@ def _compose_row(r: dict, cases: list[dict], llm_output: dict, run_id: uuid.UUID
         # LLM 출력 override — 코드단 deterministic 값을 정답으로 박음
         "recovery_distribution": _compute_recovery_distribution(cases),
         "recommendations": llm_output["recommendations"],
+        # 2026-06-10 (A+C): 경영진 브리핑 한 단락 (view_builder 가 by_wp.briefing 으로 forward).
+        "briefing": llm_output.get("briefing"),
     }
     if scenarios is not None:
         row["scenarios"] = scenarios
@@ -229,10 +234,32 @@ async def _process_one_v10_with_retry(
                 )
                 diag_out = await _call_v10_llm_async(DIAG_PROMPT_V10, diag_payload, cfg, azure)
 
+                # 2026-06-10 (A+C): 경영진 브리핑 — recs/diag/scen 확정 후 종합 1단락.
+                _delay = round(r.get("delay_days") or 0)
+                if _delay > 0:
+                    _sched = f"{_delay}일 지연"
+                elif _delay < 0:
+                    _sched = f"{abs(_delay)}일 선행"
+                else:
+                    _sched = "일정 충족"
+                _scen_base = (scen_out or {}).get("base") or {}
+                briefing_payload = build_briefing_input(
+                    wp_label=f"{r.get('company') or ''} · {r.get('l6_main') or ''}",
+                    condition=(r.get("today_conditions") or "정상").split(",")[0].strip(),
+                    schedule_impact=_sched,
+                    recovery_pattern=recovery_distribution_text(cases),
+                    ai_recovery_days=_scen_base.get("recovery_days"),
+                    recommendations=recs_out.get("recommendations") or [],
+                )
+                briefing_out = await _call_v10_llm_async(
+                    BRIEFING_PROMPT, briefing_payload, cfg, azure
+                )
+
             # _compose_row 가 기존 llm_output dict 구조 ({"diagnosis", "recommendations"}) 기대
             merged_llm_output = {
                 "diagnosis": diag_out.get("diagnosis"),
                 "recommendations": recs_out.get("recommendations") or [],
+                "briefing": briefing_out.get("briefing"),
             }
             # PG write 는 sem 밖 (위 async with sem 블록 종료 후) — card streaming:
             # advice 를 task 별로 즉시 insert 하여 대시보드가 점진적으로 카드를 받음.

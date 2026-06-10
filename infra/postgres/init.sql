@@ -115,6 +115,7 @@ CREATE TABLE IF NOT EXISTS optimizer_advice (
     degradation_cases      JSONB,                         -- retrieve.fetch_degradation_cases 결과 (감사 추적)
     recovery_distribution  JSONB,                         -- {"d+1": 3, "d+2": 1, "not_recovered": 1}
     recommendations        JSONB,                         -- [{rank, text}, ...] ranked list
+    briefing               TEXT,                          -- 경영진 브리핑 한 단락 (2026-06-10 A+C)
     created_at             TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 

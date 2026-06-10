@@ -4,8 +4,10 @@ from __future__ import annotations
 def test_diag_prompt_v10_guards():
     from pipeline.agents.optimizer.prompt import DIAG_PROMPT_V10
 
-    assert "현장여건" in DIAG_PROMPT_V10
-    assert "회복 패턴" in DIAG_PROMPT_V10  # 금지 명시
+    # 2026-06-10 (A): 전보식 1줄 → 자연 서술 2~3문장 재설계.
+    assert "2~3문장" in DIAG_PROMPT_V10
+    assert "서술체" in DIAG_PROMPT_V10
+    assert "회복 패턴" in DIAG_PROMPT_V10  # 작성 관점 1 — 사례 흐름
     assert "한글 숫자 금지" in DIAG_PROMPT_V10
 
 

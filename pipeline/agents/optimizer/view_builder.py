@@ -1311,6 +1311,8 @@ def _build_optimizer_view(
                 {"label": "산출근거", "value": delay_basis},
             ]
             by_wp[wp_id] = {
+                # 2026-06-10 (A+C): 경영진 브리핑 한 단락 (advice.briefing → FE 상단 블록).
+                "briefing": advice.get("briefing"),
                 "diagnosis": diagnosis,
                 "similar_cases": similar_cases,
                 # similar_cases 바로 밑 표시용 회복 분포 ("N건 중 M건 D+1 회복").

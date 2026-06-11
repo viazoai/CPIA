@@ -73,6 +73,10 @@ export function ForecastChart({
 
   const showOptimistic = toggles.optimistic || recoveryActive;
 
+  // 만회는 지연의 일부만 메운다 (option 1: plan 완전 회복 아님). 잔여 지연 = 지연 − 만회.
+  const remaining = Math.max(0, (delayDays ?? 0) - (recoveryDays ?? 0));
+  const baseEnd = scenarios?.base_p50?.expected_completion ?? null;
+
   const allData = diagnosis.s_curve.map((p, i) => ({
     date: p.date,
     planned: p.planned,
@@ -158,7 +162,10 @@ export function ForecastChart({
               {recoveryDays > 0 ? "-" : ""}{recoveryDays}
             </span>
             <span className="text-base text-ink-mid">
-              일 {recoveryDays > 0 ? "단축 가능" : "단축 불가"}
+              일 {recoveryDays > 0 ? "만회 가능" : "만회 어려움"}
+              {recoveryDays > 0 && remaining > 0 && (
+                <span className="ml-1 text-sm text-ink-light">· 잔여 D+{remaining}</span>
+              )}
             </span>
           </div>
         </div>
@@ -193,7 +200,10 @@ export function ForecastChart({
               <div className="contents">
                 <dt className="text-ink-light">AI 시나리오</dt>
                 <dd className="font-mono text-mint-text">
-                  {scenarios.base_p50.recovery_days}일 만에 따라잡음
+                  {baseEnd ?? scenarios.base_p50.expected_completion ?? "—"}
+                  <span className="ml-1 text-[10px] font-semibold">
+                    (−{scenarios.base_p50.recovery_days}일{remaining > 0 ? ` · D+${remaining}` : " · 계획 충족"})
+                  </span>
                 </dd>
               </div>
             )}
@@ -346,7 +356,7 @@ export function ForecastChart({
       {/* 컴팩트 카드 — AI 시나리오 라인/범례 클릭 시 표시 (C4) */}
       {activeLine === "base" && (
         <div className="mt-3 max-w-md rounded-md bg-mint-light/40 px-3 py-2 text-[12.5px] ring-1 ring-mint/30">
-          <div className="font-semibold text-mint-text">AI 시나리오 · {recoveryDays > 0 ? `${recoveryDays}일 만에 plan 따라잡음` : "회복 제한적"}</div>
+          <div className="font-semibold text-mint-text">AI 시나리오 · {recoveryDays > 0 ? `${recoveryDays}일 만회${remaining > 0 ? ` (잔여 D+${remaining})` : " (계획 충족)"}` : "회복 제한적"}</div>
           {(() => {
             const top = (aiAdvice ?? [])
               .filter((w) => typeof w.recovery_days === "number")
@@ -385,45 +395,46 @@ export function ForecastChart({
                 <th className="px-3 py-2 text-right font-semibold">완공 예정일</th>
               </tr>
             </thead>
+            {/* 2026-06-11 (option 1): 행 표현 통일 — [구분] / [상태=짧은 설명] / [완공=날짜 · D태그].
+                순서 플랜→현황→AI(기준→악화→개선). "따라잡음/계획 동일" 폐기, 부분 만회로 정직화. */}
             <tbody>
-              {/* 현황 — 오늘까지 실적 + 추세 연장 */}
+              {/* 플랜 — 당초 계획 (기준) */}
+              <tr className="border-t border-border-soft">
+                <td className="px-3 py-2">
+                  <span className="inline-flex items-center gap-2">
+                    <span className="h-1.5 w-1.5 rounded-full" style={{ background: "#94a3b8" }} />
+                    <span className="text-ink-mid">플랜 (계획)</span>
+                  </span>
+                </td>
+                <td className="px-3 py-2 text-right text-ink-mid">당초 계획</td>
+                <td className="px-3 py-2 text-right">
+                  <span className="font-mono text-ink">{planEnd ?? "—"}</span>
+                  <span className="ml-1 text-[11px] text-ink-light">기준</span>
+                </td>
+              </tr>
+              {/* 현황 (예측) — 현재 페이스 유지 시 */}
               <tr className="border-t border-border-soft">
                 <td className="px-3 py-2">
                   <span className="inline-flex items-center gap-2">
                     <span className="h-1.5 w-1.5 rounded-full" style={{ background: "#ef4444" }} />
-                    <span className="text-ink-mid">현황</span>
+                    <span className="text-ink-mid">현황 (예측)</span>
                   </span>
                 </td>
-                <td className="px-3 py-2 text-right text-ink-mid">
-                  {reportDate ?? "—"} 기준 추세 연장
-                </td>
+                <td className="px-3 py-2 text-right text-ink-mid">현재 페이스 유지</td>
                 <td className="px-3 py-2 text-right">
                   {scenarios.no_action?.expected_completion ? (
                     <>
                       <span className="font-mono" style={{ color: "#ef4444" }}>
                         {scenarios.no_action.expected_completion}
                       </span>
-                      {delayDays > 0 && (
-                        <span className="ml-1 text-[11px] font-semibold" style={{ color: "#ef4444" }}>
-                          (D+{delayDays})
-                        </span>
-                      )}
+                      <span className="ml-1 text-[11px] font-semibold" style={{ color: "#ef4444" }}>
+                        {delayDays > 0 ? `D+${delayDays}` : delayDays < 0 ? `D−${Math.abs(delayDays)}` : "계획 동일"}
+                      </span>
                     </>
                   ) : "—"}
                 </td>
               </tr>
-              {/* 플랜 — 계획 완공일 */}
-              <tr className="border-t border-border-soft">
-                <td className="px-3 py-2">
-                  <span className="inline-flex items-center gap-2">
-                    <span className="h-1.5 w-1.5 rounded-full" style={{ background: "#94a3b8" }} />
-                    <span className="text-ink-mid">플랜</span>
-                  </span>
-                </td>
-                <td className="px-3 py-2 text-right text-ink-mid">당초 계획</td>
-                <td className="px-3 py-2 text-right font-mono text-ink">{planEnd ?? "—"}</td>
-              </tr>
-              {/* AI 시나리오 — catch-up 후 plan 동행 */}
+              {/* AI 시나리오 — 지연 중 일부 만회 (plan 도달 아님) */}
               <tr className="border-t border-border-soft bg-surface-soft/30">
                 <td className="px-3 py-2">
                   <span className="inline-flex items-center gap-2">
@@ -432,18 +443,21 @@ export function ForecastChart({
                   </span>
                 </td>
                 <td className="px-3 py-2 text-right text-ink">
-                  {scenarios.base_p50?.recovery_days
-                    ? <>
-                        <span className="font-semibold text-mint-text">
-                          {scenarios.base_p50.recovery_days}일
-                        </span>
-                        <span className="text-ink-mid"> 만에 plan 따라잡음</span>
-                      </>
-                    : "—"}
+                  {recoveryDays > 0
+                    ? <>지연 {delayDays}일 중 <span className="font-semibold text-mint-text">{recoveryDays}일 만회</span></>
+                    : <span className="text-ink-mid">만회 어려움</span>}
                 </td>
                 <td className="px-3 py-2 text-right">
-                  <span className="font-mono text-ink">{planEnd ?? "—"}</span>
-                  <span className="ml-1 text-[11px] text-ink-light">(계획 동일)</span>
+                  {recoveryDays > 0 && (baseEnd ?? scenarios.base_p50?.expected_completion) ? (
+                    <>
+                      <span className="font-mono text-ink">
+                        {baseEnd ?? scenarios.base_p50?.expected_completion}
+                      </span>
+                      <span className="ml-1 text-[11px] font-semibold text-mint-text">
+                        {remaining > 0 ? `D+${remaining}` : "계획 충족"}
+                      </span>
+                    </>
+                  ) : "—"}
                 </td>
               </tr>
             </tbody>

@@ -37,8 +37,8 @@ export function PerformanceTab({ sites, fleetKpi, siteSparklines, endDate }: Pro
   const kpi: KpiItem[] = [
     { label: "전사 평균 생산성", value: `${avgProductivity}`, unit: "%", sub: `현장 ${siteCount}개 평균`, tone: "normal" },
     { label: "운영 현장 수",     value: `${siteCount}`, unit: "개", sub: "AI 모니터링 중", tone: "normal" },
-    { label: "공사 단축일",       value: `+${totalShortenDays}`, unit: "일", sub: `전사 누적 (현장 평균 ${AVG_SHORTEN_PER_SITE}일)`, tone: "brand" },
-    { label: "회복 가능 공사 기간",    value: `+${totalRecoveryDays}`, unit: "일", sub: "전사 누적 만회 여력", tone: "brand" },
+    { label: "공사 단축일 (T2Y)", value: `+${totalShortenDays}`, unit: "일", sub: `전사 누적 (현장 평균 ${AVG_SHORTEN_PER_SITE}일)`, tone: "brand" },
+    { label: "추가 최적화 공사 기간",    value: `+${totalRecoveryDays}`, unit: "일", sub: "전사 누적 만회 여력", tone: "brand" },
   ];
 
   return (

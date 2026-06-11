@@ -59,13 +59,14 @@ def _azure() -> AzureOpenAI:
     )
 
 
-def _polish_one(azure: AzureOpenAI, model: str, wp_view: dict, ai_recovery_days) -> dict:
+def _polish_one(azure: AzureOpenAI, model: str, wp_view: dict, ai_recovery_days, assessment=None) -> dict:
     """MIGRATION_POLISH_PROMPT 1회 호출 → {briefing, recommendations}. fail 시 raise."""
     details = wp_view.get("details") or []
     # 진단 1줄째 "= {조건} 조건 · ..." 에서 오늘 조건(이슈 원인) 추출 → 헤드라인 근거.
     diag_line1 = (wp_view.get("diagnosis") or "").split("\n", 1)[0]
     today_condition = diag_line1.split(" 조건", 1)[0].strip() if " 조건" in diag_line1 else None
     payload = {
+        "assessment": assessment,  # 주의/이상/정상 — 헤드라인 이슈 판단 근거
         "today_condition": today_condition,
         "diagnosis": wp_view.get("diagnosis"),
         "similar_cases": wp_view.get("similar_cases") or [],
@@ -135,7 +136,7 @@ async def main() -> None:
         where.append(f"pr.site_id = ${len(params)}")
 
     sql = (
-        "SELECT dr.id, pr.site_id, pr.report_date, "
+        "SELECT dr.id, pr.run_id, pr.site_id, pr.report_date, "
         "       dr.optimizer_view_jsonb, dr.scenarios_jsonb "
         "FROM daily_reports dr JOIN pipeline_runs pr USING (run_id) "
         "WHERE " + " AND ".join(where) + " ORDER BY pr.report_date, pr.site_id"
@@ -153,6 +154,14 @@ async def main() -> None:
             scen_by_wp = scen.get("by_wp") or {}
             if not by_wp:
                 continue
+            # (company, l6_main) → forecast_assessment (주의/이상/정상) — 헤드라인 이슈 판단 근거.
+            assess_rows = await conn.fetch(
+                "SELECT company, l6_main, forecast_assessment FROM optimizer_advice WHERE run_id=$1",
+                r["run_id"],
+            )
+            assess_map = {
+                (a["company"], a["l6_main"]): a["forecast_assessment"] for a in assess_rows
+            }
             n_rows += 1
             wp_items = list(by_wp.items())
             if args.limit_wp:
@@ -161,8 +170,12 @@ async def main() -> None:
                 ai_rd = (
                     ((scen_by_wp.get(wp_key) or {}).get("base_p50") or {}).get("recovery_days")
                 )
+                # details 진단대상 "회사 · 공종" → assessment 조회.
+                _wp_label = _detail(wp_view.get("details") or [], "진단 대상") or ""
+                _parts = [p.strip() for p in _wp_label.split("·")]
+                _assess = assess_map.get((_parts[0], _parts[1])) if len(_parts) == 2 else None
                 try:
-                    out = _polish_one(azure, model, wp_view, ai_rd)
+                    out = _polish_one(azure, model, wp_view, ai_rd, assessment=_assess)
                 except Exception as e:  # noqa: BLE001
                     print(f"  [SKIP] {r['report_date']} {wp_key}: {type(e).__name__}: {e}")
                     continue

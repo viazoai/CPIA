@@ -1,10 +1,10 @@
-import { Brain, History, Lightbulb, Database, Sparkles } from "lucide-react";
+import { Brain, History, Lightbulb, Database } from "lucide-react";
 import type { OptimizerOutput } from "@/lib/types";
 
 /**
- * 브리핑·진단·유사사례·권고·상세 5 섹션을 단일 박스 + 항목별 구분선.
+ * 진단·유사사례·권고·상세 4 섹션을 단일 박스 + 항목별 구분선.
  * 본문 텍스트는 모두 진단 디스크립션과 동일한 text-sm sans + leading-relaxed.
- * 2026-06-10 (A+C): 최상단 'AI 브리핑' 블록 — LLM 종합 한 단락 (output.briefing).
+ * 2026-06-11: 이슈 요약 한 줄(briefing_headline)을 진단 섹션 최상단에 볼드로 (별도 블록 X).
  */
 export function OptimizerResult({
   output,
@@ -17,27 +17,14 @@ export function OptimizerResult({
 }) {
   return (
     <div className="h-full overflow-y-auto rounded-card border border-border-soft bg-card shadow-xs">
-      {output.briefing || output.briefing_headline ? (
-        <div className="border-b border-border-soft bg-brand-light/40 px-4 py-3">
-          <div className="mb-1.5 flex items-center gap-2">
-            <span className="inline-flex h-6 w-6 items-center justify-center rounded-sm bg-brand-text/10 text-brand-text">
-              <Sparkles className="h-4 w-4" />
-            </span>
-            <span className="text-sm font-semibold text-brand-text">AI 브리핑</span>
-          </div>
-          {output.briefing_headline ? (
-            <p className="mb-1 text-sm font-bold text-ink leading-snug">{output.briefing_headline}</p>
-          ) : null}
-          {output.briefing ? (
-            <p className="text-sm text-ink-mid leading-relaxed">{output.briefing}</p>
-          ) : null}
-        </div>
-      ) : null}
       <Row
         icon={<Brain className="h-4 w-4" />}
         tone="brand"
         title={`진단${typeof delayDays === "number" && delayDays > 0 ? `  (지연 +${delayDays}일)` : ""}`}
       >
+        {output.briefing_headline ? (
+          <p className="mb-1.5 text-sm font-bold text-ink leading-snug">{output.briefing_headline}</p>
+        ) : null}
         <p className="text-sm text-ink-mid leading-relaxed whitespace-pre-line">
           {output.diagnosis || "진단 데이터 없음 (Optimizer 미실행 또는 cold_start)"}
         </p>

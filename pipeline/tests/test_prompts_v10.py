@@ -241,6 +241,9 @@ def test_briefing_prompt_schema_and_tone():
     assert '"briefing"' in BRIEFING_PROMPT
     # 새 수치 환각 금지
     assert "지어내지" in BRIEFING_PROMPT
+    # 2026-06-11: 평가(주의/이상) 기반 이슈 파악 + '특이사항 없음' 맹탕 표현 금지
+    assert "assessment" in BRIEFING_PROMPT
+    assert "특이사항 없음" in BRIEFING_PROMPT  # 금지어로 명시
 
 
 def test_briefing_prompt_no_kanji():
@@ -252,6 +255,7 @@ def test_build_briefing_input_shape():
     """build_briefing_input — 필수 facts 키 + recommendations 요약 정규화."""
     out = build_briefing_input(
         wp_label="장평건설 · 배수 공사",
+        assessment="이상",
         condition="자재미입고",
         today_level="1.02 m/인",
         plan_level="1.44 m/인",
@@ -262,6 +266,7 @@ def test_build_briefing_input_shape():
         recommendations=[{"keyword": "계측 기준선 점검", "action": "긴 액션 텍스트", "reason": "사유"}],
     )
     assert out["wp"] == "장평건설 · 배수 공사"
+    assert out["assessment"] == "이상"
     assert out["schedule_impact"] == "30일 지연"
     assert out["ai_recovery_days"] == 3
     assert out["today_vs_plan"]["today"] == "1.02 m/인"
@@ -291,6 +296,9 @@ def test_migration_polish_prompt_dual_output():
     assert "2~3문장" in MIGRATION_POLISH_PROMPT  # 브리핑 단축
     assert "보존" in MIGRATION_POLISH_PROMPT  # keyword·사실 보존
     assert "권합니다" in MIGRATION_POLISH_PROMPT
+    # 2026-06-11: 평가 기반 이슈 + '특이사항 없음' 금지
+    assert "assessment" in MIGRATION_POLISH_PROMPT
+    assert "특이사항 없음" in MIGRATION_POLISH_PROMPT  # 금지어로 명시
 
 
 def test_migration_polish_prompt_no_kanji():

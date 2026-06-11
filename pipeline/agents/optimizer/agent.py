@@ -246,6 +246,7 @@ async def _process_one_v10_with_retry(
                 _scen_base = (scen_out or {}).get("base") or {}
                 briefing_payload = build_briefing_input(
                     wp_label=f"{r.get('company') or ''} · {r.get('l6_main') or ''}",
+                    assessment=r.get("assessment"),
                     condition=(r.get("today_conditions") or "정상").split(",")[0].strip(),
                     schedule_impact=_sched,
                     recovery_pattern=recovery_distribution_text(cases),

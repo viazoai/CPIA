@@ -18,7 +18,7 @@ import { useSimStore } from "@/lib/sim-store";
 /* 페르소나별 mock 사용자 — 데모용 */
 const USERS = {
   member: {
-    name: "김 현장",
+    name: "김현장",
     role: "현장 PM · Hi-tech Div.",
     email: "kim.fld@cpia.demo",
     initials: "김",

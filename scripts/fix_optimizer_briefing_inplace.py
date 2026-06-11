@@ -62,7 +62,11 @@ def _azure() -> AzureOpenAI:
 def _polish_one(azure: AzureOpenAI, model: str, wp_view: dict, ai_recovery_days) -> dict:
     """MIGRATION_POLISH_PROMPT 1회 호출 → {briefing, recommendations}. fail 시 raise."""
     details = wp_view.get("details") or []
+    # 진단 1줄째 "= {조건} 조건 · ..." 에서 오늘 조건(이슈 원인) 추출 → 헤드라인 근거.
+    diag_line1 = (wp_view.get("diagnosis") or "").split("\n", 1)[0]
+    today_condition = diag_line1.split(" 조건", 1)[0].strip() if " 조건" in diag_line1 else None
     payload = {
+        "today_condition": today_condition,
         "diagnosis": wp_view.get("diagnosis"),
         "similar_cases": wp_view.get("similar_cases") or [],
         "recovery_pattern": wp_view.get("recovery_distribution_text"),

@@ -187,7 +187,7 @@ export function ForecastChart({
             )}
             {scenarios?.no_action?.expected_completion && (
               <div className="contents">
-                <dt className="text-ink-light">현황 (예측)</dt>
+                <dt className="text-ink-light">예측 완공</dt>
                 <dd className="font-mono" style={{ color: "#ef4444" }}>
                   {scenarios.no_action.expected_completion}
                   {delayDays > 0 && (
@@ -198,7 +198,7 @@ export function ForecastChart({
             )}
             {scenarios?.base_p50?.recovery_days != null && (
               <div className="contents">
-                <dt className="text-ink-light">AI 시나리오</dt>
+                <dt className="text-ink-light">최적화 (AI 시나리오)</dt>
                 <dd className="font-mono text-mint-text">
                   {baseEnd ?? scenarios.base_p50.expected_completion ?? "—"}
                   <span className="ml-1 text-[10px] font-semibold">
@@ -211,19 +211,19 @@ export function ForecastChart({
         )}
       </div>
 
-      {/* 범례 — 의미 한눈에 (토글 없이 항상 표시) */}
+      {/* 범례 — 순서·색상 = 툴팁/표와 동일 (계획→실적→예측→최적화) */}
       <div className="mb-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-[12px] text-ink-mid">
         <span className="inline-flex items-center gap-1.5">
+          <span className="h-0.5 w-4" style={{ background: "#94a3b8" }} />
+          계획
+        </span>
+        <span className="inline-flex items-center gap-1.5">
           <span className="h-0.5 w-4 bg-ink" />
-          현황 (실적)
+          실적
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span className="h-0.5 w-4 border-t-2 border-dashed" style={{ borderColor: "#ef4444" }} />
-          현황 (예측)
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span className="h-0.5 w-4" style={{ background: "#94a3b8" }} />
-          플랜 (계획)
+          예측
         </span>
         <span
           className="inline-flex items-center gap-1.5"
@@ -231,7 +231,7 @@ export function ForecastChart({
           style={{ cursor: hasBase ? "pointer" : "default" }}
         >
           <span className="h-0.5 w-4 border-t-2 border-dashed" style={{ borderColor: "#0ea76a" }} />
-          AI 시나리오
+          최적화 (AI 시나리오)
         </span>
         <span className="ml-auto text-[11px] text-ink-light/60">스크롤 확대 · 더블클릭 초기화</span>
       </div>
@@ -250,25 +250,23 @@ export function ForecastChart({
             tick={{ fontSize: 10, fill: "#7a8494" }}
             tickFormatter={(v) => `${v}%`}
           />
-          <Tooltip
-            contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid #e2e6ed" }}
-            labelFormatter={(v) => String(v)}
-          />
+          <Tooltip content={<ChartTooltip />} />
 
           <Area dataKey="band_high" stroke="none" fill="#e8eeff" fillOpacity={activeLine === "base" ? 0.15 : 0.4} activeDot={false} isAnimationActive={false} />
           <Area dataKey="band_low"  stroke="none" fill="#ffffff" fillOpacity={1}   activeDot={false} isAnimationActive={false} />
 
-          {/* 플랜 (계획) — 회색 실선 */}
-          <Line dataKey="planned" stroke="#94a3b8" strokeWidth={2} strokeOpacity={activeLine === "base" ? 0.25 : 1} dot={false} isAnimationActive={false} />
+          {/* 계획 — 회색 실선 */}
+          <Line name="계획" dataKey="planned" stroke="#94a3b8" strokeWidth={2} strokeOpacity={activeLine === "base" ? 0.25 : 1} dot={false} isAnimationActive={false} />
 
-          {/* 현황 (실적) — 검정 굵은 실선 (항상 full) */}
-          <Line dataKey="actual" stroke="#0d1117" strokeWidth={3} strokeOpacity={1} dot={false} isAnimationActive={false} />
+          {/* 실적 — 검정 굵은 실선 (항상 full) */}
+          <Line name="실적" dataKey="actual" stroke="#0d1117" strokeWidth={3} strokeOpacity={1} dot={false} isAnimationActive={false} />
 
-          {/* 현황 (예측) — 빨강 dashed (BE forecast — actual trend 연장, plan 과 평행 격차 유지) */}
-          <Line dataKey="forecast" stroke="#ef4444" strokeWidth={2} strokeDasharray="6 5" strokeOpacity={activeLine === "base" ? 0.25 : 1} dot={false} isAnimationActive={false} connectNulls={false} />
+          {/* 예측 — 빨강 dashed (BE forecast — actual trend 연장, plan 과 평행 격차 유지) */}
+          <Line name="예측" dataKey="forecast" stroke="#ef4444" strokeWidth={2} strokeDasharray="6 5" strokeOpacity={activeLine === "base" ? 0.25 : 1} dot={false} isAnimationActive={false} connectNulls={false} />
 
-          {/* AI 시나리오 — mint 점선. catch-up + plan 동행. 클릭 토글 강조 */}
+          {/* 최적화 (AI 시나리오) — mint 점선. 부분 만회선. 클릭 토글 강조 */}
           <Line
+            name="최적화 (AI 시나리오)"
             dataKey="base"
             stroke="#0ea76a"
             strokeWidth={2.5}
@@ -315,10 +313,10 @@ export function ForecastChart({
               <Label
                 value={
                   (delayDays > 0
-                    ? `현황 D+${delayDays}`
+                    ? `예측 D+${delayDays}`
                     : delayDays < 0
-                    ? `현황 D−${Math.abs(delayDays)}`
-                    : "현황 계획 동일") + ` · ${noActionEnd.slice(5)}`
+                    ? `예측 D−${Math.abs(delayDays)}`
+                    : "예측 계획 동일") + ` · ${noActionEnd.slice(5)}`
                 }
                 position="bottom"
                 offset={14}
@@ -340,7 +338,7 @@ export function ForecastChart({
               strokeWidth={2}
             >
               <Label
-                value={`AI 시나리오 ${baseCatchUp.date.slice(5)}`}
+                value={`최적화 (AI 시나리오) ${baseCatchUp.date.slice(5)}`}
                 position="top"
                 offset={14}
                 fill="#0ea76a"
@@ -356,7 +354,7 @@ export function ForecastChart({
       {/* 컴팩트 카드 — AI 시나리오 라인/범례 클릭 시 표시 (C4) */}
       {activeLine === "base" && (
         <div className="mt-3 max-w-md rounded-md bg-mint-light/40 px-3 py-2 text-[12.5px] ring-1 ring-mint/30">
-          <div className="font-semibold text-mint-text">AI 시나리오 · {recoveryDays > 0 ? `${recoveryDays}일 만회${remaining > 0 ? ` (잔여 D+${remaining})` : " (계획 충족)"}` : "회복 제한적"}</div>
+          <div className="font-semibold text-mint-text">최적화 (AI 시나리오) · {recoveryDays > 0 ? `${recoveryDays}일 만회${remaining > 0 ? ` (잔여 D+${remaining})` : " (계획 충족)"}` : "회복 제한적"}</div>
           {(() => {
             const top = (aiAdvice ?? [])
               .filter((w) => typeof w.recovery_days === "number")
@@ -403,7 +401,7 @@ export function ForecastChart({
                 <td className="px-3 py-2">
                   <span className="inline-flex items-center gap-2">
                     <span className="h-1.5 w-1.5 rounded-full" style={{ background: "#94a3b8" }} />
-                    <span className="text-ink-mid">플랜 (계획)</span>
+                    <span className="text-ink-mid">계획</span>
                   </span>
                 </td>
                 <td className="px-3 py-2 text-right text-ink-mid">당초 계획</td>
@@ -417,7 +415,7 @@ export function ForecastChart({
                 <td className="px-3 py-2">
                   <span className="inline-flex items-center gap-2">
                     <span className="h-1.5 w-1.5 rounded-full" style={{ background: "#ef4444" }} />
-                    <span className="text-ink-mid">현황 (예측)</span>
+                    <span className="text-ink-mid">예측</span>
                   </span>
                 </td>
                 <td className="px-3 py-2 text-right text-ink-mid">현재 페이스 유지</td>
@@ -439,7 +437,7 @@ export function ForecastChart({
                 <td className="px-3 py-2">
                   <span className="inline-flex items-center gap-2">
                     <span className="h-1.5 w-1.5 rounded-full" style={{ background: "#0ea76a" }} />
-                    <span className="font-semibold text-ink">AI 시나리오</span>
+                    <span className="font-semibold text-ink">최적화 (AI 시나리오)</span>
                   </span>
                 </td>
                 <td className="px-3 py-2 text-right text-ink">
@@ -478,6 +476,35 @@ export function ForecastChart({
           )}
         </div>
 
+      </div>
+    </div>
+  );
+}
+
+/** 차트 툴팁 — 밴드 음영(band_*) 숨김, 선 색·한글 name 그대로, 계획→실적→예측→최적화 순서.
+ *  순서는 ComposedChart 의 <Line> 선언 순서(=범례/표 순서)를 그대로 따른다. */
+function ChartTooltip({ active, payload, label }: any) {
+  if (!active || !Array.isArray(payload) || payload.length === 0) return null;
+  const rows = payload.filter(
+    (p: any) =>
+      p?.dataKey !== "band_high" &&
+      p?.dataKey !== "band_low" &&
+      p?.value != null,
+  );
+  if (rows.length === 0) return null;
+  return (
+    <div className="rounded-lg border border-border-soft bg-card px-2.5 py-1.5 text-[11px] shadow-sm">
+      <div className="mb-1 font-semibold text-ink">{String(label)}</div>
+      <div className="space-y-0.5">
+        {rows.map((p: any) => (
+          <div key={p.dataKey} className="flex items-center gap-2">
+            <span className="h-0.5 w-3.5 shrink-0" style={{ background: p.color ?? p.stroke }} />
+            <span className="text-ink-mid">{p.name ?? p.dataKey}</span>
+            <span className="ml-auto pl-3 font-mono text-ink">
+              {typeof p.value === "number" ? `${p.value.toFixed(1)}%` : p.value}
+            </span>
+          </div>
+        ))}
       </div>
     </div>
   );

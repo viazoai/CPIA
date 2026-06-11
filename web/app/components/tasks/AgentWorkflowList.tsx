@@ -1,4 +1,5 @@
 "use client";
+import { useRouter } from "next/navigation";
 import {
   Inbox,
   FileSearch,
@@ -8,6 +9,7 @@ import {
   Activity,
   Sparkles,
   UserCheck,
+  ChevronsRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { AgentStageProgress } from "@/lib/types";
@@ -68,6 +70,7 @@ function stageState(s: AgentStageProgress): StageState {
 }
 
 export function AgentWorkflowList({ stages, selectedAgent, onSelect, activeAgent }: Props) {
+  const router = useRouter();
   // 단계 유효 상태 — stageState 가 pending 이어도 현재 실행 노드(activeAgent)면 active 로 강제.
   // (실데이터에서 현재 노드가 아직 진행도 0 이라 pending 처럼 보이는 문제 방지)
   const effState = (s: AgentStageProgress): StageState => {
@@ -193,14 +196,18 @@ export function AgentWorkflowList({ stages, selectedAgent, onSelect, activeAgent
               {/* ── 오른쪽 카드 ── */}
               <button
                 type="button"
-                onClick={() => onSelect(s.agent)}
+                // 사람 검토 단계는 클릭 시 Review 화면으로 전환 — 그 외 단계는 우측 패널 선택.
+                onClick={() => (isHil ? router.push("/review") : onSelect(s.agent))}
+                title={isHil ? "검토 화면으로 이동" : undefined}
                 className={cn(
                   "min-w-0 flex-1 self-center rounded-card px-3 py-2.5 text-left transition-all",
                   isHil
                     // 사람 단계 = 박스 제거 (테두리·배경 없음), 선택 시 옅은 주황 틴트만
-                    ? selected
-                      ? "bg-peach-light/50"
-                      : "hover:bg-peach-light/30"
+                    // group + cursor-pointer 로 "클릭 시 화면 전환" affordance 부여
+                    ? cn(
+                        "group cursor-pointer",
+                        selected ? "bg-peach-light/50" : "hover:bg-peach-light/30",
+                      )
                     : selected
                       ? "border border-brand bg-brand-light ring-2 ring-brand/40 shadow-sm"
                       : isActive
@@ -234,8 +241,10 @@ export function AgentWorkflowList({ stages, selectedAgent, onSelect, activeAgent
                   {/* 우: 사람 단계 = 확인 건수만 / 에이전트 = 접수·처리 + 진행률 */}
                   <div className="flex items-center gap-2 shrink-0 tabular-nums">
                     {isHil ? (
-                      <span className="font-mono text-xs text-peach-text">
+                      <span className="inline-flex items-center gap-1 font-mono text-xs font-medium text-peach-text">
                         확인 <span className="font-bold">{s.received}</span>건
+                        {/* 클릭 → Review 전환 affordance. hover 시 화살표가 살짝 미끄러짐 */}
+                        <ChevronsRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
                       </span>
                     ) : (
                       <>

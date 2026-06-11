@@ -1,7 +1,17 @@
 "use client";
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { Switch } from "@/components/ui/switch";
 import { CheckCheck } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { WBSTree } from "@/app/components/review/WBSTree";
 import { WpGroup } from "@/app/components/review/WpGroup";
 import { ReviewConnector } from "@/app/components/review/ReviewConnector";
@@ -21,6 +31,9 @@ const find = (n: WBSNode | null, id: string): WBSNode | null => {
 };
 
 export default function HumanReviewPage() {
+  const router = useRouter();
+  // '모두 확정' 후 Task 화면 복귀 확인 팝업.
+  const [returnDialogOpen, setReturnDialogOpen] = useState(false);
   const [wbs, setWbs] = useState<WBSNode | null>(null);
   const [cards, setCards] = useState<ReviewItem[]>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -72,6 +85,28 @@ export default function HumanReviewPage() {
     walk(wbs, null, null);
     return map;
   }, [wbs]);
+
+  // 좌측 트리 경고(미확정 건수)는 live cards 에서 재계산 — 확정/재매핑 시 즉시 반영.
+  //   WP 노드 review_count = 그 WP 로 매핑된 unconfirmed 카드 수, 상위 노드는 자식 합.
+  //   (트리의 정적 review_count 는 fetch 시점 값이라 확정해도 안 바뀌어 경고가 남던 문제 수정)
+  const wbsWithCounts = useMemo(() => {
+    if (!wbs) return null;
+    const pending = new Map<string, number>();
+    for (const c of cards) {
+      if (c.status === "unconfirmed") {
+        pending.set(c.ai_mapped_wp_id, (pending.get(c.ai_mapped_wp_id) ?? 0) + 1);
+      }
+    }
+    const rebuild = (n: WBSNode): WBSNode => {
+      if (n.children && n.children.length > 0) {
+        const children = n.children.map(rebuild);
+        return { ...n, children, review_count: children.reduce((s, c) => s + c.review_count, 0) };
+      }
+      // 리프(work_package) — 직접 매핑된 미확정 카드 수
+      return { ...n, review_count: pending.get(n.id) ?? 0 };
+    };
+    return rebuild(wbs);
+  }, [wbs, cards]);
 
   // 카드별 l6 선택 보고 — 사용자가 바꾼 카드만 기록(미선택 카드는 BE 가 AI 매핑 수용).
   const handleCardSelect = useCallback(
@@ -154,8 +189,8 @@ export default function HumanReviewPage() {
   // Task 8: 선택 노드의 검토대기(요검토) 건수 — 누적(확정)은 requires_review=FALSE 만이라
   // 이 만큼이 아직 누적에 미반영(과소표시). 좌측 트리 요검토와 동일 review_count.
   const selectedPending = useMemo(
-    () => (wbs && selectedNodeId ? (find(wbs, selectedNodeId)?.review_count ?? 0) : 0),
-    [wbs, selectedNodeId],
+    () => (wbsWithCounts && selectedNodeId ? (find(wbsWithCounts, selectedNodeId)?.review_count ?? 0) : 0),
+    [wbsWithCounts, selectedNodeId],
   );
   // 연결선 재드로잉 nonce — 모드·그룹수·선택노드(트리 펼침/스크롤) 변할 때 bump.
   const [redrawKey, setRedrawKey] = useState(0);
@@ -236,6 +271,8 @@ export default function HumanReviewPage() {
       .then((r) => r.json())
       .then((d) => console.log("[hil/resume]", d))
       .catch((e) => console.error("[hil/resume] 실패", e));
+    // 확정·재개 후 Task 화면 복귀 여부를 묻는 팝업 표시.
+    setReturnDialogOpen(true);
   };
 
   // 카드 선택 → 연결선 + 트리 자동 펼침/스크롤(revealNodeId=selectedCard).
@@ -278,7 +315,7 @@ export default function HumanReviewPage() {
             redrawKey={redrawKey}
           />
           <div className="col-span-12 md:col-span-4 rounded-card border border-border-soft bg-card shadow-xs overflow-hidden flex flex-col min-h-0 lg:h-full">
-            <WBSTree root={wbs} selectedId={selectedNodeId} onSelect={setSelectedNodeId} revealNodeId={selectedCard?.ai_mapped_wp_id ?? null} onDrop={(cardId, wpId) => {
+            <WBSTree root={wbsWithCounts ?? wbs} selectedId={selectedNodeId} onSelect={setSelectedNodeId} revealNodeId={selectedCard?.ai_mapped_wp_id ?? null} onDrop={(cardId, wpId) => {
               const collectPath = (n: WBSNode | null, id: string, path: string[] = []): string[] | null => {
                 if (!n) return null;
                 const next = [...path, n.name];
@@ -354,6 +391,39 @@ export default function HumanReviewPage() {
           </div>
         </div>
       </section>
+
+      {/* 모두 확정 → Task 화면 복귀 확인 팝업. 확인 시 /tasks 로 이동, 취소 시 현재 화면 유지. */}
+      <Dialog open={returnDialogOpen} onOpenChange={setReturnDialogOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-base font-semibold tracking-tight text-ink">
+              Task 화면으로 돌아가시겠습니까?
+            </DialogTitle>
+            <DialogDescription className="text-sm text-ink-mid">
+              매핑 검토를 모두 확정했습니다. 작업 처리 현황(Task) 화면으로 이동합니다.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setReturnDialogOpen(false)}
+              className="h-9"
+            >
+              취소
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => router.push("/tasks")}
+              className="h-9"
+            >
+              확인
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

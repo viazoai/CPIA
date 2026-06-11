@@ -7,5 +7,12 @@ export function wpRowsForStatus(
   rows: WPSummaryRow[],
   statusFilter: WPStatusFilter,
 ): WPSummaryRow[] {
-  return statusFilter === "all" ? rows : rows.filter((w) => w.status === statusFilter);
+  const filtered =
+    statusFilter === "all" ? rows : rows.filter((w) => w.status === statusFilter);
+  // AI 단축일(recovery_days) 큰 순으로 상단 정렬. 동률은 impact(WV) 내림차순 보조.
+  return [...filtered].sort(
+    (a, b) =>
+      (b.recovery_days ?? 0) - (a.recovery_days ?? 0) ||
+      (b.impact ?? 0) - (a.impact ?? 0),
+  );
 }

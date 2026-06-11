@@ -208,10 +208,11 @@ def test_finalize_sheet2_no_hidden_no_filter_white():
     assert ws2.auto_filter.ref is None
     assert ws2.row_dimensions[5].hidden is False
     assert ws2.row_dimensions[6].hidden is False
-    assert ws2.freeze_panes == "A5"
+    assert ws2.freeze_panes == "A6"  # 시트2 헤더 3행(r3+r4+r5 서브헤더) → 데이터 r6
     assert ws2.column_dimensions["D"].hidden is False  # 템플릿 숨김열 D 풀림
     assert ws2.column_dimensions["Y"].hidden is False  # 템플릿 숨김열 Y 풀림
-    assert ws2.cell(5, 2).fill.patternType is None     # 흰색(회색 PoC 아티팩트 재유입 방지)
+    # r5 는 이제 서브헤더 행 — _write_subheaders 가 r4 헤더 스타일(fill 포함)을 복제하므로
+    # 회색 아티팩트 방지 단언 제거(헤더 fill 이 전달됨은 의도된 동작).
 
 
 def test_finalize_empty_sheet_safe():
@@ -229,3 +230,73 @@ def test_sheet1_pjt_to_bp_top_aligned():
     ws1 = wb["1.작업사항"]
     for c in (2, 3, 4, 5):
         assert ws1.cell(5, c).alignment.vertical == "top", f"col{c} vertical={ws1.cell(5, c).alignment.vertical}"
+
+
+# ── 2026-06-11 시트2·3 r5 서브헤더 복원 + 유령열(Y/25) 제거 ──
+def _sd_two_occ_eq():
+    """시트2·3 데이터 2행씩 — r6 시작·서브헤더·유령열 검증용."""
+    sd = _sd_one_company()
+    sd.occupation_manpower = [
+        {"disc_abbrev": "건축", "company": "광건", "job_type": "비계공", "workers_cum_t": 3},
+        {"disc_abbrev": "건축", "company": "광건", "job_type": "형틀목공", "workers_cum_t": 5},
+    ]
+    sd.equipment = [
+        {"disc_abbrev": "건축", "company": "광건", "equipment_big": "굴삭운반기계류",
+         "equipment_mid": "Back Hoe", "equipment_spec": "2㎥ 미만", "count_cum_t": 1},
+    ]
+    return sd
+
+
+def _rendered_two():
+    return load_workbook(BytesIO(render_xlsx(_sd_two_occ_eq(), date(2025, 9, 25), project="M15X Ph-3 IBL")))
+
+
+def test_sheet23_r5_subheader_restored():
+    """시트2·3 r5 = 좌측라벨 + 조출/주간/연장/야간/철야/누계(×3). 최종(Y/25) 없음."""
+    wb = _rendered_two()
+    ws2 = wb["2.직종별 인원현황"]
+    assert ws2.cell(5, 2).value == "Dis"
+    assert ws2.cell(5, 3).value == "협력업체"
+    assert ws2.cell(5, 8).value == "주간"      # H5
+    assert ws2.cell(5, 10).value == "야간"     # J5
+    assert ws2.cell(5, 12).value == "Cum. T"   # L5 전일누계 합
+    assert ws2.cell(5, 18).value == "Incr. T"  # R5 금일투입 합
+    assert ws2.cell(5, 24).value == "Cum. T"   # X5 금일누계 합
+    assert ws2.cell(5, 25).value is None        # Y5 최종 = 미작성
+    ws3 = wb["3.장비현황"]
+    assert ws3.cell(5, 4).value == "대분류"     # 시트3 좌측 라벨 차이
+    assert ws3.cell(5, 8).value == "주간"
+
+
+def test_sheet23_data_starts_row6():
+    """시트2·3 데이터는 r6 부터 (r5 는 서브헤더)."""
+    wb = _rendered_two()
+    ws2 = wb["2.직종별 인원현황"]
+    assert ws2.cell(6, 2).value == "건축"       # 첫 데이터 행 = 공종(disc_abbrev)
+    assert ws2.cell(6, 3).value == "광건"
+    assert ws2.cell(6, 2).fill.patternType is None  # 데이터행 흰색(회색 아티팩트 방지 — 구 r5 가드 이전)
+    ws3 = wb["3.장비현황"]
+    assert ws3.cell(6, 4).value == "굴삭운반기계류"  # 첫 데이터 = 대분류
+
+
+def test_sheet23_no_ghost_column_25():
+    """유령열 제거: 시트2·3 Y열(25) 데이터행에 값·테두리 모두 없음."""
+    from openpyxl.cell.cell import MergedCell
+    wb = _rendered_two()
+    for sname, ndata in (("2.직종별 인원현황", 2), ("3.장비현황", 1)):
+        ws = wb[sname]
+        for i in range(ndata):
+            cell = ws.cell(6 + i, 25)
+            assert cell.value is None
+            if not isinstance(cell, MergedCell):
+                b = cell.border
+                assert not any(s and s.style for s in (b.left, b.right, b.top, b.bottom)), \
+                    f"{sname} Y{6+i} 에 테두리 잔존(유령열)"
+
+
+def test_sheet14_data_still_row5_no_regression():
+    """시트1·4 는 종전대로 r5 시작 (회귀 방지)."""
+    from pipeline.agents.exporter import COL_OUTPUT_MANPOWER, COL_QUANTITY
+    wb = _rendered_two()
+    assert wb["1.작업사항"].cell(5, COL_OUTPUT_MANPOWER["project"]).value == "M15X Ph-3 IBL"
+    assert wb["4.물량"].cell(5, COL_QUANTITY["project"]).value == "M15X Ph-3 IBL"

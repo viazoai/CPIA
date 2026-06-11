@@ -11,7 +11,7 @@ const AS_IS = [
   "현장 이력 축적 없이 매번 재취합 (1h/일)",
   "PPT·엑셀 보고서 수기 작성 (2h/일)",
   "PM 경험칙으로 공정 이상 판단 (D+2~3일 사후 인지)",
-  "공기 만회 대책 사후 임시 수립 (만회 불가 구간 진입 후)",
+  "공사 기간 만회 대책 사후 임시 수립 (만회 불가 구간 진입 후)",
 ];
 
 const TO_BE: { agent: string; step: string; ai?: boolean }[] = [
@@ -114,7 +114,7 @@ export function AsIsToBeSection() {
               ))}
             </ol>
             <div className="mt-6 rounded-md bg-mint-light px-4 py-3 text-center text-body-sm font-medium text-mint-text">
-              담당자 30분/일 투입 · 보고 D+0 (당일) · 공기 위험 D-14 선제 대응
+              담당자 30분/일 투입 · 보고 D+0 (당일) · 공사 기간 위험 D-14 선제 대응
             </div>
           </div>
         </div>

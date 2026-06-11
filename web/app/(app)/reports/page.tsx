@@ -261,7 +261,7 @@ export default function ReportPage() {
                           </div>
                           <div className="flex items-center gap-5">
                             <span className="text-sm text-ink-mid">
-                              공기 단축{" "}
+                              공사 기간 단축{" "}
                               {days > 0 ? (
                                 <span className="font-semibold text-mint-text">-{days}일</span>
                               ) : (
@@ -294,7 +294,7 @@ export default function ReportPage() {
               </div>
             </Section>
 
-            <Section eyebrow="/ 03 — 공정률 추세" title="공기 단축 예측 시나리오">
+            <Section eyebrow="/ 03 — 공정률 추세" title="공사 기간 단축 예측 시나리오">
               <ForecastChart
                 diagnosis={diagnosis}
                 recoveryActive={selectedWpId !== null}

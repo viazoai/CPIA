@@ -21,7 +21,7 @@ interface Props {
   diagnosis: ProductivityDiagnosis;
   /** Optimizer 권고 시나리오를 강조 표시. § 4 에서 WP 선택 시 true. */
   recoveryActive?: boolean;
-  /** 현 추세 공기 차이 (양수 = 지연, 음수 = 앞서감). */
+  /** 현 추세 공사 기간 차이 (양수 = 지연, 음수 = 앞서감). */
   delayDays: number;
   /** 최적화 적용 시 단축 가능 일수 (양수). */
   recoveryDays: number;
@@ -29,7 +29,7 @@ interface Props {
   scenarios?: Partial<ScenarioSet>;
   /** 기준일 (selectedDate, 메타 표시용). */
   reportDate?: string;
-  /** LLM 산출 — 공기 단축 가능한 공종 + 권고사항 (Optimizer agent). 룰베이스 narrative 대체. */
+  /** LLM 산출 — 공사 기간 단축 가능한 공종 + 권고사항 (Optimizer agent). 룰베이스 narrative 대체. */
   aiAdvice?: Array<{
     wp_name: string;
     trade: string;
@@ -156,7 +156,7 @@ export function ForecastChart({
 
       <div className="mb-4 flex flex-wrap items-end gap-x-10 gap-y-3">
         <div>
-          <div className="text-sm text-ink-mid">최적화 공기</div>
+          <div className="text-sm text-ink-mid">최적화 공사 기간</div>
           <div className="mt-2 flex items-baseline gap-2">
             <span className="font-display text-h3 font-semibold tracking-[-0.015em] text-ink">
               {recoveryDays > 0 ? "-" : ""}{recoveryDays}
@@ -567,10 +567,10 @@ function outlookNarrative(delayDays: number, recoveryDays: number): string {
   }
   const remaining = delayDays - recoveryDays;
   if (remaining > 0) {
-    return `AI 가 제안하는 조치를 시행하면 ${recoveryDays}일을 만회할 수 있어, 최종 공기는 당초 계획보다 ${remaining}일 늦어지는 선에서 마무리할 수 있습니다.`;
+    return `AI 가 제안하는 조치를 시행하면 ${recoveryDays}일을 만회할 수 있어, 최종 공사 기간은 당초 계획보다 ${remaining}일 늦어지는 선에서 마무리할 수 있습니다.`;
   }
   if (remaining === 0) {
-    return `AI 가 제안하는 조치를 시행하면 ${recoveryDays}일을 만회할 수 있어, 당초 계획대로 공기를 회복할 수 있습니다.`;
+    return `AI 가 제안하는 조치를 시행하면 ${recoveryDays}일을 만회할 수 있어, 당초 계획대로 공사 기간을 회복할 수 있습니다.`;
   }
   return `AI 가 제안하는 조치를 시행하면 ${recoveryDays}일을 만회할 수 있어, 당초 계획보다 ${Math.abs(remaining)}일 빨리 완공할 수 있습니다.`;
 }

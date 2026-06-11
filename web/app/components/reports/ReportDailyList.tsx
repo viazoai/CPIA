@@ -54,7 +54,7 @@ export function ReportDailyList({ daily, selectedDate, onSelect }: Props) {
                 생산성 <b className="text-ink">{d.productivity_today}%</b>
                 {d.recovery_days > 0 && (
                   <>
-                    {" · 최적화 공기 "}
+                    {" · 최적화 공사 기간 "}
                     <b className="text-mint-text">-{d.recovery_days}일</b>
                   </>
                 )}

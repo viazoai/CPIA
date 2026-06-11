@@ -87,7 +87,7 @@ export function SiteOverviewCard({ site, sparkline }: Props) {
             </div>
           </div>
           <div>
-            <div className="text-ink-light">공기</div>
+            <div className="text-ink-light">공사 기간</div>
             <div className={cn(
               "font-display text-lg font-semibold tracking-[-0.01em]",
               site.delay_days > 0 ? "text-rose" : "text-mint",

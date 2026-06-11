@@ -7,7 +7,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "CPIA · Construction Productivity Intelligence Agent",
-  description: "AI Agent 기반 현장 생산성 분석 + 공기 최적화",
+  description: "AI Agent 기반 현장 생산성 분석 + 공사 기간 최적화",
 };
 
 export default function RootLayout({

@@ -35,8 +35,8 @@ export default function DashboardPage() {
       <section className="mx-auto w-full max-w-screen-2xl px-6 pb-20 pt-8 md:px-10 md:pt-10">
         <Tabs defaultValue="performance" className="w-full">
           <TabsList className="w-fit">
-            <TabsTrigger value="performance">Performance</TabsTrigger>
-            <TabsTrigger value="impact">Impact</TabsTrigger>
+            <TabsTrigger value="performance">Time Value</TabsTrigger>
+            <TabsTrigger value="impact">Capacity</TabsTrigger>
           </TabsList>
           <TabsContent value="performance" className="mt-6">
             <PerformanceTab

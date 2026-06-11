@@ -255,8 +255,8 @@ export default function HumanReviewPage() {
   if (!wbs) return <div className="px-6 py-10 text-ink-light">Loading...</div>;
 
   return (
-    <div className="flex flex-col">
-      <div className="mx-auto w-full max-w-screen-2xl border-b border-border-soft px-6 pt-10 pb-6 md:px-10 md:pt-14">
+    <div className="flex flex-col lg:h-[calc(100vh-4rem)] lg:overflow-hidden">
+      <div className="mx-auto w-full max-w-screen-2xl border-b border-border-soft px-6 pt-10 pb-6 md:px-10 md:pt-14 shrink-0">
         <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-brand-text">
           / 03 — Human Review
         </span>
@@ -268,8 +268,8 @@ export default function HumanReviewPage() {
         </p>
       </div>
 
-      <section className="mx-auto w-full max-w-screen-2xl px-6 pb-20 md:px-10">
-        <div ref={gridRef} className="relative grid grid-cols-12 gap-4 items-stretch">
+      <section className="mx-auto w-full max-w-screen-2xl px-6 pt-4 pb-8 md:px-10 flex-1 min-h-0">
+        <div ref={gridRef} className="relative grid grid-cols-12 gap-4 items-stretch h-full">
           <ReviewConnector
             containerRef={gridRef}
             selectedCardId={selectedCardId}
@@ -277,7 +277,7 @@ export default function HumanReviewPage() {
             tone={connectorTone}
             redrawKey={redrawKey}
           />
-          <div className="col-span-12 md:col-span-4 rounded-card border border-border-soft bg-card shadow-xs overflow-hidden flex flex-col lg:h-[calc(100vh-260px)]">
+          <div className="col-span-12 md:col-span-4 rounded-card border border-border-soft bg-card shadow-xs overflow-hidden flex flex-col min-h-0 lg:h-full">
             <WBSTree root={wbs} selectedId={selectedNodeId} onSelect={setSelectedNodeId} revealNodeId={selectedCard?.ai_mapped_wp_id ?? null} onDrop={(cardId, wpId) => {
               const collectPath = (n: WBSNode | null, id: string, path: string[] = []): string[] | null => {
                 if (!n) return null;
@@ -292,7 +292,7 @@ export default function HumanReviewPage() {
             }} />
           </div>
 
-          <div className="col-span-12 md:col-span-8 rounded-card border border-border-soft bg-card shadow-xs flex flex-col lg:h-[calc(100vh-260px)]">
+          <div className="col-span-12 md:col-span-8 rounded-card border border-border-soft bg-card shadow-xs overflow-hidden flex flex-col min-h-0 lg:h-full">
             <div className="flex items-center justify-between px-5 py-3 border-b border-border-soft shrink-0">
               <span className="font-display text-h6 font-bold text-ink">작업물량</span>
               <div className="flex items-center gap-2">

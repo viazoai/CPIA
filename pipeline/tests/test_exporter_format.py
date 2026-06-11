@@ -300,3 +300,11 @@ def test_sheet14_data_still_row5_no_regression():
     wb = _rendered_two()
     assert wb["1.작업사항"].cell(5, COL_OUTPUT_MANPOWER["project"]).value == "M15X Ph-3 IBL"
     assert wb["4.물량"].cell(5, COL_QUANTITY["project"]).value == "M15X Ph-3 IBL"
+
+
+def test_sheet4_pct_column_no_red_conditional_format():
+    """시트4 F%(N열) '>1 → 빨강' 조건부서식 제거 — F% 는 퍼센트라 전 셀 빨강 방지(흰색)."""
+    wb = _rendered_two()
+    assert len(list(wb["4.물량"].conditional_formatting)) == 0
+    # 타 시트 템플릿 조건부서식은 보존(시트1 manpower 그리드 CF 무손상).
+    assert len(list(wb["1.작업사항"].conditional_formatting)) > 0

@@ -250,6 +250,7 @@ from pathlib import Path  # noqa: E402
 
 from openpyxl import load_workbook  # noqa: E402
 from openpyxl.cell.cell import MergedCell  # noqa: E402
+from openpyxl.formatting.formatting import ConditionalFormattingList  # noqa: E402
 from openpyxl.styles import Alignment, Border, Side  # noqa: E402,F401
 from openpyxl.utils import get_column_letter  # noqa: E402,F401
 
@@ -380,6 +381,9 @@ def _finalize_layout(wb, sheet_data: SheetData) -> None:
     for c in range(10, 38):
         ws1.column_dimensions[get_column_letter(c)].hidden = True
     ws1.title = _SHEET1_TITLE
+    # 시트4 F%(N열) ">1 → 빨강" 조건부서식 제거: F% 는 퍼센트(거의 상시 >1)라 전 셀 빨강으로 떠
+    # 흰색으로 환원(사용자 요청). 시트4 CF 는 전부 N열 규칙뿐이라 통째 비움이 곧 N열 제거.
+    wb["4.물량"].conditional_formatting = ConditionalFormattingList()
 
 
 def _safe_set(ws, r: int, c: int, value) -> None:

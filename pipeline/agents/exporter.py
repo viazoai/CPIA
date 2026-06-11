@@ -244,11 +244,13 @@ async def fetch_sheet_data(
 # Render — Spec §7.2
 # ──────────────────────────────────────────────────────────────────────────────
 
+from copy import copy as _copy  # noqa: E402
 from io import BytesIO  # noqa: E402
 from pathlib import Path  # noqa: E402
 
 from openpyxl import load_workbook  # noqa: E402
 from openpyxl.cell.cell import MergedCell  # noqa: E402
+from openpyxl.formatting.formatting import ConditionalFormattingList  # noqa: E402
 from openpyxl.styles import Alignment, Border, Side  # noqa: E402,F401
 from openpyxl.utils import get_column_letter  # noqa: E402,F401
 
@@ -259,20 +261,29 @@ _THIN = Side(style="thin")
 _HAIR = Side(style="hair")
 
 # 시트명 → (데이터 c0, c1, 그룹키 컬럼(=Zone~업체명), SheetData 리스트 속성)
+# 시트2·3 우측 경계 c1=24(X) — 원본의 최종(Y/25) 열은 데이터 소스 없어 제거(빈 테두리 열 차단).
 _GROUP_SHEETS = [
     ("1.출력인원 현황", 2, 37, (3, 4, 5), "output_manpower"),
-    ("2.직종별 인원현황", 2, 25, (2, 3), "occupation_manpower"),
-    ("3.장비현황", 2, 25, (2, 3), "equipment"),
+    ("2.직종별 인원현황", 2, 24, (2, 3), "occupation_manpower"),
+    ("3.장비현황", 2, 24, (2, 3), "equipment"),
     ("4.물량", 2, 17, (3, 4, 5, 6), "quantity"),
 ]
 _SHEET1_TITLE = "1.작업사항"
 
+# 시트2·3 은 헤더 3행(r3 제목 + r4 블록헤더 + r5 서브헤더) → 데이터 r6 시작.
+# 시트1·4 는 헤더 2행 → 데이터 r5. (원본 통합작업일보 구조와 동일.)
+_DATA_START = {"2.직종별 인원현황": 6, "3.장비현황": 6}
 
-def _unhide_and_clean(ws, n: int) -> None:
-    """autofilter 제거 + 데이터·헤더 영역 row/col hidden·outline 해제 + freeze 정상화(A5).
-    행 1..(DATA_START_ROW+n+3) 처리 (헤더 4행 + 데이터 n행 + 여유 4행) — 그 아래 빈 행 잔존 hidden 은 출력 무관."""
+
+def _data_start(title: str) -> int:
+    return _DATA_START.get(title, DATA_START_ROW)
+
+
+def _unhide_and_clean(ws, n: int, start: int = DATA_START_ROW) -> None:
+    """autofilter 제거 + 데이터·헤더 영역 row/col hidden·outline 해제 + freeze 정상화(A{start}).
+    행 1..(start+n+3) 처리 (헤더 + 데이터 n행 + 여유 4행) — 그 아래 빈 행 잔존 hidden 은 출력 무관."""
     ws.auto_filter.ref = None
-    for r in range(1, DATA_START_ROW + n + 4):
+    for r in range(1, start + n + 4):
         rd = ws.row_dimensions[r]
         rd.hidden = False
         rd.outlineLevel = 0
@@ -284,15 +295,15 @@ def _unhide_and_clean(ws, n: int) -> None:
         ws.sheet_view.showOutlineSymbols = False
     except AttributeError:
         pass
-    ws.freeze_panes = "A5"
+    ws.freeze_panes = f"A{start}"
 
 
-def _dedup_and_border(ws, n: int, c0: int, c1: int, key_cols: tuple) -> None:
+def _dedup_and_border(ws, n: int, c0: int, c1: int, key_cols: tuple, start: int = DATA_START_ROW) -> None:
     """직전 데이터 행과 그룹키(Zone~업체명) 전부 같으면 그 키 컬럼 비움(dedup).
     그룹 경계 top=thin, 같은 그룹 내부 top=hair, 모든 행 bottom=hair, 좌우=thin(옵션1)."""
     prev = None
     for i in range(n):
-        r = DATA_START_ROW + i
+        r = start + i
         key = tuple(ws.cell(r, c).value for c in key_cols)
         is_new = prev is None or key != prev
         if not is_new:
@@ -322,9 +333,10 @@ def _unmerge_data_region(wb, sheet_data: SheetData) -> None:
         if n <= 0:
             continue
         ws = wb[title]
-        last = DATA_START_ROW + n - 1
+        start = _data_start(title)
+        last = start + n - 1
         for rng in list(ws.merged_cells.ranges):  # list() 스냅샷 — unmerge 가 ranges 를 변형
-            if DATA_START_ROW <= rng.min_row <= last:
+            if start <= rng.min_row <= last:
                 ws.unmerge_cells(str(rng))
 
 
@@ -360,14 +372,18 @@ def _finalize_layout(wb, sheet_data: SheetData) -> None:
     for title, c0, c1, key_cols, attr in _GROUP_SHEETS:
         ws = wb[title]
         n = counts[attr]
-        _unhide_and_clean(ws, n)
-        _dedup_and_border(ws, n, c0, c1, key_cols)
+        start = _data_start(title)
+        _unhide_and_clean(ws, n, start)
+        _dedup_and_border(ws, n, c0, c1, key_cols, start)
     # 시트1 재정의 (rename 전 이름으로 접근)
     ws1 = wb["1.출력인원 현황"]
     _polish_sheet1(ws1, counts["output_manpower"])
     for c in range(10, 38):
         ws1.column_dimensions[get_column_letter(c)].hidden = True
     ws1.title = _SHEET1_TITLE
+    # 시트4 F%(N열) ">1 → 빨강" 조건부서식 제거: F% 는 퍼센트(거의 상시 >1)라 전 셀 빨강으로 떠
+    # 흰색으로 환원(사용자 요청). 시트4 CF 는 전부 N열 규칙뿐이라 통째 비움이 곧 N열 제거.
+    wb["4.물량"].conditional_formatting = ConditionalFormattingList()
 
 
 def _safe_set(ws, r: int, c: int, value) -> None:
@@ -506,10 +522,10 @@ def _fill_output_manpower(
         _fill_timeshift(ws, r, C["today_cum"], row.get("workers_today_cum"))
 
 
-def _fill_occupation(ws, rows: list[dict], report_date: _date) -> None:
+def _fill_occupation(ws, rows: list[dict], report_date: _date, *, start: int = DATA_START_ROW) -> None:
     C = COL_OCCUPATION
     for i, row in enumerate(rows):
-        r = DATA_START_ROW + i
+        r = start + i
         _safe_set(ws, r, C["trade"], row.get("disc_abbrev"))
         _safe_set(ws, r, C["bp_code"], row.get("company") or row.get("bp_code"))
         _safe_set(ws, r, C["manager_code"], row.get("manager_code"))
@@ -528,10 +544,10 @@ def _fill_occupation(ws, rows: list[dict], report_date: _date) -> None:
             _fill_timeshift(ws, r, C["today_cum"], row["workers_today_cum"])
 
 
-def _fill_equipment(ws, rows: list[dict], report_date: _date) -> None:
+def _fill_equipment(ws, rows: list[dict], report_date: _date, *, start: int = DATA_START_ROW) -> None:
     C = COL_EQUIPMENT
     for i, row in enumerate(rows):
-        r = DATA_START_ROW + i
+        r = start + i
         _safe_set(ws, r, C["trade"], row.get("disc_abbrev"))
         _safe_set(ws, r, C["bp_code"], row.get("company") or row.get("bp_code"))
         _safe_set(ws, r, C["eq_big"], row.get("equipment_big"))
@@ -578,16 +594,49 @@ def _fill_quantity(ws, rows: list[dict], report_date: _date, *, project: str | N
         _safe_set(ws, r, C["note"], row.get("note"))
 
 
+# 시트2·3 r5 timeshift 서브헤더 — 원본 통합작업일보 r5 라벨 (최종/Y열 제외).
+# 좌측(B~F)은 시트별로 다름, 우측 3블록(G~X)은 공통(조출~철야 + 누계).
+_TS_SUBLABELS = ["조출", "주간", "연장", "야간", "철야"]
+_TS_BLOCKS = [(7, "Cum. T"), (13, "Incr. T"), (19, "Cum. T")]  # 전일누계/금일투입/금일누계
+_SHEET_R5_LEFT = {
+    "2.직종별 인원현황": {2: "Dis", 3: "협력업체", 4: "관리자/근로자", 5: "기능공", 6: "[기능공]"},
+    "3.장비현황": {2: "Dis", 3: "협력업체", 4: "대분류", 5: "중분류", 6: "규 격"},
+}
+
+
+def _write_subheaders(wb) -> None:
+    """시트2·3 r5 서브헤더(조출/주간/연장/야간/철야/누계 ×3 + 좌측 라벨) 작성.
+    r4 헤더 셀(B4) 서식을 복제해 기존 헤더와 동일 룩. 최종(Y/25) 열은 쓰지 않음."""
+    for title, left in _SHEET_R5_LEFT.items():
+        ws = wb[title]
+        style_src = ws.cell(4, 2)  # 공종 헤더 셀 — 테두리/정렬/폰트 복제 기준
+        def _put(c, v):
+            cell = ws.cell(5, c)
+            if isinstance(cell, MergedCell):  # 현 템플릿 r5 무병합 — 향후 병합 대비 방어(모듈 _safe_set 패턴 일관)
+                return
+            cell.value = v
+            cell._style = _copy(style_src._style)
+        for c, v in left.items():
+            _put(c, v)
+        for start_c, total_lbl in _TS_BLOCKS:
+            for i, lbl in enumerate(_TS_SUBLABELS):
+                _put(start_c + i, lbl)
+            _put(start_c + 5, total_lbl)
+
+
 def render_xlsx(sheet_data: SheetData, report_date: _date, project: str) -> bytes:
-    """SheetData → xlsx bytes (template 복제 후 r5 부터 fill). Spec §7.2."""
+    """SheetData → xlsx bytes (template 복제 후 시트별 시작행부터 fill). Spec §7.2."""
     if not TEMPLATE_PATH.exists():
         raise FileNotFoundError(f"template not found: {TEMPLATE_PATH}")
     wb = load_workbook(TEMPLATE_PATH)
     _unmerge_data_region(wb, sheet_data)   # 채움 전: 데이터구역 stray 병합 해제
+    _write_subheaders(wb)                  # 시트2·3 r5 서브헤더(정적 헤더)
     _fill_output_manpower(wb["1.출력인원 현황"], sheet_data.output_manpower, report_date,
                           company_wa=sheet_data.company_wa, company_trade=sheet_data.company_trade, project=project)
-    _fill_occupation(wb["2.직종별 인원현황"], sheet_data.occupation_manpower, report_date)
-    _fill_equipment(wb["3.장비현황"], sheet_data.equipment, report_date)
+    _fill_occupation(wb["2.직종별 인원현황"], sheet_data.occupation_manpower, report_date,
+                     start=_data_start("2.직종별 인원현황"))
+    _fill_equipment(wb["3.장비현황"], sheet_data.equipment, report_date,
+                    start=_data_start("3.장비현황"))
     _fill_quantity(wb["4.물량"], sheet_data.quantity, report_date, project=project)
     _finalize_layout(wb, sheet_data)       # 숨김해제+dedup+테두리+시트1재정의
     buf = BytesIO()

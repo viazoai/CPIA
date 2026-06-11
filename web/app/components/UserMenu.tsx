@@ -26,7 +26,7 @@ const USERS = {
   },
   manager: {
     name: "김현장",
-    role: "경영진 · Top Mgmt",
+    role: "시공관리자 · Construction Mgmt",
     email: "kim.exec@cpia.demo",
     initials: "김",
     tone: "bg-brand-light text-brand-text",
@@ -109,11 +109,11 @@ export function UserMenu() {
         >
           {user.initials}
         </span>
-        <span className="hidden text-left md:block">
-          <span className="block text-sm font-semibold leading-tight text-ink">
+        <span className="hidden min-w-[7rem] text-left md:block">
+          <span className="block whitespace-nowrap text-sm font-semibold leading-tight text-ink">
             {user.name}
           </span>
-          <span className="block text-[11px] leading-tight text-ink-light">
+          <span className="block whitespace-nowrap text-[11px] leading-tight text-ink-light">
             {user.role.split(" · ")[0]}
           </span>
         </span>

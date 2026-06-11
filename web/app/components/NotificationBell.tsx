@@ -24,7 +24,7 @@ const MOCK_NOTIFS: NotifItem[] = [
   {
     id: "n2",
     tone: "danger",
-    title: "M15X Ph-3 공기 리스크 D-3",
+    title: "M15X Ph-3 공사 기간 리스크 D-3",
     body: "골조 공정 진척률이 계획 대비 –12%.",
     time: "12분 전",
   },

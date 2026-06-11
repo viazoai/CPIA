@@ -27,8 +27,8 @@ const AXES = [
     category: "VALUE CHAIN EXPANSION",
     title: "MPRS 관점에서의 확장 가능성",
     body:
-      "CPIA는 시공(P) 단계의 최적화를 지향하고 있으나, 누적 데이터·패턴을 설계(R)과 구매/조달(S) 단계로 확장해 예측 가능성을 높히고, 전체 EPC value chain 의 공기 단축 레버 확보.",
-    target: "PRS 영역의 예상공기 검토시간 50% 절감",
+      "CPIA는 시공(P) 단계의 최적화를 지향하고 있으나, 누적 데이터·패턴을 설계(R)과 구매/조달(S) 단계로 확장해 예측 가능성을 높히고, 전체 EPC value chain 의 공사 기간 단축 레버 확보.",
+    target: "PRS 영역의 예상 공사 기간 검토시간 50% 절감",
     active: true,
   },
 ];
@@ -48,7 +48,7 @@ export function ScalabilitySection() {
             조직의 변화로 이어지는 확장 가능성
           </h2>
           <p className="mt-6 text-body text-ink-mid">
-            현장별 양식엔 노드 교체로 즉시 대응. 동일 Agent 는 모든 사업 프로덕트에 그대로 적용. 시공의 학습은 설계·구매 영역까지 확장되어 EPC value chain 전반의 공기 단축으로 이어집니다.
+            현장별 양식엔 노드 교체로 즉시 대응. 동일 Agent 는 모든 사업 프로덕트에 그대로 적용. 시공의 학습은 설계·구매 영역까지 확장되어 EPC value chain 전반의 공사 기간 단축으로 이어집니다.
           </p>
         </div>
 

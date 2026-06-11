@@ -37,13 +37,13 @@ const FEATURES: CoreFeature[] = [
     headline: "오늘의 생산성 Risk는? AI 가 자동 진단",
     shift: { from: "D+2~3 일 사후 인지", to: "D+0 당일 진단" },
     body:
-      "현장의 금일 Productivity와 Impact를 기준으로 4분면 (정상·주의·위험) 으로 진단하여, 현장관리자는 별도 분석 작업 없이 위험 항목에 대해 빠르게 조치하여 현장 공기 단축에 보다 집중하여 수행할 수 있습니다.",
+      "현장의 금일 Productivity와 Impact를 기준으로 4분면 (정상·주의·위험) 으로 진단하여, 현장관리자는 별도 분석 작업 없이 위험 항목에 대해 빠르게 조치하여 현장 공사 기간 단축에 보다 집중하여 수행할 수 있습니다.",
   },
   {
     index: "03",
     agent: "Optimizer",
     Icon: Lightbulb,
-    headline: "예상 지연 공기와 만회 시나리오 동시 제공",
+    headline: "예상 지연 공사 기간과 만회 시나리오 동시 제공",
     shift: { from: "사후 대책 수립", to: "조기 대응 및 방안 제시" },
     body:
       "생산성을 기반하여 최적화 가능한 공사기간을 제시하고, 과거 작업 패턴을 분석하여 유사 만회 시나리오와 Catch-up Plan을 사전에 제시합니다. " +

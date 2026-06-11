@@ -10,7 +10,7 @@ const KPIS = [
   },
   {
     icon: CalendarClock,
-    label: "공기 단축",
+    label: "공사 기간 단축",
     value: "3~7",
     unit: "일 / 현장별",
     body: "보고 가속 + D-14 탐지 + 만회 조기 착수",
@@ -53,7 +53,7 @@ const PATHS = [
   {
     no: "01",
     title: "보고 사이클 D+2~3일 → D+0",
-    body: "보고 가속만으로 현장 1개당 공기 단축 3~5일 직접 기여",
+    body: "보고 가속만으로 현장 1개당 공사 기간 단축 3~5일 직접 기여",
   },
   {
     no: "02",
@@ -72,7 +72,7 @@ const PATHS = [
   },
 ];
 
-/* Impact 슬라이드 — 1/3 (Header + KPI grid + 공기 단축 4 경로) */
+/* Impact 슬라이드 — 1/3 (Header + KPI grid + 공사 기간 단축 4 경로) */
 export function ImpactSection() {
   return (
     <section
@@ -88,7 +88,7 @@ export function ImpactSection() {
             Hi-tech 현장을 최적화 하다
           </h2>
           <p className="mt-6 text-body text-ink-mid">
-            사업 내 전수 조사 결과 Activity 321개 데이터를 재구성하여 산출하였으며, 검토 시간, 공기 단축, 업무시간 절감, 재배치 인원 확보를 제공하는 현장 최적화 Agent 입니다.
+            사업 내 전수 조사 결과 Activity 321개 데이터를 재구성하여 산출하였으며, 검토 시간, 공사 기간 단축, 업무시간 절감, 재배치 인원 확보를 제공하는 현장 최적화 Agent 입니다.
           </p>
         </div>
 
@@ -119,10 +119,10 @@ export function ImpactSection() {
           })}
         </div>
 
-        {/* 공기 단축 4 경로 — KPI 바로 아래 */}
+        {/* 공사 기간 단축 4 경로 — KPI 바로 아래 */}
         <div className="mt-10">
           <h3 className="font-display text-h5 text-ink">
-            공기 단축으로 이어지는 4가지
+            공사 기간 단축으로 이어지는 4가지
           </h3>
           <div className="mt-6 grid gap-4 md:grid-cols-2">
             {PATHS.map((p) => (

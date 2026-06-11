@@ -103,7 +103,7 @@ export function LandingHero() {
               </span>
               <div>
                 <div className="text-[11px] font-medium uppercase tracking-wider text-ink-light">
-                  공기 단축
+                  공사 기간 단축
                 </div>
                 <div className="font-display text-lg font-semibold text-ink">
                   3 ~ 7 일/현장

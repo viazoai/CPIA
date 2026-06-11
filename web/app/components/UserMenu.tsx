@@ -25,10 +25,10 @@ const USERS = {
     tone: "bg-mint-light text-mint-text",
   },
   manager: {
-    name: "이 본부",
+    name: "김현장",
     role: "경영진 · Top Mgmt",
-    email: "lee.exec@cpia.demo",
-    initials: "이",
+    email: "kim.exec@cpia.demo",
+    initials: "김",
     tone: "bg-brand-light text-brand-text",
   },
 } as const;

@@ -153,10 +153,11 @@ echo "   Chroma 컨테이너 일시 중지..."
 docker stop cpia-chroma >/dev/null
 CHROMA_STOPPED=1
 
-CHROMA_VOLUME_PATH=$(docker volume inspect cpia_chroma_data --format '{{ .Mountpoint }}')
-sudo tar -czf "${OUT_DIR}/chroma.tar.gz" -C "${CHROMA_VOLUME_PATH}" . 2>/dev/null \
-  || tar -czf "${OUT_DIR}/chroma.tar.gz" -C "${CHROMA_VOLUME_PATH}" .
-sudo chown "$(id -u):$(id -g)" "${OUT_DIR}/chroma.tar.gz" 2>/dev/null || true
+# 볼륨은 root 소유 → 임시 컨테이너 안에서 tar (sudo 의존 제거).
+docker run --rm \
+  -v cpia_chroma_data:/vol:ro \
+  -v "${OUT_DIR}":/backup \
+  alpine:3.20 sh -c "tar -czf /backup/chroma.tar.gz -C /vol . && chown $(id -u):$(id -g) /backup/chroma.tar.gz"
 
 echo "   Chroma 컨테이너 재기동..."
 docker start cpia-chroma >/dev/null

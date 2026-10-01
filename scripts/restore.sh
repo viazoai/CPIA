@@ -183,10 +183,12 @@ echo ""
 echo "[5/7] ChromaDB 데이터 복원..."
 docker stop cpia-chroma >/dev/null 2>&1 || true
 
-CHROMA_VOLUME_PATH=$(docker volume inspect cpia_chroma_data --format '{{ .Mountpoint }}')
-sudo rm -rf "${CHROMA_VOLUME_PATH:?}/"* 2>/dev/null || rm -rf "${CHROMA_VOLUME_PATH:?}/"*
-sudo tar -xzf "${BACKUP_DIR}/chroma.tar.gz" -C "${CHROMA_VOLUME_PATH}" 2>/dev/null \
-  || tar -xzf "${BACKUP_DIR}/chroma.tar.gz" -C "${CHROMA_VOLUME_PATH}"
+# 볼륨은 root 소유라 호스트에서 직접 건드리면 sudo 가 필요하다.
+# 임시 컨테이너 안에서 처리해 sudo 의존을 없앤다 (비밀번호 프롬프트로 멈추는 것 방지).
+docker run --rm \
+  -v cpia_chroma_data:/vol \
+  -v "${BACKUP_DIR}":/backup:ro \
+  alpine:3.20 sh -c 'rm -rf /vol/..?* /vol/.[!.]* /vol/* 2>/dev/null; tar -xzf /backup/chroma.tar.gz -C /vol'
 
 docker start cpia-chroma >/dev/null
 echo "   Chroma 재기동 대기..."

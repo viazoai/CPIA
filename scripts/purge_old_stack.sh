@@ -73,8 +73,7 @@ echo "— 볼륨 —"
 if [ -n "${VOLUMES}" ]; then
   while read -r v; do
     [ -z "$v" ] && continue
-    MP=$(docker volume inspect "$v" --format '{{.Mountpoint}}' 2>/dev/null || echo "")
-    SZ=$(sudo du -sh "$MP" 2>/dev/null | cut -f1 || echo "?")
+    SZ=$(docker run --rm -v "$v":/vol:ro alpine:3.20 du -sh /vol 2>/dev/null | cut -f1 || echo "?")
     echo "   ${v}  (${SZ})"
   done <<< "${VOLUMES}"
 else

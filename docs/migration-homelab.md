@@ -45,15 +45,17 @@ bash scripts/backup.sh --no-code
 
 PC 디스크에 파일을 남기지 않고 스트리밍으로 넘긴다.
 
+SSH 별칭은 PC 의 `~/.ssh/config` 에 설정돼 있다: **`zoai-aws`**, **`zoai-homelab`**.
+
 ```bash
-ssh <AWS> "cat ~/cpia_bundle_<ts>.tar.gz" | ssh <HOMELAB> "cat > ~/cpia_bundle_<ts>.tar.gz"
+ssh zoai-aws "cat ~/cpia_bundle_<ts>.tar.gz" | ssh zoai-homelab "cat > ~/cpia_bundle_<ts>.tar.gz"
 ```
 
 전송 후 양쪽 SHA256 이 같은지 확인한다.
 
 ```bash
-ssh <AWS>     "sha256sum ~/cpia_bundle_<ts>.tar.gz"
-ssh <HOMELAB> "sha256sum ~/cpia_bundle_<ts>.tar.gz"
+ssh zoai-aws      "sha256sum ~/cpia_bundle_<ts>.tar.gz"
+ssh zoai-homelab  "sha256sum ~/cpia_bundle_<ts>.tar.gz"
 ```
 
 ### ③ homelab — 구버전 정리

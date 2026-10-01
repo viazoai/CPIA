@@ -90,14 +90,20 @@ export async function GET(req: Request) {
     // latest_reports: 같은 (date) 의 parser_reports 중 최신 created_at 만 → jsonb_array_length.
     // act_counts: 날짜별 parser_activities 총건수.
     const rows = (await (sql as any)`
-      WITH latest_reports AS (
+      WITH window_anchor AS (
+        -- 1년 윈도우 기준점 = 최신 report_date (CURRENT_DATE 기준이면 고정 시연 데이터가 1년 경과 후 전부 빠짐).
+        SELECT COALESCE(MAX(report_date), CURRENT_DATE) - INTERVAL '1 year' AS cutoff
+        FROM pipeline_runs
+        WHERE is_mock = ${useMock}
+      ),
+      latest_reports AS (
         SELECT DISTINCT ON (report_date)
           report_date,
           jsonb_array_length(bp_summaries) AS output_count,
           jsonb_array_length(job_allocations) AS occupation_count,
           jsonb_array_length(equipment_allocations) AS equipment_count
         FROM parser_reports
-        WHERE report_date >= CURRENT_DATE - INTERVAL '1 year'
+        WHERE report_date >= (SELECT cutoff FROM window_anchor)
           AND is_mock = ${useMock}
         ORDER BY report_date DESC, created_at DESC
       ),
@@ -105,7 +111,7 @@ export async function GET(req: Request) {
         SELECT pr.report_date, COUNT(*)::int AS quantity_count
         FROM parser_activities pa
         JOIN pipeline_runs pr USING (run_id)
-        WHERE pr.report_date >= CURRENT_DATE - INTERVAL '1 year'
+        WHERE pr.report_date >= (SELECT cutoff FROM window_anchor)
           AND pa.is_mock = ${useMock}
         GROUP BY pr.report_date
       ),
@@ -114,14 +120,14 @@ export async function GET(req: Request) {
                COUNT(DISTINCT NULLIF(TRIM(pa.company), ''))::int AS bp_count
         FROM parser_activities pa
         JOIN pipeline_runs pr USING (run_id)
-        WHERE pr.report_date >= CURRENT_DATE - INTERVAL '1 year'
+        WHERE pr.report_date >= (SELECT cutoff FROM window_anchor)
           AND pa.is_mock = ${useMock}
         GROUP BY pr.report_date
       ),
       run_dates AS (
         SELECT DISTINCT report_date
         FROM pipeline_runs
-        WHERE report_date >= CURRENT_DATE - INTERVAL '1 year'
+        WHERE report_date >= (SELECT cutoff FROM window_anchor)
           AND is_mock = ${useMock}
       )
       SELECT rd.report_date,

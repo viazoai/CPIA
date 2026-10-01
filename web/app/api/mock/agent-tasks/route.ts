@@ -15,11 +15,17 @@ export async function GET() {
   // latest_runs: 같은 (date) 에 여러 run 이 있으면 최신 started_at 만.
   // parser_counts: 날짜별 parser_activities 총건수 (Daily 카드 우상단 숫자).
   const rows = (await (sql as any)`
-    WITH latest_runs AS (
+    WITH window_anchor AS (
+      -- 1년 윈도우 기준점 = 최신 report_date (CURRENT_DATE 기준이면 고정 시연 데이터가 1년 경과 후 전부 빠짐).
+      SELECT COALESCE(MAX(report_date), CURRENT_DATE) - INTERVAL '1 year' AS cutoff
+      FROM pipeline_runs
+      WHERE is_mock = ${useMock}
+    ),
+    latest_runs AS (
       SELECT DISTINCT ON (report_date)
         report_date, status, current_node
       FROM pipeline_runs
-      WHERE report_date >= CURRENT_DATE - INTERVAL '1 year'
+      WHERE report_date >= (SELECT cutoff FROM window_anchor)
         AND is_mock = ${useMock}
       ORDER BY report_date DESC, started_at DESC
     ),
@@ -27,7 +33,7 @@ export async function GET() {
       SELECT pr.report_date, COUNT(*)::int AS parser_count
       FROM parser_activities pa
       JOIN pipeline_runs pr USING (run_id)
-      WHERE pr.report_date >= CURRENT_DATE - INTERVAL '1 year'
+      WHERE pr.report_date >= (SELECT cutoff FROM window_anchor)
         AND pa.is_mock = ${useMock}
       GROUP BY pr.report_date
     )

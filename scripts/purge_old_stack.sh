@@ -213,7 +213,7 @@ if [ ${BUSY} -eq 1 ]; then
   echo "   확인: sudo ss -ltnp | grep -E '553[2-8]'"
 fi
 echo ""
-echo " 다음 단계:"
-echo "   1) git clone https://github.com/viazoai/CPIA ${OLD_ROOT}"
-echo "   2) bash ${OLD_ROOT}/scripts/restore.sh --from-git ~/cpia_bundle_<ts>.tar.gz ${OLD_ROOT}"
+echo " 다음 단계 (<설치경로> 는 새로 clone 한 위치 — 구 경로와 달라도 된다):"
+echo "   1) git clone https://github.com/viazoai/CPIA <설치경로>"
+echo "   2) bash <설치경로>/scripts/restore.sh --from-git ~/cpia_bundle_<ts>.tar.gz <설치경로>"
 echo "======================================"

@@ -127,9 +127,14 @@ else
   cp "${INSTALL_ROOT}/.env.example" "${INSTALL_ROOT}/.env" 2>/dev/null || true
 fi
 
-# compose 는 '현재 작업 디렉토리'의 .env 를 읽는다 → 반드시 레포 루트에서 실행.
+# compose 는 .env 를 '현재 작업 디렉토리'가 아니라 compose 파일이 있는 폴더(infra/)에서
+# 찾는다. AWS 는 infra/.env -> ../.env 심볼릭 링크로 우회했지만 그 링크는 .gitignore 에
+# 걸려 clone 에 포함되지 않는다 → --env-file 로 명시해 링크 의존을 없앤다.
 cd "${INSTALL_ROOT}"
-compose() { docker compose -f infra/docker-compose.yml "$@"; }
+compose() { docker compose --env-file "${INSTALL_ROOT}/.env" -f infra/docker-compose.yml "$@"; }
+
+# make 를 쓸 때도 동작하도록 심볼릭 링크를 보강해 둔다 (이미 있으면 건너뜀).
+[ -e "${INSTALL_ROOT}/infra/.env" ] || ln -s ../.env "${INSTALL_ROOT}/infra/.env"
 
 # shellcheck disable=SC1091
 source "${INSTALL_ROOT}/.env" 2>/dev/null || true

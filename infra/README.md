@@ -1,11 +1,10 @@
 # CPIA Infra — homelab 배포 가이드
 
-PoC 1차 단계의 homelab 셋업. 5 개 컨테이너 (`postgres` · `chroma` · `cloudflared` · `adminer` · `web`) 를 `infra/docker-compose.yml` 한 묶음으로 운영. 팀원 A·B 모두 이 한 서버를 바라본다.
+homelab 운영 셋업. 6 개 컨테이너 (`postgres` · `chroma` · `adminer` · `cloudflared` · `pipeline` · `web`) 를 `infra/docker-compose.yml` 한 묶음으로 운영. 팀원 A·B 모두 이 한 서버를 바라본다.
 
-> **현재 상태:** A 트랙은 자기 PC 의 로컬 Docker 에서 PoC 진행 중
-> (`docs/superpowers/plans/2026-05-14-cpia-mapping-layer-implementation.md` Task 10).
-> homelab 인프라는 그동안 대기 상태로 유지하다가, A 의 PoC 완료 시점에
-> 별도 plan 으로 데이터 마이그레이션 (pg_dump + Chroma export/import).
+> **현재 상태 (2026-10-01~):** AWS(2026-05-20~09-30 운영) 에서 homelab 으로 복귀 완료.
+> 외부 접속은 `cpia-tunnel` (Cloudflare Tunnel) 경유 — `cpia.zoai.uk`(web), `cpia-pg.zoai.uk`(postgres TCP).
+> 이전 절차·롤백은 [`docs/migration-homelab.md`](../docs/migration-homelab.md) 참조.
 
 ## 1. 최초 셋업 (homelab 에서 1회)
 
@@ -15,20 +14,24 @@ git clone git@github.com:viazoai/CPIA.git
 cd CPIA
 
 # .env 셋업 — 루트 .env 가 단일 출처
-#   (.env.example 가 실 값 포함 — viazoai org 내부 공유)
 cp .env.example .env
-# .env 의 POSTGRES_PASSWORD, CLOUDFLARED_TOKEN 채우기
+# .env 의 POSTGRES_PASSWORD, AZURE_OPENAI_API_KEY, CLOUDFLARED_TOKEN 채우기
+#   CLOUDFLARED_TOKEN: cloudflared 로그인된 호스트에서 `cloudflared tunnel token cpia-tunnel`
 
-# 인프라 + 웹 가동 (루트 .env 자동 인식, web 은 첫 실행 시 build)
-cd infra
-docker compose up -d --build
-docker compose ps          # 5 개 컨테이너 Up
+# 전체 가동 — 반드시 레포 루트에서 make 사용
+make prod
+docker ps --filter "name=^cpia-"   # 6 개 컨테이너 Up
 ```
+
+> **`cd infra && docker compose up` 금지.** compose 는 `.env` 를 compose 파일 폴더(`infra/`)에서 찾기 때문에
+> 루트 `.env` 를 못 읽고 키가 빈 값·비밀번호가 기본값(`cpia`)으로 들어간다. `make` 타깃은 모두
+> `--env-file .env` 를 명시한다 (ae82e9c). 직접 호출할 때도 루트에서
+> `docker compose --env-file .env -f infra/docker-compose.yml ...` 형태로 쓴다.
 
 - `postgres/init.sql` 은 컨테이너 첫 부팅 시 자동 실행 → 6 개 테이블 생성
 - `activity_master` 테이블은 `postgres/migrations/20260516_add_activity_master.sql` 로 적용
 - LangGraph 의 `checkpoints` 테이블은 파이프라인 첫 실행 시 PostgresSaver 가 자체 생성
-- `cpia-web` 은 `../web/Dockerfile` 로 멀티스테이지 빌드 (Next.js standalone, 비루트 user). 코드 갱신 시 `docker compose up -d --build web`.
+- `cpia-web` · `cpia-pipeline` 은 레포 루트를 컨텍스트로 빌드 (`web/Dockerfile`, `pipeline/Dockerfile`). 코드 갱신 시 `make build` / `make build-pipeline`.
 
 ## 2. PostgreSQL 7 테이블
 
@@ -44,15 +47,16 @@ docker compose ps          # 5 개 컨테이너 Up
 
 ## 3. 컨테이너 구성
 
-| 서비스 | 이미지 | 호스트 포트 (127.0.0.1) | 컨테이너 내부 | 용도 |
-|---|---|---|---|---|
-| `cpia-postgres`    | postgres:16-alpine            | 5532 | 5432 | 파이프라인 결과 + LangGraph checkpoint |
-| `cpia-chroma`      | chromadb/chroma:0.5.20        | 5533 | 8000 | Vector DB — `wbs_master` + `daily_activities` |
-| `cpia-adminer`     | adminer:4.8.1-standalone      | 5534 | 8080 | Postgres web UI (B 본인용) |
-| `cpia-web`         | cpia/web:latest (로컬 build)  | 5535 | 5535 | Next.js Dashboard (B_Track 데모 UI) |
-| `cpia-cloudflared` | cloudflare/cloudflared:latest |  —   |  —   | 외부 접근용 Tunnel (token) — web/postgres 양쪽 |
+| 서비스 | 이미지 | 호스트 포트 | 바인딩 | 컨테이너 내부 | 용도 |
+|---|---|---|---|---|---|
+| `cpia-postgres`    | postgres:16-alpine                     | 5532 | 127.0.0.1 | 5432 | 파이프라인 결과 + LangGraph checkpoint |
+| `cpia-chroma`      | chromadb/chroma:0.5.20                 | 5533 | 127.0.0.1 | 8000 | Vector DB — `wbs_master` + `daily_activities` |
+| `cpia-adminer`     | adminer:4.8.1-standalone               | 5534 | 127.0.0.1 | 8080 | Postgres web UI |
+| `cpia-web`         | ghcr.io/viazoai/cpia-web (로컬 build)      | 5535 | 0.0.0.0 | 5535 | Next.js Dashboard |
+| `cpia-pipeline`    | ghcr.io/viazoai/cpia-pipeline (로컬 build) | 5538 | 0.0.0.0 | 8000 | FastAPI + LangGraph |
+| `cpia-cloudflared` | cloudflare/cloudflared:latest          |  —   |  —   |  —   | 외부 접근용 Tunnel (`cpia-tunnel`, token) |
 
-모든 호스트 포트는 `127.0.0.1` 만 바인딩 — LAN/외부 직접 노출 없음. 외부 접속은 `cloudflared` Tunnel 경유.
+DB·Chroma·Adminer 는 `127.0.0.1` 만 바인딩 (Chroma 는 무인증). web·pipeline 은 LAN 확인용으로 `0.0.0.0` — pipeline API 도 무인증이므로 LAN 신뢰 전제. 외부 접속은 `cloudflared` Tunnel 경유만.
 
 ## 4. ChromaDB 컬렉션 (A_Track 합의)
 
@@ -86,16 +90,16 @@ PYTHONPATH="$(pwd)" uv run --project pipeline scripts/load_master_list.py \
 
 ### 6-1. Postgres TCP (A_Track 용)
 
-- Cloudflare Public Hostname: **TCP** 타입으로 `cpia-postgres:5432` 매핑 (호스트명은 사내 메신저 별도 전달)
-- A 측: `cloudflared access tcp --hostname <호스트명> --url localhost:5532` 한 줄 → A 의 PC localhost:5532 로 자동 forward
+- Public Hostname `cpia-pg.zoai.uk` → **TCP** `cpia-postgres:5432`
+- 팀원 PC: `cloudflared access tcp --hostname cpia-pg.zoai.uk --url localhost:5532` 한 줄 → PC 의 localhost:5532 로 forward
+  (`.env` 는 `POSTGRES_URL=postgresql://cpia:<password>@localhost:5532/cpia`)
 
 ### 6-2. Web HTTP (경영진 시연 / 외부 데모용)
 
-- Cloudflare Zero Trust → Tunnels → `cpia` → **Public Hostname** 추가:
-  - Subdomain: `cpia-web` (또는 임의)
-  - Service Type: **HTTP**
-  - URL: `cpia-web:5535`
-- 등록 즉시 `https://cpia-web.<your-domain>` 으로 접속 가능.
+- Public Hostname `cpia.zoai.uk` → **HTTP** `cpia-web:5535` → `https://cpia.zoai.uk`
+- ingress 는 Zero Trust 대시보드(Tunnels → `cpia-tunnel`)에서 관리 (remote-managed). 컨테이너 기동 로그의
+  `Updated to new configuration` 줄에서 현재 ingress 를 확인할 수 있다.
+- DNS 는 두 호스트 모두 `cpia-tunnel` CNAME. 재지정: `cloudflared tunnel route dns --overwrite-dns cpia-tunnel <호스트>`
 - (선택) Zero Trust → Access → Application 으로 보안 정책 추가 — 사내 이메일 도메인 제한, 1회용 PIN 등.
 
 > Chroma 는 PoC 1차에 외부 노출하지 않는다. 통합 GATE 시점에 별도 hostname 추가.
@@ -124,7 +128,7 @@ PYTHONPATH="$(pwd)" uv run --project pipeline scripts/load_master_list.py \
 전체 리셋 (데이터 전부 날아감, 주의):
 
 ```bash
-docker compose down -v
+docker compose --env-file .env -f infra/docker-compose.yml down -v   # 레포 루트에서
 ```
 
 ## 9. 점검 명령
@@ -157,11 +161,10 @@ ssh -L 5534:localhost:5534 -p <port> zoai@<homelab> -N
 
 ```bash
 # B_Track 코드 수정 후 — homelab 호스트에서
-cd CPIA
+cd ~/Projects/CPIA
 git pull
-cd infra
-docker compose up -d --build web   # web 만 재빌드
-docker compose logs -f web         # 부팅 로그 확인 (Ready 출력)
+make build                         # web 만 재빌드 + force-recreate (pipeline 은 make build-pipeline)
+docker logs --tail 10 cpia-web     # 부팅 로그 확인 (Ready 출력)
 ```
 
 ## 10. 두 환경 분리 (로컬 dev vs homelab)

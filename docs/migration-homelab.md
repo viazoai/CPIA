@@ -109,7 +109,7 @@ curl -s http://localhost:5538/docs     # 파이프라인 API
 
 ## 롤백
 
-**AWS 서버는 ⑤ 확인이 끝날 때까지 끄지 않는다.** 문제가 생기면 AWS 쪽 스택을 그대로 계속 쓰면 된다
+**AWS 서버는 ⑤ 확인과 DNS 전환이 끝날 때까지 끄지 않는다.** 문제가 생기면 AWS 쪽 스택을 그대로 계속 쓰면 된다
 (`backup.sh` 의 freeze 는 백업 중에만 적용되고 끝나면 자동 재기동된다).
 
 homelab 복원이 꼬였을 때 다시 시도하려면:
@@ -119,10 +119,38 @@ bash ~/cpia/scripts/purge_old_stack.sh --yes --delete-code ~/cpia_dummy  # 컨�
 bash ~/cpia/scripts/restore.sh --from-git ~/cpia_bundle_<ts>.tar.gz ~/cpia
 ```
 
-## 이번 범위 밖
+## 실행 기록 (2026-10-01)
 
-- 외부 접속 (도메인, nginx-proxy-manager 라우팅, Cloudflare Tunnel) 재설정
-- GitHub Actions 배포 워크플로(`.github/workflows/build-web.yml`) 의 배포 대상 변경
-- AWS 서버 종료·반납
+번들 `cpia_bundle_20261001_053334` (AWS `ip-172-26-4-250`, commit `186e4e1`) 로 진행.
+설치 경로는 `~/cpia` 가 아니라 **`~/Projects/CPIA`**.
 
-위 ⑤ 까지 끝나고 내부 IP 접속이 확인된 뒤 별도로 진행한다.
+| 단계 | 결과 |
+|------|------|
+| ④ 복원 검증 | PG 25 테이블 row count · Chroma (`daily_activities` 1843, `wbs_master` 204) manifest 와 전부 일치 |
+| `.env` 로딩 | compose 가 루트 `.env` 를 못 읽던 문제 → `--env-file .env` 명시 (`ae82e9c`) |
+| `/tasks`·`/export` 빈 목록 | 마이그레이션과 무관. 목록 쿼리의 1년 윈도우가 `CURRENT_DATE` 기준이라 마지막 데이터(2025-09-25)가 2026-09-26 부터 밖으로 밀림 → 최신 `report_date` 기준으로 변경 (`aec595d`) |
+| 외부 접속 | `cpia-cloudflared` 복구 → 기존 `cpia-tunnel` 재사용. DB·Chroma·Adminer 포트 `127.0.0.1` 바인딩 (`197fa74`) |
+| DNS 전환 | `cpia.zoai.uk` 를 AWS A 레코드 → `cpia-tunnel` CNAME 으로 덮어씀. `cpia-pg.zoai.uk` 는 원래 tunnel CNAME |
+| GitHub Actions | `build-web.yml` 은 GHCR 이미지 빌드만 하고 배포 대상이 없어 변경 불필요 |
+| homelab 정리 | 구버전 이미지(`cpia/web`, `cpia/pipeline`) · 구 DB 안전덤프 · 구 `.env` 삭제 (2026-10-06) |
+
+### 외부 접속 구성
+
+```
+cpia.zoai.uk     → Cloudflare → cpia-tunnel → cpia-cloudflared → http://cpia-web:5535
+cpia-pg.zoai.uk  → Cloudflare → cpia-tunnel → cpia-cloudflared → tcp://cpia-postgres:5432
+```
+
+- tunnel ingress 는 Zero Trust 대시보드에서 관리 (remote-managed). 토큰은 루트 `.env` 의 `CLOUDFLARED_TOKEN`
+  (cloudflared 로그인된 호스트에서 `cloudflared tunnel token cpia-tunnel` 로 조회).
+- 팀원 DB 접속: `cloudflared access tcp --hostname cpia-pg.zoai.uk --url localhost:5532`. AWS IP 직접 접속은 더 이상 불가.
+
+### DNS 롤백 (AWS 로 되돌릴 때)
+
+Cloudflare DNS 에서 `cpia.zoai.uk` 를 A 레코드 `43.200.85.209` (Proxied) 로 되돌린다.
+AWS 스택이 내려가 있으면 먼저 기동해야 하며, 10/1 이후 homelab 에 쌓인 데이터는 AWS 에 없다.
+
+## 남은 작업
+
+- [ ] AWS: 백업 이후 신규 쓰기 여부 대조 → CPIA 컨테이너 down (볼륨 유지) → 유예 후 서버 종료·반납
+- [ ] 번들 `~/cpia_bundle_20261001_053334.tar.gz` — AWS 반납 후엔 유일한 사본. 외부 저장소로 이관 후 homelab 에서 삭제
